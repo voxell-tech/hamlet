@@ -23,13 +23,13 @@ import {
     type ReadAnswer,
     type RunEnd,
     type Text,
+    type ToolList,
     WORKSPACE,
 } from "./messages/workspace.ts";
 import {
     callOut,
     failed,
     interrupted,
-    listTools,
     MAY_HAVE_RUN,
     type Peers,
     thrown,
@@ -571,8 +571,11 @@ export function workspaceTools(peers: Peers): Extension {
     });
 }
 
-export async function handTools(peers: Peers): Promise<Extension> {
-    const list = await listTools(peers);
+export async function handTools(
+    peers: Peers,
+    tools: () => Promise<ToolList>,
+): Promise<Extension> {
+    const list = await tools();
     return defineExtension({
         name: "hamlet.hand-tools",
         tools: list.tools.map((tool) =>

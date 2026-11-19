@@ -78,7 +78,12 @@ import type { ToolName } from "./messages/realm.ts";
 import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
-import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
+import {
+    type PromptSources,
+    placingOf,
+    promptPart,
+    promptSources,
+} from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
 import { conversationFor, current, migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
@@ -95,6 +100,7 @@ import {
     peersOf,
     reasonOf,
     taskOf,
+    toolLister,
     turnsOf,
     type WithHarness,
 } from "./turn.ts";
@@ -511,8 +517,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     );
     const errand =
         row.kind === "errand" ? (row.brief?.instructions ?? "") : undefined;
+    const placing = placingOf(c, peers);
+    const tools = toolLister(peers);
     const prompt: PromptSources = {
-        ...promptSources(c, copies, peers),
+        ...promptSources(c, copies, peers, placing, tools),
         ...(config.library === undefined ? {} : { library: config.library }),
         ...(errand === undefined ? {} : { errand }),
     };
@@ -544,7 +552,11 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     const options: PiOptions = {
         registry,
-        models: gated(agentModels(config.models, copies, peers), peers),
+        models: gated(
+            agentModels(config.models, copies, peers),
+            peers,
+            placing,
+        ),
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
         env: () => undefined,
@@ -580,7 +592,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
     if (builtIns !== undefined) {
-        void handTools(peers).then(
+        void handTools(peers, tools).then(
             (extension) => {
                 builtIns.listed.push(extension);
                 registry.install(offered(extension, builtIns.offer));

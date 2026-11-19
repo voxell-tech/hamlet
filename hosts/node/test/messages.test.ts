@@ -30,6 +30,7 @@ import {
     type Done,
     type Kept,
     type OauthLogin,
+    type PlaceText,
     REALM,
     type SecretList,
     type TaskOpened,
@@ -1048,6 +1049,40 @@ const WRITTEN: readonly Written[] = [
         },
         own: ["call", "conversation"],
     },
+    { fixture: "realm/read_place" },
+    {
+        fixture: "realm/read_place.letters",
+        input: {
+            type: "letter",
+            from: { agent: 12, name: "hire#12 (Ada)" },
+            text: "The tests pass",
+        },
+    },
+    {
+        fixture: "realm/read_place.questions",
+        task: "task-1",
+        input: {
+            type: "question",
+            letter: 5,
+            from: { agent: 12, name: "hire#12 (Ada)" },
+            text: "How many fail?",
+        },
+        answers: { realm: { reply: () => answer("realm/reply.done") } },
+    },
+    {
+        // A worker's brief is its one conversation, which is no chat.
+        fixture: "realm/read_place.other",
+        drive: async (t, calls, sent) => {
+            const agent = await wakeAgent(t, {
+                calls,
+                input: fixture("agent/worker.input") as AgentInput,
+                responses: [fauxAssistantMessage(LAST_WORDS)],
+            });
+            await until(() => named(sent, "worker_done").length === 1);
+            return agent;
+        },
+        answers: { realm: { worker_done: () => null } },
+    },
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
     {
@@ -1786,6 +1821,24 @@ for (const name of answersTo("realm/may_spend")) {
     });
 }
 
+for (const name of answersTo("realm/read_place")) {
+    test(`${name}'s sections end the prompt, each that it holds`, async (t) => {
+        const given = fixture(name) as PlaceText;
+        const { calls } = fakeCalls({
+            realm: { read_place: () => given },
+        });
+        const agent = await turn(t, calls, { submit: submitted(undefined) });
+        const prompt = (await agent.actions.read_prompt(agent.by(from.client)))
+            .text;
+        await agent.stop();
+
+        const sections = [given.place, given.realm, given.scholars].filter(
+            (text) => text !== undefined,
+        );
+        assert.ok(prompt.endsWith(`\n\n${sections.join("\n\n")}`), prompt);
+    });
+}
+
 for (const name of answersTo("realm/reply")) {
     test(`${name} is read by the reply`, async (t) => {
         const given = fixture(name) as { type: string; words?: string };
@@ -2191,10 +2244,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a letter or a question with a parcel: the agent takes it and drops the parcel, so the model is never told of its files",
     ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
-    [
-        /^realm\/read_place\./,
-        "the prompt's sections the realm writes, which this agent writes itself for now",
-    ],
 ];
 
 const CLIENT_CALLS = new RegExp(
@@ -2233,6 +2282,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),
         ...answersTo("realm/reply"),
+        ...answersTo("realm/read_place"),
         ...[
             "realm/credential",
             "realm/keep_credential",

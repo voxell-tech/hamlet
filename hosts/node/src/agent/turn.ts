@@ -82,6 +82,7 @@ const BARE = [
     "secrets",
     "worker_done",
     "errand_done",
+    "read_place",
 ] as const;
 
 export type BareRealm = {
@@ -158,6 +159,8 @@ export type TurnTask = {
 };
 
 export interface TurnInput {
+    /** The conversation `Turns.ofSession` found the session in. */
+    readonly conversation?: ConversationId;
     /** Absent when the run has no input of the agent's, such as a compaction. */
     readonly kind?: InputKind;
     readonly task: TurnTask;
@@ -283,7 +286,9 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         ofSession: async (sessionId) => {
             if (sessionId === undefined) return none;
             const conversation = await conversationOfSession(sessionId);
-            return conversation === undefined ? none : of(conversation);
+            return conversation === undefined
+                ? none
+                : { ...(await of(conversation)), conversation };
         },
     };
 }
@@ -592,8 +597,21 @@ export function libraryCalls(peers: Peers): {
     };
 }
 
-export function listTools(peers: Peers): Promise<ToolList> {
-    return reaching(peers[CALLS])(WORKSPACE, "list_tools", []);
+/**
+ * The workspace's tool list, read once for a wake as today reads it once
+ * for a server, and read again after a failed read.
+ */
+export function toolLister(peers: Peers): () => Promise<ToolList> {
+    let listed: Promise<ToolList> | undefined;
+    return () => {
+        listed ??= reaching(peers[CALLS])(WORKSPACE, "list_tools", []).catch(
+            (error: unknown) => {
+                listed = undefined;
+                throw error;
+            },
+        );
+        return listed;
+    };
 }
 
 export function readFile(peers: Peers, message: ReadFile): Promise<ReadAnswer> {

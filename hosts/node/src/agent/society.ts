@@ -951,11 +951,6 @@ const ACT_OF: ReadonlyMap<string, SocietyTool> = new Map(
     (Object.keys(TOOLS) as SocietyTool[]).map((act) => [TOOLS[act].name, act]),
 );
 
-/** The name the model calls a tool by, for a `ToolName`. */
-export function calledAs({ name }: ToolName): string {
-    return Object.hasOwn(TOOLS, name) ? TOOLS[name as SocietyTool].name : name;
-}
-
 function societyTool<N extends SocietyTool>(
     peers: Peers,
     act: N,
