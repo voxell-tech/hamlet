@@ -8,7 +8,7 @@ use hamlet_messages::realm::oversight::{
     ObjectRefusal, Offer, Question,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, Reply, Tell, Tool,
+    AgentRefusal, Ask, Done, LetterId, Reply, Tell, Tool, Waiting,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, Pick, RequestId};
 
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, paid, say,
-    standing, submits_to, tell, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, paid, say, sent,
+    shown, standing, submits_to, tell, to, tool, until, words,
 };
 
 fn conversation() -> ConversationId {
@@ -184,7 +184,6 @@ async fn the_mayor_asks_three(
     };
     let asked =
         realm.tool(MAYOR, &paid("q1", task, ask)).await.unwrap();
-    assert_eq!(asked, Done::Done);
     let question = || {
         submits_to(realm, THREE).into_iter().find_map(|submit| {
             match submit.input {
@@ -194,7 +193,15 @@ async fn the_mayor_asks_three(
         })
     };
     until("3 is asked", || question().is_some()).await;
-    question().unwrap()
+    let question = question().unwrap();
+    assert_eq!(
+        asked,
+        Waiting::Waiting {
+            on: shown(THREE),
+            question,
+        }
+    );
+    question
 }
 
 /// A letter to 3 in a turn on `task`.
@@ -693,7 +700,7 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
         (words(three), words(mayor)),
         (withdrawn.to_owned(), withdrawn.to_owned())
     );
-    assert_eq!(dropped, Done::Done);
+    assert_eq!(dropped, sent(THREE));
     assert_eq!(
         told,
         [

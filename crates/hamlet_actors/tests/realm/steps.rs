@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Fill, Input, Place, PlaceVersion,
+    AgentInput, AgentKind, Author, Fill, Input, Place, PlaceVersion,
 };
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::ProfileId;
@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
-    made_until, seen_submits, submits_to, tell, to, told_of_failed,
-    tool, until, words,
+    made_until, seen_submits, shown, submits_to, tell, to,
+    told_of_failed, tool, until, words,
 };
 
 const BLANK: ProfileId = ProfileId(2);
@@ -130,6 +130,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     roads: vec![Hand::NUMBER],
                     tools_off: Vec::new(),
                     folder: None,
+                    manual: false,
                 },
                 brief: None,
                 copies,
@@ -368,11 +369,19 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
         .unwrap();
     let told = seen_submits(&realm, THREE, 1).await;
 
-    assert_eq!(started, Started::Started { worker: FOUR });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: shown(FOUR)
+        }
+    );
     assert_eq!(
         told[0].input,
         Input::WorkerAnswer {
-            worker: FOUR,
+            from: Author {
+                agent: FOUR,
+                name: Some(shown(FOUR).name),
+            },
             text: "It gave no answer.".to_owned(),
         }
     );

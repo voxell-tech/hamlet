@@ -1110,7 +1110,13 @@ test("a hire's first line runs on the model and charter its create input holds, 
         input: {
             kind: "hire",
             task: "standing-7",
-            place: { version: 1, hires: [], roads: [], tools_off: [] },
+            place: {
+                version: 1,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                manual: false,
+            },
             copies: {
                 charter: { version: 1, value: "Keep the docs whole." },
                 ...choosing(1, { model: "loopback::large" }),

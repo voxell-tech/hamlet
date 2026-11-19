@@ -81,7 +81,7 @@ pub struct Brief {
     pub instructions: Option<String>,
     /// The turn's input.
     pub text: String,
-    /// The built-in tools it may use. Empty is its starter's for a
+    /// The built-in tools it may use. Empty is every built-in for a
     /// worker, and none for an errand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<BuiltIn>,
@@ -144,7 +144,7 @@ pub enum Input {
         conversation: Option<ConversationId>,
     },
     /// The answer of a worker the agent started.
-    WorkerAnswer { worker: AgentNumber, text: String },
+    WorkerAnswer { from: Author, text: String },
     Letter {
         from: Author,
         text: String,
@@ -208,6 +208,9 @@ pub struct Place {
     /// relative path starts; absent when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<PathBuf>,
+    /// Whether its hamlet runs in manual mode.
+    #[serde(default)]
+    pub manual: bool,
 }
 
 impl Action for Place {

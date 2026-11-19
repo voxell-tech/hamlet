@@ -300,7 +300,7 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
         |answer: HireAnswer<LeadRefusal<HireRefusal>>| match answer {
             HireAnswer::Refused { why } => why.to_string(),
             HireAnswer::Hired { agent } => {
-                format!("hired {}", agent.0)
+                format!("hired {agent}")
             }
         };
 
@@ -316,7 +316,7 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
         match super::chief_hires(&realm, &hamlet, at("v9")).await {
             HireAnswer::Refused { why } => why.to_string(),
             HireAnswer::Hired { agent } => {
-                format!("hired {}", agent.0)
+                format!("hired {agent}")
             }
         };
     assert_eq!(

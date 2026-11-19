@@ -36,7 +36,7 @@ use super::asking::{chief_task, held_rows, objection, on};
 use super::{
     AgentStandIn, Callee, DEADLINE, Forward, MAYOR, ProfileStandIn,
     Realm, Seen, THREE, answer, forward, founded, hires, kind, seen,
-    submits_to, tell, to, tool, until,
+    sent, submits_to, tell, to, tool, until,
 };
 
 /// The files the stand-in workspace holds, by path, and the parts it
@@ -321,7 +321,7 @@ async fn sends(
         .map(|path| Enclosed { path: path.into() })
         .collect();
     let answer = realm.tool(MAYOR, &tool(call, sent)).await.unwrap();
-    assert_eq!(answer, Done::Done, "tell answers at once");
+    assert_eq!(answer, self::sent(THREE), "tell answers at once");
 }
 
 /// The files of each letter 3 was given.
@@ -757,7 +757,7 @@ async fn sends_on(
         .map(|path| Enclosed { path: path.into() })
         .collect();
     let answer = realm.tool(MAYOR, &sent).await.unwrap();
-    assert_eq!(answer, Done::Done, "tell answers at once");
+    assert_eq!(answer, self::sent(THREE), "tell answers at once");
 }
 
 /// 3 objects to a chief's new line, and the mayor sends it a file

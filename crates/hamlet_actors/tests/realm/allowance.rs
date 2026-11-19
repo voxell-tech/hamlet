@@ -10,8 +10,8 @@ use hamlet_messages::realm::workers::{
 };
 use hamlet_messages::realm::world::Spend;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, HowEnded, LeadRefusal, Named,
-    OnlyAHire, Rank, Standing,
+    AgentRefusal, Asked, Done, DoneTo, End, HowEnded, LeadRefusal,
+    Named, OnlyAHire, Rank, Standing,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
@@ -19,8 +19,8 @@ use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, charge, hamlet_with, limit, may_spend,
-    standing, to, tool, words,
+    FOUR, MAYOR, Realm, THREE, charge, done_to, hamlet_with, limit,
+    may_spend, shown, standing, to, tool, words,
 };
 
 fn allowance(hire: AgentNumber, micros: Option<u64>) -> SetAllowance {
@@ -50,7 +50,7 @@ async fn lead_sets(
     lead: AgentNumber,
     call: &str,
     act: SetAllowance,
-) -> Done<LeadRefusal<OnlyAHire>> {
+) -> DoneTo<LeadRefusal<OnlyAHire>> {
     realm.tool(lead, &tool(call, act)).await.unwrap()
 }
 
@@ -139,7 +139,12 @@ async fn a_living_worker_spends_its_starters_allowance() {
             .tool(THREE, &tool("w", start("count")))
             .await
             .unwrap();
-        assert_eq!(started, Started::Started { worker: FOUR });
+        assert_eq!(
+            started,
+            Started::Started {
+                worker: shown(FOUR)
+            }
+        );
 
         realm.tool(FOUR, &charge("w1", &task, 10, 1)).await.unwrap();
         let living = may_spend(&realm, FOUR, &task).await;
@@ -226,13 +231,13 @@ async fn a_lead_sets_its_hires_allowance() {
     end(&realm, FOUR).await;
     let left = chief_sets(&realm, FOUR, Some(5)).await;
 
-    assert_eq!(set, Done::Done);
-    let not_a_lead = |hire| Done::Refused {
-        why: LeadRefusal::Rank(Rank::NotALead { hire }),
+    assert_eq!(set, done_to(THREE));
+    let not_a_lead = |hire| DoneTo::Refused {
+        why: LeadRefusal::Rank(Rank::NotALead { hire: shown(hire) }),
     };
     assert_eq!(leads, not_a_lead(MAYOR));
     assert_eq!(own, not_a_lead(THREE));
-    let refused = |why| Done::Refused {
+    let refused = |why| DoneTo::Refused {
         why: LeadRefusal::Act(why),
     };
     assert_eq!(
@@ -248,7 +253,7 @@ async fn a_lead_sets_its_hires_allowance() {
             &left,
             Done::Refused {
                 why: OnlyAHire::Left { hire, left }
-            } if *hire == FOUR && left.how == HowEnded::ByTheChief
+            } if hire.agent == FOUR && left.how == HowEnded::ByTheChief
         ),
         "{left:?}"
     );
@@ -425,7 +430,7 @@ async fn setting_an_allowance_is_recorded() {
         lead_sets(&realm, MAYOR, "a1", allowance(THREE, Some(5)))
             .await;
 
-    assert_eq!(set, Done::Done);
+    assert_eq!(set, done_to(THREE));
     let read = realm
         .ask(&Asked {
             id: RequestId::new(),
@@ -513,7 +518,7 @@ async fn an_allowance_past_the_largest_is_kept_at_the_largest() {
         .await
         .unwrap();
 
-    assert_eq!((chief, lead), (Done::Done, Done::Done));
+    assert_eq!((chief, lead), (Done::Done, done_to(THREE)));
     let largest = u64::try_from(i64::MAX).unwrap();
     assert!(
         matches!(

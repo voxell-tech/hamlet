@@ -179,9 +179,10 @@ async fn an_end_closes_open_waits() {
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
     let hired = chief_hires(&realm, &hamlet, hire(None)).await;
-    let HireAnswer::Hired { agent: hire } = hired else {
+    let HireAnswer::Hired { agent } = hired else {
         panic!("the chief hires: {hired:?}");
     };
+    let hire = agent.agent;
     realm.live(hire).await;
     for call in ["c1", "c2"] {
         realm.call_as_workspace(&needs(hire, call)).await.unwrap();

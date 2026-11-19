@@ -4,10 +4,11 @@ use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, FoundAnswer, HamletId, Hire,
-    HowEnded, LayRefusal, LayRoad, LeadRefusal, Left, LetterRefusal,
-    Named, OnlyAHire, Rank, RequestRoad, RequestRoadRefusal, SetTier,
-    SetTools, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
+    AgentRefusal, Asked, Done, DoneTo, End, FoundAnswer, HamletId,
+    Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
+    LetterRefusal, Named, OnlyAHire, Rank, RequestRoad,
+    RequestRoadRefusal, RoadDone, Sent, SetTier, SetTools,
+    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -15,9 +16,9 @@ use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::{
-    Callee, FOUR, MAYOR, Realm, THREE, chief_hires, found,
-    hamlet_with, hire, purpose_of, seen_submits, submits_to, tell,
-    to, tool, until, world,
+    Callee, FOUR, MAYOR, Realm, THREE, chief_hires, done_to, found,
+    hamlet_with, hire, purpose_of, road_done, seen_submits, sent,
+    shown, submits_to, tell, to, tool, until, world,
 };
 
 fn request_road(to: AgentNumber) -> RequestRoad {
@@ -130,19 +131,22 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
     placed(&realm, THREE, |place| place.roads == [FOUR]).await;
     placed(&realm, FOUR, |place| place.roads == [THREE]).await;
 
-    assert_eq!([laid, repeated], [Done::Done, Done::Done]);
+    assert_eq!(
+        [laid, repeated],
+        [road_done(THREE, FOUR), road_done(THREE, FOUR)]
+    );
     assert_eq!(
         again,
-        Done::Refused {
+        RoadDone::Refused {
             why: LeadRefusal::Act(LayRefusal::RoadExists {
-                a: FOUR,
-                b: THREE
+                a: shown(FOUR),
+                b: shown(THREE)
             })
         }
     );
     assert_eq!(
         [first.unwrap(), second.unwrap()],
-        [Done::Done, Done::Done]
+        [sent(FOUR), sent(FOUR)]
     );
     assert_ne!(letters[0].id, letters[1].id);
     assert_eq!(
@@ -188,8 +192,8 @@ async fn a_society_tool_turned_off_is_still_offered() {
     let on = set(MAYOR, "s2", tools(&[], &["tell"])).await;
     placed(&realm, THREE, |place| place.tools_off.is_empty()).await;
 
-    assert_eq!([off, on], [Done::Done, Done::Done]);
-    assert_eq!(told.unwrap(), Done::Done);
+    assert_eq!([off, on], [done_to(THREE), done_to(THREE)]);
+    assert_eq!(told.unwrap(), sent(MAYOR));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -211,7 +215,7 @@ async fn a_tool_off_is_kept_by_its_name() {
     })
     .await;
 
-    assert_eq!([off, on], [Done::Done, Done::Done]);
+    assert_eq!([off, on], [done_to(THREE), done_to(THREE)]);
     realm.host.shutdown().await.unwrap();
 }
 
@@ -258,17 +262,19 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     let hand_by_hand = by(Hand::NUMBER, "s2", hand_off.clone()).await;
     let hand_by_chief = by_chief(hand_off).await;
 
-    assert_eq!(on, Done::Done);
-    assert_eq!([told_while_off, told], [Done::Done, Done::Done]);
+    assert_eq!(on, done_to(MAYOR));
+    assert_eq!([told_while_off, told], [sent(THREE), sent(THREE)]);
     assert_eq!(
         by_hire,
-        Done::Refused {
-            why: LeadRefusal::Rank(Rank::NotALead { hire: MAYOR })
+        DoneTo::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: shown(MAYOR)
+            })
         }
     );
     assert_eq!(
         hand_by_hand,
-        Done::Refused {
+        DoneTo::Refused {
             why: LeadRefusal::Act(OnlyAHire::NotAHire {
                 name: "hand".to_owned()
             })
@@ -388,7 +394,7 @@ async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
         asked,
         Done::Refused {
             why: AgentRefusal::Act(RequestRoadRefusal::StillHiring {
-                lead: THREE
+                lead: shown(THREE)
             })
         }
     );
@@ -422,7 +428,7 @@ async fn a_road_leaves_the_world_when_an_end_is_ended() {
         .unwrap();
     let after = realm.ask(&ReadWorld).await.unwrap();
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
     assert_eq!(after.roads, []);
     assert!(after.revision > laid.revision, "{after:?}");
     realm.host.shutdown().await.unwrap();
@@ -459,22 +465,22 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
         .unwrap();
     roads_seen(&realm, &[(3, 4)]).await;
 
-    assert_eq!(taken, Done::Done);
+    assert_eq!(taken, road_done(FOUR, THREE));
     assert_eq!(
         again,
-        Done::Refused {
+        RoadDone::Refused {
             why: LeadRefusal::Act(TakeUpRefusal::NoRoad {
-                a: FOUR,
-                b: THREE
+                a: shown(FOUR),
+                b: shown(THREE)
             })
         }
     );
-    assert_eq!(relaid, Done::Done);
+    assert_eq!(relaid, road_done(THREE, FOUR));
     assert_eq!(
         told.unwrap(),
-        Done::Refused {
+        Sent::Refused {
             why: AgentRefusal::Act(LetterRefusal::NoRoad {
-                to: FOUR
+                to: shown(FOUR)
             })
         }
     );
@@ -544,7 +550,7 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
             refused(LayRefusal::NotTwoHiresOfOneHamlet),
             refused(LayRefusal::NotTwoHiresOfOneHamlet),
             refused(LayRefusal::Left {
-                hire: FOUR,
+                hire: shown(FOUR),
                 left: Left {
                     how: HowEnded::ByTheChief,
                     why: None
@@ -553,13 +559,18 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
             refused(LayRefusal::NoSuchAgent {
                 address: "hire#99".to_owned()
             }),
-            refused(LayRefusal::RoadExists { a: MAYOR, b: THREE }),
+            refused(LayRefusal::RoadExists {
+                a: shown(MAYOR),
+                b: shown(THREE)
+            }),
         ]
     );
     assert_eq!(
         by_hire.unwrap(),
-        Done::Refused {
-            why: LeadRefusal::Rank(Rank::NotALead { hire: THREE })
+        RoadDone::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: shown(THREE)
+            })
         }
     );
     assert_eq!(ended, Done::Done);
@@ -604,7 +615,7 @@ async fn a_hamlet_holds_its_most_laid_roads() {
 
     assert_eq!(
         full.unwrap(),
-        Done::Refused {
+        RoadDone::Refused {
             why: LeadRefusal::Act(LayRefusal::Full {
                 hamlet,
                 most: 24
@@ -612,7 +623,7 @@ async fn a_hamlet_holds_its_most_laid_roads() {
         }
     );
     assert_eq!(taken, Done::Done);
-    assert_eq!(laid.unwrap(), Done::Done);
+    assert_eq!(laid.unwrap(), road_done(THREE, FOUR));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -697,8 +708,8 @@ async fn a_road_keeps_its_reasons_in_the_record() {
     )
     .await;
 
-    assert_eq!(laid, Done::Done);
-    assert_eq!(taken, Done::Done);
+    assert_eq!(laid, road_done(THREE, FOUR));
+    assert_eq!(taken, road_done(THREE, FOUR));
     let Record::Read { lines } = record else {
         panic!("the hamlet's record: {record:?}");
     };

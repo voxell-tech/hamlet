@@ -939,8 +939,8 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "worker-answer",
-                from: { agent: input.worker },
-                content: `worker#${input.worker} answers: ${input.text}`,
+                from: { agent: input.from.agent },
+                content: `worker#${input.from.agent} answers: ${input.text}`,
             };
         case "letter":
             return {

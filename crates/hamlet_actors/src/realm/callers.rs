@@ -6,10 +6,12 @@ use hamlet_host::Caller;
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
+use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Gate, LeadRefusal, ProfileId, Rank,
-    Refusable, SecretList, Secrets, Standing, Tool, ToolCall,
+    Asked, ChiefRequest, Done, DoneTo, Gate, LeadRefusal, ProfileId,
+    Rank, Refusable, RoadDone, SecretList, Secrets, Standing, Tool,
+    ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -111,15 +113,106 @@ impl Decider for Hand {
     }
 }
 
+/// How a sender is answered for an act on an agent or a road: a chief
+/// is told it was done, and an agent which agents it acted on.
+pub(super) trait Shown {
+    type OnAgent<W>: Refusable<Why = W> + Send + 'static
+    where
+        W: Send + 'static;
+    type OnRoad<W>: Refusable<Why = W> + Send + 'static
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(
+        agent: AgentNumber,
+    ) -> Self::OnAgent<W>;
+
+    fn on_road<W: Send + 'static>(
+        a: AgentNumber,
+        b: AgentNumber,
+    ) -> Self::OnRoad<W>;
+}
+
+impl Shown for Client {
+    type OnAgent<W>
+        = Done<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = Done<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(_: AgentNumber) -> Done<W> {
+        Done::Done
+    }
+
+    fn on_road<W: Send + 'static>(
+        _: AgentNumber,
+        _: AgentNumber,
+    ) -> Done<W> {
+        Done::Done
+    }
+}
+
+impl Shown for Agent {
+    type OnAgent<W>
+        = DoneTo<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = RoadDone<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(agent: AgentNumber) -> DoneTo<W> {
+        DoneTo::Done {
+            agent: record::agent_name(agent),
+        }
+    }
+
+    fn on_road<W: Send + 'static>(
+        a: AgentNumber,
+        b: AgentNumber,
+    ) -> RoadDone<W> {
+        RoadDone::Done {
+            a: record::agent_name(a),
+            b: record::agent_name(b),
+        }
+    }
+}
+
+impl Shown for Hand {
+    type OnAgent<W>
+        = DoneTo<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = RoadDone<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(agent: AgentNumber) -> DoneTo<W> {
+        Agent::on_agent(agent)
+    }
+
+    fn on_road<W: Send + 'static>(
+        a: AgentNumber,
+        b: AgentNumber,
+    ) -> RoadDone<W> {
+        Agent::on_road(a, b)
+    }
+}
+
 /// A sender whose powers reach every hamlet.
-pub(super) trait RealmWide: Decider {}
+pub(super) trait RealmWide: Decider + Shown {}
 
 impl RealmWide for Client {}
 
 impl RealmWide for Hand {}
 
 /// A sender that can have a lead's powers over a hire (H41).
-pub(super) trait Lead: Decider {
+pub(super) trait Lead: Decider + Shown {
     /// A refusal `R` as this kind of sender is answered with it.
     type Why<R>: Send + 'static
     where
@@ -132,6 +225,10 @@ pub(super) trait Lead: Decider {
     ) -> Result<(), Self::Why<R>>;
 
     fn refused<R: Send + 'static>(refusal: R) -> Self::Why<R>;
+
+    /// The answer to setting a hamlet's model, which only a chief
+    /// does.
+    fn hamlet_model() -> Self::OnAgent<Self::Why<ChoiceRefusal>>;
 }
 
 impl Lead for Client {
@@ -151,6 +248,10 @@ impl Lead for Client {
     fn refused<R: Send + 'static>(refusal: R) -> R {
         refusal
     }
+
+    fn hamlet_model() -> Done<ChoiceRefusal> {
+        Done::Done
+    }
 }
 
 impl Lead for Agent {
@@ -167,12 +268,20 @@ impl Lead for Agent {
         if lineage.is_led_by(self.0) {
             Ok(())
         } else {
-            Err(LeadRefusal::Rank(Rank::NotALead { hire }))
+            Err(LeadRefusal::Rank(Rank::NotALead {
+                hire: record::agent_name(hire),
+            }))
         }
     }
 
     fn refused<R: Send + 'static>(refusal: R) -> LeadRefusal<R> {
         LeadRefusal::Act(refusal)
+    }
+
+    fn hamlet_model() -> DoneTo<LeadRefusal<ChoiceRefusal>> {
+        DoneTo::refused(LeadRefusal::Act(
+            ChoiceRefusal::HamletFromAnAgent,
+        ))
     }
 }
 

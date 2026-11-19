@@ -20,7 +20,7 @@ use hamlet_protocol::client::RequestId;
 
 use super::{
     FOUR, MAYOR, Realm, THREE, charge, error_code, hamlet_with,
-    may_spend, needs, paid, standing, tell, to, tool,
+    may_spend, needs, paid, shown, standing, tell, to, tool,
 };
 
 const NO_ROW: AgentNumber = AgentNumber(77);
@@ -141,7 +141,12 @@ async fn a_finished_workers_read_of_its_copies_is_refused() {
         )
         .await
         .unwrap();
-    assert_eq!(started, Started::Started { worker: FOUR });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: shown(FOUR)
+        }
+    );
     let running = realm.tool(FOUR, &ReadCopies::default()).await;
 
     realm

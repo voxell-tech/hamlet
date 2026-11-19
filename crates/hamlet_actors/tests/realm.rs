@@ -37,12 +37,12 @@ use hamlet_messages::realm::budget::{
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
-    Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, Refusable as _,
-    SetLimits, Tell, Tier, Tool,
+    AgentName, Asked, Done, DoneTo, Found, FoundAnswer, HamletId,
+    Hire, HireAnswer, HireRefusal, Named, NeedsChief, ProfileId,
+    Refusable as _, RoadDone, Sent, SetLimits, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::reach::Reach;
+use hamlet_messages::workspace::reach::{Need, Reach};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, ChiefAnswer, ConversationId,
     InForce, ReachVersion, RealmTask, SetReach,
@@ -1156,7 +1156,7 @@ fn hire(under: Option<Named>) -> Hire {
 
 fn hired<R>(agent: u32) -> HireAnswer<R> {
     HireAnswer::Hired {
-        agent: AgentNumber(agent),
+        agent: shown(AgentNumber(agent)),
     }
 }
 
@@ -1252,11 +1252,40 @@ async fn limit(
 }
 
 /// The words of a refusal, as the chief or the agent reads them.
-fn words<R: std::fmt::Display>(done: Done<R>) -> String {
-    match done {
-        Done::Refused { why } => why.to_string(),
-        Done::Done => panic!("refused, not done"),
+fn words(answer: impl Serialize) -> String {
+    let answer = serde_json::to_value(answer).unwrap();
+    assert_eq!(answer["type"], "refused", "{answer}");
+    answer["words"].as_str().unwrap().to_owned()
+}
+
+/// The answer of an agent's act on `agent`.
+fn done_to<R>(agent: AgentNumber) -> DoneTo<R> {
+    DoneTo::Done {
+        agent: shown(agent),
     }
+}
+
+/// The answer of an agent's act on the road between `a` and `b`.
+fn road_done<R>(a: AgentNumber, b: AgentNumber) -> RoadDone<R> {
+    RoadDone::Done {
+        a: shown(a),
+        b: shown(b),
+    }
+}
+
+/// The answer of a letter sent to `to`.
+fn sent<R>(to: AgentNumber) -> Sent<R> {
+    Sent::Sent { to: shown(to) }
+}
+
+/// `agent` as the realm names it to chiefs and agents.
+fn shown(agent: AgentNumber) -> AgentName {
+    let name = if agent == Hand::NUMBER {
+        "hand".to_owned()
+    } else {
+        format!("hire#{}", agent.0)
+    };
+    AgentName { agent, name }
 }
 
 /// The copies `agent` was pushed, oldest first.
@@ -1336,7 +1365,7 @@ fn needs(agent: AgentNumber, call: &str) -> NeedsChief {
         call: CallId(call.to_owned()),
         conversation: ConversationId("c".to_owned()),
         realm_task: None,
-        needs: Vec::new(),
+        needs: vec![Need::Command],
         subject: "rm -rf build".to_owned(),
         change: None,
         reach_version: ReachVersion(1),
@@ -1450,6 +1479,7 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
         roads: Vec::new(),
         tools_off: Vec::new(),
         folder: None,
+        manual: false,
     };
     let branch = Branch {
         name: "hires/2".into(),

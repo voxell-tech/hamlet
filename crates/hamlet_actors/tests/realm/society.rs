@@ -6,15 +6,17 @@ use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Done, End,
     FoundAnswer, HamletId, LeadRefusal, LetterRefusal, Limit, Named,
-    Rank, RequestRoad, RequestRoadRefusal, SetLimits, TakeUpRoad,
+    Rank, RequestRoad, RequestRoadRefusal, RoadDone, Sent, SetLimits,
+    TakeUpRoad,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires,
-    seen_submits, submits_to, tell, to, tool, until, world,
+    FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires, road_done,
+    seen_submits, sent, shown, submits_to, tell, to, tool, until,
+    world,
 };
 
 const OTHER_MAYOR: AgentNumber = AgentNumber(4);
@@ -54,6 +56,26 @@ async fn agreed_by(
     realm.tool(mayor, &tool(call, act)).await.unwrap()
 }
 
+fn waiting(
+    mine: AgentNumber,
+    theirs: AgentNumber,
+) -> Agreed<AgentRefusal<AgreeRefusal>> {
+    Agreed::Waiting {
+        mine: shown(mine),
+        theirs: shown(theirs),
+    }
+}
+
+fn laid(
+    mine: AgentNumber,
+    theirs: AgentNumber,
+) -> Agreed<AgentRefusal<AgreeRefusal>> {
+    Agreed::Laid {
+        mine: shown(mine),
+        theirs: shown(theirs),
+    }
+}
+
 fn refused(why: AgreeRefusal) -> Agreed<AgentRefusal<AgreeRefusal>> {
     Agreed::Refused {
         why: AgentRefusal::Act(why),
@@ -79,16 +101,18 @@ async fn roads_seen(realm: &Realm, roads: &[(u32, u32)]) -> Seen {
 async fn told(
     realm: &Realm,
     call: &str,
-) -> Done<AgentRefusal<LetterRefusal>> {
+) -> Sent<AgentRefusal<LetterRefusal>> {
     realm
         .tool(THREE, &tool(call, tell(to(FIVE), "hi")))
         .await
         .unwrap()
 }
 
-fn no_road() -> Done<AgentRefusal<LetterRefusal>> {
-    Done::Refused {
-        why: AgentRefusal::Act(LetterRefusal::NoRoad { to: FIVE }),
+fn no_road() -> Sent<AgentRefusal<LetterRefusal>> {
+    Sent::Refused {
+        why: AgentRefusal::Act(LetterRefusal::NoRoad {
+            to: shown(FIVE),
+        }),
     }
 }
 
@@ -128,11 +152,18 @@ async fn a_road_is_laid_when_both_mayors_agree() {
 
     assert_eq!(
         [first, repeated, second],
-        [Agreed::Waiting, Agreed::Waiting, Agreed::Laid]
+        [
+            waiting(THREE, FIVE),
+            waiting(THREE, FIVE),
+            laid(FIVE, THREE)
+        ]
     );
     assert_eq!(
         again,
-        refused(AgreeRefusal::RoadExists { a: THREE, b: FIVE })
+        refused(AgreeRefusal::RoadExists {
+            a: shown(THREE),
+            b: shown(FIVE)
+        })
     );
     let agreed = [
         "- hire#2 agreed a road from hire#3: share files",
@@ -183,7 +214,7 @@ async fn roads_between_off_refuses_an_agreement() {
             .await;
 
     assert_eq!(off, refused(AgreeRefusal::NoRoadsBetween));
-    assert_eq!(other, Agreed::Waiting);
+    assert_eq!(other, waiting(FIVE, THREE));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -207,7 +238,7 @@ async fn a_letter_passes_only_after_both_agreed() {
         [before, half, off],
         [no_road(), no_road(), no_road()]
     );
-    assert_eq!([both, on], [Done::Done, Done::Done]);
+    assert_eq!([both, on], [sent(FIVE), sent(FIVE)]);
     realm.host.shutdown().await.unwrap();
 }
 
@@ -309,12 +340,17 @@ async fn an_agreed_road_is_taken_up_by_the_hand_and_agreed_anew() {
 
     assert_eq!(
         by_mayor,
-        Done::Refused {
-            why: LeadRefusal::Rank(Rank::NotALead { hire: FIVE })
+        RoadDone::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: shown(FIVE)
+            })
         }
     );
-    assert_eq!(by_hand, Done::Done);
-    assert_eq!([one, both], [Agreed::Waiting, Agreed::Laid]);
+    assert_eq!(by_hand, road_done(THREE, FIVE));
+    assert_eq!(
+        [one, both],
+        [waiting(THREE, FIVE), laid(FIVE, THREE)]
+    );
     realm.host.shutdown().await.unwrap();
 }
 

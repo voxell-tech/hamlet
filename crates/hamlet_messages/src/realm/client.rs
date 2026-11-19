@@ -7,10 +7,10 @@ use hamlet_protocol::client as protocol;
 use serde::{Deserialize, Serialize};
 
 use super::world::Seen;
-use super::{Done, Left, Refusable};
+use super::{AgentName, Done, Left, Refusable};
 use crate::address::Realm;
 use crate::sender::Client;
-use crate::workspace::{AgentNumber, RealmTask};
+use crate::workspace::RealmTask;
 use crate::{Message, worded};
 
 /// A chief's line to an agent.
@@ -60,10 +60,10 @@ impl Refusable for SayAnswer {
 pub enum SayRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("`hire#{}` is still being hired; send the line again", agent.0)]
-    StillHiring { agent: AgentNumber },
-    #[error("`hire#{}` has left: {left}", agent.0)]
-    Left { agent: AgentNumber, left: Left },
+    #[error("`{agent}` is still being hired; send the line again")]
+    StillHiring { agent: AgentName },
+    #[error("`{agent}` has left: {left}")]
+    Left { agent: AgentName, left: Left },
 }
 
 /// A chief's answer to a wait.

@@ -9,7 +9,7 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{Author, Input, InputId, Submit};
 use hamlet_messages::realm::{
     AgentRefusal, Ask, Done, Enclosed, LetterId, LetterRefusal,
-    Named, Refusable, Reply, ReplyRefusal, Tell,
+    Named, Refusable, Reply, ReplyRefusal, Sent, Tell, Waiting,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
@@ -24,9 +24,7 @@ use super::peer::When;
 use super::roads::{self, End, Ends, Way};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
-use super::{Realm, hire, laid, parcels};
-
-type Sent = Done<AgentRefusal<LetterRefusal>>;
+use super::{Realm, hire, laid, parcels, record};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -281,6 +279,15 @@ pub(super) enum Route {
 }
 
 impl Route {
+    fn letter(self) -> LetterId {
+        match self {
+            Self::Now(letter)
+            | Self::Held(letter)
+            | Self::Parcel(letter)
+            | Self::Dropped(letter) => letter,
+        }
+    }
+
     /// The kept letter or answer, routed by the changes that hold it
     /// or send its files.
     fn of(
@@ -324,6 +331,13 @@ impl Route {
             }
         }
     }
+}
+
+/// A kept letter or question and its receiver.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct Sending {
+    to: AgentNumber,
+    route: Route,
 }
 
 pub(super) struct Letter {
@@ -381,9 +395,12 @@ pub(super) struct Written<'a> {
 }
 
 impl Written<'_> {
-    fn decide(self, letter: Letter) -> Decision<Route, Sent> {
+    fn decide<O: Refusable<Why = AgentRefusal<LetterRefusal>>>(
+        self,
+        letter: Letter,
+    ) -> Decision<Sending, O> {
         let refuse = |why| {
-            Decision::Answer(Done::refused(AgentRefusal::Act(why)))
+            Decision::Answer(O::refused(AgentRefusal::Act(why)))
         };
         let Letter {
             ends,
@@ -403,23 +420,39 @@ impl Written<'_> {
         }
         if let Status::Ended(left) = &to.status {
             return refuse(LetterRefusal::Left {
-                to: to.agent,
+                to: record::agent_name(to.agent),
                 left: left.clone(),
             });
         }
         let Some(way) = ends.way() else {
-            return refuse(LetterRefusal::NoRoad { to: to.agent });
+            return refuse(LetterRefusal::NoRoad {
+                to: record::agent_name(to.agent),
+            });
         };
         if to.status == Status::Hiring {
             return Decision::WaitFor {
                 row: hire::row(to.agent),
-                refusal: Done::refused(AgentRefusal::Act(
-                    LetterRefusal::StillHiring { to: to.agent },
+                refusal: O::refused(AgentRefusal::Act(
+                    LetterRefusal::StillHiring {
+                        to: record::agent_name(to.agent),
+                    },
                 )),
             };
         }
         let kept = self.keep(id, ends.from.agent, to, way);
-        Decision::Change(Route::of(kept, held, parcel))
+        let Decided {
+            done: route,
+            changes,
+            entries,
+        } = Route::of(kept, held, parcel);
+        Decision::Change(Decided {
+            done: Sending {
+                to: to.agent,
+                route,
+            },
+            changes,
+            entries,
+        })
     }
 
     pub fn keep(
@@ -455,9 +488,9 @@ impl Written<'_> {
 }
 
 impl Act<Agent> for Paid<Tell> {
-    type Output = Sent;
+    type Output = Sent<AgentRefusal<LetterRefusal>>;
     type Loaded = Letter;
-    type Done = Route;
+    type Done = Sending;
 
     async fn load(
         &self,
@@ -478,7 +511,7 @@ impl Act<Agent> for Paid<Tell> {
         &self,
         _by: &Agent,
         letter: Letter,
-    ) -> Decision<Route, Sent> {
+    ) -> Decision<Sending, Self::Output> {
         let written = Written {
             kind: Kind::Letter,
             text: &self.act.text,
@@ -488,12 +521,14 @@ impl Act<Agent> for Paid<Tell> {
         written.decide(letter)
     }
 
-    fn deliveries(&self, _by: &Agent, route: &Route) -> Calls {
-        route.calls(Delivery::Letter)
+    fn deliveries(&self, _by: &Agent, sending: &Sending) -> Calls {
+        sending.route.calls(Delivery::Letter)
     }
 
-    fn answer(&self, _route: Route, _made: &Made) -> Sent {
-        Done::Done
+    fn answer(&self, sending: Sending, _made: &Made) -> Self::Output {
+        Sent::Sent {
+            to: record::agent_name(sending.to),
+        }
     }
 }
 
@@ -509,9 +544,9 @@ impl ToolAct<Agent> for Tell {
 }
 
 impl Act<Agent> for Paid<Ask> {
-    type Output = Sent;
+    type Output = Waiting<AgentRefusal<LetterRefusal>>;
     type Loaded = Letter;
-    type Done = Route;
+    type Done = Sending;
 
     async fn load(
         &self,
@@ -532,7 +567,7 @@ impl Act<Agent> for Paid<Ask> {
         &self,
         _by: &Agent,
         letter: Letter,
-    ) -> Decision<Route, Sent> {
+    ) -> Decision<Sending, Self::Output> {
         let written = Written {
             kind: Kind::Question,
             text: &self.act.text,
@@ -542,12 +577,15 @@ impl Act<Agent> for Paid<Ask> {
         written.decide(letter)
     }
 
-    fn deliveries(&self, _by: &Agent, route: &Route) -> Calls {
-        route.calls(Delivery::Letter)
+    fn deliveries(&self, _by: &Agent, sending: &Sending) -> Calls {
+        sending.route.calls(Delivery::Letter)
     }
 
-    fn answer(&self, _route: Route, _made: &Made) -> Sent {
-        Done::Done
+    fn answer(&self, sending: Sending, _made: &Made) -> Self::Output {
+        Waiting::Waiting {
+            on: record::agent_name(sending.to),
+            question: sending.route.letter(),
+        }
     }
 }
 
@@ -686,9 +724,9 @@ mod tests {
                 act: tell(4)
             }
             .decide(&sender(), letter),
-            Decision::Answer(Done::Refused {
+            Decision::Answer(Sent::Refused {
                 why: AgentRefusal::Act(LetterRefusal::NoRoad {
-                    to: AgentNumber(4)
+                    to: record::agent_name(AgentNumber(4))
                 })
             })
         );

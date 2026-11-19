@@ -15,8 +15,8 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    Done, End, Gate, HireAnswer, LayRoad, Named, SocietyTool,
-    TakeUpRoad,
+    DoneTo, End, Gate, HireAnswer, LayRoad, Named, RoadDone,
+    SocietyTool, TakeUpRoad,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
@@ -370,20 +370,17 @@ trait Refused {
     fn words(self) -> Option<String>;
 }
 
-impl<W: Display> Refused for Done<W> {
-    fn words(self) -> Option<String> {
-        match self {
-            Self::Done => None,
-            Self::Refused { why } => Some(why.to_string()),
+macro_rules! refused {
+    ($($answer:ident),+) => {$(
+        impl<W: Display> Refused for $answer<W> {
+            fn words(self) -> Option<String> {
+                match self {
+                    Self::Refused { why } => Some(why.to_string()),
+                    _ => None,
+                }
+            }
         }
-    }
+    )+};
 }
 
-impl<W: Display> Refused for HireAnswer<W> {
-    fn words(self) -> Option<String> {
-        match self {
-            Self::Hired { .. } => None,
-            Self::Refused { why } => Some(why.to_string()),
-        }
-    }
-}
+refused!(DoneTo, RoadDone, HireAnswer);

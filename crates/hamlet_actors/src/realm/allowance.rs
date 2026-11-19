@@ -9,9 +9,7 @@ use hamlet_messages::realm::budget::{
     self, Budget, BudgetRead, Payer, ReadBudget, ReadBudgetRefusal,
 };
 use hamlet_messages::realm::workers::SetAllowance;
-use hamlet_messages::realm::{
-    AgentRefusal, Done, OnlyAHire, Refusable,
-};
+use hamlet_messages::realm::{AgentRefusal, OnlyAHire, Refusable};
 use hamlet_messages::workspace::AgentNumber;
 
 use super::act::{Act, Decided, Decision, Unchanged};
@@ -198,9 +196,9 @@ async fn charged(
 }
 
 impl<By: Lead> Act<By> for SetAllowance {
-    type Output = Done<By::Why<OnlyAHire>>;
+    type Output = By::OnAgent<By::Why<OnlyAHire>>;
     type Loaded = Option<(Lineage, String)>;
-    type Done = ();
+    type Done = AgentNumber;
 
     async fn load(
         &self,
@@ -215,9 +213,10 @@ impl<By: Lead> Act<By> for SetAllowance {
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<(), Self::Output> {
-        let refuse =
-            |why| Decision::Answer(Done::refused(By::refused(why)));
+    ) -> Decision<AgentNumber, Self::Output> {
+        let refuse = |why| {
+            Decision::Answer(Self::Output::refused(By::refused(why)))
+        };
         let Some((lineage, name)) = named else {
             return refuse(OnlyAHire::NoSuchAgent {
                 address: self.hire.to_string(),
@@ -228,16 +227,18 @@ impl<By: Lead> Act<By> for SetAllowance {
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {
-            return Decision::Answer(Done::refused(not_a_lead));
+            return Decision::Answer(Self::Output::refused(
+                not_a_lead,
+            ));
         }
         if let Status::Ended(left) = &lineage.agent.status {
             return refuse(OnlyAHire::Left {
-                hire,
+                hire: record::agent_name(hire),
                 left: left.clone(),
             });
         }
         Decision::Change(
-            Decided::new(())
+            Decided::new(hire)
                 .change(Change::Set {
                     hire,
                     micros: self.micros.map(|micros| {
@@ -254,8 +255,12 @@ impl<By: Lead> Act<By> for SetAllowance {
         )
     }
 
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+    fn answer(
+        &self,
+        hire: AgentNumber,
+        _made: &Made,
+    ) -> Self::Output {
+        By::on_agent(hire)
     }
 }
 

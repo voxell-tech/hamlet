@@ -9,8 +9,9 @@ use hamlet_messages::realm::hamlets::{
     ReadRecord, Record, RecordLine,
 };
 use hamlet_messages::realm::{
-    HamletId, HamletRefusal, Refusable, Tier,
+    AgentName, HamletId, HamletRefusal, Refusable, Tier,
 };
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::act::{Act, Decision, Unchanged};
@@ -351,6 +352,17 @@ fn numbered(by: &str) -> Result<AgentNumber> {
         Some(Ok(agent)) => Ok(AgentNumber(agent)),
         _ => bail!("a decision by `{by}`"),
     }
+}
+
+/// `agent` as chiefs and agents are shown it: the Hand as `hand`, any
+/// other agent as `hire#<n>`.
+pub(super) fn agent_name(agent: AgentNumber) -> AgentName {
+    let name = if agent == Hand::NUMBER {
+        "hand".to_owned()
+    } else {
+        format!("hire#{}", agent.0)
+    };
+    AgentName { agent, name }
 }
 
 /// `agent`'s address, as in `hire#3`.

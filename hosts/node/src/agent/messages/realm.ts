@@ -22,7 +22,18 @@ export type Named =
     | { readonly type: "hand" }
     | { readonly type: "mayor" }
     | { readonly type: "mayor_of"; readonly hamlet: HamletId }
-    | { readonly type: "agent"; readonly agent: AgentNumber };
+    | { readonly type: "agent"; readonly agent: AgentNumber }
+    | { readonly type: "worker"; readonly worker: AgentNumber };
+
+/**
+ * An agent as chiefs and agents are shown it: its address, and beside it a
+ * hire's nickname or its profile's name, or a worker's nickname, as in
+ * `hire#3 (Mira)`.
+ */
+export interface AgentName {
+    readonly agent: AgentNumber;
+    readonly name: string;
+}
 
 export type Tier = "fifty" | "hundred" | "two_hundred" | "five_hundred";
 
@@ -36,6 +47,26 @@ export interface Tool<Act> {
 }
 
 export type Done = { readonly type: "done" } | Refused;
+
+/** The answer of an act on the agent `agent`. */
+export type DoneTo =
+    | { readonly type: "done"; readonly agent: AgentName }
+    | Refused;
+
+/** The answer of an act on the road between `a` and `b`. */
+export type RoadDone =
+    | { readonly type: "done"; readonly a: AgentName; readonly b: AgentName }
+    | Refused;
+
+export type Sent = { readonly type: "sent"; readonly to: AgentName } | Refused;
+
+export type Waiting =
+    | {
+          readonly type: "waiting";
+          readonly on: AgentName;
+          readonly question: LetterId;
+      }
+    | Refused;
 
 /** A society tool's act, or a built-in or hand tool's name. */
 export interface ToolName {
@@ -51,7 +82,7 @@ export type FoundAnswer =
     | Refused;
 
 export type HireAnswer =
-    | { readonly type: "hired"; readonly agent: AgentNumber }
+    | { readonly type: "hired"; readonly agent: AgentName }
     | Refused;
 
 export interface SocietyActs {
@@ -77,12 +108,12 @@ export interface SocietyActs {
     };
     end: {
         act: { readonly hire: Named; readonly why?: string };
-        answer: Done;
+        answer: DoneTo;
     };
-    seat: { act: { readonly hire: Named }; answer: Done };
+    seat: { act: { readonly hire: Named }; answer: DoneTo };
     tell: {
         act: { readonly to: Named; readonly text: string };
-        answer: Done;
+        answer: Sent;
     };
     ask: {
         act: {
@@ -90,15 +121,15 @@ export interface SocietyActs {
             readonly text: string;
             readonly conversation: ConversationRef;
         };
-        answer: Done;
+        answer: Waiting;
     };
     lay_road: {
         act: { readonly a: Named; readonly b: Named };
-        answer: Done;
+        answer: RoadDone;
     };
     take_up_road: {
         act: { readonly a: Named; readonly b: Named };
-        answer: Done;
+        answer: RoadDone;
     };
     request_road: {
         act: {
@@ -113,7 +144,7 @@ export interface SocietyActs {
             readonly off?: readonly ToolName[];
             readonly on?: readonly ToolName[];
         };
-        answer: Done;
+        answer: DoneTo;
     };
     create_profile: {
         /** Without a character, the profile starts from the realm's. */
@@ -287,6 +318,25 @@ export interface TurnEnded {
     readonly ended: Ended;
 }
 
+/** What a conversation of the agent is with. */
+export type ConversationKind = "chat" | "letters" | "questions" | "other";
+
+/**
+ * Asks for the prompt's place, realm and scholars sections, as they read in
+ * a conversation of `conversation`'s kind with `peer`.
+ */
+export interface ReadPlace {
+    readonly conversation: ConversationKind;
+    readonly peer?: AgentNumber;
+}
+
+/** The prompt's sections the realm writes; a section the agent is not shown is absent. */
+export interface PlaceText {
+    readonly place: string;
+    readonly realm?: string;
+    readonly scholars?: string;
+}
+
 export type RealmActions = {
     readonly [N in SocietyTool]: (
         message: Tool<SocietyActs[N]["act"]>,
@@ -304,6 +354,7 @@ export type RealmActions = {
     secrets(): SecretList;
     worker_done(message: TurnEnded): null;
     errand_done(message: TurnEnded): null;
+    read_place(message: ReadPlace): PlaceText;
 };
 
 export const REALM: Address<RealmActions> = Address.of("realm", "local");

@@ -8,10 +8,12 @@ use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
-    AgentSeen, GrantSeen, HamletSeen, ReachSeen, Revision, Seen,
-    Spend, Starter, Status, WaitId, WaitKind, WaitSeen,
+    AgentSeen, GrantSeen, GrantSource, HamletSeen, Lasting,
+    ReachSeen, Revision, Seen, Spend, Starter, Status, WaitId,
+    WaitKind, WaitSeen,
 };
 use hamlet_messages::sender::Client;
+use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
 use tokio::sync::Mutex;
 
@@ -262,13 +264,14 @@ type WaitRow = (
     String,
     Option<String>,
     Option<String>,
+    Option<String>,
     Option<Vec<u8>>,
 );
 
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
     rows.rows::<WaitRow>(
-        "SELECT id, agent, kind, call, subject, detail FROM wait \
-         WHERE closed_at IS NULL ORDER BY id",
+        "SELECT id, agent, kind, call, subject, needs, detail FROM \
+         wait WHERE closed_at IS NULL ORDER BY id",
         Vec::new(),
     )
     .await?
@@ -281,13 +284,22 @@ async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
 }
 
 fn wait_seen(
-    (wait, agent, kind, call, subject, detail): WaitRow,
+    (wait, agent, kind, call, subject, needs, detail): WaitRow,
 ) -> Result<WaitSeen> {
     let detail = || detail.as_deref().context("no detail");
     let kind = match change::from_case_name(kind)? {
-        waits::Kind::Tool => WaitKind::Tool {
-            call: CallId(call.context("no call")?),
-        },
+        waits::Kind::Tool => {
+            let needs = serde_json::from_str::<Vec<Need>>(
+                needs.as_deref().context("no needs")?,
+            )?;
+            let (danger, always) = danger_of(&needs)?;
+            WaitKind::Tool {
+                call: CallId(call.context("no call")?),
+                danger,
+                always: Some(always),
+                change: None,
+            }
+        }
         waits::Kind::Question | waits::Kind::Objection => {
             ciborium::from_reader(detail()?)?
         }
@@ -305,6 +317,21 @@ fn wait_seen(
     })
 }
 
+/// What a tool wait that needs `needs` lets through, the network
+/// before a command before an edit, and what allowing it always
+/// keeps.
+fn danger_of(needs: &[Need]) -> Result<(Need, Lasting)> {
+    let danger = [Need::Network, Need::Command, Need::Edit]
+        .into_iter()
+        .find(|need| needs.contains(need))
+        .context("a tool wait that needs nothing")?;
+    let always = match danger {
+        Need::Network => Lasting::Grant,
+        Need::Command | Need::Edit => Lasting::Session,
+    };
+    Ok((danger, always))
+}
+
 async fn grants(rows: &Rows<'_>) -> Result<Vec<GrantSeen>> {
     rows.rows::<(u32, String)>(
         "SELECT grant.agent, grant.permission FROM grant JOIN agent \
@@ -319,6 +346,7 @@ async fn grants(rows: &Rows<'_>) -> Result<Vec<GrantSeen>> {
         Ok(GrantSeen {
             agent: AgentNumber(agent),
             permission: change::from_case_name(permission)?,
+            source: GrantSource::Grant,
         })
     })
     .collect()
@@ -380,7 +408,7 @@ mod tests {
                     call: CallId("c1".to_owned()),
                     conversation: ConversationId("c".to_owned()),
                     realm_task: None,
-                    needs: Vec::new(),
+                    needs: vec![Need::Command],
                     subject: "rm -rf build".to_owned(),
                     change: None,
                     reach_version: ReachVersion(1),

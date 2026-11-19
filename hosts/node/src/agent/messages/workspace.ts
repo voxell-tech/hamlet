@@ -168,12 +168,19 @@ export interface AddedTool {
     readonly parameters: string;
 }
 
+/** How the agents' commands are confined. */
+export type Confinement =
+    | { readonly type: "sandbox"; readonly name: string }
+    | { readonly type: "insecure" }
+    | { readonly type: "remote" };
+
 export interface ToolList {
     readonly tools: readonly AddedTool[];
     readonly faults: readonly {
         readonly folder: string;
         readonly words: string;
     }[];
+    readonly confinement: Confinement;
 }
 
 export type Which =

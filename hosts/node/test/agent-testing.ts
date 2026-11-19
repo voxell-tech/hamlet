@@ -35,6 +35,7 @@ import type { AgentInput } from "../src/agent/messages/agent.ts";
 import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
 import type { ProfileActions } from "../src/agent/messages/profile.ts";
 import {
+    type AgentName,
     type Kept,
     REALM,
     type RealmActions,
@@ -74,7 +75,11 @@ export function fakeCalls(answers: {
         Record<string, (...args: never[]) => unknown>
     > = {
         [WORKSPACE.kind]: {
-            list_tools: () => ({ tools: [], faults: [] }),
+            list_tools: () => ({
+                tools: [],
+                faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
+            }),
             cancel: () => ({ commands: [] }),
             ...answers.workspace,
         },
@@ -113,6 +118,11 @@ export function fakeCalls(answers: {
         },
     };
     return { calls, sent };
+}
+
+/** `agent` as the realm names it. */
+export function shown(agent: number): AgentName {
+    return { agent, name: `hire#${agent}` };
 }
 
 export function named(sent: readonly Sent[], name: string): Sent[] {
@@ -245,7 +255,7 @@ export function priced(models: Models, dollars: number): Models {
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-7",
-    place: { version: 1, hires: [], roads: [], tools_off: [] },
+    place: { version: 1, hires: [], roads: [], tools_off: [], manual: false },
     copies: {},
 };
 

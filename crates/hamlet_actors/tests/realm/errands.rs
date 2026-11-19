@@ -85,6 +85,7 @@ async fn an_errand_is_a_numbered_agent_outside_the_tree() {
                 roads: Vec::new(),
                 tools_off: Vec::new(),
                 folder: None,
+                manual: false,
             },
             brief: Some(brief()),
             copies,

@@ -514,20 +514,20 @@ const WRITTEN: readonly Written[] = [
         fixture: "realm/tell",
         task: "task-1",
         tool: ["tell", { to: "mayor", text: "The tests pass" }],
-        answers: { realm: { tell: () => answer("realm/tell.done") } },
+        answers: { realm: { tell: () => answer("realm/tell.sent") } },
         own: ["call", "conversation"],
     },
     {
         fixture: "realm/tell.no_task",
         tool: ["tell", { to: "hand", text: "The tests pass" }],
-        answers: { realm: { tell: () => answer("realm/tell.done") } },
+        answers: { realm: { tell: () => answer("realm/tell.sent") } },
         own: ["call", "conversation"],
     },
     {
         fixture: "realm/ask",
         task: "task-1",
         tool: ["ask", { to: "hire#12", question: "Which tests fail?" }],
-        answers: { realm: { ask: () => answer("realm/ask.done") } },
+        answers: { realm: { ask: () => answer("realm/ask.waiting") } },
         own: ["call", "conversation", "act.conversation"],
     },
     {
@@ -805,6 +805,12 @@ const WRITTEN: readonly Written[] = [
     {
         fixture: "realm/end",
         tool: ["end_hire", { hire: "hire#12" }],
+        answers: { realm: { end: () => answer("realm/end.done") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/end.worker",
+        tool: ["end_hire", { hire: "worker#15" }],
         answers: { realm: { end: () => answer("realm/end.done") } },
         own: ["call", "conversation"],
     },
@@ -1886,10 +1892,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an item with files and images, which no item of the agent's carries",
     ],
     [
-        /^agent\/retry\.refused\.no_turn\.answer$/,
-        "a retry refused for want of a turn: as today, a session with nothing in it is carried on",
-    ],
-    [
         /^agent\/chat\.event\.answer$/,
         "an item with both an author and a rewind, which no item of the agent's has: a chief's line names no author",
     ],
@@ -1934,6 +1936,10 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a letter or a question with a parcel: the agent takes it and drops the parcel, so the model is never told of its files",
     ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
+    [
+        /^realm\/read_place\./,
+        "the prompt's sections the realm writes, which this agent writes itself for now",
+    ],
 ];
 
 const CLIENT_CALLS = new RegExp(
@@ -1942,6 +1948,19 @@ const CLIENT_CALLS = new RegExp(
 
 function listed(name: string): boolean {
     return NOT_THE_AGENTS.some(([pattern]) => pattern.test(name));
+}
+
+for (const name of answersTo("workspace/list_tools")) {
+    test(`${name} offers the tool it lists, however commands are confined`, async (t) => {
+        const { calls } = fakeCalls({
+            workspace: { list_tools: () => fixture(name) as never },
+        });
+        const agent = await turn(t, calls, {
+            submit: submitted(undefined),
+            offered: "word_count",
+        });
+        await agent.stop();
+    });
 }
 
 test("every fixture is one the agent writes or takes, or is listed with its reason, never both", () => {
@@ -1979,8 +1998,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         "agent/chat.event.past.answer",
         ...fixtures(CLIENT_CALLS).filter((name) => !listed(name)),
         "realm/charge.answer",
-        // `workspace/run.tool` waits until the tool it lists is offered.
-        "workspace/list_tools.answer",
+        ...answersTo("workspace/list_tools"),
         ...fixtures(/^error\/.*\.run\./),
         // `test/link/errors.test.ts` reads it across the link.
         "error/wrong_caller.tell.agent.answer",
@@ -2052,7 +2070,7 @@ test("a reply's question is never above 2^32 - 1", async (t) => {
 
 test("an agent's number in Named is never above 2^32 - 1", async (t) => {
     const { calls, sent } = fakeCalls({
-        realm: { tell: () => answer("realm/tell.done") },
+        realm: { tell: () => answer("realm/tell.sent") },
     });
     const agent = await turn(t, calls, {
         submit: submitted(undefined),

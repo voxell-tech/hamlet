@@ -15,10 +15,12 @@ use hamlet_messages::workspace::refusal::{
     PathRefusal, ToolRefusal, WriteRefusal,
 };
 use hamlet_messages::workspace::{
-    AddedTool, Answer, AnswerTaken, CallId, ConversationId, Exit,
-    Fault, ListTools, Program, Run, RunAnswer, RunEnd, ToolList,
+    AddedTool, Answer, AnswerTaken, CallId, Confinement,
+    ConversationId, Exit, Fault, ListTools, Program, Run, RunAnswer,
+    RunEnd, ToolList,
 };
 use hamlet_os::fs::path::text;
+use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
@@ -110,6 +112,24 @@ async fn the_tools_added_by_hand_are_listed() {
                 words: "name 'bash' is reserved".into(),
             },
         ]
+    );
+}
+
+/// The list says how the commands its tools run are confined: in the
+/// workspace's sandbox, by name. Not on Windows, whose tests run with
+/// no sandbox.
+#[cfg(not(windows))]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_list_names_the_sandbox_commands_run_in() {
+    let dir = Scratch::new("workspace-tools-confinement");
+    let host = host(&dir).await;
+    let list: ToolList = ask(&host, &agent(AGENT), &ListTools).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(
+        list.confinement,
+        Confinement::Sandbox {
+            name: Sandbox::testing().name().to_owned()
+        }
     );
 }
 

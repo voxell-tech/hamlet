@@ -212,7 +212,14 @@ test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-i
         input: {
             kind: "hire",
             task: "standing-9",
-            place: { version: 1, lead: 1, hires: [], roads: [], tools_off: [] },
+            place: {
+                version: 1,
+                lead: 1,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                manual: false,
+            },
             copies: {},
         },
         models: loopback(() => fauxAssistantMessage("Hello.")),

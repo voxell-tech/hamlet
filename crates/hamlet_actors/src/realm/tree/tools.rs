@@ -5,7 +5,7 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    Done, OnlyAHire, Refusable, SetTools, ToolName,
+    OnlyAHire, Refusable, SetTools, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -33,9 +33,9 @@ pub(in crate::realm) async fn off_for(
 }
 
 impl<By: Lead> Act<By> for SetTools {
-    type Output = Done<By::Why<OnlyAHire>>;
+    type Output = By::OnAgent<By::Why<OnlyAHire>>;
     type Loaded = Option<(Lineage, String)>;
-    type Done = ();
+    type Done = AgentNumber;
 
     async fn load(
         &self,
@@ -50,9 +50,10 @@ impl<By: Lead> Act<By> for SetTools {
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<(), Self::Output> {
-        let refuse =
-            |why| Decision::Answer(Done::refused(By::refused(why)));
+    ) -> Decision<AgentNumber, Self::Output> {
+        let refuse = |why| {
+            Decision::Answer(Self::Output::refused(By::refused(why)))
+        };
         let Some((lineage, name)) = named else {
             return refuse(OnlyAHire::NoSuchAgent {
                 address: self.hire.to_string(),
@@ -63,13 +64,18 @@ impl<By: Lead> Act<By> for SetTools {
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {
-            return Decision::Answer(Done::refused(not_a_lead));
+            return Decision::Answer(Self::Output::refused(
+                not_a_lead,
+            ));
         }
         if let Status::Ended(left) = lineage.agent.status {
-            return refuse(OnlyAHire::Left { hire, left });
+            return refuse(OnlyAHire::Left {
+                hire: record::agent_name(hire),
+                left,
+            });
         }
         Decision::Change(
-            Decided::new(())
+            Decided::new(hire)
                 .change(super::Change::Tools {
                     hire,
                     off: self.off.clone(),
@@ -83,8 +89,12 @@ impl<By: Lead> Act<By> for SetTools {
         )
     }
 
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+    fn answer(
+        &self,
+        hire: AgentNumber,
+        _made: &Made,
+    ) -> Self::Output {
+        By::on_agent(hire)
     }
 }
 

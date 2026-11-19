@@ -1179,7 +1179,15 @@ test("a command a restart cut off is told once, the model reads that it may have
 test("a rewind while a question has no answer goes ahead, and the answer lands in the session it left", async (t) => {
     const agent = await wake(
         t,
-        fakes({ realm: { ask: () => ({ type: "done" }) } }).calls,
+        fakes({
+            realm: {
+                ask: () => ({
+                    type: "waiting",
+                    on: { agent: 12, name: "hire#12" },
+                    question: 1,
+                }),
+            },
+        }).calls,
         [
             toolCall("ask", { to: "hire#12", question: "Which file?" }),
             fauxAssistantMessage("Asked Ada."),

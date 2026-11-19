@@ -419,7 +419,14 @@ test("two agents share one model access, and each asks and is charged as itself"
         input: {
             kind: "hire",
             task: "standing-8",
-            place: { version: 1, lead: 7, hires: [], roads: [], tools_off: [] },
+            place: {
+                version: 1,
+                lead: 7,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                manual: false,
+            },
             copies: {},
         },
         responses: [fauxAssistantMessage("eight")],

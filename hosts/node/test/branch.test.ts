@@ -5,12 +5,14 @@ import { ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import type { Skill } from "../src/agent/messages/library.ts";
 import type { FilesAnswer } from "../src/agent/messages/profile.ts";
+import type { Sent } from "../src/agent/messages/realm.ts";
 import {
     fakeCalls,
     fakeFiles,
     from,
     modelFailed,
     named,
+    shown,
     toolCall,
     until,
     wakeAgent,
@@ -372,7 +374,7 @@ test("a move between turns is answered before its pull, keeps its character and 
 });
 
 test("a move or a removal during a turn waits for the turn to end, and a removal answers later", async (t) => {
-    const told = Promise.withResolvers<{ type: "done" }>();
+    const told = Promise.withResolvers<Sent>();
     const asked = Promise.withResolvers<void>();
     const { calls, sent } = fakeCalls({
         profile: profileAnswering(part({ tip: A }), part({ tip: B })),
@@ -409,7 +411,7 @@ test("a move or a removal during a turn waits for the turn to end, and a removal
     assert.equal(named(sent, "files").length, 1);
     assert.equal(files["memory/password.md"], "hunter2");
 
-    told.resolve({ type: "done" });
+    told.resolve({ type: "sent", to: shown(12) });
     await agent.idle();
     await until(() => named(sent, "files").length === 2);
     assert.deepEqual(named(sent, "files").at(-1)?.message, { since: A });
@@ -419,7 +421,7 @@ test("a move or a removal during a turn waits for the turn to end, and a removal
 });
 
 test("a move or a removal that waits for a turn that fails is done once the turn ends", async (t) => {
-    const told = Promise.withResolvers<{ type: "done" }>();
+    const told = Promise.withResolvers<Sent>();
     const asked = Promise.withResolvers<void>();
     const { calls, sent } = fakeCalls({
         profile: profileAnswering(part({ tip: A }), part({ tip: B })),
@@ -453,7 +455,7 @@ test("a move or a removal that waits for a turn that fails is done once the turn
         fixture("profile/remove_path.later.answer"),
     );
 
-    told.resolve({ type: "done" });
+    told.resolve({ type: "sent", to: shown(12) });
     await agent.idle();
     await until(
         () =>

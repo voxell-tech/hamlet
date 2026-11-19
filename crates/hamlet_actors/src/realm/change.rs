@@ -306,6 +306,7 @@ columns!(
     (A a, B b, C c, D d),
     (A a, B b, C c, D d, E e),
     (A a, B b, C c, D d, E e, F f),
+    (A a, B b, C c, D d, E e, F f, G g),
 );
 
 pub(super) fn integer<N>(n: N) -> Result<BindParam>

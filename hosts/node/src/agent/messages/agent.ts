@@ -45,6 +45,17 @@ export interface Author {
     readonly name?: string;
 }
 
+/** A file of a parcel, as its receiver is told of it. */
+export interface ParcelFile {
+    readonly parcel: number;
+    /** The file's place in the parcel, from 0. */
+    readonly file: number;
+    /** Where the receiver keeps it, under its `inbox/`. */
+    readonly path: string;
+    /** A `u64`: a number while it is a safe integer, else a bigint. */
+    readonly size: number | bigint;
+}
+
 export interface Attached {
     readonly id: string;
     readonly at?: number;
@@ -69,15 +80,21 @@ export type Input =
       }
     | {
           readonly type: "worker_answer";
-          readonly worker: AgentNumber;
+          readonly from: Author;
           readonly text: string;
       }
-    | { readonly type: "letter"; readonly from: Author; readonly text: string }
+    | {
+          readonly type: "letter";
+          readonly from: Author;
+          readonly text: string;
+          readonly files?: readonly ParcelFile[];
+      }
     | {
           readonly type: "question";
           readonly letter: LetterId;
           readonly from: Author;
           readonly text: string;
+          readonly files?: readonly ParcelFile[];
       }
     | {
           readonly type: "answer";
@@ -111,6 +128,8 @@ export interface Place {
     readonly roads: readonly AgentNumber[];
     readonly tools_off: readonly ToolName[];
     readonly folder?: string;
+    /** Whether its hamlet runs in manual mode. */
+    readonly manual: boolean;
 }
 
 export interface Fill {
@@ -132,6 +151,7 @@ export interface Brief {
     /** An errand's whole prompt; absent for a worker. */
     readonly instructions?: string;
     readonly text: string;
+    /** Absent is every built-in for a worker, and none for an errand. */
     readonly tools?: readonly { readonly name: string }[];
     readonly model?: string;
 }
@@ -493,6 +513,17 @@ const PLACE = obj(
         roads: arr(U32),
         tools_off: arr(obj({ name: str() }, OPEN)),
         folder: opt(str()),
+        manual: opt(bool()),
+    },
+    OPEN,
+);
+
+const PARCEL_FILE = obj(
+    {
+        parcel: U32,
+        file: U32,
+        path: str(),
+        size: union([int(), bigint()]),
     },
     OPEN,
 );
@@ -556,10 +587,24 @@ const INPUT = union([
         OPEN,
     ),
     obj({ type: lit("notice"), text: str(), conversation: opt(str()) }, OPEN),
-    obj({ type: lit("worker_answer"), worker: U32, text: str() }, OPEN),
-    obj({ type: lit("letter"), from: AUTHOR, text: str() }, OPEN),
+    obj({ type: lit("worker_answer"), from: AUTHOR, text: str() }, OPEN),
     obj(
-        { type: lit("question"), letter: U32, from: AUTHOR, text: str() },
+        {
+            type: lit("letter"),
+            from: AUTHOR,
+            text: str(),
+            files: opt(arr(PARCEL_FILE)),
+        },
+        OPEN,
+    ),
+    obj(
+        {
+            type: lit("question"),
+            letter: U32,
+            from: AUTHOR,
+            text: str(),
+            files: opt(arr(PARCEL_FILE)),
+        },
         OPEN,
     ),
     obj(
@@ -786,6 +831,7 @@ function placeOf({
     roads,
     tools_off,
     folder,
+    manual,
 }: Static<typeof PLACE>): Place {
     return {
         version,
@@ -794,6 +840,7 @@ function placeOf({
         roads,
         tools_off: tools_off.map(({ name }) => ({ name })),
         ...(folder === undefined ? {} : { folder }),
+        manual: manual ?? false,
     };
 }
 

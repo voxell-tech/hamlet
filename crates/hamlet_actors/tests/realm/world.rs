@@ -19,8 +19,9 @@ use hamlet_messages::realm::workers::{
     Ended, SetAllowance, StartWorker, Started, WorkerDone,
 };
 use hamlet_messages::realm::world::{
-    AgentSeen, GrantSeen, ObjectionSource, ReachSeen, Revision, Seen,
-    Starter, Status, WaitId, WaitKind, WaitSeen,
+    AgentSeen, GrantSeen, GrantSource, Lasting, ObjectionSource,
+    ReachSeen, Revision, Seen, Starter, Status, WaitId, WaitKind,
+    WaitSeen,
 };
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, End, HireAnswer, HowEnded, Left,
@@ -39,8 +40,8 @@ use tokio::task::JoinSet;
 use super::asking::chief_task;
 use super::{
     Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
-    decoded, founded, hamlet_with, hire, needs, say, standing,
-    submits_to, tell, tool, until,
+    decoded, done_to, founded, hamlet_with, hire, needs, say, sent,
+    standing, submits_to, tell, tool, until,
 };
 
 pub(super) async fn seen_until(
@@ -80,7 +81,7 @@ async fn end_the_hire(realm: &Realm) {
         )
         .await
         .unwrap();
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -145,6 +146,9 @@ async fn the_revision_survives_a_restart() {
             subject: "rm -rf build".to_owned(),
             kind: WaitKind::Tool {
                 call: CallId("c1".to_owned()),
+                danger: Need::Command,
+                always: Some(Lasting::Session),
+                change: None,
             },
         }]
     );
@@ -417,8 +421,8 @@ async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
     let Started::Started { worker } = started else {
         panic!("hire 3 starts a worker: {started:?}");
     };
-    realm.live(worker).await;
-    worker
+    realm.live(worker.agent).await;
+    worker.agent
 }
 
 async fn chief<A: ChiefRequest>(realm: &Realm, act: A) -> A::Answer {
@@ -441,11 +445,11 @@ async fn the_world_shows_grants_waits_and_workers() {
     let four = started_by_three(&realm, "w1").await;
     let mut chiefs = start("tidy the shed");
     chiefs.hamlet = Some(hamlet.clone());
-    let Started::Started { worker: five } =
-        chief(&realm, chiefs).await
+    let Started::Started { worker } = chief(&realm, chiefs).await
     else {
         panic!("the chief starts a worker");
     };
+    let five = worker.agent;
     realm.live(five).await;
     revisions.push(realm.ask(&ReadWorld).await.unwrap().revision);
     let named = SetNickname {
@@ -510,11 +514,12 @@ async fn the_world_shows_grants_waits_and_workers() {
         [GrantSeen {
             agent: THREE,
             permission: Permission::Network,
+            source: GrantSource::Grant,
         }]
     );
     assert_eq!(
         (named, model, allowance),
-        (Done::Done, Done::Done, Done::Done)
+        (done_to(THREE), Done::Done, Done::Done)
     );
     assert_eq!(revoked, Done::Done);
     let three = agent(&shown, THREE).unwrap();
@@ -656,7 +661,10 @@ async fn every_wait_kind_reads_in_the_world() {
                 1,
                 THREE,
                 WaitKind::Tool {
-                    call: CallId("c1".to_owned())
+                    call: CallId("c1".to_owned()),
+                    danger: Need::Command,
+                    always: Some(Lasting::Session),
+                    change: None,
                 }
             ),
             (
@@ -800,7 +808,7 @@ async fn an_unrelated_commit_leaves_the_world_as_it_was() {
     .await;
     let after = realm.ask(&ReadWorld).await.unwrap();
 
-    assert_eq!((told, asked_again), (Done::Done, Done::Done));
+    assert_eq!((told, asked_again), (sent(THREE), Done::Done));
     assert!(matches!(revoked, Done::Refused { .. }), "{revoked:?}");
     assert_eq!((before.grants.len(), before.waits.len()), (1, 1));
     assert_eq!(after, before);

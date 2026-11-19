@@ -202,7 +202,6 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     for (case, why) in [
         ("running", RetryRefusal::Running),
         ("answered", RetryRefusal::Answered),
-        ("no_turn", RetryRefusal::NoTurn),
     ] {
         fixtures.answer(
             &format!("agent/retry.refused.{case}"),

@@ -16,7 +16,7 @@ use tokio::task::JoinSet;
 
 use super::{
     Forward, MAYOR, Realm, call, charge, chief_hires, decoded,
-    error_code, hamlet_with, hire, limit, may_spend, standing,
+    error_code, hamlet_with, hire, limit, may_spend, shown, standing,
 };
 
 async fn reset(realm: &Realm, payer: Payer) -> Done<HamletRefusal> {
@@ -149,7 +149,12 @@ async fn an_ended_agent_may_not_spend_or_charge() {
     let (realm, hamlet) = hamlet_with(0).await;
     let three = AgentNumber(3);
     let hired = chief_hires(&realm, &hamlet, hire(None)).await;
-    assert_eq!(hired, HireAnswer::Hired { agent: three });
+    assert_eq!(
+        hired,
+        HireAnswer::Hired {
+            agent: shown(three)
+        }
+    );
     realm.live(three).await;
     let task = standing(&realm, three);
     limit(

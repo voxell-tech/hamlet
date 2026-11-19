@@ -18,8 +18,8 @@ use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, founded, hires, needs, to,
-    tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, done_to, founded, hires,
+    needs, shown, to, tool, until, words,
 };
 
 const FOLDER: &str = "/work/mill";
@@ -226,7 +226,12 @@ async fn an_always_on_a_workers_network_wait_gives_it_the_network() {
         hamlet: None,
     };
     let started = realm.tool(THREE, &tool("w", start)).await.unwrap();
-    assert_eq!(started, Started::Started { worker: FOUR });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: shown(FOUR)
+        }
+    );
 
     let asked = NeedsChief {
         needs: vec![Need::Network],
@@ -274,7 +279,7 @@ async fn an_end_revokes_the_agents_grants() {
     .await;
     let revoked = realm.ask(&revoke(THREE)).await.unwrap();
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
     assert_eq!(
         revoked,
         Done::Refused {
@@ -340,7 +345,12 @@ async fn an_end_revokes_a_workers_grants() {
         hamlet: None,
     };
     let started = realm.tool(THREE, &tool("w", start)).await.unwrap();
-    assert_eq!(started, Started::Started { worker: FOUR });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: shown(FOUR)
+        }
+    );
     let asked = NeedsChief {
         needs: vec![Need::Network],
         ..needs(FOUR, "c1")

@@ -6,16 +6,18 @@ use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
     Ask, Asked, Done, End, FoundAnswer, HowEnded, Left, LetterId,
-    LetterRefusal, Named, Reply, ReplyRefusal, Standing, Tell,
+    LetterRefusal, Named, Reply, ReplyRefusal, Sent, Standing, Tell,
+    Waiting,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
-    founded, hamlet_with, hires, paid, purpose_of, say, seen_submits,
-    standing, submits_to, tell, to, tool, until, words,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, done_to, error_code,
+    found, founded, hamlet_with, hires, paid, purpose_of, say,
+    seen_submits, sent, shown, standing, submits_to, tell, to, tool,
+    until, words,
 };
 
 fn from(agent: AgentNumber) -> Author {
@@ -62,7 +64,10 @@ async fn a_repeated_tell_keeps_one_letter() {
         })
         .await;
 
-    assert_eq!([first, again], [Done::Done, Done::Done]);
+    assert_eq!(
+        [first, again],
+        [self::sent(THREE), self::sent(THREE)]
+    );
     assert_eq!(error_code(reused), "message.id_reused");
     assert_eq!(
         letters,
@@ -98,8 +103,8 @@ async fn a_tell_with_no_road_is_refused() {
     let four_to_three =
         realm.tool(FOUR, &tool("t1", tell(to(THREE), "hi"))).await;
 
-    let no_road = |to| Done::Refused {
-        why: Act(LetterRefusal::NoRoad { to }),
+    let no_road = |to| Sent::Refused {
+        why: Act(LetterRefusal::NoRoad { to: shown(to) }),
     };
     assert_eq!(three_to_four.unwrap(), no_road(FOUR));
     assert_eq!(four_to_three.unwrap(), no_road(THREE));
@@ -121,8 +126,8 @@ async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
 
     assert_eq!(
         told.unwrap(),
-        Done::Refused {
-            why: Act(LetterRefusal::NoRoad { to: FOUR })
+        Sent::Refused {
+            why: Act(LetterRefusal::NoRoad { to: shown(FOUR) })
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -170,7 +175,11 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
         barn,
         FoundAnswer::Founded { mayor: THREE, .. }
     ));
-    assert_eq!((told, asked), (Done::Done, Done::Done));
+    assert_eq!(told, sent(MAYOR));
+    assert!(
+        matches!(&asked, Waiting::Waiting { on, .. } if on.agent == THREE),
+        "{asked:?}"
+    );
     assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
     assert_eq!(
         (
@@ -209,31 +218,33 @@ async fn a_tell_is_refused_for_its_ends() {
     let to_ended = told(THREE, "t3", tell(to(FOUR), "hi")).await;
     let from_ended = told(FOUR, "t3", tell(to(THREE), "hi")).await;
 
-    let refused = |why| Done::Refused { why: Act(why) };
+    let refused = |why| Sent::Refused { why: Act(why) };
     assert_eq!(to_self, refused(LetterRefusal::Yourself));
     assert_eq!(empty, refused(LetterRefusal::Empty));
     assert_eq!(
         [to_hand, to_mayor],
         [
-            refused(LetterRefusal::NoRoad { to: Hand::NUMBER }),
-            refused(LetterRefusal::NoRoad { to: MAYOR })
+            refused(LetterRefusal::NoRoad {
+                to: shown(Hand::NUMBER)
+            }),
+            refused(LetterRefusal::NoRoad { to: shown(MAYOR) })
         ]
     );
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(FOUR));
     let left = Left {
-        how: HowEnded::ByALead { lead: THREE },
+        how: HowEnded::ByALead { lead: shown(THREE) },
         why: Some("done".to_owned()),
     };
     assert_eq!(
         to_ended,
         refused(LetterRefusal::Left {
-            to: FOUR,
+            to: shown(FOUR),
             left: left.clone()
         })
     );
     assert_eq!(
         from_ended,
-        Done::Refused {
+        Sent::Refused {
             why: Stood(Standing::YouLeft {
                 how: left.how,
                 why: left.why
@@ -273,11 +284,11 @@ async fn a_tell_to_a_hire_still_hiring_waits_for_its_steps() {
 
     assert_eq!(
         held,
-        Done::Refused {
-            why: Act(LetterRefusal::StillHiring { to: THREE })
+        Sent::Refused {
+            why: Act(LetterRefusal::StillHiring { to: shown(THREE) })
         }
     );
-    assert_eq!(sent, Done::Done);
+    assert_eq!(sent, self::sent(THREE));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -322,7 +333,13 @@ async fn an_answer_reaches_the_asker_once() {
         .await;
     let answers = seen_submits(&realm, MAYOR, 2).await;
 
-    assert_eq!(asked, Done::Done);
+    assert_eq!(
+        asked,
+        Waiting::Waiting {
+            on: shown(THREE),
+            question: *letter,
+        }
+    );
     assert_eq!((asker, text.as_str()), (&from(MAYOR), "why?"));
     assert_eq!(
         [first.unwrap(), second.unwrap()],
@@ -398,7 +415,7 @@ async fn two_letters_to_one_hire_reach_it_in_the_order_told() {
     realm.seen.release(Callee::Submit);
     let seen = format!("{:?}", seen_submits(&realm, THREE, 2).await);
 
-    assert_eq!((first, second), (Done::Done, Done::Done));
+    assert_eq!((first, second), (sent(THREE), sent(THREE)));
     let (dig, rest) =
         (seen.find("dig the well"), seen.find("then rest"));
     assert!(dig.is_some() && dig < rest, "{seen}");

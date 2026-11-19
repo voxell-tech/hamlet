@@ -152,6 +152,7 @@ test("a worker is offered only the built-in tools its brief names", async (t) =>
             list_tools: () => ({
                 tools: [added("lint"), added("deploy")],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
         },
         realm: { worker_done: () => null },
@@ -209,7 +210,13 @@ test("a place sent to an errand offers it no tool", async (t) => {
     });
     t.after(() => agent.stop());
     await until(() => named(sent, "read_copies").length === 1);
-    const place: Place = { version: 2, hires: [], roads: [], tools_off: [] };
+    const place: Place = {
+        version: 2,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+    };
     await agent.actions.place(agent.by(from.realm), place);
     copies.resolve({});
     await until(() => named(sent, "errand_done").length === 1);

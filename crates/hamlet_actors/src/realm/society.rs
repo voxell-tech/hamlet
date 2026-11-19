@@ -143,11 +143,18 @@ impl Agreeing {
     }
 }
 
-/// What a mayor's half came to.
+/// What a mayor's half of the road between `mine` and `theirs` came
+/// to.
 #[derive(Serialize, Deserialize)]
 pub(super) enum Outcome {
-    Waiting,
-    Laid,
+    Waiting {
+        mine: AgentNumber,
+        theirs: AgentNumber,
+    },
+    Laid {
+        mine: AgentNumber,
+        theirs: AgentNumber,
+    },
 }
 
 impl Act<Agent> for AgreeRoad {
@@ -212,24 +219,26 @@ impl Act<Agent> for AgreeRoad {
         }
         let (a, b) = (mine.agent.agent, theirs.agent.agent);
         if agreeing.has_road {
-            return refuse(AgreeRefusal::RoadExists { a, b });
+            return refuse(AgreeRefusal::RoadExists {
+                a: record::agent_name(a),
+                b: record::agent_name(b),
+            });
         }
         let Some(first) = agreeing.agreed_there else {
             return Decision::Change(
-                Decided::new(Outcome::Waiting).change(
-                    Change::Agree {
+                Decided::new(Outcome::Waiting { mine: a, theirs: b })
+                    .change(Change::Agree {
                         a,
                         b,
                         by: by.0,
                         why: self.why.clone(),
-                    },
-                ),
+                    }),
             );
         };
         let (here, there) =
             if hamlets[0] == own { (a, b) } else { (b, a) };
         Decision::Change(
-            Decided::new(Outcome::Laid)
+            Decided::new(Outcome::Laid { mine: a, theirs: b })
                 .change(laid::Change::Agreed {
                     a,
                     b,
@@ -253,8 +262,14 @@ impl Act<Agent> for AgreeRoad {
 
     fn answer(&self, done: Outcome, _made: &Made) -> Self::Output {
         match done {
-            Outcome::Waiting => Agreed::Waiting,
-            Outcome::Laid => Agreed::Laid,
+            Outcome::Waiting { mine, theirs } => Agreed::Waiting {
+                mine: record::agent_name(mine),
+                theirs: record::agent_name(theirs),
+            },
+            Outcome::Laid { mine, theirs } => Agreed::Laid {
+                mine: record::agent_name(mine),
+                theirs: record::agent_name(theirs),
+            },
         }
     }
 }

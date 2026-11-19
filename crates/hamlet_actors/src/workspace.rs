@@ -318,7 +318,7 @@ impl Handler<ListTools> for Workspace {
         listed: ListTools,
     ) -> Result<ToolList> {
         sender(&ctx, &listed)?;
-        Ok(tools::list(&self.home))
+        Ok(tools::list(&self.home, self.sandbox))
     }
 }
 

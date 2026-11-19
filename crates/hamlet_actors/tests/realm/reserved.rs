@@ -7,8 +7,8 @@ use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LayRoad,
-    LeadRefusal, Limit, NeedsChief, ReservedAct, SetLimits,
-    TakeUpRoad, Tool,
+    LeadRefusal, Limit, NeedsChief, Refusable, ReservedAct,
+    SetLimits, TakeUpRoad, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -19,7 +19,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::asking::chief_task;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    needs, seen_submits, submits_to, to, tool,
+    needs, seen_submits, shown, submits_to, to, tool,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -40,10 +40,10 @@ async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
     assert_eq!(set, Done::Done);
 }
 
-fn kept<R>(wait: u64) -> Done<LeadRefusal<R>> {
-    Done::Refused {
-        why: LeadRefusal::Gate(Gate::Reserved { wait: WaitId(wait) }),
-    }
+fn kept<A: Refusable<Why = LeadRefusal<R>>, R>(wait: u64) -> A {
+    A::refused(LeadRefusal::Gate(Gate::Reserved {
+        wait: WaitId(wait),
+    }))
 }
 
 /// `act` called in a turn of conversation `c`, on `task`.
@@ -469,7 +469,12 @@ async fn a_workers_act_is_never_reserved() {
 
     let hiring = realm.tool(THREE, &tool("c1", hire(None))).await;
 
-    assert_eq!(started, Started::Started { worker: THREE });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: shown(THREE)
+        }
+    );
     let hiring = hiring.unwrap();
     assert!(
         !matches!(

@@ -123,8 +123,10 @@ function named(given: string): Named | Invalid {
             ? { invalid: `\`${address}\` is not an address` }
             : { type: "mayor_of", hamlet };
     }
-    const agent = numberOf("hire", address) ?? numberOf("worker", address);
+    const agent = numberOf("hire", address);
     if (agent !== undefined) return { type: "agent", agent };
+    const worker = numberOf("worker", address);
+    if (worker !== undefined) return { type: "worker", worker };
     return { invalid: `\`${address}\` is not an address` };
 }
 
@@ -549,7 +551,7 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             };
         },
         said: (answer) =>
-            `Hired \`hire#${answer.agent}\`. It is still being hired.`,
+            `Hired \`hire#${answer.agent.agent}\`. It is still being hired.`,
     },
     end: {
         name: "end_hire",

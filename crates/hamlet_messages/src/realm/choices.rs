@@ -5,8 +5,8 @@ use hamlet_protocol::Effort;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AgentNumber, ChiefRequest, Done, HamletId, LeadRefusal, Left,
-    Named, SocietyTool, ToolCall,
+    AgentName, ChiefRequest, Done, DoneTo, HamletId, LeadRefusal,
+    Left, Named, SocietyTool, ToolCall,
 };
 
 /// Sets the name a hire is shown by; absent gives it back its own.
@@ -27,7 +27,7 @@ impl ChiefRequest for SetNickname {
 
 impl ToolCall for SetNickname {
     const TOOL: SocietyTool = SocietyTool::SetNickname;
-    type Answer = Done<LeadRefusal<ChoiceRefusal>>;
+    type Answer = DoneTo<LeadRefusal<ChoiceRefusal>>;
 }
 
 /// Sets the model of an agent, or of a hamlet's agents that choose
@@ -55,7 +55,7 @@ impl ChiefRequest for SetModel {
 
 impl ToolCall for SetModel {
     const TOOL: SocietyTool = SocietyTool::SetModel;
-    type Answer = Done<LeadRefusal<ChoiceRefusal>>;
+    type Answer = DoneTo<LeadRefusal<ChoiceRefusal>>;
 }
 
 /// The hire or hamlet whose model a [`SetModel`] sets. Only a chief
@@ -82,8 +82,8 @@ pub enum ChoiceRefusal {
     NoSuchAgent { address: String },
     #[error("no hamlet has the id `{}`", id.0)]
     NoSuchHamlet { id: HamletId },
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
+    #[error("`{hire}` has left: {left}")]
+    Left { hire: AgentName, left: Left },
     #[error("A nickname is one line of at most 24 letters.")]
     BadNickname,
     #[error("`{name}` is not a hire")]
@@ -91,10 +91,9 @@ pub enum ChoiceRefusal {
     #[error("no model is named `{model}`")]
     NoSuchModel { model: String },
     #[error(
-        "a chief chose `hire#{}`'s model; only a chief may change it",
-        hire.0
+        "a chief chose `{hire}`'s model; only a chief may change it"
     )]
-    ChiefChose { hire: AgentNumber },
+    ChiefChose { hire: AgentName },
     #[error("only a chief sets a hamlet's model")]
     HamletFromAnAgent,
 }

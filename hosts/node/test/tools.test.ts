@@ -190,6 +190,7 @@ test("a relative path starts from the project", {
                 roads: [],
                 tools_off: [],
                 folder: "/work",
+                manual: false,
             },
             copies: {},
         },
@@ -870,6 +871,7 @@ test("a tool a chief added by hand is listed after the wake and runs under its c
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
             run: () => ({ type: "running", command: 9 }),
         },
@@ -1068,6 +1070,7 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
             run: (message) => {
                 const { program } = message;

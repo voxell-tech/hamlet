@@ -22,22 +22,28 @@ use hamlet_messages::realm::oversight::{
 use hamlet_messages::realm::parcels::{
     Measure, ParcelFile, ParcelId,
 };
+use hamlet_messages::realm::prompt::{
+    ConversationKind, PlaceText, ReadPlace,
+};
 use hamlet_messages::realm::world::{
-    AgentSeen, GrantSeen, HamletSeen, ObjectionSource, ReachSeen,
-    Revision, RoadSeen, Seen, Spend, Starter, Status, WaitId,
-    WaitKind, WaitSeen,
+    AgentSeen, GrantSeen, GrantSource, HamletSeen, Lasting,
+    ObjectionSource, ReachSeen, Revision, RoadSeen, Seen, Spend,
+    Starter, Status, WaitId, WaitKind, WaitSeen,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Ask, Asked, Done,
-    Enclosed, End, EndRefusal, Found, FoundAnswer, FoundRefusal,
-    Gate, HamletId, HamletRefusal, Hire, HireAnswer, HireRefusal,
-    HowEnded, LayRefusal, LayRoad, LeadRefusal, Left, LetterId,
-    LetterRefusal, Limit, Named, OnlyAHire, ProfileId, Rank,
-    Refusable, Reply, ReplyRefusal, RequestRoad, RequestRoadRefusal,
-    ReservedAct, Review, Seat, SetLimits, SetTier, SetTools,
-    SocietyTool, Standing, TakeUpRefusal, TakeUpRoad, Tell, Tier,
-    TierRefusal, Tool, ToolName,
+    AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Ask,
+    Asked, Done, DoneTo, Enclosed, End, EndRefusal, Found,
+    FoundAnswer, FoundRefusal, Gate, HamletId, HamletRefusal, Hire,
+    HireAnswer, HireRefusal, HowEnded, LayRefusal, LayRoad,
+    LeadRefusal, Left, LetterId, LetterRefusal, Limit, Named,
+    OnlyAHire, ProfileId, Rank, Refusable, Reply, ReplyRefusal,
+    RequestRoad, RequestRoadRefusal, ReservedAct, Review, RoadDone,
+    Seat, Sent, SetLimits, SetTier, SetTools, SocietyTool, Standing,
+    TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal, Tool,
+    ToolName, Waiting,
 };
+use hamlet_messages::workspace::files::EditDiff;
+use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, RealmTask,
 };
@@ -96,6 +102,11 @@ pub fn enums() -> Vec<Cases> {
         tagged::<WaitKind>(),
         named::<ObjectionSource>(),
         tagged::<Starter>(),
+        tagged::<Sent<AgentRefusal<LetterRefusal>>>(),
+        tagged::<Waiting<AgentRefusal<LetterRefusal>>>(),
+        named::<ConversationKind>(),
+        named::<Lasting>(),
+        named::<GrantSource>(),
     ]
     .into_iter()
     .chain(society::enums())
@@ -152,6 +163,7 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     the_limits_and_the_spending(fixtures);
     the_clients_calls(fixtures);
     the_calls_to_agents_and_profiles(fixtures);
+    the_prompt_sections(fixtures);
     society::the_oversight_and_the_settings(fixtures);
     parcels::the_parcels(fixtures);
     profiles::the_profiles_through_the_realm(fixtures);
@@ -196,6 +208,51 @@ fn done<W>(
     answers(fixtures, name, [("done", Done::Done)], refusals);
 }
 
+/// The answers of an act on the hire `HIRE`, the refusals beside.
+fn done_to<W>(
+    fixtures: &mut Fixtures,
+    name: &str,
+    refusals: Vec<(&'static str, W)>,
+) where
+    W: Serialize
+        + DeserializeOwned
+        + PartialEq
+        + Debug
+        + Display
+        + 'static,
+{
+    let done = DoneTo::Done { agent: shown(HIRE) };
+    answers(fixtures, name, [("done", done)], refusals);
+}
+
+/// The answers of an act on the road between `HIRE` and agent 13.
+fn road_done<W>(
+    fixtures: &mut Fixtures,
+    name: &str,
+    refusals: Vec<(&'static str, W)>,
+) where
+    W: Serialize
+        + DeserializeOwned
+        + PartialEq
+        + Debug
+        + Display
+        + 'static,
+{
+    let done = RoadDone::Done {
+        a: shown(HIRE),
+        b: shown(AgentNumber(13)),
+    };
+    answers(fixtures, name, [("done", done)], refusals);
+}
+
+/// `agent` as chiefs and agents are shown it.
+fn shown(agent: AgentNumber) -> AgentName {
+    AgentName {
+        agent,
+        name: format!("hire#{} (Ada)", agent.0),
+    }
+}
+
 /// The refusals of an agent's act.
 fn by_an_agent<R>(
     acts: Vec<(&'static str, R)>,
@@ -217,7 +274,7 @@ fn by_a_lead<R>(
         .into_iter()
         .chain([(
             "not_a_lead",
-            LeadRefusal::Rank(Rank::NotALead { hire: HIRE }),
+            LeadRefusal::Rank(Rank::NotALead { hire: shown(HIRE) }),
         )])
         .chain(
             acts.into_iter()
@@ -246,7 +303,7 @@ fn callers<U: From<Standing> + From<Gate>>() -> [(&'static str, U); 5]
 
 fn you_left() -> Standing {
     Standing::YouLeft {
-        how: HowEnded::ByALead { lead: MAYOR },
+        how: HowEnded::ByALead { lead: shown(MAYOR) },
         why: Some("the docs are done".into()),
     }
 }
@@ -425,12 +482,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             ),
             (
                 "other_hamlet",
-                HireRefusal::OtherHamlet { lead: MAYOR },
+                HireRefusal::OtherHamlet { lead: shown(MAYOR) },
             ),
             (
                 "lead_left",
                 HireRefusal::LeadLeft {
-                    lead: HIRE,
+                    lead: shown(HIRE),
                     left: left(HowEnded::ByTheChief),
                 },
             ),
@@ -465,13 +522,13 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
     answers(
         fixtures,
         "realm/chief_hire",
-        [("hired", HireAnswer::Hired { agent: HIRE })],
+        [("hired", HireAnswer::Hired { agent: shown(HIRE) })],
         hire_refusals(),
     );
     answers(
         fixtures,
         "realm/hire",
-        [("hired", HireAnswer::Hired { agent: HIRE })],
+        [("hired", HireAnswer::Hired { agent: shown(HIRE) })],
         by_a_lead(
             hire_refusals()
                 .into_iter()
@@ -493,6 +550,15 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             why: None,
         }),
     );
+    fixtures.args(
+        "realm/end.worker",
+        &tool(End {
+            hire: Named::Worker {
+                worker: AgentNumber(15),
+            },
+            why: None,
+        }),
+    );
     let end_refusals = || {
         vec![
             (
@@ -506,7 +572,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             (
                 "left",
                 EndRefusal::Left {
-                    hire: HIRE,
+                    hire: shown(HIRE),
                     left: Left {
                         how: HowEnded::ByTheHand,
                         why: None,
@@ -516,7 +582,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         ]
     };
     done(fixtures, "realm/chief_end", end_refusals());
-    done(fixtures, "realm/end", by_a_lead(end_refusals()));
+    done_to(fixtures, "realm/end", by_a_lead(end_refusals()));
     fixtures.args(
         "realm/chief_seat",
         &asked(Seat {
@@ -540,9 +606,8 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             why: Some(WHY.into()),
         }),
     );
-    for name in ["realm/chief_seat", "realm/seat"] {
-        done(fixtures, name, only_a_hire());
-    }
+    done(fixtures, "realm/chief_seat", only_a_hire());
+    done_to(fixtures, "realm/seat", only_a_hire());
 }
 
 fn the_letters(fixtures: &mut Fixtures) {
@@ -607,19 +672,39 @@ fn the_letters(fixtures: &mut Fixtures) {
                     address: "hire#9".to_owned(),
                 },
             ),
-            ("no_road", LetterRefusal::NoRoad { to: HIRE }),
-            ("still_hiring", LetterRefusal::StillHiring { to: HIRE }),
+            ("no_road", LetterRefusal::NoRoad { to: shown(HIRE) }),
+            (
+                "still_hiring",
+                LetterRefusal::StillHiring { to: shown(HIRE) },
+            ),
             (
                 "left",
                 LetterRefusal::Left {
-                    to: HIRE,
+                    to: shown(HIRE),
                     left: left(HowEnded::ByTheChief),
                 },
             ),
+            ("withdrawn", LetterRefusal::Withdrawn),
         ]
     };
-    done(fixtures, "realm/tell", by_an_agent(letter_refusals()));
-    done(fixtures, "realm/ask", by_an_agent(letter_refusals()));
+    answers(
+        fixtures,
+        "realm/tell",
+        [("sent", Sent::Sent { to: shown(HIRE) })],
+        by_an_agent(letter_refusals()),
+    );
+    answers(
+        fixtures,
+        "realm/ask",
+        [(
+            "waiting",
+            Waiting::Waiting {
+                on: shown(HIRE),
+                question: LetterId(5),
+            },
+        )],
+        by_an_agent(letter_refusals()),
+    );
     fixtures.args(
         "realm/reply",
         &Reply {
@@ -656,8 +741,8 @@ fn only_a_hire() -> Vec<(&'static str, OnlyAHire)> {
         (
             "left",
             OnlyAHire::Left {
-                hire: HIRE,
-                left: left(HowEnded::ByALead { lead: MAYOR }),
+                hire: shown(HIRE),
+                left: left(HowEnded::ByALead { lead: shown(MAYOR) }),
             },
         ),
     ]
@@ -729,15 +814,15 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             (
                 "left",
                 LayRefusal::Left {
-                    hire: HIRE,
+                    hire: shown(HIRE),
                     left: left(HowEnded::ByTheHand),
                 },
             ),
             (
                 "road_exists",
                 LayRefusal::RoadExists {
-                    a: HIRE,
-                    b: AgentNumber(13),
+                    a: shown(HIRE),
+                    b: shown(AgentNumber(13)),
                 },
             ),
             (
@@ -750,7 +835,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         ]
     };
     done(fixtures, "realm/chief_lay_road", lay_refusals());
-    done(fixtures, "realm/lay_road", by_a_lead(lay_refusals()));
+    road_done(fixtures, "realm/lay_road", by_a_lead(lay_refusals()));
     fixtures.args(
         "realm/agree_road",
         &tool(AgreeRoad {
@@ -772,7 +857,22 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     answers(
         fixtures,
         "realm/agree_road",
-        [("waiting", Agreed::Waiting), ("laid", Agreed::Laid)],
+        [
+            (
+                "waiting",
+                Agreed::Waiting {
+                    mine: shown(HIRE),
+                    theirs: shown(AgentNumber(31)),
+                },
+            ),
+            (
+                "laid",
+                Agreed::Laid {
+                    mine: shown(HIRE),
+                    theirs: shown(AgentNumber(31)),
+                },
+            ),
+        ],
         by_an_agent(vec![
             ("not_a_mayor", AgreeRefusal::NotAMayor),
             (
@@ -787,8 +887,8 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             (
                 "road_exists",
                 AgreeRefusal::RoadExists {
-                    a: HIRE,
-                    b: AgentNumber(31),
+                    a: shown(HIRE),
+                    b: shown(AgentNumber(31)),
                 },
             ),
         ]),
@@ -815,11 +915,17 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
                     address: "hire#9".into(),
                 },
             ),
-            ("no_road", TakeUpRefusal::NoRoad { a: HIRE, b: MAYOR }),
+            (
+                "no_road",
+                TakeUpRefusal::NoRoad {
+                    a: shown(HIRE),
+                    b: shown(MAYOR),
+                },
+            ),
         ]
     };
     done(fixtures, "realm/chief_take_up_road", take_up_refusals());
-    done(
+    road_done(
         fixtures,
         "realm/take_up_road",
         by_a_lead(take_up_refusals()),
@@ -853,7 +959,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             ("no_lead", RequestRoadRefusal::NoLead),
             (
                 "still_hiring",
-                RequestRoadRefusal::StillHiring { lead: HIRE },
+                RequestRoadRefusal::StillHiring { lead: shown(HIRE) },
             ),
         ]),
     );
@@ -885,7 +991,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         }),
     );
     done(fixtures, "realm/chief_set_tools", only_a_hire());
-    done(fixtures, "realm/set_tools", by_a_lead(only_a_hire()));
+    done_to(fixtures, "realm/set_tools", by_a_lead(only_a_hire()));
 }
 
 fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
@@ -923,6 +1029,14 @@ fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
         &asked(SetLimits {
             hamlet: None,
             budget: vec![BudgetLimit::Cost { micros: 20_000_000 }],
+            limits: Vec::new(),
+        }),
+    );
+    fixtures.args(
+        "realm/chief_set_limits.no_caps",
+        &asked(SetLimits {
+            hamlet: Some(hamlet()),
+            budget: vec![BudgetLimit::NoCost, BudgetLimit::NoTime],
             limits: Vec::new(),
         }),
     );
@@ -1141,11 +1255,14 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                     address: "9".to_owned(),
                 },
             ),
-            ("still_hiring", SayRefusal::StillHiring { agent: HIRE }),
+            (
+                "still_hiring",
+                SayRefusal::StillHiring { agent: shown(HIRE) },
+            ),
             (
                 "left",
                 SayRefusal::Left {
-                    agent: HIRE,
+                    agent: shown(HIRE),
                     left: left(HowEnded::ByTheChief),
                 },
             ),
@@ -1292,10 +1409,18 @@ fn seen() -> Seen {
                 budget_ms: Some(3_600_000),
             },
         ],
-        grants: vec![GrantSeen {
-            agent: HIRE,
-            permission: Permission::Network,
-        }],
+        grants: vec![
+            GrantSeen {
+                agent: HIRE,
+                permission: Permission::Network,
+                source: GrantSource::Grant,
+            },
+            GrantSeen {
+                agent: MAYOR,
+                permission: Permission::Network,
+                source: GrantSource::Limits,
+            },
+        ],
     }
 }
 
@@ -1312,6 +1437,25 @@ fn waits() -> Vec<WaitSeen> {
             "curl https://example.com",
             WaitKind::Tool {
                 call: call("call-1"),
+                danger: Need::Network,
+                always: Some(Lasting::Grant),
+                change: None,
+            },
+        ),
+        wait(
+            6,
+            "notes.md",
+            WaitKind::Tool {
+                call: call("call-2"),
+                danger: Need::Edit,
+                always: Some(Lasting::Session),
+                change: Some(EditDiff {
+                    diff: "- 1 hello\n+ 1 goodbye".into(),
+                    patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                            @@\n-hello\n+goodbye\n"
+                        .into(),
+                    first_changed_line: Some(1),
+                }),
             },
         ),
         wait(
@@ -1361,6 +1505,45 @@ fn waits() -> Vec<WaitSeen> {
     ]
 }
 
+fn the_prompt_sections(fixtures: &mut Fixtures) {
+    for (name, conversation, peer) in [
+        ("realm/read_place", ConversationKind::Chat, None),
+        (
+            "realm/read_place.letters",
+            ConversationKind::Letters,
+            Some(HIRE),
+        ),
+        (
+            "realm/read_place.questions",
+            ConversationKind::Questions,
+            Some(HIRE),
+        ),
+        ("realm/read_place.other", ConversationKind::Other, None),
+    ] {
+        fixtures.args(name, &ReadPlace { conversation, peer });
+    }
+    fixtures.answer(
+        "realm/read_place",
+        &PlaceText {
+            place: "# Your place\nYou are `hire#12 (Ada)`.".into(),
+            realm: Some(
+                "# The realm\nNo hamlet is founded yet.".into(),
+            ),
+            scholars: Some(
+                "# The city's scholars\n- `scholar#2`".into(),
+            ),
+        },
+    );
+    fixtures.answer(
+        "realm/read_place.place_only",
+        &PlaceText {
+            place: "# Your place\nYou are `hand`.".into(),
+            realm: None,
+            scholars: None,
+        },
+    );
+}
+
 fn place() -> Place {
     Place {
         version: PlaceVersion(4),
@@ -1369,6 +1552,7 @@ fn place() -> Place {
         roads: vec![AgentNumber(14)],
         tools_off: vec![named_tool("found"), named_tool("bash")],
         folder: Some("/work/orchard".into()),
+        manual: true,
     }
 }
 
@@ -1380,6 +1564,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         roads: Vec::new(),
         tools_off: Vec::new(),
         folder: None,
+        manual: false,
     };
     for (name, kind, place, copies) in [
         ("hand", AgentKind::Hand, hands_place(), Default::default()),
@@ -1469,7 +1654,10 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
             "worker_answer",
             task(),
             Input::WorkerAnswer {
-                worker: AgentNumber(15),
+                from: Author {
+                    agent: AgentNumber(15),
+                    name: Some("worker#15".into()),
+                },
                 text: "Three links are broken".into(),
             },
         ),

@@ -42,7 +42,7 @@ impl Status {
             ("hiring", _) => Self::Hiring,
             ("live", _) => Self::Live,
             ("ended", Some(how)) => Self::Ended(Left {
-                how: serde_json::from_str(&how)?,
+                how: read_how(&how)?,
                 why,
             }),
             (other, how) => {
@@ -50,6 +50,27 @@ impl Status {
             }
         })
     }
+}
+
+/// `how` as a row keeps it: a lead by its number.
+pub(super) fn kept_how(how: &HowEnded) -> Result<String> {
+    let mut kept = serde_json::to_value(how)?;
+    if let HowEnded::ByALead { lead } = how {
+        kept["lead"] = lead.agent.0.into();
+    }
+    Ok(kept.to_string())
+}
+
+/// How an agent ended, from what its row keeps.
+pub(super) fn read_how(kept: &str) -> Result<HowEnded> {
+    let mut how: serde_json::Value = serde_json::from_str(kept)?;
+    if let Some(lead) =
+        how.get("lead").and_then(serde_json::Value::as_u64)
+    {
+        let lead = AgentNumber(u32::try_from(lead)?);
+        how["lead"] = serde_json::to_value(record::agent_name(lead))?;
+    }
+    Ok(serde_json::from_value(how)?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -262,7 +283,7 @@ pub(super) async fn resolve(
 ) -> Result<Option<AgentNumber>> {
     let hamlet = match named {
         Named::Hand => return Ok(Some(Hand::NUMBER)),
-        Named::Agent { agent } => {
+        Named::Agent { agent } | Named::Worker { worker: agent } => {
             return Ok(rows
                 .value::<u32>(
                     "SELECT id FROM agent WHERE id = ?1",
@@ -669,7 +690,7 @@ async fn set_ended(
              ended_why = ?3 WHERE id = ?1 AND status != 'ended'",
             vec![
                 number(agent),
-                BindParam::Text(serde_json::to_string(how)?),
+                BindParam::Text(kept_how(how)?),
                 why.map_or(BindParam::Null, BindParam::Text),
             ],
         )
@@ -749,6 +770,25 @@ mod tests {
 
     fn agents(nodes: &[Node]) -> Vec<AgentNumber> {
         nodes.iter().map(|node| node.agent).collect()
+    }
+
+    /// An ending by a lead keeps the lead's number, and reads back
+    /// naming it.
+    #[test]
+    fn an_end_by_a_lead_is_kept_by_the_leads_number() {
+        let by_three = r#"{"type":"by_a_lead","lead":3}"#;
+        let how = HowEnded::ByALead {
+            lead: record::agent_name(AgentNumber(3)),
+        };
+
+        let kept: serde_json::Value =
+            serde_json::from_str(&kept_how(&how).unwrap()).unwrap();
+        assert_eq!(read_how(by_three).unwrap(), how);
+        assert_eq!(
+            kept,
+            serde_json::from_str::<serde_json::Value>(by_three)
+                .unwrap()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

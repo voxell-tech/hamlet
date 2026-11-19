@@ -23,7 +23,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::chiefs::chief;
 use super::{
     Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, founded, hires,
-    paid, say, submits_to, tell, to, tool, until,
+    paid, say, sent, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -667,7 +667,7 @@ async fn a_failed_line_on_go_still_gives_the_held_letters() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!((told, ruled), (Done::Done, Done::Done));
+    assert_eq!((told, ruled), (sent(FOUR), Done::Done));
     assert_eq!(before, []);
     assert_eq!(letters, ["Wait for the chief."]);
     realm.host.shutdown().await.unwrap();

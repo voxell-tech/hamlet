@@ -106,8 +106,6 @@ pub enum RetryRefusal {
         "the last turn was answered; there is nothing to carry on"
     )]
     Answered,
-    #[error("this session has no turn to carry on")]
-    NoTurn,
 }
 
 /// Takes a session back to before a chief's line.

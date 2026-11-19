@@ -93,6 +93,7 @@ const HIRE: AgentInput = {
         roads: [5],
         tools_off: [{ name: "end" }, { name: "bash" }],
         folder: "/work",
+        manual: false,
     },
     copies: {},
 };

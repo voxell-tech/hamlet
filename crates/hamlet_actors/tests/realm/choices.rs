@@ -3,15 +3,16 @@ use hamlet_messages::realm::choices::{
 };
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::{
-    Done, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire, Rank,
-    SetTools,
+    Done, DoneTo, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
+    Rank, SetTools,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::Effort;
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, hamlet_with, to, tool, words,
+    FOUR, MAYOR, Realm, THREE, done_to, hamlet_with, shown, to, tool,
+    words,
 };
 
 fn nickname(name: Option<&str>, why: Option<&str>) -> SetNickname {
@@ -104,17 +105,19 @@ async fn a_nickname_is_set_and_cleared() {
     let after_set = nicknames(&realm).await;
     let cleared = chief(&realm, nickname(None, None)).await;
 
-    assert_eq!(set, Done::Done);
+    assert_eq!(set, done_to(THREE));
     assert_eq!(
         long,
-        Done::Refused {
+        DoneTo::Refused {
             why: LeadRefusal::Act(ChoiceRefusal::BadNickname)
         }
     );
     assert_eq!(
         upward,
-        Done::Refused {
-            why: LeadRefusal::Rank(Rank::NotALead { hire: MAYOR })
+        DoneTo::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: shown(MAYOR)
+            })
         }
     );
     assert_eq!(after_set, [(3, "Spade".to_owned())]);
@@ -169,15 +172,15 @@ async fn a_model_choice_is_kept() {
     );
     assert_eq!(
         overruled,
-        Done::Refused {
+        DoneTo::Refused {
             why: LeadRefusal::Act(ChoiceRefusal::ChiefChose {
-                hire: THREE
+                hire: shown(THREE)
             })
         }
     );
     assert_eq!(
         of_hamlet,
-        Done::Refused {
+        DoneTo::Refused {
             why: LeadRefusal::Act(ChoiceRefusal::HamletFromAnAgent)
         }
     );
@@ -201,7 +204,7 @@ async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
         )
         .await
         .unwrap();
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(FOUR));
 
     let tools = realm
         .tool(
@@ -240,21 +243,21 @@ async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
         .unwrap();
 
     let left = Left {
-        how: HowEnded::ByALead { lead: MAYOR },
+        how: HowEnded::ByALead { lead: shown(MAYOR) },
         why: None,
     };
     assert_eq!(
         tools,
-        Done::Refused {
+        DoneTo::Refused {
             why: LeadRefusal::Act(OnlyAHire::Left {
-                hire: FOUR,
+                hire: shown(FOUR),
                 left: left.clone()
             })
         }
     );
-    let refused = Done::Refused {
+    let refused = DoneTo::Refused {
         why: LeadRefusal::Act(ChoiceRefusal::Left {
-            hire: FOUR,
+            hire: shown(FOUR),
             left,
         }),
     };
@@ -331,7 +334,7 @@ async fn a_model_choice_keeps_the_parts_it_does_not_name() {
 
     assert_eq!(
         done,
-        (Done::Done, Done::Done, Done::Done, Done::Done)
+        (Done::Done, done_to(THREE), Done::Done, done_to(THREE))
     );
     assert_eq!(
         model_choices(&realm).await,
@@ -409,8 +412,8 @@ async fn a_leads_choice_changes_only_the_model() {
     )
     .await;
 
-    assert_eq!(done, (Done::Done, Done::Done, Done::Done));
-    assert_eq!(modelled, Done::Done);
+    assert_eq!(done, (done_to(THREE), Done::Done, Done::Done));
+    assert_eq!(modelled, done_to(THREE));
     assert_eq!(quiet, before);
     assert_eq!(
         lines().await[before.len()..],

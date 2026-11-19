@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank, Tool,
+    Asked, Done, DoneTo, End, EndRefusal, FoundAnswer, HamletId,
+    Hire, HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left,
+    Named, Rank, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -13,8 +13,8 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, chief_hires, error_code, found, founded,
-    hire, hired, paid, standing, tool, until,
+    Callee, MAYOR, Realm, chief_hires, done_to, error_code, found,
+    founded, hire, hired, paid, shown, standing, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -34,7 +34,7 @@ fn end(agent: u32) -> End {
 
 fn not_a_lead<R>(agent: u32) -> LeadRefusal<R> {
     LeadRefusal::Rank(Rank::NotALead {
-        hire: AgentNumber(agent),
+        hire: shown(AgentNumber(agent)),
     })
 }
 
@@ -79,9 +79,9 @@ async fn a_lead_hires_and_ends_only_under_itself() {
     );
     assert_eq!(
         four_ends.unwrap(),
-        Done::Refused { why: not_a_lead(3) }
+        DoneTo::Refused { why: not_a_lead(3) }
     );
-    assert_eq!(three_ends.unwrap(), Done::Done);
+    assert_eq!(three_ends.unwrap(), done_to(AgentNumber(4)));
     assert!(!ended_in_workspace(&realm, AgentNumber(3)));
     realm.host.shutdown().await.unwrap();
 }
@@ -152,7 +152,7 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         other,
         Done::Refused {
             why: EndRefusal::Left {
-                hire: AgentNumber(3),
+                hire: shown(AgentNumber(3)),
                 left,
             }
         }
@@ -197,7 +197,8 @@ async fn a_repeated_end_sends_the_end_again() {
     .await;
 
     assert_eq!(hired_3.unwrap(), hired(3));
-    assert_eq!([ended, again], [Done::Done, Done::Done]);
+    let three = done_to(AgentNumber(3));
+    assert_eq!([ended, again], [three.clone(), three]);
     assert!(!after_the_failure);
     realm.host.shutdown().await.unwrap();
 }
@@ -480,7 +481,7 @@ async fn a_lead_in_another_hamlet_is_refused() {
         "{pond:?}"
     );
     let other = HireRefusal::OtherHamlet {
-        lead: AgentNumber(3),
+        lead: shown(AgentNumber(3)),
     };
     assert_eq!(
         by_the_chief,

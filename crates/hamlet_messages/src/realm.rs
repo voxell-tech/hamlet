@@ -9,6 +9,7 @@ pub mod models;
 pub mod oversight;
 pub mod parcels;
 pub mod profiles;
+pub mod prompt;
 pub mod workers;
 pub mod world;
 
@@ -197,6 +198,13 @@ impl<W> Refusable for Done<W> {
     }
 }
 
+answer!(
+    /// The answer of an act on the agent `agent`.
+    DoneTo<W> {
+        Done { agent: AgentName },
+    }
+);
+
 /// The society tools, by name (C16).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -356,8 +364,8 @@ pub enum Gate {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Rank {
-    #[error("only a lead of `hire#{}` may do that", hire.0)]
-    NotALead { hire: AgentNumber },
+    #[error("only a lead of `{hire}` may do that")]
+    NotALead { hire: AgentName },
 }
 
 /// Why an agent's society tool was not carried out.
@@ -464,6 +472,7 @@ pub enum Named {
     Mayor,
     MayorOf { hamlet: HamletId },
     Agent { agent: AgentNumber },
+    Worker { worker: AgentNumber },
 }
 
 /// The address an agent writes for it.
@@ -479,7 +488,29 @@ impl std::fmt::Display for Named {
                 write!(f, "mayor@{}", hamlet.0)
             }
             Self::Agent { agent } => write!(f, "hire#{}", agent.0),
+            Self::Worker { worker } => {
+                write!(f, "worker#{}", worker.0)
+            }
         }
+    }
+}
+
+/// An agent as chiefs and agents are shown it: its address, and
+/// beside it a hire's nickname or its profile's name, or a worker's
+/// nickname, as in `hire#3 (Mira)`; an erased hire, the Hand and a
+/// nameless worker show their address alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentName {
+    pub agent: AgentNumber,
+    pub name: String,
+}
+
+impl std::fmt::Display for AgentName {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(&self.name)
     }
 }
 
@@ -514,8 +545,8 @@ pub struct Left {
 pub enum HowEnded {
     #[error("ended by the chief")]
     ByTheChief,
-    #[error("ended by `hire#{}`", lead.0)]
-    ByALead { lead: AgentNumber },
+    #[error("ended by `{lead}`")]
+    ByALead { lead: AgentName },
     #[error("ended by the Hand")]
     ByTheHand,
     /// A worker answered its starter.
@@ -643,7 +674,7 @@ impl ToolCall for Hire {
 )]
 pub enum HireAnswer<W> {
     /// The hire is still being hired.
-    Hired { agent: AgentNumber },
+    Hired { agent: AgentName },
     #[serde(serialize_with = "worded")]
     Refused { why: W },
 }
@@ -672,10 +703,10 @@ pub enum HireRefusal {
     NoSuchHamlet { id: HamletId },
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("`hire#{}` is in another hamlet", lead.0)]
-    OtherHamlet { lead: AgentNumber },
-    #[error("`hire#{}` has left: {left}", lead.0)]
-    LeadLeft { lead: AgentNumber, left: Left },
+    #[error("`{lead}` is in another hamlet")]
+    OtherHamlet { lead: AgentName },
+    #[error("`{lead}` has left: {left}")]
+    LeadLeft { lead: AgentName, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
     #[error("no scholar has the address `scholar#{}`", profile.0)]
@@ -706,7 +737,7 @@ impl ChiefRequest for End {
 
 impl ToolCall for End {
     const TOOL: SocietyTool = SocietyTool::End;
-    type Answer = Done<LeadRefusal<EndRefusal>>;
+    type Answer = DoneTo<LeadRefusal<EndRefusal>>;
 }
 
 #[derive(
@@ -726,8 +757,8 @@ pub enum EndRefusal {
     TheHand,
     #[error("a mayor cannot be ended; seat another mayor first")]
     TheMayor,
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
+    #[error("`{hire}` has left: {left}")]
+    Left { hire: AgentName, left: Left },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -746,7 +777,7 @@ impl ChiefRequest for Seat {
 /// Only the Hand calls it.
 impl ToolCall for Seat {
     const TOOL: SocietyTool = SocietyTool::Seat;
-    type Answer = Done<OnlyAHire>;
+    type Answer = DoneTo<OnlyAHire>;
 }
 
 /// The refusal of an act that needs a living hire.
@@ -765,8 +796,8 @@ pub enum OnlyAHire {
     NoSuchAgent { address: String },
     #[error("`{name}` is not a hire")]
     NotAHire { name: String },
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
+    #[error("`{hire}` has left: {left}")]
+    Left { hire: AgentName, left: Left },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -786,8 +817,15 @@ pub struct Enclosed {
 
 impl ToolCall for Tell {
     const TOOL: SocietyTool = SocietyTool::Tell;
-    type Answer = Done<AgentRefusal<LetterRefusal>>;
+    type Answer = Sent<AgentRefusal<LetterRefusal>>;
 }
+
+answer!(
+    /// The answer of a [`Tell`].
+    Sent<W> {
+        Sent { to: AgentName },
+    }
+);
 
 /// A question; its answer arrives later as an input to
 /// `conversation`.
@@ -802,8 +840,16 @@ pub struct Ask {
 
 impl ToolCall for Ask {
     const TOOL: SocietyTool = SocietyTool::Ask;
-    type Answer = Done<AgentRefusal<LetterRefusal>>;
+    type Answer = Waiting<AgentRefusal<LetterRefusal>>;
 }
+
+answer!(
+    /// The answer of an [`Ask`]: `question` is the letter its answer
+    /// names.
+    Waiting<W> {
+        Waiting { on: AgentName, question: LetterId },
+    }
+);
 
 #[derive(
     Clone,
@@ -822,12 +868,20 @@ pub enum LetterRefusal {
     Empty,
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("you have no road to `hire#{}`; ask your lead for one with request_road", to.0)]
-    NoRoad { to: AgentNumber },
-    #[error("no road yet to `hire#{}`: it is still being hired", to.0)]
-    StillHiring { to: AgentNumber },
-    #[error("`hire#{}` has left: {left}", to.0)]
-    Left { to: AgentNumber, left: Left },
+    #[error(
+        "you have no road to `{to}`; ask your lead for one with \
+         request_road"
+    )]
+    NoRoad { to: AgentName },
+    #[error("no road yet to `{to}`: it is still being hired")]
+    StillHiring { to: AgentName },
+    #[error("`{to}` has left: {left}")]
+    Left { to: AgentName, left: Left },
+    #[error(
+        "The chief withdrew the instruction, so this call did not \
+         run."
+    )]
+    Withdrawn,
 }
 
 /// The answer to a question, when the asked agent's turn on it ends.
@@ -881,8 +935,15 @@ impl ChiefRequest for LayRoad {
 
 impl ToolCall for LayRoad {
     const TOOL: SocietyTool = SocietyTool::LayRoad;
-    type Answer = Done<LeadRefusal<LayRefusal>>;
+    type Answer = RoadDone<LeadRefusal<LayRefusal>>;
 }
+
+answer!(
+    /// The answer of an act on the road between `a` and `b`.
+    RoadDone<W> {
+        Done { a: AgentName, b: AgentName },
+    }
+);
 
 #[derive(
     Clone,
@@ -899,10 +960,10 @@ pub enum LayRefusal {
     NoSuchAgent { address: String },
     #[error("a road joins two hires of one hamlet")]
     NotTwoHiresOfOneHamlet,
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
-    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
-    RoadExists { a: AgentNumber, b: AgentNumber },
+    #[error("`{hire}` has left: {left}")]
+    Left { hire: AgentName, left: Left },
+    #[error("`{a}` and `{b}` already have a road")]
+    RoadExists { a: AgentName, b: AgentName },
     #[error("the hamlet `{}` has its most roads, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
 }
@@ -935,8 +996,14 @@ impl ToolCall for AgreeRoad {
 )]
 pub enum Agreed<W> {
     /// The other mayor has not agreed yet.
-    Waiting,
-    Laid,
+    Waiting {
+        mine: AgentName,
+        theirs: AgentName,
+    },
+    Laid {
+        mine: AgentName,
+        theirs: AgentName,
+    },
     #[serde(serialize_with = "worded")]
     Refused {
         why: W,
@@ -973,8 +1040,8 @@ pub enum AgreeRefusal {
         "both ends of an agreed road must be in different hamlets"
     )]
     SameHamlet,
-    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
-    RoadExists { a: AgentNumber, b: AgentNumber },
+    #[error("`{a}` and `{b}` already have a road")]
+    RoadExists { a: AgentName, b: AgentName },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -993,7 +1060,7 @@ impl ChiefRequest for TakeUpRoad {
 
 impl ToolCall for TakeUpRoad {
     const TOOL: SocietyTool = SocietyTool::TakeUpRoad;
-    type Answer = Done<LeadRefusal<TakeUpRefusal>>;
+    type Answer = RoadDone<LeadRefusal<TakeUpRefusal>>;
 }
 
 #[derive(
@@ -1009,8 +1076,8 @@ impl ToolCall for TakeUpRoad {
 pub enum TakeUpRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("`hire#{}` and `hire#{}` have no road to take up", a.0, b.0)]
-    NoRoad { a: AgentNumber, b: AgentNumber },
+    #[error("`{a}` and `{b}` have no road to take up")]
+    NoRoad { a: AgentName, b: AgentName },
 }
 
 /// Asks the caller's lead for a road to `to`, as a letter to the
@@ -1042,8 +1109,8 @@ pub enum RequestRoadRefusal {
     NoSuchAgent { address: String },
     #[error("you have no lead to ask")]
     NoLead,
-    #[error("your lead `hire#{}` is still being hired", lead.0)]
-    StillHiring { lead: AgentNumber },
+    #[error("your lead `{lead}` is still being hired")]
+    StillHiring { lead: AgentName },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1065,7 +1132,7 @@ impl ChiefRequest for SetTools {
 
 impl ToolCall for SetTools {
     const TOOL: SocietyTool = SocietyTool::SetTools;
-    type Answer = Done<LeadRefusal<OnlyAHire>>;
+    type Answer = DoneTo<LeadRefusal<OnlyAHire>>;
 }
 
 /// Raises or lowers a hamlet's tier (H6).

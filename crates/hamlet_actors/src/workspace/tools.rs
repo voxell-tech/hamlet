@@ -9,10 +9,11 @@ use std::time::Duration;
 use hamlet_messages::realm::workers::BUILT_IN;
 use hamlet_messages::workspace::refusal::ToolRefusal;
 use hamlet_messages::workspace::{
-    AddedTool, ConversationId, Fault, Program, Run, ToolList,
+    AddedTool, Confinement, ConversationId, Fault, Program, Run,
+    ToolList,
 };
 use hamlet_os::fs::path::{resolve, text};
-use hamlet_sandbox::{LimitError, Policy};
+use hamlet_sandbox::{LimitError, Policy, Sandbox};
 use serde_json::{Value, json};
 
 use super::reach::{Network, Op, Placement, RealmFolder};
@@ -162,13 +163,21 @@ pub fn words(run: &Run) -> String {
     }
 }
 
-/// The tools that load, as a model is offered them, and why the
-/// others do not.
-pub fn list(home: &RealmFolder) -> ToolList {
+/// The tools that load, as a model is offered them, why the others
+/// do not, and how `sandbox` confines the commands they run.
+pub fn list(home: &RealmFolder, sandbox: Sandbox) -> ToolList {
     let (tools, faults) = load(home);
+    let confinement = if sandbox.is_insecure() {
+        Confinement::Insecure
+    } else {
+        Confinement::Sandbox {
+            name: sandbox.name().to_owned(),
+        }
+    };
     ToolList {
         tools: tools.into_iter().map(|tool| tool.spec).collect(),
         faults,
+        confinement,
     }
 }
 

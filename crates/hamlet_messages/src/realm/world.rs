@@ -8,6 +8,8 @@ use super::budget::Payer;
 use super::oversight::{Permission, Question};
 use super::parcels::Measure;
 use super::{HamletId, Left, Tier};
+use crate::workspace::files::EditDiff;
+use crate::workspace::reach::Need;
 use crate::workspace::{AgentNumber, CallId, ReachVersion};
 
 /// The number of the last change a client can see. A client told of a
@@ -137,7 +139,18 @@ pub struct WaitSeen {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WaitKind {
     /// A call the workspace keeps until a chief allows it.
-    Tool { call: CallId },
+    Tool {
+        call: CallId,
+        /// What allowing it lets through.
+        danger: Need,
+        /// What allowing it always keeps; absent when `always` is
+        /// not offered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        always: Option<Lasting>,
+        /// An edit's change.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<EditDiff>,
+    },
     Question {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
@@ -156,6 +169,18 @@ pub enum WaitKind {
     Fault,
 }
 
+/// What allowing a call always keeps letting through.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Lasting {
+    /// Its kind of call, for the rest of the conversation's session.
+    Session,
+    /// A grant, until a chief takes it back.
+    Grant,
+}
+
 /// Who raised an objection.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -172,6 +197,19 @@ pub enum ObjectionSource {
 pub struct GrantSeen {
     pub agent: AgentNumber,
     pub permission: Permission,
+    pub source: GrantSource,
+}
+
+/// Where a grant comes from.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantSource {
+    /// Its hamlet's limits.
+    Limits,
+    /// A chief's `always`.
+    Grant,
 }
 
 /// A payer's spending in its period. A budget that bounds nothing is

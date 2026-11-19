@@ -37,6 +37,7 @@ pub(super) async fn of(
         roads,
         tools_off: tree::tools::off_for(rows, agent).await?,
         folder,
+        manual: false,
     })
 }
 

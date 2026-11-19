@@ -9,7 +9,8 @@ use anyhow::{Context as _, Result};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Brief, BuiltIn, Input, InputId, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, Input, InputId,
+    Submit,
 };
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::oversight::Permission;
@@ -110,7 +111,7 @@ async fn end(
              = ?1 AND ended IS NULL",
             vec![
                 number(agent),
-                BindParam::Text(serde_json::to_string(&how)?),
+                BindParam::Text(tree::kept_how(&how)?),
                 answer.map_or(BindParam::Null, BindParam::Text),
             ],
         )
@@ -203,9 +204,7 @@ async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
         task,
         brief,
         tools: serde_json::from_str(&tools)?,
-        ended: ended
-            .map(|how| serde_json::from_str(&how))
-            .transpose()?,
+        ended: ended.as_deref().map(tree::read_how).transpose()?,
         answer,
     })
 }
@@ -229,7 +228,10 @@ pub(super) async fn answer(
         id: InputId(format!("worker/{}", worker.0)),
         task: Some(row.task.on_the_wire()),
         input: Input::WorkerAnswer {
-            worker,
+            from: Author {
+                agent: worker,
+                name: Some(record::agent_name(worker).name),
+            },
             text: words(how, row.answer),
         },
     };
@@ -460,7 +462,9 @@ impl Act<Agent> for StartWorker {
         worker: AgentNumber,
         _made: &Made,
     ) -> Self::Output {
-        Started::Started { worker }
+        Started::Started {
+            worker: record::agent_name(worker),
+        }
     }
 }
 
@@ -539,7 +543,9 @@ impl Act<Client> for StartWorker {
         worker: AgentNumber,
         _made: &Made,
     ) -> Self::Output {
-        Started::Started { worker }
+        Started::Started {
+            worker: record::agent_name(worker),
+        }
     }
 }
 

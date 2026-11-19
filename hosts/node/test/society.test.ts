@@ -13,6 +13,7 @@ import {
     from,
     interrupted,
     named,
+    shown,
     timedOut,
     toolCall,
     toolResults,
@@ -357,7 +358,7 @@ test("tell carries t<task id>, the turn's task and its conversation, and a refus
         realm: {
             tell: (message) =>
                 message.act.to.type === "mayor"
-                    ? { type: "done" }
+                    ? { type: "sent", to: shown(1) }
                     : {
                           type: "refused",
                           why: { type: "no_road" },
@@ -441,7 +442,7 @@ test("two society tools in one answer run at once, each answered under its own c
                     OVERLAP_MS,
                     "alone",
                 );
-                return { type: "done" };
+                return { type: "sent", to: shown(1) };
             },
         },
     });
@@ -533,7 +534,7 @@ test("two society tools in one answer run at once, each answered under its own c
 test("ask carries its conversation and no task when its input named none, and the turn on a question replies with its answer", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
-            ask: () => ({ type: "done" }),
+            ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
             reply: () => ({ type: "done" }),
         },
     });
@@ -576,7 +577,7 @@ test("each society tool is offered under today's name, and set_tools sends a soc
     const { calls, sent } = fakeCalls({
         realm: {
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
-            set_tools: () => ({ type: "done" }),
+            set_tools: () => ({ type: "done", agent: shown(3) }),
         },
     });
     const agent = await wakeAgent(t, {
@@ -645,6 +646,7 @@ test("a hire's place turns its built-in and hand tools off and back on, never a 
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
         },
     });
@@ -654,6 +656,7 @@ test("a hire's place turns its built-in and hand tools off and back on, never a 
         hires: [],
         roads: [],
         tools_off: off.map((name) => ({ name })),
+        manual: false,
     });
     const first = await wakeAgent(t, {
         calls,
@@ -702,7 +705,7 @@ test("an input that arrives while the agent is busy waits, then has its own turn
                     held.resolve();
                     await release.promise;
                 }
-                return { type: "done" as const };
+                return { type: "sent" as const, to: shown(1) };
             },
             reply: () => ({ type: "done" }),
         },
@@ -783,16 +786,16 @@ test("each society tool is offered with today's name, description and parameters
 test("every one of today's parameters leaves as a field of its act, but those this agent does not send", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
-            tell: () => ({ type: "done" }),
-            ask: () => ({ type: "done" }),
+            tell: () => ({ type: "sent", to: shown(1) }),
+            ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
             request_road: () => ({ type: "done" }),
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
-            seat: () => ({ type: "done" }),
-            hire: () => ({ type: "hired", agent: 22 }),
-            end: () => ({ type: "done" }),
-            lay_road: () => ({ type: "done" }),
-            take_up_road: () => ({ type: "done" }),
-            set_tools: () => ({ type: "done" }),
+            seat: () => ({ type: "done", agent: shown(22) }),
+            hire: () => ({ type: "hired", agent: shown(22) }),
+            end: () => ({ type: "done", agent: shown(22) }),
+            lay_road: () => ({ type: "done", a: shown(1), b: shown(2) }),
+            take_up_road: () => ({ type: "done", a: shown(1), b: shown(2) }),
+            set_tools: () => ({ type: "done", agent: shown(3) }),
         },
     });
     const every: Record<string, Parameters<typeof toolCall>[1]> = {
@@ -916,7 +919,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
 test("a scholar's address is read as today's server reads it, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
-            hire: () => ({ type: "hired", agent: 22 }),
+            hire: () => ({ type: "hired", agent: shown(22) }),
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
         },
     });
@@ -987,7 +990,7 @@ test("a society tool whose call fails says it was interrupted, under the tool's 
 
 test("hire with both `scholar` and `name` is refused in today's words, and nothing is sent", async (t) => {
     const { calls, sent } = fakeCalls({
-        realm: { hire: () => ({ type: "hired", agent: 22 }) },
+        realm: { hire: () => ({ type: "hired", agent: shown(22) }) },
     });
     const agent = await wakeAgent(t, {
         calls,
@@ -1025,8 +1028,8 @@ async function seatAndHire(
 ): Promise<{ seat: unknown[]; hire: unknown[]; results: string[] }> {
     const { calls, sent } = fakeCalls({
         realm: {
-            seat: () => ({ type: "done" }),
-            hire: () => ({ type: "hired", agent: 22 }),
+            seat: () => ({ type: "done", agent: shown(22) }),
+            hire: () => ({ type: "hired", agent: shown(22) }),
         },
     });
     const agent = await wakeAgent(t, {
@@ -1096,7 +1099,7 @@ test("an address's number is read as today's server reads it, where the act can 
         seated(0),
         seated(0),
         seated(4294967295),
-        seated(3),
+        { hire: { type: "worker", worker: 3 } },
     ]);
     assert.deepEqual(hire, [
         { purpose: "Dig", profile: 7 },
@@ -1187,7 +1190,7 @@ test("a reply the realm refuses, or one that fails, is reported and leaves the r
 
 test("end_hire's reason is trimmed, and a blank one is left out", async (t) => {
     const { calls, sent } = fakeCalls({
-        realm: { end: () => ({ type: "done" }) },
+        realm: { end: () => ({ type: "done", agent: shown(3) }) },
     });
     const agent = await wakeAgent(t, {
         calls,

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Brief, Input, InputId, Submit,
+    AgentInput, AgentKind, Author, Brief, Input, InputId, Submit,
 };
 use hamlet_messages::realm::budget::{
     BudgetRead, OpenTask, Payer, ReadBudget, TaskOpened, TaskTurn,
@@ -22,9 +22,9 @@ use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::{
-    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, hamlet_with, made,
-    made_until, needs, say, seen_submits, standing, to, tool, until,
-    world,
+    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, done_to,
+    hamlet_with, made, made_until, needs, say, seen_submits, shown,
+    standing, to, tool, until, world,
 };
 
 fn start(brief: &str) -> StartWorker {
@@ -129,7 +129,7 @@ async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
     let Started::Started { worker } = answer else {
         panic!("hire#3 starts a worker: {answer:?}");
     };
-    worker
+    worker.agent
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -192,7 +192,10 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                 id: InputId("worker/4".to_owned()),
                 task: Some(task),
                 input: Input::WorkerAnswer {
-                    worker: FOUR,
+                    from: Author {
+                        agent: FOUR,
+                        name: Some(shown(FOUR).name),
+                    },
                     text: "Counted: 3 files.".to_owned(),
                 },
             }
@@ -272,7 +275,7 @@ async fn ending_a_starter_stops_its_workers() {
         .await
         .unwrap();
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
     ended_until(&realm, FOUR, HowEnded::Stopped).await;
     reach_until(&realm, FOUR, "ended", |reach| {
         *reach == Reach::Ended
@@ -348,7 +351,12 @@ async fn a_chiefs_worker_answers_in_its_own_conversation() {
         .await
         .unwrap();
 
-    assert_eq!(answer, Started::Started { worker: THREE });
+    assert_eq!(
+        answer,
+        Started::Started {
+            worker: shown(THREE)
+        }
+    );
     let input = made_until(&realm, THREE).await;
     assert_eq!(input.kind, AgentKind::Worker);
     assert_ne!(
@@ -395,7 +403,7 @@ async fn an_unknown_tool_is_refused() {
         )
         .await
         .unwrap();
-    assert_eq!(off, Done::Done);
+    assert_eq!(off, done_to(THREE));
 
     for (n, name) in ["telescope", "bash"].into_iter().enumerate() {
         let answer = realm
@@ -425,7 +433,12 @@ async fn an_unknown_tool_is_refused() {
         .tool(THREE, &tool("read", with_tools(&["read", "edit"])))
         .await
         .unwrap();
-    assert_eq!(answer, Started::Started { worker: FOUR });
+    assert_eq!(
+        answer,
+        Started::Started {
+            worker: shown(FOUR)
+        }
+    );
     let tools = made_until(&realm, FOUR).await.brief.unwrap().tools;
     let names = tools.iter().map(|tool| tool.name.as_str());
     assert_eq!(names.collect::<Vec<_>>(), ["read", "edit"]);
@@ -597,7 +610,10 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
         [(
             THREE,
             Input::WorkerAnswer {
-                worker: FOUR,
+                from: Author {
+                    agent: FOUR,
+                    name: Some(shown(FOUR).name),
+                },
                 text: "It gave no answer.".to_owned(),
             }
         )]
@@ -721,7 +737,7 @@ async fn a_worker_ended_before_its_step_is_never_made() {
         )
         .await
         .unwrap();
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
 
     let realm = realm.restart().await;
 

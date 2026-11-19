@@ -13,7 +13,7 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Rows};
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, hire, reviews};
+use super::{chiefs, hire, record, reviews};
 
 pub(super) struct Target {
     lineage: Option<Lineage>,
@@ -74,14 +74,16 @@ impl Act<Client> for Say {
         match &agent.status {
             Status::Ended(left) => Decision::Answer(
                 SayAnswer::refused(SayRefusal::Left {
-                    agent: agent.agent,
+                    agent: record::agent_name(agent.agent),
                     left: left.clone(),
                 }),
             ),
             Status::Hiring => Decision::WaitFor {
                 row: hire::row(agent.agent),
                 refusal: SayAnswer::refused(
-                    SayRefusal::StillHiring { agent: agent.agent },
+                    SayRefusal::StillHiring {
+                        agent: record::agent_name(agent.agent),
+                    },
                 ),
             },
             Status::Live => {
@@ -299,7 +301,7 @@ mod tests {
                 "hi"
             ),
             Decision::Answer(SayAnswer::refused(SayRefusal::Left {
-                agent: AgentNumber(2),
+                agent: record::agent_name(AgentNumber(2)),
                 left,
             }))
         );

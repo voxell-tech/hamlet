@@ -49,6 +49,10 @@ pub enum BudgetLimit {
     Time {
         ms: u64,
     },
+    /// Takes the cost cap away.
+    NoCost,
+    /// Takes the time cap away.
+    NoTime,
     Period {
         period: Period,
     },
