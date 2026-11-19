@@ -1,5 +1,5 @@
 /** The inputs a turn is given, as the model reads them. */
-import type { Submit } from "./messages/agent.ts";
+import type { Author, Submit } from "./messages/agent.ts";
 import { type Admission, NOTE_BREAK } from "./turn.ts";
 
 export function admissionOf(message: Submit): Admission {
@@ -8,10 +8,8 @@ export function admissionOf(message: Submit): Admission {
         id: message.id,
         ...(message.task === undefined ? {} : { task: message.task }),
     };
-    const from = (author: { agent: number; name?: string }) =>
-        author.name === undefined
-            ? `\`hire#${author.agent}\``
-            : `${author.name} (\`hire#${author.agent}\`)`;
+    const name = (author: Author, kind: "hire" | "worker") =>
+        author.name ?? `${kind}#${author.agent}`;
     switch (input.type) {
         case "line":
             return input.note === undefined
@@ -24,21 +22,22 @@ export function admissionOf(message: Submit): Admission {
                   };
         case "notice":
             return { ...base, kind: "notice", content: input.text };
-        // As `crates/hamlet_server/src/talk/letters.rs:334` words it, with
-        // the worker as `society/addresses.rs:182` names it.
+        // A worker's answer and an answer are told as their author's, and a
+        // letter and a question as their words, as
+        // `crates/hamlet_server/src/talk/letters.rs` keeps them.
         case "worker_answer":
             return {
                 ...base,
                 kind: "worker-answer",
-                from: { agent: input.from.agent },
-                content: `worker#${input.from.agent} answers: ${input.text}`,
+                from: input.from,
+                content: `${name(input.from, "worker")} answers: ${input.text}`,
             };
         case "letter":
             return {
                 ...base,
                 kind: "letter",
                 from: input.from,
-                content: `A letter from ${from(input.from)}:\n\n${input.text}`,
+                content: input.text,
             };
         case "question":
             return {
@@ -46,14 +45,14 @@ export function admissionOf(message: Submit): Admission {
                 kind: "question",
                 from: input.from,
                 question: input.letter,
-                content: `A question from ${from(input.from)}. Your answer to this turn is sent back as the reply:\n\n${input.text}`,
+                content: input.text,
             };
         case "answer":
             return {
                 ...base,
                 kind: "answer",
                 from: input.from,
-                content: `${from(input.from)} answers your question:\n\n${input.text}`,
+                content: `${name(input.from, "hire")} answers: ${input.text}`,
             };
     }
 }

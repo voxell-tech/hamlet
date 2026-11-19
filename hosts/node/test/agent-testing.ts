@@ -4,9 +4,11 @@ import type { Context } from "@earendil-works/chord/context";
 import {
     type AssistantMessage,
     createAssistantMessageEventStream,
+    type FauxResponseFactory,
     type FauxResponseStep,
     fauxAssistantMessage,
     fauxToolCall,
+    type Context as ModelContext,
     type Models,
     type ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -216,6 +218,30 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
 }
 
 /** The faux provider prices nothing. */
+/** Answers `words`, keeping the request it answers in `seen`. */
+export function asked(
+    seen: ModelContext[],
+    words: string,
+): FauxResponseFactory {
+    return (context) => {
+        seen.push(context);
+        return fauxAssistantMessage(words);
+    };
+}
+
+/** The words of each user message of a request. */
+export function userWords(context: ModelContext): string[] {
+    return context.messages.flatMap((message) =>
+        message.role !== "user"
+            ? []
+            : typeof message.content === "string"
+              ? [message.content]
+              : message.content.flatMap((part) =>
+                    part.type === "text" ? [part.text] : [],
+                ),
+    );
+}
+
 /** Each answer costs `dollars`, and uses `tokens` when they are given. */
 export function priced(
     models: Models,

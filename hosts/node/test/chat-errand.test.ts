@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
-import {
-    type Context,
-    type FauxResponseFactory,
-    fauxAssistantMessage,
-} from "@earendil-works/pi-ai";
+import { type Context, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import type {
     AgentInput,
@@ -16,12 +12,14 @@ import type {
 } from "../src/agent/messages/agent.ts";
 import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import {
+    asked,
     fakeCalls,
     fakeFiles,
     from,
     named,
     timedOut,
     until,
+    userWords,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -30,28 +28,9 @@ import { context, fixture } from "./testing.ts";
 const ERRAND = fixture("agent/errand.input") as AgentInput;
 const WORKER = fixture("agent/worker.input") as AgentInput;
 
-function asked(seen: Context[], words: string): FauxResponseFactory {
-    return (context) => {
-        seen.push(context);
-        return fauxAssistantMessage(words);
-    };
-}
-
 async function offered(agent: Woken): Promise<string[]> {
     const root = await (await agent.harness()).root(context);
     return (await root.agent(context)).tools.map((tool) => tool.name).sort();
-}
-
-function userWords(context: Context): string[] {
-    return context.messages.flatMap((message) =>
-        message.role !== "user"
-            ? []
-            : typeof message.content === "string"
-              ? [message.content]
-              : message.content.flatMap((part) =>
-                    part.type === "text" ? [part.text] : [],
-                ),
-    );
 }
 
 test("an errand answers once and ends", async (t) => {
