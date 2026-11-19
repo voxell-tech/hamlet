@@ -3,6 +3,7 @@
 mod action;
 mod add_agent;
 mod channel;
+mod context;
 mod founding;
 mod items;
 pub(crate) mod model;
@@ -47,6 +48,7 @@ use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::action::{Action, question};
+pub(crate) use self::context::{ContextUse, fill, track};
 pub(crate) use self::founding::Founding;
 pub(crate) use self::model::{ChipName, Hook, chip};
 pub use self::model::{
@@ -121,6 +123,9 @@ pub(crate) enum Open {
     Channel(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
+    /// How much of the context the chat of a Hub holds, against what
+    /// it was asked from.
+    Context(Entity, Rect),
 }
 
 impl Open {
@@ -419,6 +424,16 @@ pub(crate) fn ask_model(world: &mut World, agent: Entity) {
     model::open(world, agent);
 }
 
+/// Shows how much of the context the chat of `hub` holds, against
+/// `anchor`.
+pub(crate) fn show_context(
+    world: &mut World,
+    hub: Entity,
+    anchor: Rect,
+) {
+    *world.resource_mut::<Open>() = Open::Context(hub, anchor);
+}
+
 /// Asks before `action` is done, at the pointer.
 pub(crate) fn ask(world: &mut World, action: Action) {
     let at = pointer(world);
@@ -514,6 +529,9 @@ fn menus() -> AnyView {
                 channel::channel(agent, at).boxed()
             }
             Open::Model(agent) => model::picker(agent).boxed(),
+            Open::Context(hub, anchor) => {
+                context::context(hub, anchor).boxed()
+            }
         },
     )
     .within(overlay(()))

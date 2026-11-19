@@ -291,6 +291,8 @@ mod tests {
                 replaces: (turn > 0).then(|| format!("in:{turn}")),
             };
             let working = Op::Status {
+                compacting: false,
+                context: None,
                 held: false,
                 last: None,
                 pending: 1,

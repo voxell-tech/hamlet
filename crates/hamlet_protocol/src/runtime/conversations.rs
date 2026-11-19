@@ -388,6 +388,16 @@ pub struct StatusesConversations {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Live {
+    /// Whether the earlier part of the conversation is being
+    /// summarized.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compacting: bool,
+    /// The tokens the model's context holds now, as last measured;
+    /// none while unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "u64")]
+    pub context: Option<u64>,
     #[schemars(length(min = 1))]
     pub conversation: String,
     #[schemars(length(min = 1))]

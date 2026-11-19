@@ -418,6 +418,14 @@ fn now(world: &World, agent: Entity) -> Now {
     }
 }
 
+/// The model `agent` runs, as the catalogue lists it.
+pub(super) fn card_of(
+    world: &World,
+    agent: Entity,
+) -> Option<protocol::Listed> {
+    card(world, &now(world, agent).model)
+}
+
 /// The model `name` of the catalogue.
 fn card(world: &World, name: &str) -> Option<protocol::Listed> {
     world

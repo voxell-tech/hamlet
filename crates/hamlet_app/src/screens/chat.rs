@@ -5,6 +5,7 @@ pub(crate) mod attach;
 pub(crate) mod bubble;
 mod card;
 mod change;
+mod compacting;
 mod edits;
 mod entry;
 mod field;
@@ -720,6 +721,7 @@ fn message_bar_in(
     .rules(card_look)
     .tagged(crate::world_menu::Hook::Composer);
     column((
+        compacting::line(hub),
         held::line(hub),
         card,
         // One line kept, so a notice does not lift the field.
@@ -1492,6 +1494,8 @@ mod tests {
             replaces: replaces.map(str::to_string),
         };
         let working = |working| Op::Status {
+            compacting: false,
+            context: None,
             held: false,
             last: None,
             pending: u64::from(working),

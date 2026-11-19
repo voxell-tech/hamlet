@@ -491,6 +491,8 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     receive(
         app.world_mut(),
         turn(vec![protocol::TranscriptOperation::Status {
+            compacting: false,
+            context: None,
             held: false,
             working: true,
             pending: 2,
@@ -502,6 +504,8 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
         app.world().get::<Transcript>(chat).unwrap().is_answering()
     );
     let idle = turn(vec![protocol::TranscriptOperation::Status {
+        compacting: false,
+        context: None,
         held: false,
         working: false,
         pending: 0,

@@ -48,6 +48,7 @@ use crate::tools::custom::Manifest;
 /// The live state no other area keeps.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<Lives>()
+        .init_resource::<Measured>()
         .init_resource::<Leftovers>()
         .init_resource::<Added>()
         .init_resource::<ToolFaults>()
@@ -61,6 +62,11 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 /// activity.
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct Lives(pub BTreeMap<ConversationId, Live>);
+
+/// The tokens the context of each conversation at rest and not in
+/// memory held when last measured.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Measured(pub BTreeMap<ConversationId, u64>);
 
 /// The sandbox confining the agents' commands on this machine.
 #[derive(Resource, Deref, DerefMut)]
@@ -170,6 +176,7 @@ pub(crate) struct Core<'w, 's> {
     pub credentials: ResMut<'w, Credentials>,
     pub clients: ResMut<'w, Clients>,
     pub live: ResMut<'w, Lives>,
+    pub measured: ResMut<'w, Measured>,
     pub tools: ModelTools<'w>,
     /// The changes the input left for the runner to follow up.
     pub changed: ResMut<'w, InputEffects>,

@@ -50,7 +50,7 @@ pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
 pub use self::rail::Tab as RailTab;
 pub(crate) use self::rail::under_name;
-pub use self::thread::{Briefing, Sheet};
+pub use self::thread::{Briefing, Sheet, open_context};
 use crate::convo::{Convo, seat};
 use crate::desk::Desks;
 use crate::dock::{

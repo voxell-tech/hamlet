@@ -1261,6 +1261,16 @@ export const schema = {
                     "additionalProperties": false,
                     "description": "A conversation's state, sent as it changes: whether it runs, its\nqueued inputs and the answer being written.",
                     "properties": {
+                        "compacting": {
+                            "description": "Whether the earlier part of the conversation is being\nsummarized.",
+                            "type": "boolean"
+                        },
+                        "context": {
+                            "description": "The tokens the model's context holds now, as last measured;\nnone while unknown.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                        },
                         "conversation": {
                             "minLength": 1,
                             "type": "string"

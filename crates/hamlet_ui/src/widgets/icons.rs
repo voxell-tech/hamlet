@@ -33,6 +33,13 @@ pub(super) const DENSITY: f32 = 2.0;
 /// The handles of the icons' images start here.
 const FIRST: u128 = 0x6861_6d6c_6574_5f69_636f_6e73_0000_0000;
 
+/// The handles of the share rings' images start here, after the
+/// icons'.
+const FIRST_SHARE: u128 = FIRST + 0x1_0000;
+
+/// The steps a share ring is drawn in, from empty to full.
+const SHARES: usize = 48;
+
 /// The points of a five-pointed star, outer and inner by turns.
 const STAR: [[f32; 2]; 10] = [
     [8.0, 2.0],
@@ -999,12 +1006,49 @@ fn ink(shapes: &[Shape], p: Vec2, stroke: f32, pixel: f32) -> f32 {
     (0.5 - away / pixel).clamp(0.0, 1.0)
 }
 
+/// The image of a ring the size of [`Glyph::Progress`]'s, drawn from
+/// the top clockwise `share` of the way round, for a side of `size`,
+/// to be tinted.
+pub fn share_ring(share: f32, size: f32) -> Handle<Image> {
+    let drawn = SIZES
+        .iter()
+        .position(|drawn| *drawn >= size)
+        .unwrap_or(SIZES.len() - 1);
+    let step =
+        (share.clamp(0.0, 1.0) * SHARES as f32).round() as usize;
+    // An arc of any share shows at least one step of it.
+    let step = if share > 0.0 { step.max(1) } else { 0 };
+    share_handle(step, drawn)
+}
+
+fn share_handle(step: usize, drawn: usize) -> Handle<Image> {
+    let at = (step * SIZES.len() + drawn) as u128;
+    Handle::from(Uuid::from_u128(FIRST_SHARE + at))
+}
+
+/// The shapes of a share ring `step` steps of [`SHARES`] round.
+fn share_shapes(step: usize) -> Vec<Shape> {
+    let (x, y, radius) = (8.0, 8.0, 5.75);
+    match step {
+        0 => Vec::new(),
+        SHARES => vec![Ring(x, y, radius)],
+        step => {
+            let turn = step as f32 / SHARES as f32 * 360.0;
+            vec![Arc(x, y, radius, 270.0, 270.0 + turn)]
+        }
+    }
+}
+
 /// `which` in white, for a side of `size`.
 fn drawing(which: Glyph, size: f32) -> Image {
+    drawing_of(which.shapes(), size)
+}
+
+/// `shapes` in white, for a side of `size`.
+fn drawing_of(shapes: &[Shape], size: f32) -> Image {
     let side = (size * DENSITY).round() as usize;
     let pixel = GRID / side as f32;
     let stroke = weight(size) * GRID / size;
-    let shapes = which.shapes();
     let mut data = vec![255u8; side * side * 4];
     for y in 0..side {
         for x in 0..side {
@@ -1026,12 +1070,18 @@ fn drawing(which: Glyph, size: f32) -> Image {
     )
 }
 
-/// Draws every icon at every size.
+/// Draws every icon and every step of the share ring at every size.
 pub fn draw(mut images: ResMut<Assets<Image>>) {
-    for which in Glyph::ALL {
-        for (drawn, size) in SIZES.into_iter().enumerate() {
+    for (drawn, size) in SIZES.into_iter().enumerate() {
+        for which in Glyph::ALL {
             let _ = images
                 .insert(&which.drawing(drawn), drawing(which, size));
+        }
+        for step in 0..=SHARES {
+            let _ = images.insert(
+                &share_handle(step, drawn),
+                drawing_of(&share_shapes(step), size),
+            );
         }
     }
 }
