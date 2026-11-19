@@ -594,6 +594,28 @@ async fn a_read_lists_the_files_of_a_revision_or_gives_one_file() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_revert_of_main_undoes_its_last_commit() {
+    let dir = Scratch::new("profile-revert-main");
+    let host = made(&dir).await;
+    commit_main(&dir, &[write("memory/a.md", "the notes")]);
+
+    let reverted = call_as(
+        &host,
+        &realm(),
+        &revert(&RequestId::new(), Revision::Main),
+    )
+    .await;
+
+    assert!(
+        matches!(reverted, Ok(RevertAnswer::Reverted { .. })),
+        "{reverted:?}"
+    );
+    let files = call_as(&host, &realm(), &read(None, None)).await;
+    assert_eq!(files.unwrap(), listed(&["CHARACTER.md"]));
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_read_cuts_a_long_file_at_a_character_boundary() {
     let dir = Scratch::new("profile-read-cut");
     let host = made(&dir).await;

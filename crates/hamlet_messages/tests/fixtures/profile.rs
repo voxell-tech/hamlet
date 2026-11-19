@@ -350,6 +350,15 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
             by: chief(),
         },
     );
+    fixtures.args(
+        "profile/revert.main",
+        &Revert {
+            id: request(),
+            what: Revision::Main,
+            reason: None,
+            by: chief(),
+        },
+    );
     for (arm, answer) in [
         (
             "reverted",

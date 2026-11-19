@@ -237,6 +237,9 @@ fn commit_of<W: From<Missing> + From<BadCommit>>(
     profile: ProfileId,
 ) -> Result<Result<hamlet_git::CommitId, W>> {
     Ok(match what {
+        Revision::Main => {
+            Ok(git.tip(MAIN)?.context("a profile has a main")?)
+        }
         Revision::Version { version } => {
             hires::version_at(git, version)?.ok_or_else(|| {
                 let version = version.clone();

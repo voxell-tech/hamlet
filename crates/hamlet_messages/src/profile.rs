@@ -35,8 +35,14 @@ pub struct VersionName(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Revision {
-    Version { version: VersionName },
-    Commit { commit: CommitId },
+    /// `main`'s tip.
+    Main,
+    Version {
+        version: VersionName,
+    },
+    Commit {
+        commit: CommitId,
+    },
 }
 
 /// The realm's id of a dream.

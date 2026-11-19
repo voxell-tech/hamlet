@@ -26,7 +26,7 @@ use super::super::cases::{
 };
 use super::{answers, asked, by_an_agent, callers, done, tool};
 
-const SCHOLAR: ProfileId = ProfileId(4);
+const PROFILE: ProfileId = ProfileId(4);
 
 pub fn enums() -> Vec<Cases> {
     vec![
@@ -115,14 +115,14 @@ fn commit() -> CommitId {
 
 fn no_version() -> Missing {
     Missing::NoVersion {
-        profile: SCHOLAR,
+        profile: PROFILE,
         version: version(),
     }
 }
 
 fn no_commit() -> BadCommit {
     BadCommit::NoCommit {
-        profile: SCHOLAR,
+        profile: PROFILE,
         commit: commit(),
     }
 }
@@ -146,7 +146,7 @@ fn named<R: From<ProfileRefusal>>() -> Vec<(&'static str, R)> {
     vec![
         (
             "no_such_profile",
-            ProfileRefusal::NoSuchProfile { profile: SCHOLAR }.into(),
+            ProfileRefusal::NoSuchProfile { profile: PROFILE }.into(),
         ),
         ("apart", ProfileRefusal::Apart { label: label() }.into()),
     ]
@@ -173,7 +173,7 @@ fn the_making_and_the_reading(fixtures: &mut Fixtures) {
         [(
             "made",
             Made::Made {
-                profile: SCHOLAR,
+                profile: PROFILE,
                 label: label(),
             },
         )],
@@ -190,7 +190,7 @@ fn the_making_and_the_reading(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/read_profile",
         &tool(ReadProfile {
-            profile: SCHOLAR,
+            profile: PROFILE,
             at: None,
             path: None,
         }),
@@ -198,7 +198,7 @@ fn the_making_and_the_reading(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/read_profile.file",
         &tool(ReadProfile {
-            profile: SCHOLAR,
+            profile: PROFILE,
             at: Some(Revision::Version { version: version() }),
             path: Some("memory/tests.md".into()),
         }),
@@ -236,7 +236,7 @@ fn the_making_and_the_reading(fixtures: &mut Fixtures) {
 
 fn the_changes(fixtures: &mut Fixtures) {
     let edit = EditProfile {
-        profile: SCHOLAR,
+        profile: PROFILE,
         path: "CHARACTER.md".into(),
         text: "You write careful tests.".into(),
         message: Some("Sharper".into()),
@@ -262,7 +262,7 @@ fn the_changes(fixtures: &mut Fixtures) {
     done(fixtures, "realm/edit_profile", by_an_agent(edits));
 
     let tag = TagProfile {
-        profile: SCHOLAR,
+        profile: PROFILE,
         version: version(),
         note: "Before the refactor".into(),
     };
@@ -281,7 +281,7 @@ fn the_changes(fixtures: &mut Fixtures) {
         (
             "no_such_commit",
             TagRefusal::NoSuchCommit {
-                profile: SCHOLAR,
+                profile: PROFILE,
                 commit: commit(),
             }
             .into(),
@@ -307,7 +307,7 @@ fn the_changes(fixtures: &mut Fixtures) {
     );
 
     let revert = RevertProfile {
-        profile: SCHOLAR,
+        profile: PROFILE,
         what: Revision::Commit { commit: commit() },
         reason: Some("It broke the tests".into()),
     };
@@ -378,7 +378,7 @@ fn the_dreams_and_the_purge(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/chief_dream",
         &asked(Dream {
-            of: Dreamer::Profile { profile: SCHOLAR },
+            of: Dreamer::Profile { profile: PROFILE },
         }),
     );
     fixtures.args(
@@ -404,7 +404,7 @@ fn the_dreams_and_the_purge(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/chief_purge_profile",
         &asked(PurgeProfile {
-            profile: SCHOLAR,
+            profile: PROFILE,
             path: "memory/secret.md".into(),
         }),
     );
@@ -436,7 +436,7 @@ fn the_hire_at_a_version(fixtures: &mut Fixtures) {
         &tool(hamlet_messages::realm::Hire {
             hamlet: None,
             under: None,
-            profile: Some(SCHOLAR),
+            profile: Some(PROFILE),
             version: Some(version()),
             purpose: Some("Check the links".into()),
             name: None,
