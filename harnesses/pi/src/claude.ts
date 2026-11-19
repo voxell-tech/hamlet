@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { download, downloadable, useDownloaded } from "./claude-install.ts";
 
 export const PROVIDER = "claude";
 
@@ -58,19 +59,30 @@ const PACKAGES = [
 ];
 
 /**
- * The provider, with its folders in `home`; none when the Claude program or
- * a package it is driven with is not installed.
+ * The provider, with its folders in `home`; none when this computer has no Claude program. Where pi was installed
+ * without the program's packages, as a release is, they are downloaded into `home` when Claude is first signed in to
+ * or called.
  */
 export function claudeProvider(home: string): Provider | undefined {
-    if (!PACKAGES.every(installed)) return undefined;
-    const program = executable();
-    if (program === undefined) return undefined;
+    const local = PACKAGES.every(installed);
+    if (local ? executable() === undefined : !downloadable()) return undefined;
     const at = {
         config: join(home, "claude"),
         work: join(home, "claude-work"),
     };
     mkdirSync(at.config, { recursive: true });
     mkdirSync(at.work, { recursive: true });
+    const ready = async (
+        progress: (message: string) => void,
+        signal?: AbortSignal,
+    ): Promise<string> => {
+        const from = local ? undefined : await download(home, progress, signal);
+        if (from !== undefined) useDownloaded(from);
+        const program = executable(from);
+        if (program === undefined)
+            throw new Error("Claude's program is not installed.");
+        return program;
+    };
     const streamed = (
         model: Model<Api>,
         context: TranscriptContext,
@@ -78,19 +90,30 @@ export function claudeProvider(home: string): Provider | undefined {
     ) => {
         const out = createAssistantMessageEventStream();
         // Loaded on first use, so pi runs without the optional Claude packages.
-        import("./claude-query.ts").then(
-            (loaded) =>
-                loaded.answer({ at, program }, model, context, options, out),
-            (error: unknown) => {
-                const failed: AssistantMessage = {
-                    ...emptyAnswer(model),
-                    stopReason: "error",
-                    errorMessage: String(error),
-                };
-                out.push({ type: "error", reason: "error", error: failed });
-                out.end(failed);
-            },
-        );
+        ready(() => {}, options?.signal)
+            .then(async (program) => ({
+                program,
+                loaded: await import("./claude-query.ts"),
+            }))
+            .then(
+                ({ program, loaded }) =>
+                    loaded.answer(
+                        { at, program },
+                        model,
+                        context,
+                        options,
+                        out,
+                    ),
+                (error: unknown) => {
+                    const failed: AssistantMessage = {
+                        ...emptyAnswer(model),
+                        stopReason: "error",
+                        errorMessage: String(error),
+                    };
+                    out.push({ type: "error", reason: "error", error: failed });
+                    out.end(failed);
+                },
+            );
         return out;
     };
     return createProvider({
@@ -103,6 +126,11 @@ export function claudeProvider(home: string): Provider | undefined {
                 loginLabel: "Sign in to Claude",
                 // The login stays in the Claude program; the server keeps only this marker that it was made.
                 login: async (interaction) => {
+                    const program = await ready(
+                        (message) =>
+                            interaction.notify({ type: "progress", message }),
+                        interaction.signal,
+                    );
                     await signIn(at, program, interaction);
                     return {
                         type: "oauth",
@@ -133,11 +161,16 @@ function installed(name: string): boolean {
     }
 }
 
-/** The Claude program: `HAMLET_CLAUDE_EXECUTABLE`, else the one the SDK's package ships for this machine. */
-function executable(): string | undefined {
+/**
+ * The Claude program: `HAMLET_CLAUDE_EXECUTABLE`, else the one the SDK's package ships for this machine, installed
+ * with pi or downloaded into `from`.
+ */
+function executable(from?: string): string | undefined {
     const chosen = process.env.HAMLET_CLAUDE_EXECUTABLE;
     if (chosen !== undefined && chosen !== "") return chosen;
-    const require = createRequire(import.meta.url);
+    const require = createRequire(
+        from === undefined ? import.meta.url : join(from, "index.js"),
+    );
     const file = process.platform === "win32" ? "claude.exe" : "claude";
     for (const libc of ["", "-musl"])
         try {
