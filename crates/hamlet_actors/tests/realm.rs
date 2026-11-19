@@ -20,6 +20,7 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
+use hamlet_messages::library::{ReadShelves, ShelfList, Skill};
 use hamlet_messages::profile::{
     BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
     Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
@@ -79,6 +80,8 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/librarian.rs"]
+mod librarian;
 #[path = "realm/living.rs"]
 mod living;
 #[path = "realm/oversight.rs"]
@@ -633,6 +636,43 @@ impl Handler<EndDream> for ProfileStandIn {
     }
 }
 
+struct LibraryStandIn;
+
+#[async_trait::async_trait]
+impl Actor for LibraryStandIn {
+    type Input = ();
+    type Actions = (ReadShelves,);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(_: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+}
+
+/// The one skill on every stand-in library's shelves.
+fn shelved() -> Skill {
+    Skill {
+        name: "dig".to_owned(),
+        description: "Digs a well.".to_owned(),
+        usage: "dig <depth>".to_owned(),
+    }
+}
+
+impl Handler<ReadShelves> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: ReadShelves,
+    ) -> anyhow::Result<ShelfList> {
+        Ok(ShelfList {
+            version: 1,
+            skills: vec![shelved()],
+        })
+    }
+}
+
 struct WorkspaceStandIn {
     seen: Arc<Seen>,
 }
@@ -723,6 +763,10 @@ async fn open(
             address::Workspace::KIND.to_owned(),
             kind::<WorkspaceStandIn>(address::Workspace::KIND),
         ),
+        (
+            address::Library::KIND.to_owned(),
+            kind::<LibraryStandIn>(address::Library::KIND),
+        ),
     ]);
     let mut host_options =
         HostOptions::default().with_value(seen.clone());
@@ -730,9 +774,12 @@ async fn open(
         host_options = host_options.with_value(options.clone());
     }
     let host = Host::open_with(dir, kinds, host_options).unwrap();
-    host.get_or_start(&address::Workspace.address().unwrap())
-        .await
-        .unwrap();
+    for started in [
+        address::Workspace.address().unwrap(),
+        address::Library.address().unwrap(),
+    ] {
+        host.get_or_start(&started).await.unwrap();
+    }
     host
 }
 

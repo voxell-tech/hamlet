@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_host::Caller;
 use hamlet_messages::Message;
@@ -189,6 +189,22 @@ impl<M: Message> Action for ByHand<M> {
 impl<M: Message> Message for ByHand<M> {
     type To = M::To;
     type From = Hand;
+}
+
+/// A society tool no chief reserves, refused only by its caller's
+/// standing.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Unreserved<M>(pub M);
+
+impl<M: Message> Action for Unreserved<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Unreserved<M> {
+    type To = M::To;
+    type From = M::From;
 }
 
 /// The message `M`, with no id of its own for a repeat.
@@ -414,6 +430,30 @@ where
         let by = sender(&ctx, &hand)?;
         let (key, _, act) = act::keyed(&by, name, hand.0)?;
         act::run_keyed(&self, &ctx, by, Some(key), name, act).await
+    }
+}
+
+impl<T> Handler<Unreserved<Tool<T>>> for Realm
+where
+    T: ToolAct<Agent>,
+    <T::Answer as Refusable>::Why: From<Standing>,
+{
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        tool: Unreserved<Tool<T>>,
+    ) -> Result<<T as ToolCall>::Answer> {
+        let name = <Tool<T> as Action>::NAME;
+        let by = sender(&ctx, &tool)?;
+        match act::run_tool(&self, &ctx, by, name, tool.0).await? {
+            Ok(answer) => Ok(answer),
+            Err(Stood::Standing(why)) => {
+                Ok(Refusable::refused(why.into()))
+            }
+            Err(Stood::Gate(why)) => {
+                bail!("{name} met a chief's gate: {why}")
+            }
+        }
     }
 }
 

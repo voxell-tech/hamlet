@@ -21,7 +21,7 @@ use super::super::change::{
 };
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
-use super::super::{callers, documents, reviews};
+use super::super::{callers, documents, librarian, reviews};
 
 const ANSWERED: &str = "answered";
 
@@ -30,11 +30,17 @@ const FAILED: &str = "failed";
 /// Today's words for an errand that ended with no answer.
 const NO_ANSWER: &str = "the errand gave no answer";
 
+/// The cap of an errand that has none of its own today: only its
+/// task's budget bounds it.
+pub(in crate::realm) const UNCAPPED: u64 = i64::MAX.unsigned_abs();
+
 /// What an errand is for, which decides what its end does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::realm) enum Purpose {
     /// The review of the line held on `task`.
     Review { task: TaskId },
+    /// The librarian, for the call its `librarian` row names.
+    Librarian,
 }
 
 impl Purpose {
@@ -42,12 +48,14 @@ impl Purpose {
     fn columns(&self) -> (&'static str, Option<TaskId>) {
         match self {
             Self::Review { task } => ("review", Some(*task)),
+            Self::Librarian => ("librarian", None),
         }
     }
 
     fn of(purpose: &str, subject: Option<TaskId>) -> Result<Self> {
         match (purpose, subject) {
             ("review", Some(task)) => Ok(Self::Review { task }),
+            ("librarian", None) => Ok(Self::Librarian),
             _ => bail!("an errand for `{purpose}` on {subject:?}"),
         }
     }
@@ -185,15 +193,17 @@ pub(in crate::realm) async fn next(
         .context("every errand number is taken")
 }
 
-/// The changes that end errand `n` as `ended`, with what its end
-/// makes by its purpose.
+/// The changes that end errand `n`, paid by `task`, as `ended`, with
+/// what its end makes by its purpose.
 fn ending(
     n: ErrandNumber,
     purpose: Purpose,
+    task: TaskId,
     ended: Ended,
 ) -> Vec<change::Change> {
     let made = match purpose {
         Purpose::Review { task } => reviews::ended(task, &ended),
+        Purpose::Librarian => librarian::ended(n, task, &ended),
     };
     [
         Change::End { n, ended }.into(),
@@ -218,7 +228,7 @@ pub(in crate::realm) async fn failed(
     let ended = Ended::Failed {
         why: NO_ANSWER.to_owned(),
     };
-    Ok(ending(n, errand.purpose, ended))
+    Ok(ending(n, errand.purpose, errand.task, ended))
 }
 
 fn number_of(n: u64) -> Result<ErrandNumber> {
@@ -368,11 +378,18 @@ pub(in crate::realm) async fn run(
         Step::Create => {
             let rows = cx.rows()?;
             let errand = errand_of(&rows, n).await?;
+            let mut brief = brief(&rows, n).await?;
+            if errand.purpose == Purpose::Librarian {
+                brief.instructions = Some(
+                    librarian::instructions(cx, brief.instructions)
+                        .await?,
+                );
+            }
             let input = AgentInput {
                 kind: AgentKind::Errand,
                 task: errand.task.on_the_wire(),
                 place: outside(),
-                brief: Some(brief(&rows, n).await?),
+                brief: Some(brief),
                 copies: documents::for_agent(&rows, n.agent())
                     .await?,
             };
@@ -397,8 +414,8 @@ fn outside() -> Place {
 
 impl Act<Agent> for ErrandDone {
     type Output = ();
-    /// The errand and its purpose, while it has not ended.
-    type Loaded = Option<(ErrandNumber, Purpose)>;
+    /// The errand, its purpose and its task, while it has not ended.
+    type Loaded = Option<(ErrandNumber, Purpose, TaskId)>;
     type Done = ();
 
     async fn load(
@@ -410,7 +427,11 @@ impl Act<Agent> for ErrandDone {
             return callers::refuse(ErrandDone::NAME, *by);
         };
         let errand = errand_of(rows, n).await?;
-        Ok(errand.ended.is_none().then_some((n, errand.purpose)))
+        Ok(errand.ended.is_none().then_some((
+            n,
+            errand.purpose,
+            errand.task,
+        )))
     }
 
     fn decide(
@@ -418,11 +439,12 @@ impl Act<Agent> for ErrandDone {
         _by: &Agent,
         loaded: Self::Loaded,
     ) -> Decision<(), ()> {
-        let Some((n, purpose)) = loaded else {
+        let Some((n, purpose, task)) = loaded else {
             return Decision::Again(());
         };
         let mut decided = Decided::new(());
-        decided.changes = ending(n, purpose, self.ended.clone());
+        decided.changes =
+            ending(n, purpose, task, self.ended.clone());
         Decision::Change(decided)
     }
 

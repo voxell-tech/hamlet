@@ -13,6 +13,7 @@ mod hire;
 mod laid;
 mod lanes;
 mod letters;
+mod librarian;
 mod marker;
 mod oversight;
 mod parcels;
@@ -63,7 +64,8 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    Dream, EditProfile, ReadProfile, RevertProfile, TagProfile,
+    AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
+    TagProfile,
 };
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
@@ -75,7 +77,9 @@ use hamlet_messages::realm::{
 };
 use serde::Serialize;
 
-use self::callers::{Bare, ByHand, Living, Looks, Relays};
+use self::callers::{
+    Bare, ByHand, Living, Looks, Relays, Unreserved,
+};
 
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
@@ -238,6 +242,7 @@ impl Actor for Realm {
         Relays<Asked<RevertProfile>>,
         profiles::Purging,
         Asked<Dream>,
+        Unreserved<Tool<AskLibrarian>>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;

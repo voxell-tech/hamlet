@@ -305,3 +305,10 @@ CREATE TABLE IF NOT EXISTS dream (
 	profile INTEGER NOT NULL,
 	hire INTEGER,
 	at INTEGER NOT NULL) STRICT;
+
+-- librarian.rs
+CREATE TABLE IF NOT EXISTS librarian (
+	errand INTEGER PRIMARY KEY,
+	asker INTEGER NOT NULL,
+	call TEXT NOT NULL,
+	conversation TEXT) STRICT;
