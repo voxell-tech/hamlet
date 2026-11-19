@@ -22,15 +22,14 @@
 //!                               the host then uses whatever --kind
 //!                               says, are in demo/link.rs
 //! --realm-actor                 run the realm actor, the workspace,
-//!                               the library and a stand-in profile,
-//!                               with the real agent in a Node host,
-//!                               this host's child, in place of the
-//!                               stub realm, the stub agent and the
-//!                               stub profile, and wait for the Node
-//!                               host before the first command; with
-//!                               or without --link. Its route table,
-//!                               used whatever --kind says, and its
-//!                               `pi` commands are in
+//!                               the profiles and the library, with
+//!                               the real agent in a Node host, this
+//!                               host's child, in place of the stub
+//!                               realm and the stub agent, and wait
+//!                               for the Node host before the first
+//!                               command; with or without --link. Its
+//!                               route table, used whatever --kind
+//!                               says, and its `pi` commands are in
 //!                               demo/agent_host.rs
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
@@ -61,15 +60,17 @@
 //!                               demo/agent.rs
 //! demo watch <n> <event>        follow <event> of agent <n> as a
 //!                               client, in demo/watch.rs
-//! demo profile ...              a profile's commands, in
-//!                               demo/profile.rs; not in serve
-//! demo library ...              the library's commands, in
-//!                               demo/library.rs; not in serve
 //! demo --realm-actor realm|agent ...
 //!                               the realm actor's commands, in
 //!                               demo/realm_actor.rs
 //! demo --realm-actor pi ...     the real agent's commands, in
 //!                               demo/agent_host.rs
+//! demo --realm-actor profile ...
+//!                               a profile's commands, in
+//!                               demo/profile.rs
+//! demo --realm-actor library ...
+//!                               the library's commands, in
+//!                               demo/library.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first counter kind, and
@@ -129,7 +130,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_messages::address::{
-    Agent, Library, Party, Profile, Realm, Workspace,
+    Agent, Library, Party, Realm, Workspace,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_sandbox::{Isolation, Sandbox};
@@ -183,11 +184,6 @@ async fn demo() -> Result<()> {
     if start.realm_actor {
         factories.extend(realm_actor::kinds());
         factories.remove(Agent::KIND);
-    }
-    // A profile's and the library's commands call as stand-ins, in a
-    // process of their own: `serve` keeps the stub realm and agents.
-    if matches!(command, Some("profile" | "library")) {
-        factories.extend(profile::stand_ins());
     }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
@@ -288,12 +284,14 @@ impl Demo {
         }
     }
 
-    /// Boots the host. The realm actor starts first, and its Hand is
-    /// live before anything else, so no agent wakes before its realm
-    /// and nothing reaches the Hand before its actor is made.
+    /// Boots the host. The realm actor starts first, after the
+    /// workspace and the library it and its agents call, and its Hand
+    /// is live before anything else, so no agent wakes before its
+    /// realm and nothing reaches the Hand before its actor is made.
     async fn start(&self) -> Result<Vec<Address>> {
         if self.realm_actor {
             self.host.get_or_start(&Workspace.address()?).await?;
+            self.host.get_or_start(&Library.address()?).await?;
             self.host.get_or_start(&Realm.address()?).await?;
             ensure!(
                 realm_actor::live(&self.host, AgentNumber(1)).await?,
@@ -403,11 +401,14 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
     if realm_actor {
         needed.extend([Workspace::KIND, Library::KIND]);
     }
-    if matches!(
-        rest.first().map(String::as_str),
-        Some("profile" | "library")
-    ) {
-        needed.extend([Profile::KIND, Library::KIND]);
+    if let Some(verb @ ("profile" | "library")) =
+        rest.first().map(String::as_str)
+        && !realm_actor
+    {
+        bail!(
+            "`{verb}` needs the real realm and agent: start the \
+             demo with --realm-actor"
+        );
     }
     for kind in needed {
         if !kinds.iter().any(|named| named == kind) {
