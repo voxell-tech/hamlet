@@ -261,7 +261,7 @@ async fn as_chief(
         {
             let (profile, version, purpose) = match words {
                 [from, purpose @ ..] if from.starts_with("scholar#") => {
-                    let (profile, version) = scholar(from)?;
+                    let (profile, version) = profile_at(from)?;
                     (Some(profile), version, purpose)
                 }
                 purpose => (None, None, purpose),
@@ -1198,7 +1198,9 @@ fn named(word: &str) -> Result<Named> {
 }
 
 /// The profile and version of `scholar#<n>[@<version>]`.
-fn scholar(word: &str) -> Result<(ProfileId, Option<VersionName>)> {
+fn profile_at(
+    word: &str,
+) -> Result<(ProfileId, Option<VersionName>)> {
     let named =
         word.strip_prefix("scholar#").context("a scholar#<n>")?;
     let (n, version) = match named.split_once('@') {
