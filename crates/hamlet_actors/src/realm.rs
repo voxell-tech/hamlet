@@ -8,6 +8,7 @@ mod calls;
 mod change;
 mod chiefs;
 mod documents;
+mod dreams;
 mod hire;
 mod laid;
 mod lanes;
@@ -62,7 +63,7 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    EditProfile, ReadProfile, RevertProfile, TagProfile,
+    Dream, EditProfile, ReadProfile, RevertProfile, TagProfile,
 };
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
@@ -158,6 +159,9 @@ struct Realm {
     drives: steps::Drives,
     lanes: lanes::Lanes,
     hiring_wait: Duration,
+    /// Held shared by each purge in flight, and alone while a
+    /// dream's folders are checked out.
+    purging: tokio::sync::RwLock<()>,
 }
 
 #[async_trait::async_trait]
@@ -233,6 +237,7 @@ impl Actor for Realm {
         Relays<Asked<TagProfile>>,
         Relays<Asked<RevertProfile>>,
         profiles::Purging,
+        Asked<Dream>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -258,6 +263,7 @@ impl Actor for Realm {
                 world: world::Held::load(ctx).await?,
                 drives: steps::Drives::default(),
                 lanes: lanes::Lanes::default(),
+                purging: tokio::sync::RwLock::new(()),
             })
         }
         .await

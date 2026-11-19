@@ -440,7 +440,8 @@ impl Relay<Client> for Asked<PurgeProfile> {
 }
 
 /// A chief's purge, answered from the profile's answer once it has
-/// asked every hire to remove the path.
+/// asked every hire to remove the path. No dream's folders are
+/// checked out while it is in flight.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(super) struct Purging(pub Asked<PurgeProfile>);
@@ -462,6 +463,7 @@ impl Handler<Purging> for Realm {
         Purging(asked): Purging,
     ) -> Result<<Purging as Action>::Output> {
         let by = sender(&ctx, &asked)?;
+        let _purging = self.purging.read().await;
         callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
             .await
     }

@@ -21,10 +21,10 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, Edit, EditRefusal, Missing,
-    Path as FilePath, ProfileInput, Purge, PurgeAnswer, Read,
-    ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
-    TagRefusal,
+    BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
+    Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
+    Purge, PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1,
+    Tag, TagAnswer, TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -131,10 +131,14 @@ const FOUR: AgentNumber = AgentNumber(4);
 enum Callee {
     Branch,
     Create,
+    /// A profile's end of a dream, by the profile's number.
+    EndDream,
     Fill,
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
+    /// A profile's preparation of a dream, by the profile's number.
+    PrepareDream,
     /// A profile's purge, by the profile's number.
     Purge,
     SetReach,
@@ -157,6 +161,10 @@ struct Seen {
     tags: Mutex<Vec<(ProfileId, Tag)>>,
     reverts: Mutex<Vec<(ProfileId, Revert)>>,
     purges: Mutex<Vec<(ProfileId, Purge)>>,
+    /// Each preparation of a dream, with whether a purge was held
+    /// when it came.
+    prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
+    dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -384,7 +392,16 @@ struct ProfileStandIn {
 impl Actor for ProfileStandIn {
     /// `None` for a profile a test calls without making it.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Read, Edit, Tag, Revert, Purge);
+    type Actions = (
+        Branch,
+        Read,
+        Edit,
+        Tag,
+        Revert,
+        Purge,
+        PrepareDream,
+        EndDream,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -566,6 +583,53 @@ impl Handler<Purge> for ProfileStandIn {
                 still_hold: vec![STILL_HOLDS],
             }
         })
+    }
+}
+
+impl Handler<PrepareDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        prepare: PrepareDream,
+    ) -> anyhow::Result<Prepared> {
+        let purging = self
+            .seen
+            .waiting
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|&(callee, _)| callee == Callee::Purge);
+        self.seen
+            .called(Callee::PrepareDream, AgentNumber(self.profile.0))
+            .await?;
+        let dream = prepare.dream.0;
+        self.seen.prepares.lock().unwrap().push((
+            self.profile,
+            prepare,
+            purging,
+        ));
+        Ok(Prepared::Ready {
+            main: format!("dreams/{dream}/main"),
+            hire: None,
+        })
+    }
+}
+
+impl Handler<EndDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        end: EndDream,
+    ) -> anyhow::Result<DreamEnd> {
+        self.seen
+            .called(Callee::EndDream, AgentNumber(self.profile.0))
+            .await?;
+        self.seen
+            .dream_ends
+            .lock()
+            .unwrap()
+            .push((self.profile, end));
+        Ok(DreamEnd::Nothing)
     }
 }
 

@@ -18,9 +18,10 @@ use super::oversight::asking;
 use super::tree::choices;
 use super::workers::errands;
 use super::{
-    Realm, allowance, budget, chiefs, documents, laid, letters,
-    marker, oversight, parcels, profiles, record, reviews, settings,
-    society, steps, tasks, tree, versions, waits, workers, world,
+    Realm, allowance, budget, chiefs, documents, dreams, laid,
+    letters, marker, oversight, parcels, profiles, record, reviews,
+    settings, society, steps, tasks, tree, versions, waits, workers,
+    world,
 };
 
 #[derive(Debug, PartialEq)]
@@ -47,6 +48,7 @@ pub(super) enum Change {
     Society(society::Change),
     Parcels(parcels::Change),
     Profiles(profiles::Change),
+    Dreams(dreams::Change),
 }
 
 macro_rules! change_from {
@@ -82,6 +84,7 @@ change_from!(
     society => Society,
     parcels => Parcels,
     profiles => Profiles,
+    dreams => Dreams,
 );
 
 #[derive(Debug, Default, PartialEq)]
@@ -570,6 +573,9 @@ impl Transaction {
                     }
                     Change::Profiles(change) => {
                         profiles::apply(&writer, change).await?
+                    }
+                    Change::Dreams(change) => {
+                        dreams::apply(&writer, change).await?
                     }
                 });
             }
