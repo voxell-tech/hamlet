@@ -30,6 +30,13 @@ pub(crate) struct Screen {
     /// the prompt. The line is found again by it, not by where it
     /// was, which scrolling and a full scrollback move.
     typing: Option<String>,
+    /// How many programs have asked for the alternate screen and not
+    /// yet left it: one that runs another full-screen program asks
+    /// again.
+    alternate_depth: u32,
+    /// The start of a request to switch screens that the last output
+    /// ended in the middle of.
+    held: Vec<u8>,
     /// The prompt of a line entered, read once the shell has echoed
     /// its Enter.
     entered: Option<String>,
@@ -151,6 +158,8 @@ impl Screen {
             replay: VecDeque::new(),
             start: size,
             start_alternate: false,
+            alternate_depth: 0,
+            held: Vec::new(),
             typing: None,
             entered: None,
             last: None,
@@ -172,6 +181,92 @@ impl Screen {
                     self.resize(Size { rows, cols });
                 }
             }
+        }
+        self.alternate_depth =
+            u32::from(self.parser.screen().alternate_screen());
+    }
+
+    /// Leaves out of `bytes` the requests to switch screens of a
+    /// program that another full-screen program, run from it, asked
+    /// for while it held the alternate screen, and the request to
+    /// leave it that ends the inner one. A terminal has one alternate
+    /// screen, so the inner program's leaving would otherwise put the
+    /// outer one's drawing on the shell's screen. The result is what
+    /// is to be taken and sent on.
+    pub(super) fn nested(&mut self, bytes: &[u8]) -> Vec<u8> {
+        let mut input = std::mem::take(&mut self.held);
+        input.extend(bytes);
+        let mut out = Vec::with_capacity(input.len());
+        let mut at = 0;
+        while at < input.len() {
+            if input[at] != 0x1b {
+                let next = input[at..]
+                    .iter()
+                    .position(|b| *b == 0x1b)
+                    .map_or(input.len(), |p| at + p);
+                out.extend(&input[at..next]);
+                at = next;
+                continue;
+            }
+            let rest = &input[at..];
+            let prefix = b"\x1b[?";
+            if rest.len() < prefix.len() && prefix.starts_with(rest) {
+                self.held = rest.to_vec();
+                break;
+            }
+            if !rest.starts_with(prefix) {
+                out.push(0x1b);
+                at += 1;
+                continue;
+            }
+            let params = &rest[prefix.len()..];
+            let Some(end) = params
+                .iter()
+                .position(|b| !b.is_ascii_digit() && *b != b';')
+            else {
+                if rest.len() <= 64 {
+                    self.held = rest.to_vec();
+                    break;
+                }
+                out.push(0x1b);
+                at += 1;
+                continue;
+            };
+            let length = prefix.len() + end + 1;
+            let last = params[end];
+            if matches!(last, b'h' | b'l') {
+                let kept = params[..end]
+                    .split(|b| *b == b';')
+                    .filter(|n| {
+                        !matches!(*n, b"47" | b"1047" | b"1049")
+                            || self.switching(last == b'h')
+                    })
+                    .collect::<Vec<_>>();
+                if !kept.is_empty() {
+                    out.extend(prefix);
+                    out.extend(kept.join(&b';'));
+                    out.push(last);
+                }
+            } else {
+                out.extend(&rest[..length]);
+            }
+            at += length;
+        }
+        out
+    }
+
+    /// Whether a request to enter, or to leave, the alternate screen
+    /// is passed on: the outermost one is.
+    fn switching(&mut self, enter: bool) -> bool {
+        if enter {
+            self.alternate_depth += 1;
+            self.alternate_depth == 1
+        } else if self.alternate_depth > 1 {
+            self.alternate_depth -= 1;
+            false
+        } else {
+            self.alternate_depth = 0;
+            true
         }
     }
 
@@ -539,6 +634,30 @@ mod tests {
         screen.take(b"% \x1b[s\x1b[1;25H~/src\x1b[u");
         typed(&mut screen, "make\r", "make\r\n");
         assert_eq!(screen.last.as_deref(), Some("make"));
+    }
+
+    #[test]
+    fn a_program_run_from_a_full_screen_one_leaves_it_on_the_alternate_screen()
+     {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        fn print(screen: &mut Screen, bytes: &[u8]) -> Vec<u8> {
+            let bytes = screen.nested(bytes);
+            screen.take(&bytes);
+            bytes
+        }
+        print(&mut screen, b"$ hx\r\n");
+        print(&mut screen, b"\x1b[?1049h\x1b[Heditor");
+        // Split inside the request.
+        let inner = print(&mut screen, b"\x1b[?10");
+        assert!(inner.is_empty());
+        print(&mut screen, b"49h\x1b[Hgit");
+        print(&mut screen, b"\x1b[?1049l");
+        print(&mut screen, b"\x1b[Heditor again");
+        assert!(screen.parser.screen().alternate_screen());
+        print(&mut screen, b"\x1b[?1049l");
+        assert!(!screen.parser.screen().alternate_screen());
+        let shown = screen.parser.screen().contents();
+        assert_eq!(shown, "$ hx");
     }
 
     #[test]
