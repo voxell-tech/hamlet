@@ -2,7 +2,8 @@
 // the script `FAKE_CLAUDE_SCRIPT` names, one run per process, and never reaches a network. Like the real one, it
 // writes what each run says to its session, the one it resumes or a new one. `auth login` opens a link with
 // `BROWSER` and keeps the script's tokens in its own folder, as the real program keeps a subscription's, then fails
-// with the script's `signInFails` on stderr when it names one. A step `die` writes its words to stderr and exits.
+// with the script's `signInFails` on stderr when it names one. A step `die` writes its words to stderr and exits; words
+// given as a list are written one part at a time, a moment apart.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -132,7 +133,10 @@ async function steps(prompt) {
     record({ type: "user", message: { role: "user", content: prompt } });
     for (const step of script.runs[run] ?? []) {
         if (step.die !== undefined) {
-            process.stderr.write(step.die);
+            for (const part of [step.die].flat()) {
+                process.stderr.write(part);
+                await new Promise((resolve) => setTimeout(resolve, 200));
+            }
             process.exit(1);
         }
         if (step.call !== undefined) {

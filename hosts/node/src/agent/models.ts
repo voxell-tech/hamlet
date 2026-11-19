@@ -490,6 +490,9 @@ class Scrubbed extends AssistantMessageEventStream {
     ): AssistantMessageEvent {
         const event = scrub(source);
         if (event.type === "error") withheldIn(event.error);
+        if (event.type === "done" && isCutOff(event.message)) {
+            withheldIn(event.message);
+        }
         if (!("partial" in event)) return event;
         withheldIn(
             event.partial,
@@ -525,7 +528,11 @@ class Scrubbed extends AssistantMessageEventStream {
 
 /** An answer whose text may end in part of a key. */
 function isCutOff(message: AssistantMessage): boolean {
-    return message.stopReason === "error" || message.stopReason === "aborted";
+    return (
+        message.stopReason === "error" ||
+        message.stopReason === "aborted" ||
+        message.stopReason === "length"
+    );
 }
 
 function withheldIn(message: AssistantMessage, ended?: number): void {
@@ -534,6 +541,12 @@ function withheldIn(message: AssistantMessage, ended?: number): void {
         if (block.type === "text") block.text = withheld(block.text);
         else if (block.type === "thinking") {
             block.thinking = withheld(block.thinking);
+        } else {
+            block.arguments = JSON.parse(
+                JSON.stringify(block.arguments, (_key, value: unknown) =>
+                    typeof value === "string" ? withheld(value) : value,
+                ),
+            );
         }
     }
 }

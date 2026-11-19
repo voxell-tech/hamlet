@@ -687,15 +687,17 @@ test("a cancel answers a call waiting for its step", async (t) => {
     await agent.stop();
 });
 
-test("a typed answer joins the scrub list only when it was secret", async (t) => {
+test("every typed answer to a sign-in joins the scrub list, as today", async (t) => {
     const key = secret(t, "key");
+    /** Made up, and scrubbed from the host once typed. */
+    const profile = "profile-made-up-41c9";
     const { calls } = credentialsFile();
     const core = createFauxCore({
         provider: "profiled",
         models: [{ id: "large", name: "Large", contextWindow: 64_000 }],
     });
     core.setResponses([
-        () => fauxAssistantMessage(`Profile default, key ${key}.`),
+        () => fauxAssistantMessage(`Profile ${profile}, key ${key}.`),
     ]);
     const provider = createProvider({
         id: "profiled",
@@ -734,7 +736,7 @@ test("a typed answer joins the scrub list only when it was secret", async (t) =>
     });
     const hand = client(agent, signIns(agent.config.models));
     const login = (await hand.start("profiled", "key")).login;
-    assert.deepEqual(await hand.reply(login, "default"), {
+    assert.deepEqual(await hand.reply(login, profile), {
         type: "step",
         login,
         step: { prompt: "Paste your key.", secret: true },
@@ -752,7 +754,7 @@ test("a typed answer joins the scrub list only when it was secret", async (t) =>
     const answer = (await page(agent)).items.find(
         (item) => item.kind === "assistant",
     );
-    assert.equal(answer?.text, "Profile default, key [REDACTED].");
+    assert.equal(answer?.text, "Profile [REDACTED], key [REDACTED].");
     await agent.stop();
 });
 
