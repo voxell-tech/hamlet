@@ -385,7 +385,7 @@ pub(crate) fn deeds() -> Vec<protocol::Deed> {
         .collect()
 }
 
-fn usage(name: &str) -> Refusal {
+pub(crate) fn usage(name: &str) -> Refusal {
     let usage = TABLE
         .iter()
         .find(|c| c.name == name)

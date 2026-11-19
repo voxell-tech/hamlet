@@ -11,6 +11,7 @@ mod host;
 mod hub;
 mod route;
 mod view;
+mod words;
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
