@@ -410,6 +410,9 @@ impl Written<'_> {
             held,
             parcel,
         } = letter;
+        if held == Some(asking::Holding::Dropped) {
+            return refuse(LetterRefusal::Withdrawn);
+        }
         let Some(to) = &ends.to else {
             return refuse(LetterRefusal::NoSuchAgent { address });
         };

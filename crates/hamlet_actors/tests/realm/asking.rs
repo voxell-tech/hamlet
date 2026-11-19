@@ -8,7 +8,8 @@ use hamlet_messages::realm::oversight::{
     ObjectRefusal, Offer, Question,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, Reply, Tell, Tool, Waiting,
+    AgentRefusal, Ask, Done, LetterId, LetterRefusal, Reply, Sent,
+    Tell, Tool, Waiting,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -17,8 +18,8 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, Pick, RequestId};
 
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, paid, say, sent,
-    shown, standing, submits_to, tell, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, paid, say, shown,
+    standing, submits_to, tell, to, tool, until, words,
 };
 
 fn conversation() -> ConversationId {
@@ -660,8 +661,7 @@ pub(super) async fn held_rows(realm: &Realm) -> i64 {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
-{
+async fn a_withdrawn_task_spends_nothing_and_takes_no_letters() {
     let (realm, _) = hamlet_with(1).await;
     let task = chief_task(&realm, THREE).await;
     realm
@@ -681,7 +681,7 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
         .unwrap();
     let three = may_spend(&realm, THREE, &task).await;
     let mayor = may_spend(&realm, MAYOR, &task).await;
-    let dropped = realm
+    let refused = realm
         .tool(MAYOR, &on("t1", &task, "too late"))
         .await
         .unwrap();
@@ -700,7 +700,12 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
         (words(three), words(mayor)),
         (withdrawn.to_owned(), withdrawn.to_owned())
     );
-    assert_eq!(dropped, sent(THREE));
+    assert_eq!(
+        refused,
+        Sent::Refused {
+            why: AgentRefusal::Act(LetterRefusal::Withdrawn)
+        }
+    );
     assert_eq!(
         told,
         [
