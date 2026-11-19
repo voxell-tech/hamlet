@@ -130,14 +130,14 @@ export async function newSession(
     message: NewSession,
 ): Answer<"new_session"> {
     const generation = generationOf(c);
-    // Followers hear of the new session after its answer, once its chat's
-    // row is kept: a commit folded before that is never sent.
     const answered = Promise.withResolvers<void>();
-    holdFollowers(c, answered.promise);
     try {
-        const { number, left } = await generation.inTurn(() =>
-            begin(c, message.id),
-        );
+        const { number, left } = await generation.inTurn(() => {
+            // Followers hear of the new session after its answer, once its
+            // chat's row is kept: a commit folded before that is never sent.
+            holdFollowers(c, answered.promise);
+            return begin(c, message.id);
+        });
         // As today, the session left keeps what it waits for.
         if (left !== undefined) {
             void reflectOnLeaving(c, left).catch((error: unknown) =>

@@ -578,6 +578,40 @@ test("/new begins its session with its notice, and a follower hears of it after 
     await agent.idle();
 });
 
+test("/new waiting behind another command holds no follower back", async (t) => {
+    const reached = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({
+            realm: {
+                open_task: async () => {
+                    reached.resolve();
+                    await held.promise;
+                    return { type: "opened", task: "task-retry" };
+                },
+            },
+        }).calls,
+        files: fakeFiles({}),
+        responses: reflecting(["One.", "Two."]),
+    });
+    t.after(() => agent.stop());
+    const client = agent.by(from.client);
+    await read(agent, CHIEF);
+    const retried = agent.actions.retry(client, { id: "r-1", to: 7 });
+    await reached.promise;
+    const begun = agent.actions.new_session(client, { id: "new-1", to: 7 });
+    const before = chatEvents(agent).length;
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "letter-held",
+        input: letter("Hello."),
+    });
+    await until(() => chatEvents(agent).length > before);
+    held.resolve();
+    await retried;
+    await begun;
+    await agent.idle();
+});
+
 test("a page read after the wake could not open the harness is followed", async (t) => {
     const first = await wake(t, [
         fauxAssistantMessage("One."),
