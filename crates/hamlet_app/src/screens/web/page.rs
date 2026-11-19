@@ -23,16 +23,21 @@ use bevy::ui_render::prelude::MaterialNode;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_cef::prelude::{
     AddressChanged, BeginFrameInterval, CefPlugin, CommandLineConfig,
-    PreloadScripts, RequestNavigate, WebviewHidden, WebviewProfile,
-    WebviewSource, WebviewTitle, WebviewUiMaterial,
+    PopupRequested, PreloadScripts, RequestNavigate, TitleChanged,
+    WebviewClipboard, WebviewHidden, WebviewProfile, WebviewSource,
+    WebviewTitle, WebviewUiMaterial,
 };
-use bevy_fynix::dock::{DockTab, DockTree};
+use bevy_fynix::dock::{
+    DockTab, DockTree, DropTarget, NodeId, TabId,
+};
 use hamlet_client::ViewFolder;
 
 use super::agents::{AgentNames, Waits};
-use super::panel::{PanelId, Surface, is_panel, tab_name};
-use super::{Addresses, AgentTabs, bridge, engine};
-use crate::dock::on_a_desk;
+use super::panel::{PanelId, Surface, has_page, is_panel, tab_name};
+use super::{
+    Addresses, AgentTabs, FILES, PANEL, Titles, bridge, engine,
+};
+use crate::dock::{on_a_desk, open_numbered};
 
 /// The name of the chief's browsing session, which every Web panel of
 /// the chief's shares and the view folder keeps.
@@ -73,6 +78,8 @@ pub(super) fn plugin(app: &mut App) {
     .insert_resource(BeginFrameInterval(FRAME_GAP))
     .init_resource::<InSight>()
     .add_observer(follow_address)
+    .add_observer(keep_title)
+    .add_observer(open_popup)
     .add_systems(
         Update,
         (
@@ -93,7 +100,12 @@ pub(super) fn helper() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| {
             let window = std::env::current_exe().ok()?;
-            Some(window.parent()?.join(HELPER))
+            Some(
+                window
+                    .parent()?
+                    .join(HELPER)
+                    .with_extension(std::env::consts::EXE_EXTENSION),
+            )
         })
         .unwrap_or_else(|| PathBuf::from(HELPER))
 }
@@ -162,8 +174,8 @@ pub(super) fn navigate(
     }
 }
 
-/// The Web panels the dock holds, with whether each is the tab in
-/// front of its area.
+/// The panels with pages the dock holds, with whether each is the
+/// tab in front of its area.
 fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
     let Some(root) = tree.root else {
         return Vec::new();
@@ -173,7 +185,7 @@ fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
         .flat_map(|(leaf, area)| {
             let front = tree.active(leaf);
             area.tabs()
-                .filter(|(window, _)| is_panel(window))
+                .filter(|(window, _)| has_page(window))
                 .map(move |(window, tab)| {
                     (PanelId(window.to_owned()), front == Some(tab))
                 })
@@ -182,13 +194,17 @@ fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
         .collect()
 }
 
-/// Gives each Web panel with an address a page, and closes the page
+/// Gives each Web panel with an address a page once its tab is in
+/// front, and closes the page
 /// and forgets the address of each panel neither the dock nor a desk
-/// holds any more.
+/// holds any more. The Files panel's page is kept when it closes, put
+/// away like a page behind another tab, so that the web IDE opens
+/// again as it was rather than loading anew.
 fn open(world: &mut World) {
     let docked = docked(world.resource::<DockTree>());
     let kept = |world: &World, panel: &str| {
-        docked.iter().any(|(id, _)| id.0 == panel)
+        panel == FILES
+            || docked.iter().any(|(id, _)| id.0 == panel)
             || on_a_desk(world, panel)
     };
     let closed = world
@@ -210,6 +226,7 @@ fn open(world: &mut World) {
     for panel in gone {
         world.resource_mut::<Addresses>().0.remove(&panel);
         world.resource_mut::<AgentTabs>().0.remove(&panel);
+        world.resource_mut::<Titles>().0.remove(&panel);
     }
     let wanted = world
         .resource::<Addresses>()
@@ -225,6 +242,18 @@ fn open(world: &mut World) {
         }
         let agent =
             world.resource::<AgentTabs>().0.contains_key(&panel.0);
+        // A page loads the first time its tab is in front, so the
+        // tabs kept from before, and those opened behind, cost
+        // nothing until they are looked at. An agent acts on its page
+        // unseen.
+        let front =
+            docked.iter().any(|(id, front)| *id == panel && *front);
+        if !front && !agent {
+            continue;
+        }
+        // The web IDE, the window's own, pastes what the chief
+        // copied.
+        let files = panel.0 == FILES;
         let material = world
             .resource_mut::<Assets<WebviewUiMaterial>>()
             .add(WebviewUiMaterial::default());
@@ -238,6 +267,9 @@ fn open(world: &mut World) {
             },
             MaterialNode(material),
         ));
+        if files {
+            page.insert(WebviewClipboard);
+        }
         // A page with no profile, as an agent's is, has a session of
         // its own, kept in memory.
         if agent {
@@ -354,11 +386,90 @@ fn follow_address(
     }
 }
 
+/// Keeps the title of each Web panel's page for its tab, for when the
+/// page is not loaded.
+fn keep_title(
+    changed: On<TitleChanged>,
+    pages: Query<&Page>,
+    mut titles: ResMut<Titles>,
+) {
+    let Ok(Page(panel)) = pages.get(changed.webview) else {
+        return;
+    };
+    let title = changed.title.trim();
+    if !title.is_empty()
+        && titles.0.get(&panel.0).map(String::as_str) != Some(title)
+    {
+        titles.0.insert(panel.0.clone(), title.to_owned());
+    }
+}
+
+/// Opens the page a page asked for in a new window in a Web tab just
+/// after its own, in front unless it was opened behind. An agent's
+/// page has a session of its own, so the page it asks for loads in
+/// its place.
+fn open_popup(popup: On<PopupRequested>, mut commands: Commands) {
+    let (webview, url, foreground) =
+        (popup.webview, popup.url.clone(), popup.foreground);
+    commands.queue(move |world: &mut World| {
+        let Some(panel) =
+            world.get::<Page>(webview).map(|page| page.0.clone())
+        else {
+            return;
+        };
+        if world.resource::<AgentTabs>().0.contains_key(&panel.0) {
+            navigate(world, &panel, url);
+            return;
+        }
+        let Some((leaf, index, front)) = beside(world, &panel) else {
+            return;
+        };
+        let Some(id) = open_numbered(
+            world,
+            PANEL,
+            DropTarget::Tabs { leaf, index },
+        ) else {
+            return;
+        };
+        world.resource_mut::<Addresses>().0.insert(id, url);
+        if !foreground && let Some(front) = front {
+            world.resource_mut::<DockTree>().set_active(leaf, front);
+        }
+    });
+}
+
+/// Where a tab opened from `panel`'s page goes: the area of `panel`'s
+/// tab, else the first with a Web panel, else the first; the slot
+/// after `panel`'s; and the tab in front of that area now.
+fn beside(
+    world: &World,
+    panel: &PanelId,
+) -> Option<(NodeId, usize, Option<TabId>)> {
+    let tree = world.resource::<DockTree>();
+    let leaves = tree.leaves_under(tree.root?);
+    let (leaf, area) = leaves
+        .iter()
+        .find(|(_, area)| area.tabs().any(|(id, _)| id == panel.0))
+        .or_else(|| {
+            leaves.iter().find(|(_, area)| {
+                area.tabs().any(|(id, _)| is_panel(id))
+            })
+        })
+        .or_else(|| leaves.first())?;
+    let index = area
+        .tabs()
+        .position(|(id, _)| id == panel.0)
+        .map_or_else(|| area.tabs().count(), |at| at + 1);
+    Some((*leaf, index, tree.active(*leaf)))
+}
+
 /// Names each Web panel's tab after its page's title.
 fn name_tabs(
     tabs: Query<(Entity, &DockTab)>,
     tree: Res<DockTree>,
     agents: Option<Res<AgentNames>>,
+    addresses: Res<Addresses>,
+    titles: Res<Titles>,
     pages: Query<(&Page, &WebviewTitle)>,
     children: Query<&Children>,
     mut texts: Query<&mut Text>,
@@ -383,7 +494,12 @@ fn name_tabs(
             .as_ref()
             .and_then(|names| names.0.get(window))
             .map(String::as_str);
-        let name = tab_name(title, agent);
+        let name = tab_name(
+            title,
+            titles.0.get(window).map(String::as_str),
+            addresses.0.get(window).map(String::as_str),
+            agent,
+        );
         let label = children
             .iter_descendants_depth_first(node)
             .find(|kid| texts.contains(*kid));
@@ -418,4 +534,96 @@ fn pace(
         *winit = crate::window::winit_settings();
     }
     *was = in_sight.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::asset::{AssetApp, AssetPlugin};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy_fynix::dock::{DockAreaStyle, DockLeaf};
+
+    use super::*;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(AssetPlugin::default())
+            .init_asset::<WebviewUiMaterial>()
+            .init_resource::<AgentTabs>()
+            .init_resource::<Titles>()
+            .insert_resource(Addresses(
+                [
+                    (
+                        FILES.to_owned(),
+                        "http://127.0.0.1:1/".to_owned(),
+                    ),
+                    (
+                        "web".to_owned(),
+                        "https://example.com".to_owned(),
+                    ),
+                ]
+                .into(),
+            ));
+        let mut tree = DockTree::new();
+        tree.set_root_leaf(
+            DockLeaf::new("area", DockAreaStyle::TabBar)
+                .with_windows(vec![
+                    FILES.to_owned(),
+                    "web".to_owned(),
+                ]),
+        );
+        app.insert_resource(tree);
+        app
+    }
+
+    fn pages(app: &mut App) -> Vec<String> {
+        app.world_mut().run_system_once(open).unwrap();
+        let mut pages = app
+            .world_mut()
+            .query::<&Page>()
+            .iter(app.world())
+            .map(|page| page.0.0.clone())
+            .collect::<Vec<_>>();
+        pages.sort();
+        pages
+    }
+
+    fn show(app: &mut App, window: &str) {
+        let mut tree = app.world_mut().resource_mut::<DockTree>();
+        let leaf = tree.find_leaf_with_window(window).unwrap();
+        let tab = tree
+            .leaf(leaf)
+            .unwrap()
+            .tabs()
+            .find(|(id, _)| *id == window)
+            .unwrap()
+            .1;
+        tree.set_active(leaf, tab);
+    }
+
+    #[test]
+    fn a_tab_behind_loads_its_page_only_once_it_is_in_front() {
+        let mut app = app();
+        show(&mut app, FILES);
+        assert_eq!(pages(&mut app), [FILES]);
+        show(&mut app, "web");
+        assert_eq!(pages(&mut app), [FILES, "web"]);
+        // Behind again, it keeps its page.
+        show(&mut app, FILES);
+        assert_eq!(pages(&mut app), [FILES, "web"]);
+    }
+
+    #[test]
+    fn the_files_panels_page_outlives_its_tab_and_a_web_panels_does_not()
+     {
+        let mut app = app();
+        show(&mut app, "web");
+        pages(&mut app);
+        show(&mut app, FILES);
+        assert_eq!(pages(&mut app), [FILES, "web"]);
+        // Both tabs closed.
+        app.insert_resource(DockTree::new());
+        assert_eq!(pages(&mut app), [FILES]);
+        let kept = app.world().resource::<Addresses>().0.clone();
+        assert_eq!(kept.keys().collect::<Vec<_>>(), [FILES]);
+    }
 }

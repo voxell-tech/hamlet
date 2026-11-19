@@ -51,11 +51,12 @@ serde_json.workspace = true
 tokio.workspace = true
 toml.workspace = true
 unicode-segmentation.workspace = true
+url.workspace = true
 vt100.workspace = true
 
 # The Web panels' Chromium (ADR 0016). `debug` reads CEF from where
 # the window says rather than from inside an app bundle.
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 bevy_cef = { workspace = true, optional = true, features = ["debug"] }
 bevy_cef_core = { workspace = true, optional = true, features = ["debug"] }
 cef = { workspace = true, optional = true }

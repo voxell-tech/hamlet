@@ -173,6 +173,10 @@ pub struct View {
     /// ids.
     #[serde(default)]
     web_agents: BTreeMap<String, u64>,
+    /// The title of each Web panel's page, by panel id, for its tab
+    /// before the page loads again.
+    #[serde(default)]
+    web_titles: BTreeMap<String, String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -384,6 +388,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(hub::CollapsedRails(view.collapsed_rails));
     world.insert_resource(web::Addresses(view.web_addresses));
     world.insert_resource(web::AgentTabs(view.web_agents));
+    world.insert_resource(web::Titles(view.web_titles));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -437,6 +442,7 @@ pub fn keep(
         pins,
         addresses,
         agents,
+        titles,
     ): (
         Res<Pending>,
         Res<Kept>,
@@ -448,6 +454,7 @@ pub fn keep(
         Res<terminal::Pins>,
         Res<web::Addresses>,
         Res<web::AgentTabs>,
+        Res<web::Titles>,
     ),
     (fog, far, wind, appearance, zoom, rails, channel): (
         Res<VolumetricFogSettings>,
@@ -483,6 +490,7 @@ pub fn keep(
         || channel.is_changed()
         || addresses.is_changed()
         || agents.is_changed()
+        || titles.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -516,8 +524,20 @@ pub fn keep(
         terminal_pins: pins.0.clone(),
         collapsed_rails: rails.0.clone(),
         update_channel: channel.0,
-        web_addresses: addresses.0.clone(),
+        web_addresses: addresses
+            .0
+            .iter()
+            .filter(|(panel, _)| *panel != web::FILES)
+            .map(|(panel, address)| (panel.clone(), address.clone()))
+            .collect(),
         web_agents: agents.0.clone(),
+        web_titles: titles
+            .0
+            .iter()
+            .filter(|(panel, _)| addresses.0.contains_key(*panel))
+            .filter(|(panel, _)| *panel != web::FILES)
+            .map(|(panel, title)| (panel.clone(), title.clone()))
+            .collect(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -599,6 +619,10 @@ mod tests {
                 "http://localhost:5173/".into(),
             )]),
             web_agents: BTreeMap::from([("web-3".into(), 7)]),
+            web_titles: BTreeMap::from([(
+                "web-2".into(),
+                "Vite App".into(),
+            )]),
         }
     }
 

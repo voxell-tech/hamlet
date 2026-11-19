@@ -2,19 +2,23 @@
 //! (ADR 0016). The addresses are kept with the view in every build;
 //! the panels are only in a macOS build with the `web` feature.
 
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod agents;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod bridge;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
+mod crop;
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 pub mod engine;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod fetch;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
+mod files;
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod keys;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod page;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod panel;
 
 use std::collections::BTreeMap;
@@ -26,15 +30,32 @@ use bevy::ecs::resource::Resource;
 /// and so on.
 pub const PANEL: &str = "web";
 
+/// The id of the Files panel, whose page is a hamlet's web IDE. Its
+/// address holds a token of that IDE's run, so the view does not keep
+/// it.
+pub const FILES: &str = "files";
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Addresses>()
-        .init_resource::<AgentTabs>();
-    #[cfg(all(feature = "web", target_os = "macos"))]
+        .init_resource::<AgentTabs>()
+        .init_resource::<Titles>();
+    #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
     {
-        app.add_plugins((panel::plugin, fetch::plugin));
+        app.add_plugins((
+            panel::plugin,
+            crop::plugin,
+            fetch::plugin,
+            files::plugin,
+        ));
         // The engine panics on start without its framework, so it is
         // started only when both it and the helper are there.
         if engine::located().is_some() && page::helper().exists() {
+            // What pages emit, read once: each emit type's plugin
+            // drains the engine's one channel and drops what it does
+            // not parse, so each handler parses its own from this.
+            app.add_plugins(bevy_cef::prelude::JsEmitEventPlugin::<
+                serde_json::Value,
+            >::default());
             app.add_plugins((
                 page::plugin,
                 keys::plugin,
@@ -49,6 +70,11 @@ pub fn plugin(app: &mut App) {
 /// it.
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub struct Addresses(pub BTreeMap<String, String>);
+
+/// The title of each Web panel's page, by panel id, as the view keeps
+/// it: its tab's name before the page loads again.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Titles(pub BTreeMap<String, String>);
 
 /// The Web panels that are agents' tabs, with the id of each one's
 /// agent, by panel id, as the view keeps them.

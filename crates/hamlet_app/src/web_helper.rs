@@ -36,5 +36,24 @@ fn main() {
     std::process::exit(code);
 }
 
-#[cfg(not(target_os = "macos"))]
+// On Windows the engine's DLLs sit beside the helper, so there is no
+// library to load first.
+#[cfg(windows)]
+fn main() {
+    use bevy_cef_core::prelude::RenderProcessAppBuilder;
+    use cef::args::Args;
+    use cef::{api_hash, execute_process, sys};
+
+    let args = Args::new();
+    let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
+    let mut app = RenderProcessAppBuilder::build();
+    let code = execute_process(
+        Some(args.as_main_args()),
+        Some(&mut app),
+        std::ptr::null_mut(),
+    );
+    std::process::exit(code);
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn main() {}

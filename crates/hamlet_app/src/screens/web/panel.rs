@@ -3,8 +3,12 @@
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
+use bevy::text::EditableText;
+use bevy::ui::{
+    AlignItems, Overflow, PositionType, UiRect, Val, percent, px,
+};
 use bevy_cef::prelude::{
     CefStatus, RequestGoBack, RequestGoForward, RequestReload,
     RequestShowDevTool,
@@ -15,11 +19,11 @@ use bevy_fynix::shortcut::{
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, row,
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
-use hamlet_protocol::client::web_address;
+use hamlet_protocol::client::web_page_or_search;
 use hamlet_ui::styles::{
     Fills, ICON, action, description, link_row, note, text_input,
 };
@@ -28,11 +32,14 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::fetch::{self, Fetch, State};
-use super::{Addresses, PANEL, page};
+use super::{Addresses, FILES, PANEL, crop, page};
 use crate::dock::{PanelAppExt, flush_panel};
 
-/// The name of a Web panel's tab, before its page has a title.
+/// The name of a Web panel's tab in the dock's menu of panels.
 const TITLE: &str = "WEB";
+
+/// The name of a Web panel's tab with no page yet.
+const NEW_TAB: &str = "New tab";
 
 /// The letters of a page's title a tab shows.
 const TITLE_LETTERS: usize = 24;
@@ -64,27 +71,48 @@ pub(super) struct PanelId(pub String);
 #[derive(Component)]
 pub(super) struct Surface(pub PanelId);
 
-/// A Web panel's field of its address.
-#[derive(Component)]
-pub(super) struct AddressField;
-
-/// The name of the tab of a panel whose page has `title`, cut to
-/// [`TITLE_LETTERS`], and that is `agent`'s when it is an agent's.
-pub(super) fn tab_name(title: &str, agent: Option<&str>) -> String {
-    let named = match agent {
-        Some(agent) => format!("{TITLE} ({agent})"),
-        None => TITLE.to_owned(),
+/// The name of a Web panel's tab: its page's `title`, else `kept`,
+/// the title it had when the view was kept, else the host of its
+/// `address`, cut to [`TITLE_LETTERS`]; after the name of `agent`
+/// when it is an agent's tab. A panel with none of them is a new tab.
+pub(super) fn tab_name(
+    title: &str,
+    kept: Option<&str>,
+    address: Option<&str>,
+    agent: Option<&str>,
+) -> String {
+    let host = address.and_then(|address| {
+        url::Url::parse(address)
+            .ok()?
+            .host_str()
+            .map(|host| host.trim_start_matches("www.").to_owned())
+    });
+    let title = [Some(title), kept, host.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|title| !title.is_empty());
+    let mut shown = match title {
+        Some(title) => {
+            let mut cut =
+                title.chars().take(TITLE_LETTERS).collect::<String>();
+            if title.chars().count() > TITLE_LETTERS {
+                cut.push_str("...");
+            }
+            cut
+        }
+        None => NEW_TAB.to_owned(),
     };
-    let title = title.trim();
-    if title.is_empty() {
-        return named;
+    if let Some(agent) = agent {
+        shown = format!("{agent}: {shown}");
     }
-    let mut cut =
-        title.chars().take(TITLE_LETTERS).collect::<String>();
-    if title.chars().count() > TITLE_LETTERS {
-        cut.push_str("...");
-    }
-    format!("{named}: {cut}")
+    shown
+}
+
+/// Whether the dock window `id` shows a page: a Web panel or the
+/// Files panel.
+pub(super) fn has_page(id: &str) -> bool {
+    is_panel(id) || id == FILES
 }
 
 /// Whether the dock window `id` is a Web panel.
@@ -93,7 +121,7 @@ pub(super) fn is_panel(id: &str) -> bool {
 }
 
 fn contents(panel: &PanelId) -> impl View + use<> {
-    column((bar(panel), body(panel)))
+    column((bar(panel), body(panel, |_| BLANK.to_owned())))
         .fills_width()
         .fills_height()
         .gap(0.0)
@@ -122,8 +150,9 @@ fn bar(panel: &PanelId) -> impl View + use<> {
                 world.trigger(RequestReload { webview: page });
             }),
             address(&panel),
+            crop::crop_button(&panel),
             press(
-                Glyph::Lens,
+                Glyph::Code,
                 "Developer tools",
                 &panel,
                 |world, page| {
@@ -141,11 +170,13 @@ fn bar(panel: &PanelId) -> impl View + use<> {
     })
 }
 
-/// The field of `panel`'s address, which loads what is typed in it.
+/// The field of `panel`'s address, which loads what is typed in it,
+/// or searches for it, on Enter or from the search press at its end.
 fn address(panel: &PanelId) -> impl View + use<> {
     let shown = panel.clone();
     let typed = panel.clone();
-    text_field(
+    let searched = panel.clone();
+    let field = text_field(
         derived(move |world: &World| {
             world
                 .resource::<Addresses>()
@@ -159,8 +190,47 @@ fn address(panel: &PanelId) -> impl View + use<> {
     )
     .grow(1.0)
     .min_width(px(0.0))
+    .padding(UiRect::new(px(8.0), px(30.0), px(0.0), px(0.0)))
     .rules(text_input)
-    .tagged(AddressField)
+    .tagged(AddressOf(panel.clone()));
+    let search =
+        row((button(glyph(Glyph::Lens, ICON).tone(Tone::Dim))
+            .padding(UiRect::all(px(4.0)))
+            .rules(link_row)
+            .on_activate_with(move |world, _| {
+                search(world, &searched);
+            })
+            .tooltip(|| {
+                note("Go, or search the web for what is typed")
+            }),))
+        .position(PositionType::Absolute)
+        .inset(UiRect::new(Val::Auto, px(3.0), px(0.0), px(0.0)))
+        .align(AlignItems::Center);
+    row((field, search)).grow(1.0).min_width(px(0.0)).gap(0.0)
+}
+
+/// Which panel's address a field is.
+#[derive(Component)]
+struct AddressOf(PanelId);
+
+/// Loads what is typed in `panel`'s bar, unless the field already
+/// loaded it as the press took the focus from it.
+fn search(world: &mut World, panel: &PanelId) {
+    let typed = world
+        .query::<(&AddressOf, &Children)>()
+        .iter(world)
+        .filter(|(of, _)| of.0 == *panel)
+        .flat_map(|(_, children)| children.iter().copied())
+        .find_map(|kid| world.get::<EditableText>(kid))
+        .map(|text| text.value().to_string());
+    let Some(address) = typed.as_deref().and_then(web_page_or_search)
+    else {
+        return;
+    };
+    if world.resource::<Addresses>().0.get(&panel.0) != Some(&address)
+    {
+        go(world, panel, &address);
+    }
 }
 
 /// A small press of `which`, named by a tooltip, that acts on the
@@ -184,9 +254,10 @@ fn press(
         .boxed()
 }
 
-/// Loads the address typed into `panel`'s bar.
+/// Loads the address typed into `panel`'s bar, or a search for what
+/// was typed when it is not one.
 pub(super) fn go(world: &mut World, panel: &PanelId, typed: &str) {
-    let Some(address) = web_address(typed) else {
+    let Some(address) = web_page_or_search(typed) else {
         return;
     };
     world
@@ -203,13 +274,22 @@ enum Body {
     Missing(State),
     /// The engine did not start, for the reason given.
     Failed(String),
-    /// No address yet.
-    Blank,
+    /// No address yet, and the words that say what to do.
+    Blank(String),
     Page,
 }
 
-/// The page, or the words of a panel that has none.
-fn body(panel: &PanelId) -> impl View + use<> {
+/// What a Web panel with no address says.
+const BLANK: &str = "Type an address above: a site, or localhost \
+                     and a port for one an agent serves on this \
+                     machine.";
+
+/// The page, or the words of a panel that has none: `blank`'s while
+/// it has no address.
+pub(super) fn body(
+    panel: &PanelId,
+    blank: fn(&World) -> String,
+) -> impl View + use<> {
     let shown = panel.clone();
     let panel = panel.clone();
     keyed(
@@ -227,7 +307,7 @@ fn body(panel: &PanelId) -> impl View + use<> {
             {
                 Body::Page
             } else {
-                Body::Blank
+                Body::Blank(blank(world))
             }
         })
         .when(every_frame()),
@@ -237,12 +317,12 @@ fn body(panel: &PanelId) -> impl View + use<> {
                 "The web engine did not start: {error}. A Web panel \
                  needs CEF where CEF_PATH points."
             )),
-            Body::Blank => words(
-                "Type an address above: a site, or localhost and a \
-                 port for one an agent serves on this machine."
-                    .to_owned(),
-            ),
-            Body::Page => frame()
+            Body::Blank(said) => words(said.clone()),
+            // The sheet a box is drawn on over the page, which only
+            // a Web panel's bar lays; the Files panel's page draws
+            // its own.
+            Body::Page => column((crop::sheet(&panel),))
+                .gap(0.0)
                 .grow(1.0)
                 .fills_width()
                 .min_height(px(0.0))
@@ -315,4 +395,34 @@ fn words(words: String) -> AnyView {
             .fills_width()
     })
     .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tab_is_named_by_its_page_its_kept_title_or_its_host() {
+        let address = Some("https://www.example.com/a?b");
+        assert_eq!(
+            tab_name("Apple - Wikipedia", Some("Old"), address, None),
+            "Apple - Wikipedia"
+        );
+        assert_eq!(tab_name("", Some("Old"), address, None), "Old");
+        assert_eq!(tab_name(" ", None, address, None), "example.com");
+        assert_eq!(tab_name("", None, None, None), NEW_TAB);
+        assert_eq!(
+            tab_name(
+                "A title longer than the tab can hold",
+                None,
+                None,
+                None
+            ),
+            "A title longer than the ..."
+        );
+        assert_eq!(
+            tab_name("Docs", None, address, Some("Mayor")),
+            "Mayor: Docs"
+        );
+    }
 }

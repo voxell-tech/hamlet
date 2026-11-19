@@ -696,7 +696,7 @@ dependencies = [
 [[package]]
 name = "bevy_cef"
 version = "0.15.0"
-source = "git+https://github.com/voxell-tech/bevy_cef?rev=3f9881b49e76a245b579f27a3823c4071741a0b7#3f9881b49e76a245b579f27a3823c4071741a0b7"
+source = "git+https://github.com/voxell-tech/bevy_cef?rev=5e2e0c74a1ea4c6d0b2bc3f33db6da3d55f7232d#5e2e0c74a1ea4c6d0b2bc3f33db6da3d55f7232d"
 dependencies = [
  "async-channel",
  "bevy",
@@ -712,7 +712,7 @@ dependencies = [
 [[package]]
 name = "bevy_cef_core"
 version = "0.15.0"
-source = "git+https://github.com/voxell-tech/bevy_cef?rev=3f9881b49e76a245b579f27a3823c4071741a0b7#3f9881b49e76a245b579f27a3823c4071741a0b7"
+source = "git+https://github.com/voxell-tech/bevy_cef?rev=5e2e0c74a1ea4c6d0b2bc3f33db6da3d55f7232d#5e2e0c74a1ea4c6d0b2bc3f33db6da3d55f7232d"
 dependencies = [
  "async-channel",
  "bevy",
@@ -4690,6 +4690,7 @@ dependencies = [
  "tokio",
  "toml",
  "unicode-segmentation",
+ "url",
  "vt100",
 ]
 

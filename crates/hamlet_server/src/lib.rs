@@ -59,6 +59,7 @@ mod attachments;
 mod clients;
 mod terminals;
 mod web;
+mod web_ide;
 
 // What every area shares.
 #[cfg(test)]
@@ -115,6 +116,7 @@ pub fn create_app(options: Options) -> App {
         terminals::plugin,
         tools::plugin,
         web::plugin,
+        web_ide::plugin,
     ));
 
     // Every schedule runs its systems one at a time on the runner's

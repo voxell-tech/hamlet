@@ -139,6 +139,33 @@ pub fn web_address(typed: &str) -> Option<String> {
     })
 }
 
+/// Where the words `typed` in a Web panel's bar lead: the address
+/// they name, as [`web_address`] reads it, when they read as one,
+/// else a web search for them. A lone word with no dot or port, such
+/// as `apples`, is a search, though `localhost` is a page.
+pub fn web_page_or_search(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return None;
+    }
+    let named = has_scheme(typed)
+        || typed.contains(['.', ':', '/'])
+        || typed.eq_ignore_ascii_case("localhost");
+    match named {
+        true => web_address(typed),
+        false => None,
+    }
+    .or_else(|| {
+        let words =
+            url::form_urlencoded::byte_serialize(typed.as_bytes())
+                .collect::<String>();
+        Some(format!("{SEARCH}{words}"))
+    })
+}
+
+/// Where a Web panel searches the web.
+const SEARCH: &str = "https://www.google.com/search?q=";
+
 /// Whether `typed` starts with a URL scheme, such as `https:` or
 /// `file:`, rather than a host and its port.
 fn has_scheme(typed: &str) -> bool {
@@ -210,6 +237,31 @@ mod tests {
         }
         assert_eq!(web_address(""), None);
         assert_eq!(web_address("two words"), None);
+    }
+
+    #[test]
+    fn words_that_are_not_an_address_are_searched_for() {
+        for (typed, page) in [
+            ("example.com", "https://example.com"),
+            ("localhost", "http://localhost"),
+            ("localhost:5173", "http://localhost:5173"),
+            ("apples", "https://www.google.com/search?q=apples"),
+            (
+                "how to press apples",
+                "https://www.google.com/search?q=how+to+press+apples",
+            ),
+            (
+                "what is 3/4 & 1",
+                "https://www.google.com/search?q=what+is+3%2F4+%26+1",
+            ),
+        ] {
+            assert_eq!(
+                web_page_or_search(typed).as_deref(),
+                Some(page),
+                "{typed}"
+            );
+        }
+        assert_eq!(web_page_or_search("  "), None);
     }
 
     #[test]
