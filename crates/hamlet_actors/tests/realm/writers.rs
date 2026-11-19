@@ -39,6 +39,7 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "KeepCredential"),
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
+    ("profiles.rs", "Create"),
 ];
 
 #[test]

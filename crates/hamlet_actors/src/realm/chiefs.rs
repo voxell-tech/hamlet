@@ -244,7 +244,7 @@ impl<By: RealmWide> Act<By> for Found {
     ) -> Result<Founding> {
         Ok(Founding {
             of: match self.mayor {
-                Some(mayor) => profiles::hireable(rows, mayor)
+                Some(mayor) => profiles::shared(rows, mayor)
                     .await?
                     .map(tree::Of::Profile)
                     .map_err(|_| mayor),

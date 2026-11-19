@@ -4,12 +4,12 @@ use anyhow::Result;
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_host::Caller;
 use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Party, Workspace};
+use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
-    SecretList, Secrets, Standing, Tool, ToolCall,
+    Asked, ChiefRequest, Gate, LeadRefusal, ProfileId, Rank,
+    Refusable, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::act::{self, Act, Look, ToolAct};
 use super::change::Rows;
+use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
 use super::{Realm, marker, record};
@@ -220,6 +221,45 @@ impl<M: Message> Message for Looks<M> {
     type From = M::From;
 }
 
+/// The message `M`, answered from a profile's answer.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Relays<M>(pub M);
+
+impl<M: Message> Action for Relays<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Relays<M> {
+    type To = M::To;
+    type From = M::From;
+}
+
+/// A message the realm answers from the answer of the profile it
+/// names, changing nothing of its own.
+pub(super) trait Relay<By>:
+    Send + Sync + Sized + 'static
+{
+    type Call: Message<To = Profile>;
+    type Output: Send + 'static;
+
+    /// The profile and what it is asked, or the answer when the realm
+    /// refuses.
+    fn ask(
+        &self,
+        by: &By,
+        rows: &Rows<'_>,
+    ) -> impl Future<
+        Output = Result<
+            Result<(ProfileId, Self::Call), Self::Output>,
+        >,
+    > + Send;
+
+    fn answer(answer: <Self::Call as Action>::Output)
+    -> Self::Output;
+}
+
 /// The message `M`, answered only to a caller that is living.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
@@ -405,6 +445,31 @@ where
         let by = sender(&ctx, &bare)?;
         let Bare(message) = bare;
         act::run(&self, &ctx, by, None, M::NAME, message).await
+    }
+}
+
+impl<M> Handler<Relays<M>> for Realm
+where
+    M: Message
+        + Relay<<M as Message>::From, Output = <M as Action>::Output>,
+    M::From: Witness,
+{
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        relays: Relays<M>,
+    ) -> Result<<M as Action>::Output> {
+        let by = sender(&ctx, &relays)?;
+        let asked = relays.0.ask(&by, &Rows::outside(&ctx)?).await?;
+        let (profile, call) = match asked {
+            Ok(asked) => asked,
+            Err(answer) => return Ok(answer),
+        };
+        let answered = self
+            .peers
+            .call(&Profile(profile), &call, When::BeforeAnswer)
+            .await?;
+        Ok(M::answer(answered))
     }
 }
 

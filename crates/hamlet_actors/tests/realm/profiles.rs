@@ -1,9 +1,17 @@
-use hamlet_messages::profile::{ProfileInput, VersionName};
+use hamlet_messages::profile::{
+    BadPath, Path, ProfileInput, ReadAnswer, VersionName,
+};
 use hamlet_messages::realm::documents::{EditSettings, Setting};
+use hamlet_messages::realm::profiles::{
+    CreateProfile, CreateRefusal, Made, ProfileRefusal, ReadProfile,
+    ReadProfileRefusal,
+};
 use hamlet_messages::realm::{
-    Done, Hire, HireAnswer, HireRefusal, LeadRefusal, ProfileId,
+    AgentRefusal, Done, Hire, HireAnswer, HireRefusal, LeadRefusal,
+    ProfileId,
 };
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
 
 use super::chiefs::chief;
 use super::steps::hiring_and_how;
@@ -159,5 +167,177 @@ async fn a_hire_of_a_blank_hires_profile_names_it_by_its_label() {
             })
         );
     }
+    realm.host.shutdown().await.unwrap();
+}
+
+type CreateAnswer = Made<AgentRefusal<CreateRefusal>>;
+
+async fn create(
+    realm: &Realm,
+    by: AgentNumber,
+    call: &str,
+    name: &str,
+    character: Option<&str>,
+) -> CreateAnswer {
+    let made = CreateProfile {
+        name: name.to_owned(),
+        character: character.map(str::to_owned),
+    };
+    realm.tool(by, &tool(call, made)).await.unwrap()
+}
+
+fn made_as(profile: u32, label: &str) -> CreateAnswer {
+    Made::Made {
+        profile: ProfileId(profile),
+        label: label.to_owned(),
+    }
+}
+
+async fn set_character(realm: &Realm) {
+    let set = EditSettings {
+        set: vec![Setting::Character {
+            text: CHARACTER.to_owned(),
+        }],
+    };
+    assert_eq!(chief(realm, set).await, Done::Done);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_made_profile_is_made_from_its_character_before_the_answer()
+{
+    let (realm, _) = hamlet_with(0).await;
+    set_character(&realm).await;
+
+    let by_hand = create(
+        &realm,
+        Hand::NUMBER,
+        "c1",
+        " Well digger ",
+        Some("You dig."),
+    )
+    .await;
+    assert_eq!(made(&realm, 3), Some(character("You dig.")));
+    let by_mayor = create(&realm, MAYOR, "c2", "Mason", None).await;
+    assert_eq!(made(&realm, 4), Some(character(CHARACTER)));
+    let again = create(&realm, MAYOR, "c2", "Mason", None).await;
+
+    assert_eq!(by_hand, made_as(3, "scholar#3 (Well digger)"));
+    assert_eq!(by_mayor, made_as(4, "scholar#4 (Mason)"));
+    assert_eq!(again, by_mayor);
+    assert_eq!(realm.seen.profiles.lock().unwrap().len(), 4);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_is_not_made_with_a_bad_name_or_a_long_character() {
+    let (realm, _) = hamlet_with(0).await;
+    let long = "a".repeat(4001);
+
+    let refused = |why| Made::Refused {
+        why: AgentRefusal::Act(why),
+    };
+    assert_eq!(
+        create(&realm, MAYOR, "c1", "a: b", None).await,
+        refused(CreateRefusal::BadName {
+            name: "a: b".to_owned(),
+        })
+    );
+    assert_eq!(
+        create(&realm, MAYOR, "c2", "Mason", Some(&long)).await,
+        refused(CreateRefusal::LongCharacter)
+    );
+    assert_eq!(realm.seen.profiles.lock().unwrap().len(), 2);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_of_a_made_profile_at_a_version_starts_its_branch_there()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let at_v1 = Hire {
+        version: Some(VersionName("v1".to_owned())),
+        ..of(3)
+    };
+
+    assert_eq!(hire_as_mayor(&realm, "h1", at_v1).await, hired(3));
+    realm.live(THREE).await;
+
+    let branched = realm.seen.branches.lock().unwrap().clone();
+    assert!(
+        branched.iter().any(|(profile, branch)| {
+            *profile == ProfileId(3)
+                && branch.name == "hires/3"
+                && branch.from == Some(VersionName("v1".to_owned()))
+        }),
+        "{branched:?}"
+    );
+    assert_eq!(realm.seen.profiles.lock().unwrap().len(), 3);
+    realm.host.shutdown().await.unwrap();
+}
+
+type ReadProfileAnswer = ReadAnswer<AgentRefusal<ReadProfileRefusal>>;
+
+async fn read(
+    realm: &Realm,
+    by: AgentNumber,
+    profile: u32,
+    path: Option<&str>,
+) -> anyhow::Result<ReadProfileAnswer> {
+    let asked = ReadProfile {
+        profile: ProfileId(profile),
+        at: None,
+        path: path.map(str::to_owned),
+    };
+    realm.tool(by, &tool("r", asked)).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_reads_a_made_profile_in_the_profiles_words() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let refused = |why: ReadProfileRefusal| ReadAnswer::Refused {
+        why: AgentRefusal::Act(why),
+    };
+
+    assert_eq!(
+        read(&realm, Hand::NUMBER, 3, None).await.unwrap(),
+        ReadAnswer::Listed {
+            paths: vec![Path {
+                path: "CHARACTER.md".to_owned(),
+            }],
+        }
+    );
+    assert_eq!(
+        read(&realm, Hand::NUMBER, 3, Some("CHARACTER.md"))
+            .await
+            .unwrap(),
+        ReadAnswer::Text {
+            text: "scholar#3's character".to_owned(),
+            cut: false,
+        }
+    );
+    assert_eq!(
+        read(&realm, Hand::NUMBER, 3, Some("x.md")).await.unwrap(),
+        refused(ReadProfileRefusal::Path(BadPath::NotAPath {
+            path: "x.md".to_owned(),
+        }))
+    );
+    assert_eq!(
+        read(&realm, Hand::NUMBER, 2, None).await.unwrap(),
+        refused(ReadProfileRefusal::Profile(ProfileRefusal::Apart {
+            label: "scholar#2 (Mayor)".to_owned(),
+        }))
+    );
+    assert_eq!(
+        read(&realm, Hand::NUMBER, 9, None).await.unwrap(),
+        refused(ReadProfileRefusal::Profile(
+            ProfileRefusal::NoSuchProfile {
+                profile: ProfileId(9),
+            }
+        ))
+    );
+    assert!(read(&realm, MAYOR, 3, None).await.is_err());
+    assert_eq!(realm.seen.reads.lock().unwrap().len(), 3);
     realm.host.shutdown().await.unwrap();
 }

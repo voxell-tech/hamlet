@@ -399,7 +399,7 @@ pub(super) async fn made_of(
     let Some(named) = named else {
         return Ok(Ok(blank(rows, name).await?));
     };
-    Ok(profiles::hireable(rows, named).await?.map(Of::Profile))
+    Ok(profiles::shared(rows, named).await?.map(Of::Profile))
 }
 
 /// A blank profile named `name`, made for one hire.
@@ -407,9 +407,8 @@ pub(super) async fn blank(
     rows: &Rows<'_>,
     name: Option<String>,
 ) -> Result<Of> {
-    let profile = u32::try_from(rows.next_id("profile").await?)?;
     Ok(Of::Blank {
-        profile: ProfileId(profile),
+        profile: profiles::next(rows).await?,
         name,
     })
 }

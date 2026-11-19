@@ -20,7 +20,10 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::profile::{Branch, Missing, ProfileInput};
+use hamlet_messages::profile::{
+    BadPath, Branch, Missing, Path as FilePath, ProfileInput, Read,
+    ReadAnswer,
+};
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
 };
@@ -143,6 +146,7 @@ struct Seen {
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     profiles: Mutex<Vec<(ProfileId, ProfileInput)>>,
+    reads: Mutex<Vec<(ProfileId, Read)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -370,7 +374,7 @@ struct ProfileStandIn {
 impl Actor for ProfileStandIn {
     /// `None` for a profile a test calls without making it.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch,);
+    type Actions = (Branch, Read);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -428,6 +432,37 @@ impl Handler<Branch> for ProfileStandIn {
                 }
             }
             _ => Done::Done,
+        })
+    }
+}
+
+/// The one file every stand-in profile holds.
+const HELD_FILE: &str = "CHARACTER.md";
+
+impl Handler<Read> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        read: Read,
+    ) -> anyhow::Result<ReadAnswer> {
+        let path = read.path.clone();
+        self.seen.reads.lock().unwrap().push((self.profile, read));
+        Ok(match path {
+            None => ReadAnswer::Listed {
+                paths: vec![FilePath {
+                    path: HELD_FILE.to_owned(),
+                }],
+            },
+            Some(path) if path == HELD_FILE => ReadAnswer::Text {
+                text: format!(
+                    "scholar#{}'s character",
+                    self.profile.0
+                ),
+                cut: false,
+            },
+            Some(path) => ReadAnswer::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            },
         })
     }
 }
