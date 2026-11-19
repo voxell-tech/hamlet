@@ -307,50 +307,68 @@ async fn the_hand_takes_no_nickname_and_a_chief_sets_its_model() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_model_choice_keeps_the_parts_it_does_not_name() {
+async fn a_chiefs_choice_is_whole_and_a_leads_sets_only_the_model() {
     let (realm, _) = hamlet_with(1).await;
-    let mayor = async |call: &str, model: &str| {
+    let mayor = async |call: &str, model: Option<&str>| {
         let act = SetModel {
-            model: Some(model.to_owned()),
+            model: model.map(str::to_owned),
             ..model_of(of_three())
         };
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()
     };
-
-    let done = (
-        chief(
-            &realm,
-            SetModel {
-                effort: Some(Effort::XHigh),
-                ..model_of(of_three())
-            },
-        )
-        .await,
-        mayor("m1", "faux::faux-2").await,
-        chief(
-            &realm,
-            SetModel {
-                fast: Some(true),
-                ..model_of(of_three())
-            },
-        )
-        .await,
-        mayor("m2", "faux::faux-1").await,
-    );
-
-    assert_eq!(
-        done,
-        (Done::Done, done_to(THREE), Done::Done, done_to(THREE))
-    );
-    assert_eq!(
-        model_choices(&realm).await,
-        [(
+    let kept = |model: Option<&str>, effort: Option<&str>, fast| {
+        vec![(
             "agent/3".to_owned(),
-            Some("faux::faux-1".to_owned()),
-            Some("xhigh".to_owned()),
-            Some(true)
+            model.map(str::to_owned),
+            effort.map(str::to_owned),
+            fast,
         )]
+    };
+
+    let thinks = chief(
+        &realm,
+        SetModel {
+            effort: Some(Effort::XHigh),
+            ..model_of(of_three())
+        },
+    )
+    .await;
+    let thinking = model_choices(&realm).await;
+    let by_lead = mayor("m1", Some("faux::faux-2")).await;
+    let led = model_choices(&realm).await;
+    let unset_by_lead = mayor("m2", None).await;
+    let lead_cleared = model_choices(&realm).await;
+    let whole = chief(
+        &realm,
+        SetModel {
+            model: Some("faux::faux-2".to_owned()),
+            effort: Some(Effort::XHigh),
+            fast: Some(true),
+            ..model_of(of_three())
+        },
+    )
+    .await;
+    let set = model_choices(&realm).await;
+    let cleared = chief(&realm, model_of(of_three())).await;
+
+    assert_eq!(
+        (thinks, by_lead, unset_by_lead, whole, cleared),
+        (
+            Done::Done,
+            done_to(THREE),
+            done_to(THREE),
+            Done::Done,
+            Done::Done
+        )
     );
+    assert_eq!(thinking, kept(None, Some("xhigh"), None));
+    assert_eq!(led, kept(Some("faux::faux-2"), Some("xhigh"), None));
+    assert_eq!(lead_cleared, kept(None, Some("xhigh"), None));
+    assert_eq!(
+        set,
+        kept(Some("faux::faux-2"), Some("xhigh"), Some(true))
+    );
+    assert_eq!(model_choices(&realm).await, kept(None, None, None));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -399,6 +417,7 @@ async fn a_leads_choice_changes_only_the_model() {
             &realm,
             SetModel {
                 model: Some("faux::faux-1".to_owned()),
+                effort: Some(Effort::Low),
                 ..model_of(ModelOf::Hamlet {
                     hamlet: hamlet.clone(),
                 })

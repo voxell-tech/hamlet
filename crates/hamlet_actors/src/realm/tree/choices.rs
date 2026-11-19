@@ -99,15 +99,22 @@ pub(in crate::realm) enum Change {
         name: Option<String>,
         by: record::By,
     },
-    /// Sets the parts of `of`'s choice that are present, and keeps
-    /// the others; `by` chose the model when it is present.
+    /// Sets `of`'s model, and its effort and fast tier when
+    /// `thinking` is present; a part absent takes the next choice up.
+    /// `by` chose the model when it is present.
     Model {
         of: Chosen,
         model: Option<String>,
-        effort: Option<Effort>,
-        fast: Option<bool>,
+        thinking: Option<Thinking>,
         by: record::By,
     },
+}
+
+/// How hard a model thinks: the parts of a choice only a chief sets.
+#[derive(Debug, PartialEq)]
+pub(in crate::realm) struct Thinking {
+    pub effort: Option<Effort>,
+    pub fast: Option<bool>,
 }
 
 pub(in crate::realm) async fn apply(
@@ -154,22 +161,26 @@ pub(in crate::realm) async fn apply(
         Change::Model {
             of,
             model,
-            effort,
-            fast,
+            thinking,
             by,
         } => {
             let shown = match of {
                 Chosen::Agent(_) => {
                     let was = choice(&writer.rows(), &of).await?;
-                    model.as_ref().is_some_and(|model| {
-                        was.model.as_ref() != Some(model)
-                    }) || effort.is_some_and(|effort| {
-                        was.effort != Some(effort)
-                    }) || fast
-                        .is_some_and(|fast| was.fast != Some(fast))
+                    was.model != model
+                        || thinking.as_ref().is_some_and(|thinking| {
+                            was.effort != thinking.effort
+                                || was.fast != thinking.fast
+                        })
                 }
                 Chosen::Hamlet(_) => false,
             };
+            let whole = thinking.is_some();
+            let Thinking { effort, fast } =
+                thinking.unwrap_or(Thinking {
+                    effort: None,
+                    fast: None,
+                });
             let effort = effort
                 .map(|effort| change::case_name(&effort))
                 .transpose()?;
@@ -178,10 +189,10 @@ pub(in crate::realm) async fn apply(
                     "INSERT INTO model_choice (of, model, model_by, \
                      effort, fast, at) VALUES (?1, ?2, ?3, ?4, ?5, \
                      ?6) ON CONFLICT (of) DO UPDATE SET model = \
-                     COALESCE(excluded.model, model), model_by = \
-                     COALESCE(excluded.model_by, model_by), effort \
-                     = COALESCE(excluded.effort, effort), fast = \
-                     COALESCE(excluded.fast, fast), at = excluded.at",
+                     excluded.model, model_by = excluded.model_by, \
+                     effort = IIF(?7, excluded.effort, effort), \
+                     fast = IIF(?7, excluded.fast, fast), at = \
+                     excluded.at",
                     vec![
                         BindParam::Text(of.key()),
                         model
@@ -198,6 +209,7 @@ pub(in crate::realm) async fn apply(
                             BindParam::Integer(i64::from(fast))
                         }),
                         BindParam::Integer(writer.at().0),
+                        BindParam::Integer(i64::from(whole)),
                     ],
                 )
                 .await?;
@@ -348,7 +360,8 @@ pub(in crate::realm) enum Target {
     Agent {
         hire: Named,
         lineage: Option<Box<Lineage>>,
-        chief_chose: bool,
+        /// The model kept for it, and who chose it.
+        kept: Option<(String, String)>,
     },
     Hamlet {
         hamlet: HamletId,
@@ -365,23 +378,23 @@ impl<By: Lead> Act<By> for SetModel {
         Ok(match &self.of {
             ModelOf::Hire { hire } => {
                 let lineage = super::named(rows, by, hire).await?;
-                let chief_chose = match &lineage {
+                let kept = match &lineage {
                     Some(lineage) => {
                         let of = Chosen::Agent(lineage.agent.agent);
-                        rows.value::<String>(
-                            "SELECT model_by FROM model_choice \
-                             WHERE of = ?1 AND model_by IS NOT NULL",
+                        rows.row::<(String, String)>(
+                            "SELECT model, model_by FROM \
+                             model_choice WHERE of = ?1 AND model \
+                             IS NOT NULL",
                             vec![BindParam::Text(of.key())],
                         )
                         .await?
-                            == Some(record::By::Chief.name())
                     }
-                    None => false,
+                    None => None,
                 };
                 Target::Agent {
                     hire: hire.clone(),
                     lineage: lineage.map(Box::new),
-                    chief_chose,
+                    kept,
                 }
             }
             ModelOf::Hamlet { hamlet } => Target::Hamlet {
@@ -401,6 +414,7 @@ impl<By: Lead> Act<By> for SetModel {
         };
         let by_chief = by.by() == record::By::Chief;
         let mut shown = None;
+        let mut kept_model = None;
         let of = match target {
             Target::Hamlet { .. } if !by_chief => {
                 return refuse(ChoiceRefusal::HamletFromAnAgent);
@@ -420,7 +434,7 @@ impl<By: Lead> Act<By> for SetModel {
             Target::Agent {
                 hire,
                 lineage,
-                chief_chose,
+                kept,
             } => match led(
                 by,
                 &hire,
@@ -431,7 +445,12 @@ impl<By: Lead> Act<By> for SetModel {
                     AgentKind::Worker,
                 ],
             ) {
-                Ok(hire) if chief_chose && !by_chief => {
+                Ok(hire)
+                    if !by_chief
+                        && kept.as_ref().is_some_and(
+                            |(_, by)| *by == record::By::Chief.name(),
+                        ) =>
+                {
                     return refuse(ChoiceRefusal::ChiefChose {
                         hire,
                     });
@@ -439,6 +458,7 @@ impl<By: Lead> Act<By> for SetModel {
                 Ok(agent) => {
                     let chosen = Chosen::Agent(agent.agent);
                     shown = Some(agent);
+                    kept_model = kept.map(|(model, _)| model);
                     chosen
                 }
                 Err(why) => {
@@ -448,17 +468,14 @@ impl<By: Lead> Act<By> for SetModel {
                 }
             },
         };
-        let (effort, fast) = if by_chief {
-            (self.effort, self.fast)
-        } else {
-            (None, None)
-        };
-        if self.model.is_none() && effort.is_none() && fast.is_none()
-        {
-            return Decision::Answer(answered::<By>(shown));
-        }
+        let thinking = by_chief.then_some(Thinking {
+            effort: self.effort,
+            fast: self.fast,
+        });
         let mut decided = Decided::new(shown);
-        if let (Chosen::Agent(agent), Some(_)) = (&of, &self.model) {
+        if let Chosen::Agent(agent) = &of
+            && kept_model != self.model
+        {
             decided = decided.record(record::Entry::Model {
                 agent: *agent,
                 by: by.by(),
@@ -468,8 +485,7 @@ impl<By: Lead> Act<By> for SetModel {
         Decision::Change(decided.change(Change::Model {
             of,
             model: self.model.clone(),
-            effort,
-            fast,
+            thinking,
             by: by.by(),
         }))
     }
