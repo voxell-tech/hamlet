@@ -25,7 +25,8 @@ import {
     type TaskRuntime,
 } from "@earendil-works/pi-durable";
 import { notice } from "./commands.ts";
-import type { LetterId, RealmTask, TurnFailed } from "./messages.ts";
+import type { TurnFailed } from "./messages/realm.ts";
+import type { LetterId, RealmTask } from "./messages/shared.ts";
 import { realmWordsIn, unsentOf } from "./spend.ts";
 import {
     Closing,

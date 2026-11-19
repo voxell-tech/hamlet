@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
-import type { FilesAnswer, Skill } from "../src/agent/messages.ts";
+import type { Skill } from "../src/agent/messages/library.ts";
+import type { FilesAnswer } from "../src/agent/messages/profile.ts";
 import {
     fakeCalls,
     fakeFiles,

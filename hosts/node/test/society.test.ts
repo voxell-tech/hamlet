@@ -5,7 +5,7 @@ import {
     fauxAssistantMessage,
     fauxToolCall,
 } from "@earendil-works/pi-ai";
-import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
+import type { SocietyActs, SocietyTool } from "../src/agent/messages/realm.ts";
 import {
     cappedFiles,
     fakeCalls,

@@ -20,7 +20,7 @@ import type {
     ChatPage,
     ChatRef,
     Input,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/agent.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {

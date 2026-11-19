@@ -13,7 +13,7 @@ import {
     type Model,
     type Models,
 } from "@earendil-works/pi-ai";
-import { type RealmTask, u32 } from "./messages.ts";
+import { type RealmTask, u32 } from "./messages/shared.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
 /** A request the realm refused or held, which the gate ended unsent. */

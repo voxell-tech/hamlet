@@ -20,20 +20,22 @@ import {
     type ChatEvent,
     type ChatRef,
     type Copies,
+    readClient,
+    type Submit,
+} from "../src/agent/messages/agent.ts";
+import { LIBRARY } from "../src/agent/messages/library.ts";
+import { profileAt } from "../src/agent/messages/profile.ts";
+import {
     type CredentialAnswer,
     type Done,
     type Kept,
-    LIBRARY,
     type OauthLogin,
-    profileAt,
     REALM,
-    readClient,
     type SecretList,
-    type Submit,
     type TaskOpened,
-    U32_MAX,
-    WORKSPACE,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/realm.ts";
+import { U32_MAX } from "../src/agent/messages/shared.ts";
+import { WORKSPACE } from "../src/agent/messages/workspace.ts";
 import {
     fakeCalls,
     fakeFiles,

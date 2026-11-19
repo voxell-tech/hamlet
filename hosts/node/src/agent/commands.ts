@@ -17,19 +17,18 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
-import {
-    type ClientActions,
-    type LapseReason,
-    type LetterId,
-    type NewSession,
-    type Resume,
-    type ResumeAnswer,
-    type Retry,
-    type RetryAnswer,
-    type Rewind,
-    type RewindAnswer,
-    u32,
-} from "./messages.ts";
+import type {
+    ClientActions,
+    NewSession,
+    Resume,
+    ResumeAnswer,
+    Retry,
+    RetryAnswer,
+    Rewind,
+    RewindAnswer,
+} from "./messages/agent.ts";
+import type { LapseReason } from "./messages/realm.ts";
+import { type LetterId, u32 } from "./messages/shared.ts";
 import {
     reflectBeforeLeaving,
     reflectIn,

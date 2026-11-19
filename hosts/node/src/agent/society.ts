@@ -18,19 +18,17 @@ import {
 import { inParts } from "./branch.ts";
 import { hasWordsOrCall } from "./compaction.ts";
 import { LOOKED } from "./filesystem.ts";
+import type { OfferAnswer } from "./messages/library.ts";
+import type { Piece, Revision } from "./messages/profile.ts";
 import {
     type Named,
-    type OfferAnswer,
-    type Piece,
-    type ProfileId,
     REALM,
-    type Revision,
     type SocietyActs,
     type SocietyTool,
     type Tier,
     type ToolName,
-    U32_MAX,
-} from "./messages.ts";
+} from "./messages/realm.ts";
+import { type ProfileId, U32_MAX } from "./messages/shared.ts";
 import {
     type ActOf,
     callOf,

@@ -13,19 +13,18 @@ import {
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { omitUndefined } from "../actor/common/utils.ts";
+import type { Outcome } from "./messages/agent.ts";
+import { type Refused, u32 } from "./messages/shared.ts";
 import {
     type Change,
     type ChangeEnd,
     type Need,
-    type Outcome,
     type Program,
     type ReadAnswer,
-    type Refused,
     type RunEnd,
     type Text,
-    u32,
     WORKSPACE,
-} from "./messages.ts";
+} from "./messages/workspace.ts";
 import {
     callOut,
     failed,

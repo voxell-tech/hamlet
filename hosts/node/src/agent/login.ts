@@ -12,12 +12,12 @@ import type {
     ProviderAuthInteraction,
 } from "@earendil-works/pi-ai";
 import type {
-    Kept,
     Login,
     LoginAnswer,
     LoginStep,
     RequestId,
-} from "./messages.ts";
+} from "./messages/agent.ts";
+import type { Kept } from "./messages/realm.ts";
 import { keptOf, remember, rememberKept, scrub } from "./models.ts";
 import type { BareRealm } from "./turn.ts";
 

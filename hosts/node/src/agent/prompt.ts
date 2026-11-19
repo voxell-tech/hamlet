@@ -16,7 +16,8 @@ import {
 import { type AgentContext, numberOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
-import type { AgentInput, Place, ReadAnswer } from "./messages.ts";
+import type { AgentInput, Place } from "./messages/agent.ts";
+import type { ReadAnswer } from "./messages/workspace.ts";
 import { calledAs } from "./society.ts";
 import { type Peers, readFile } from "./turn.ts";
 

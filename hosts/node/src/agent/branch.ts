@@ -17,15 +17,14 @@ import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
 import { keep } from "./copies.ts";
 import { type AgentFilesystem, LOOKED } from "./filesystem.ts";
+import type { Removal } from "./messages/agent.ts";
 import {
-    type CallId,
     type CommitId,
     type FileChange,
     type FileCursor,
-    type ProfileId,
-    type Removal,
-    readAnswer,
-} from "./messages.ts";
+    readFiles,
+} from "./messages/profile.ts";
+import type { CallId, ProfileId } from "./messages/shared.ts";
 import { type Peers, profileCalls } from "./turn.ts";
 
 /** As `MOST_PART` and `PIECE_FRAME` of `crates/hamlet_messages/src/lib.rs`. */
@@ -230,7 +229,7 @@ export function branchOf(
         let after: FileCursor | undefined;
         let tip: CommitId | undefined;
         do {
-            const answer = readAnswer.files(
+            const answer = readFiles(
                 await calls.files({
                     ...(since === undefined ? {} : { since }),
                     ...(after === undefined ? {} : { after }),

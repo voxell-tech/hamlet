@@ -13,13 +13,9 @@ import type {
     HarnessSettings,
 } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type {
-    Finished,
-    Input,
-    OpenTask,
-    ReadAnswer,
-    TaskOpened,
-} from "../src/agent/messages.ts";
+import type { Finished, Input } from "../src/agent/messages/agent.ts";
+import type { OpenTask, TaskOpened } from "../src/agent/messages/realm.ts";
+import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { SaveAnswer } from "../src/agent/messages.ts";
+import type { SaveAnswer } from "../src/agent/messages/profile.ts";
 import {
     cappedFiles,
     fakeCalls,

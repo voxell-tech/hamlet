@@ -12,9 +12,9 @@ import type {
     ChatItem,
     Copies,
     Place,
-    ReadAnswer,
     Submit,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/agent.ts";
+import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import {
     fakeCalls,
     fakeFiles,

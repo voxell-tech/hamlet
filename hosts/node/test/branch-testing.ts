@@ -5,7 +5,7 @@ import type {
     FilesPart,
     Piece,
     Save,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/profile.ts";
 import { from, named, type Sent, type Woken } from "./agent-testing.ts";
 
 export const A = "ab".repeat(20);

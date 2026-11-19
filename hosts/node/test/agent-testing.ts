@@ -31,17 +31,18 @@ import {
     agentActor,
 } from "../src/agent/actor.ts";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
+import type { AgentInput } from "../src/agent/messages/agent.ts";
+import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
+import type { ProfileActions } from "../src/agent/messages/profile.ts";
 import {
-    type AgentInput,
     type Kept,
-    LIBRARY,
-    type LibraryActions,
-    type ProfileActions,
     REALM,
     type RealmActions,
+} from "../src/agent/messages/realm.ts";
+import {
     WORKSPACE,
     type WorkspaceActions,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/workspace.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import { textOf } from "../src/agent/transcript.ts";
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";

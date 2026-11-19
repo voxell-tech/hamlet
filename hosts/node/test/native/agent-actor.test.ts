@@ -21,7 +21,7 @@ import type {
     AgentInput,
     Finished,
     Submit,
-} from "../../src/agent/messages.ts";
+} from "../../src/agent/messages/agent.ts";
 import { fakeFiles } from "../agent-testing.ts";
 import { FIXTURES, fauxModels, fixture } from "../testing.ts";
 import { eventually, inFolder, startLocalHost } from "./support.ts";

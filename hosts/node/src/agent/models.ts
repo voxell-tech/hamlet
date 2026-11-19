@@ -33,16 +33,9 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import {
-    type Checked,
-    type CredentialAnswer,
-    type Effort,
-    type Kept,
-    type ListedModel,
-    type OauthLogin,
-    type Price,
-    u32,
-} from "./messages.ts";
+import type { Checked, Effort, ListedModel, Price } from "./messages/agent.ts";
+import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
+import { u32 } from "./messages/shared.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */

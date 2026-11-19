@@ -27,7 +27,7 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import { isShortCutOff, stands } from "./compaction.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { RealmTask } from "./messages.ts";
+import type { RealmTask } from "./messages/shared.ts";
 import {
     cutOff,
     draftOf,

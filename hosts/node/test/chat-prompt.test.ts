@@ -8,12 +8,9 @@ import {
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { FileError, ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
-import type {
-    AgentInput,
-    Character,
-    Copies,
-    ReadAnswer,
-} from "../src/agent/messages.ts";
+import type { AgentInput, Copies } from "../src/agent/messages/agent.ts";
+import type { Character } from "../src/agent/messages/profile.ts";
+import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import { renderPrompt } from "../src/agent/prompt.ts";
 import {
     FAKE_ROOT,

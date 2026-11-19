@@ -3,7 +3,7 @@ import { type TestContext, test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationId, EntryRecord } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type { Input } from "../src/agent/messages.ts";
+import type { Input } from "../src/agent/messages/agent.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {

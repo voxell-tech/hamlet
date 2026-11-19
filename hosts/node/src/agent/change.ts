@@ -2,7 +2,7 @@
  * An edit's change as a chat shows it, a port of
  * `crates/hamlet_server/src/work/cut.rs`'s diff.
  */
-import type { ToolChange } from "./messages.ts";
+import type { ToolChange } from "./messages/agent.ts";
 
 /** The most lines of an edit's change kept, and characters of a line (`work/cut.rs`). */
 const KEPT = 200;

@@ -13,10 +13,10 @@ import { chatActions } from "../src/agent/chat.ts";
 import { type SignIns, signIns } from "../src/agent/login.ts";
 import type {
     ChatPage,
-    Kept,
     Login,
     LoginAnswer,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/agent.ts";
+import type { Kept } from "../src/agent/messages/realm.ts";
 import { checkModel, keysOf } from "../src/agent/models.ts";
 import {
     credentialsFile,

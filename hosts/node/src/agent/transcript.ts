@@ -27,20 +27,20 @@ import { UserError } from "../actor/actor/mod.ts";
 import { piRuntime, withHarness } from "../pi/runtime.ts";
 import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
 import { clip, editOf } from "./change.ts";
-import {
-    type Author,
-    type ChatEvent,
-    type ChatItem,
-    type ChatOp,
-    type ChatPage,
-    type ChatRef,
-    type ClientActions,
-    type ItemKind,
-    type Open,
-    type Session,
-    type Usage,
-    u32,
-} from "./messages.ts";
+import type {
+    Author,
+    ChatEvent,
+    ChatItem,
+    ChatOp,
+    ChatPage,
+    ChatRef,
+    ClientActions,
+    ItemKind,
+    Open,
+    Session,
+    Usage,
+} from "./messages/agent.ts";
+import { u32 } from "./messages/shared.ts";
 import { scrub, secretsLoaded, withheld } from "./models.ts";
 import { chiefSession, conversationOfChat, current } from "./sessions.ts";
 import { type Kept, NOTE_BREAK } from "./turn.ts";

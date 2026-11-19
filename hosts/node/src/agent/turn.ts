@@ -19,32 +19,40 @@ import type {
     Calls,
 } from "../actor/actor/mod.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
+import type { Author } from "./messages/agent.ts";
 import {
-    type Author,
-    type CallId,
-    type ConversationRef,
-    type Files,
-    type FilesAnswer,
-    type LetterId,
     LIBRARY,
     type Offer,
     type OfferAnswer,
-    type ProfileId,
+    type ShelfList,
+} from "./messages/library.ts";
+import {
+    type Files,
+    type FilesAnswer,
     profileAt,
-    REALM,
-    type ReadAnswer,
-    type ReadFile,
-    type RealmActions,
-    type RealmTask,
     type Save,
     type SaveAnswer,
-    type ShelfList,
+} from "./messages/profile.ts";
+import {
+    REALM,
+    type RealmActions,
     type SocietyActs,
     type SocietyTool,
+} from "./messages/realm.ts";
+import type {
+    CallId,
+    ConversationRef,
+    LetterId,
+    ProfileId,
+    RealmTask,
+} from "./messages/shared.ts";
+import {
+    type ReadAnswer,
+    type ReadFile,
     type ToolList,
     WORKSPACE,
     type WorkspaceActions,
-} from "./messages.ts";
+} from "./messages/workspace.ts";
 
 const CALLS: unique symbol = Symbol("hamlet.agent.calls");
 

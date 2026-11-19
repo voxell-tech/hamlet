@@ -19,7 +19,8 @@ import {
     type Found,
     LOOKED,
 } from "./filesystem.ts";
-import type { Note, ReadAnswer, Refused } from "./messages.ts";
+import type { Refused } from "./messages/shared.ts";
+import type { Note, ReadAnswer } from "./messages/workspace.ts";
 import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {

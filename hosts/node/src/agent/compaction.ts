@@ -23,7 +23,7 @@ import {
     type TaskId,
 } from "@earendil-works/pi-durable";
 import { emptyAnswer, failTurn, type TellFailed } from "./failed.ts";
-import type { LetterId, RealmTask } from "./messages.ts";
+import type { LetterId, RealmTask } from "./messages/shared.ts";
 import { realmWordsIn } from "./spend.ts";
 import { draftOf } from "./turn.ts";
 

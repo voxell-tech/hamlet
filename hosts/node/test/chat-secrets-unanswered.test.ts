@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { ChatPage, SecretList } from "../src/agent/messages.ts";
+import type { ChatPage } from "../src/agent/messages/agent.ts";
+import type { SecretList } from "../src/agent/messages/realm.ts";
 import {
     fakeCalls,
     from,

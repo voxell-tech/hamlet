@@ -66,24 +66,21 @@ import {
     type AgentInput,
     type Brief,
     type Copies,
-    type Ended,
     type Fill,
     type Finished,
     type Moved,
-    OWN_PROFILE,
     type Place,
-    type ProfileId,
-    profileAt,
-    type RealmTask,
     type Removal,
     type RemovePath,
     read,
-    readAnswer,
     SENDERS,
     type ShelvesChanged,
     type Submit,
-    type ToolName,
-} from "./messages.ts";
+} from "./messages/agent.ts";
+import { readShelves } from "./messages/library.ts";
+import { OWN_PROFILE, profileAt } from "./messages/profile.ts";
+import type { Ended, ToolName } from "./messages/realm.ts";
+import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
@@ -894,9 +891,7 @@ async function shelvesRead(c: AgentContext, peers: Peers): Promise<void> {
     const seen = await c.db.get<{ version: number }>(
         "SELECT version FROM copy WHERE name = 'shelves'",
     );
-    const list = readAnswer.shelves(
-        await libraryCalls(peers).shelves(seen?.version),
-    );
+    const list = readShelves(await libraryCalls(peers).shelves(seen?.version));
     await keep(c, { shelves: { version: list.version, value: list.skills } });
 }
 

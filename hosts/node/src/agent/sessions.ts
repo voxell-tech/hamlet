@@ -14,7 +14,7 @@ import type {
 import type { RawAccess } from "../actor/db/mod.ts";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
-import type { ChatRef, Input, RequestId } from "./messages.ts";
+import type { ChatRef, Input, RequestId } from "./messages/agent.ts";
 import { onCopiedModel } from "./models.ts";
 import { conversationOf } from "./turn.ts";
 

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { test } from "node:test";
 import { ActorError } from "../src/actor/actor/mod.ts";
-import { type ClientActions, read, readClient } from "../src/agent/messages.ts";
+import {
+    type ClientActions,
+    read,
+    readClient,
+} from "../src/agent/messages/agent.ts";
 import { fakeCalls, from, wakeAgent } from "./agent-testing.ts";
 import { FIXTURES, fixture } from "./testing.ts";
 
