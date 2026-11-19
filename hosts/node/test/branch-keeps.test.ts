@@ -203,3 +203,43 @@ test("a save refused because a purge rewrote its base fills again, keeps what th
     assert.equal(saves(sent).length, 2);
     await agent.stop();
 });
+
+test("a save in two parts whose last answer is lost is sent again from that part, under its call", async (t) => {
+    let lost = true;
+    const { calls, sent } = fakeCalls({
+        profile: {
+            ...profileAnswering(part({ tip: A }), part({ tip: B })),
+            save: (save) => {
+                if (!save.last) return { type: "kept" };
+                if (lost) {
+                    lost = false;
+                    throw new Error("the answer was lost");
+                }
+                return { type: "saved", tip: B };
+            },
+        },
+    });
+    const files: Record<string, string> = {};
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            fauxAssistantMessage("Saved."),
+            fauxAssistantMessage("Saved again."),
+        ],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    files["memory/large.md"] = "x".repeat(800 * 1024);
+    await say(agent, "Go.");
+
+    await say(agent, "Again.");
+
+    const sends = saves(sent);
+    assert.deepEqual(
+        sends.map(({ part }) => part),
+        [0, 1, 1],
+    );
+    assert.equal(new Set(sends.map(({ call }) => call)).size, 1);
+    assert.deepEqual(sends[2], sends[1]);
+    await agent.stop();
+});
