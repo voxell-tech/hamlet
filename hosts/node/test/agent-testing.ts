@@ -192,6 +192,18 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     };
 }
 
+/** `fakeFiles(files)`, whose walk stops at its cap. */
+export function cappedFiles(files: Record<string, string>): AgentFilesystem {
+    const filesystem = fakeFiles(files);
+    return {
+        ...filesystem,
+        walk: async (path, context) => {
+            const walked = await filesystem.walk(path, context);
+            return walked.ok ? ok({ ...walked.value, capped: true }) : walked;
+        },
+    };
+}
+
 /** The faux provider prices nothing. */
 export function priced(models: Models, dollars: number): Models {
     const costing = (message: AssistantMessage): AssistantMessage => ({

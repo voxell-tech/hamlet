@@ -6,8 +6,9 @@
  * profile never sends and never takes `CHARACTER.md` or `inbox/`.
  *
  * `filed` holds each file's digest as the commit in `agent.filled` holds
- * it, as far as the agent wrote or sent it, so a save sends only what
- * differs. One piece of this work runs at a time.
+ * it, as far as the agent wrote, sent or pulled it, so a save sends only
+ * what differs and a pull writes over no file the agent changed. One piece
+ * of this work runs at a time.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -15,7 +16,7 @@ import type { ConversationId } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
 import { keep } from "./copies.ts";
-import type { AgentFilesystem } from "./filesystem.ts";
+import { type AgentFilesystem, LOOKED } from "./filesystem.ts";
 import {
     type CallId,
     type CommitId,
@@ -134,6 +135,17 @@ export function branchOf(
     const files: AgentFilesystem = peers.files;
     const context = BACKGROUND_CONTEXT;
     let moved = false;
+    /** A save sent and not answered yet, its parts before `next` answered. */
+    let unanswered:
+        | {
+              readonly profile: ProfileId;
+              readonly base: CommitId;
+              readonly call: CallId;
+              readonly changes: readonly Change[];
+              readonly parts: readonly FileChange[][];
+              next: number;
+          }
+        | undefined;
     const removals = new Set<string>();
     let last: Promise<unknown> = Promise.resolve();
     let working = 0;
@@ -167,13 +179,47 @@ export function branchOf(
         await forget(path);
     };
 
-    /** Writes what changed on the branch since `since`, or its whole tip. */
+    const file = (path: string, digest: string) =>
+        c.db.run(
+            "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
+            path,
+            digest,
+        );
+
+    /**
+     * Whether the file at `path` is as `filed` holds it, so a pull may
+     * write over it or remove it.
+     */
+    const unchanged = async (path: string): Promise<boolean> => {
+        const kept = await c.db.get<{ digest: string }>(
+            "SELECT digest FROM filed WHERE path = ?",
+            path,
+        );
+        const read = await files.read(path, context);
+        if (!read.ok) {
+            if (read.error.code !== "not_found") throw read.error;
+            return kept === undefined;
+        }
+        return kept?.digest === digestOf(read.value);
+    };
+
+    /** Removes `path` for a pull, or only forgets it if the agent changed it. */
+    const pullRemoval = async (path: string): Promise<void> => {
+        if (await unchanged(path)) await removeNow(path);
+        else await forget(path);
+    };
+
+    /**
+     * Writes what changed on the branch since `since`, or its whole tip. A
+     * file the agent changed since `filed` stays as the agent has it, so the
+     * next save sends it on the tip.
+     */
     const pull = async (
         profile: ProfileId,
         since?: CommitId,
     ): Promise<void> => {
         const calls = profileCalls(peers, profile);
-        const written = new Set<string>();
+        const atTip = new Set<string>();
         const pieces = new Map<string, Buffer[]>();
         let after: FileCursor | undefined;
         let tip: CommitId | undefined;
@@ -197,7 +243,7 @@ export function branchOf(
                 await keep(c, { character: { version, value: text } });
             }
             for (const { path } of answer.removed) {
-                await removeNow(path).catch((error: unknown) =>
+                await pullRemoval(path).catch((error: unknown) =>
                     peers.report(`${path} was not removed for a pull`, error),
                 );
             }
@@ -211,19 +257,17 @@ export function branchOf(
                 }
                 pieces.delete(piece.path);
                 const whole = Buffer.concat([...before, bytes]);
-                const wrote = await files.write(
-                    piece.path,
-                    whole,
-                    context,
-                    piece.executable ?? false,
-                );
-                if (!wrote.ok) throw wrote.error;
-                await c.db.run(
-                    "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
-                    piece.path,
-                    digestOf(whole),
-                );
-                written.add(piece.path);
+                if (await unchanged(piece.path)) {
+                    const wrote = await files.write(
+                        piece.path,
+                        whole,
+                        context,
+                        piece.executable ?? false,
+                    );
+                    if (!wrote.ok) throw wrote.error;
+                }
+                await file(piece.path, digestOf(whole));
+                atTip.add(piece.path);
             }
             tip = answer.tip;
             after = answer.next;
@@ -233,8 +277,8 @@ export function branchOf(
                 "SELECT path FROM filed",
             );
             for (const { path } of kept) {
-                if (written.has(path)) continue;
-                await removeNow(path).catch((error: unknown) =>
+                if (atTip.has(path)) continue;
+                await pullRemoval(path).catch((error: unknown) =>
                     peers.report(`${path} was not removed for a fill`, error),
                 );
             }
@@ -246,6 +290,14 @@ export function branchOf(
     const changed = async (): Promise<Change[]> => {
         const walked = await files.walk("", context);
         if (!walked.ok) throw walked.error;
+        if (walked.value.capped) {
+            peers.report(
+                "the filesystem was saved in part",
+                new Error(
+                    `the walk stopped after ${LOOKED} names, so files past them were not saved`,
+                ),
+            );
+        }
         const kept = new Map(
             (
                 await c.db.all<{ path: string; digest: string }>(
@@ -277,41 +329,6 @@ export function branchOf(
         return changes;
     };
 
-    const save = async (): Promise<void> => {
-        const row = await held();
-        if (row?.profile == null || row.filled === null) return;
-        const { profile, filled: base } = row;
-        const changes = await changed();
-        if (changes.length === 0) return;
-        const calls = profileCalls(peers, profile);
-        const call = randomUUID() as CallId;
-        const parts = inParts(changes);
-        for (const [part, changes] of parts.entries()) {
-            const answer = await calls.save({
-                call,
-                base,
-                part,
-                last: part === parts.length - 1,
-                changes,
-            });
-            if (answer.type === "refused") {
-                if (answer.why.type === "commit_gone") return pull(profile);
-                throw new Error(answer.words);
-            }
-        }
-        for (const change of changes) {
-            if (change.bytes === undefined) await forget(change.path);
-            else {
-                await c.db.run(
-                    "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
-                    change.path,
-                    digestOf(change.bytes),
-                );
-            }
-        }
-        await pull(profile, base);
-    };
-
     const removeWaiting = async (): Promise<void> => {
         for (const path of removals) {
             removals.delete(path);
@@ -319,6 +336,63 @@ export function branchOf(
                 peers.report(`${path} was not removed after a turn`, error),
             );
         }
+    };
+
+    /**
+     * Sends what changed since the commit the filesystem holds, or, while a
+     * save is unanswered, that save again under its call from the part whose
+     * answer was lost, then saves what changed since. `refilled` after a
+     * fill that a gone base made: the same refusal again is reported, and
+     * the next settle saves again.
+     */
+    const save = async (refilled = false): Promise<void> => {
+        const resent = unanswered !== undefined;
+        if (unanswered === undefined) {
+            const row = await held();
+            if (row?.profile == null || row.filled === null) return;
+            const changes = await changed();
+            if (changes.length === 0) return;
+            unanswered = {
+                profile: row.profile,
+                base: row.filled,
+                call: randomUUID() as CallId,
+                changes,
+                parts: inParts(changes),
+                next: 0,
+            };
+        }
+        const sending = unanswered;
+        const calls = profileCalls(peers, sending.profile);
+        for (const [part, changes] of sending.parts.entries()) {
+            if (part < sending.next) continue;
+            const answer = await calls.save({
+                call: sending.call,
+                base: sending.base,
+                part,
+                last: part === sending.parts.length - 1,
+                changes,
+            });
+            if (answer.type === "refused") {
+                unanswered = undefined;
+                if (answer.why.type !== "commit_gone" || refilled) {
+                    throw new Error(answer.words);
+                }
+                // A purge rewrote the base. The fill keeps what the agent
+                // changed; what the purge asked to remove goes before the
+                // save on the new tip.
+                await pull(sending.profile);
+                await removeWaiting();
+                return save(true);
+            }
+            sending.next = part + 1;
+        }
+        unanswered = undefined;
+        for (const change of sending.changes) {
+            if (change.bytes === undefined) await forget(change.path);
+            else await file(change.path, digestOf(change.bytes));
+        }
+        await pull(sending.profile, sending.base);
+        if (resent) await save();
     };
 
     /** Removes what waited, saves, and pulls a move that waited. */

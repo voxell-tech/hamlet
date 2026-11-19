@@ -150,7 +150,9 @@ family!(BadCommit {
 
 family!(
     /// A commit an agent names that the profile no longer has, as
-    /// after a purge. The agent fills again from nothing.
+    /// after a purge. The agent fills again from the branch's tip. After
+    /// a refused save it keeps the files it changed, but for those the
+    /// purge asked it to remove, and saves them on the new tip.
     Gone {
         #[error("the commit `{}` is gone", commit.0)]
         CommitGone { commit: CommitId },

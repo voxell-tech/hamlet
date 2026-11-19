@@ -630,7 +630,10 @@ const WRITTEN: readonly Written[] = [
             },
         ],
         answers: {
-            realm: { edit_profile: () => answer("realm/edit_profile.done") },
+            realm: {
+                edit_profile: () =>
+                    answer("realm/edit_profile.refused.reserved"),
+            },
         },
         own: ["call", "conversation"],
     },
@@ -640,7 +643,7 @@ const WRITTEN: readonly Written[] = [
             "tag",
             { scholar: "scholar#4", tag: "v1", note: "Before the refactor" },
         ],
-        answers: { realm: { tag: () => answer("realm/tag.tagged") } },
+        answers: { realm: { tag: () => answer("realm/tag.refused.reserved") } },
         own: ["call", "conversation"],
     },
     {
@@ -653,7 +656,9 @@ const WRITTEN: readonly Written[] = [
                 reason: "It broke the tests",
             },
         ],
-        answers: { realm: { revert: () => answer("realm/revert.reverted") } },
+        answers: {
+            realm: { revert: () => answer("realm/revert.refused.reserved") },
+        },
         own: ["call", "conversation"],
     },
     {
@@ -1325,7 +1330,7 @@ for (const action of ANSWERED_BY_TOOLS) {
         const row = WRITTEN.find((written) => written.fixture === action);
         const tool = row?.tool;
         assert.ok(tool);
-        const answers = answersTo(action);
+        const answers = answersTo(action).filter((name) => !listed(name));
         const queue = [...answers];
         const [folder = "", name = ""] = action.split("/");
         const { calls } = fakeCalls({
@@ -1402,7 +1407,7 @@ for (const name of answersTo("profile/files")) {
 }
 
 for (const name of answersTo("profile/save")) {
-    test(`${name} is read by a save: a gone commit is filled again from nothing, and another refusal is reported in its words`, async (t) => {
+    test(`${name} is read by a save: a gone commit is filled again and saved once more on its tip, and another refusal is reported in its words`, async (t) => {
         const given = fixture(name) as {
             type: string;
             why?: { type: string };
@@ -1430,10 +1435,11 @@ for (const name of answersTo("profile/save")) {
 
         assert.deepEqual(
             agent.reported,
-            given.type === "refused" && !gone
+            given.type === "refused"
                 ? [`the filesystem was not saved: ${given.words}`]
                 : [],
         );
+        assert.equal(named(sent, "save").length, gone ? 2 : 1);
         assert.deepEqual(
             named(sent, "files").map((call) => call.message),
             given.type !== "refused"
@@ -1826,6 +1832,10 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
 }
 
 const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
+    [
+        /^realm\/(edit_profile\.done|tag\.tagged|revert\.(reverted|unchanged))\.answer$/,
+        "the realm keeps an agent's edit, tag and revert for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
+    ],
     [/^realm\/chief_/, "a chief's act, sent by a client"],
     [
         /^realm\/(say|answer|read_world|read_charter)\./,
@@ -1944,7 +1954,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         // `test/branch.test.ts` compares it.
         "profile/remove_path.later.answer",
         ...CREATED.map((input) => `${input}.input`),
-        ...ANSWERED_BY_TOOLS.flatMap(answersTo),
+        ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),
         ...answersTo("realm/reply"),
         ...[

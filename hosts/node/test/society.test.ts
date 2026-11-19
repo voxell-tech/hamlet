@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
 import {
+    cappedFiles,
     fakeCalls,
     fakeFiles,
     from,
@@ -1356,14 +1357,6 @@ test("the profile tools answer in today's words", async (t) => {
             { type: "text", text: "# Tests\n", cut: false },
             { type: "text", text: "# Tests", cut: true },
         ],
-        revert: [
-            { type: "reverted", commit: COMMIT, clashes: [] },
-            {
-                type: "reverted",
-                commit: COMMIT,
-                clashes: [{ path: "memory/a.md" }, { path: "memory/b.md" }],
-            },
-        ],
     } as const;
     const { calls } = fakeCalls({
         realm: {
@@ -1373,14 +1366,10 @@ test("the profile tools answer in today's words", async (t) => {
                 label: "scholar#4 (Ada)",
             }),
             read_profile: () => answers.read_profile[read++] as never,
-            edit_profile: () => ({ type: "done" }),
-            tag: () => ({ type: "tagged", version: "v1", commit: COMMIT }),
-            revert: () => answers.revert[reverted++] as never,
             ask_librarian: () => ({ type: "done" }),
         },
     });
     let read = 0;
-    let reverted = 0;
     const addressed = { scholar: " scholar#4 " };
     const agent = await wakeAgent(t, {
         calls,
@@ -1393,19 +1382,6 @@ test("the profile tools answer in today's words", async (t) => {
                     `c${n}`,
                 ),
             ),
-            toolCall(
-                "edit_scholar",
-                {
-                    ...addressed,
-                    path: "memory/a.md",
-                    content: "A",
-                    message: "M",
-                },
-                "c6",
-            ),
-            toolCall("tag", { ...addressed, tag: "v1" }, "c7"),
-            toolCall("revert", { ...addressed, commit: "v1" }, "c8"),
-            toolCall("revert", { ...addressed, commit: "v1" }, "c9"),
             toolCall(
                 "ask_librarian",
                 { question: "How do I lint the docs?" },
@@ -1424,10 +1400,6 @@ test("the profile tools answer in today's words", async (t) => {
         "scholar#4 has no files.",
         "# Tests\n",
         "# Tests\n[cut here]",
-        "Wrote memory/a.md of scholar#4.",
-        "Tagged scholar#4's main as v1.",
-        "Reverted the commit on scholar#4's main.",
-        "Reverted the commit on scholar#4's main; these files changed again since and kept their later lines: memory/a.md, memory/b.md",
         "The librarian is looking.",
         "Say what you need a skill for.",
     ]);
@@ -1508,6 +1480,34 @@ test("submit_skill offers its folder's files to the library under the tool's cal
         "`skill` is its folder under skills/, in letters, digits, hyphens and underscores.",
         "no skill is named `missing`",
         "a skill named `taken` is on the shelves already",
+    ]);
+    await agent.stop();
+});
+
+test("submit_skill of a folder whose walk stops at its cap is refused, and nothing is offered", async (t) => {
+    const { calls, sent } = fakeCalls({
+        library: { offer: () => ({ type: "kept", offer: 9 }) },
+        realm: { submit_skill: () => ({ type: "done" }) },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: cappedFiles({
+            "skills/fixtures/SKILL.md": "---\nname: fixtures\n---\n",
+        }),
+        responses: [
+            toolCall("submit_skill", { skill: "fixtures" }, "c1"),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Share it."),
+    );
+    await agent.idle();
+
+    assert.deepEqual(named(sent, "offer"), []);
+    assert.deepEqual(await resultTexts(agent), [
+        "`fixtures` holds more files than the agent can list, 20000, so it was not offered.",
     ]);
     await agent.stop();
 });
