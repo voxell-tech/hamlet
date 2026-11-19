@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::hamlets::{
     MoveHamlet, NameHamlet, SetFolder, SetMode,
@@ -454,8 +455,8 @@ fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     }))
 }
 
-/// `/hire <scholar#id>|blank [in <hamlet>] [under <address>]
-/// [purpose]`, in `here` unless it names a hamlet.
+/// `/hire <scholar#id>[@<version>]|blank [in <hamlet>] [under
+/// <address>] [purpose]`, in `here` unless it names a hamlet.
 fn hire(
     name: &str,
     words: &[&str],
@@ -464,9 +465,15 @@ fn hire(
     let Some(first) = words.first() else {
         return Err(usage(name));
     };
-    let profile = match *first {
-        BLANK => None,
-        given => Some(profile(given)?),
+    let (profile, version) = match *first {
+        BLANK => (None, None),
+        given => match given.split_once('@') {
+            Some((address, version)) => (
+                Some(profile(address)?),
+                Some(VersionName(version.to_owned())),
+            ),
+            None => (Some(profile(given)?), None),
+        },
     };
     let mut rest = &words[1..];
     let mut hamlet = here;
@@ -487,7 +494,7 @@ fn hire(
         hamlet: Some(hamlet),
         under,
         profile,
-        version: None,
+        version,
         purpose: Some(purpose).filter(|purpose| !purpose.is_empty()),
         name: None,
     }))

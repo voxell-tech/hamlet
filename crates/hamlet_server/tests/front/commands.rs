@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::Server;
 use serde_json::json;
 
-use super::{look, serve, until};
+use super::{answered, look, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
 async fn found(
@@ -254,4 +254,84 @@ async fn one_connections_commands_apply_in_order() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
     assert_eq!(order, (0..20).collect::<Vec<_>>());
     assert_eq!(named, "n19");
+}
+
+/// A chief hires a blank agent and a profile pinned to one of its
+/// versions; each goes live and answers a line. A version the profile
+/// lacks is refused in today's words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_goes_live_and_answers_a_line() {
+    let (mut server, _home, _side) = serve(json!([
+        {
+            "calls": [{
+                "name": "create_scholar",
+                "arguments": { "name": "ada" },
+            }],
+        },
+        "Ada is made.",
+        {
+            "calls": [{
+                "name": "tag",
+                "arguments": { "scholar": "scholar#2", "tag": "v1" },
+            }],
+        },
+        "Ada is tagged.",
+        "Here.",
+        "Here.",
+        "Here.",
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = hamlet_acceptance::chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Make a scholar named ada.").await;
+    chief.shows(&chat, "Ada is made.").await;
+    let tagged = chief.tell(hand, "Tag ada as v1.").await;
+    until(&server, "the tag's wait", |realm| !realm.waits.is_empty())
+        .await;
+    chief.command(hand, "/allow").await;
+    chief.reply(&tagged).await;
+    chief.shows(&chat, "Ada is tagged.").await;
+    found(&server, &mut chief, "Docs").await;
+    let docs = look(&server).await.hamlets[0].id.clone();
+
+    for hire in ["blank", "scholar#2@v1"] {
+        let hired = chief
+            .command(hand, &format!("/hire {hire} in {docs}"))
+            .await;
+        let name = hired
+            .strip_suffix(" is hired.")
+            .unwrap_or_else(|| panic!("{hire}: {hired}"))
+            .trim_matches('`')
+            .to_owned();
+        let agent = until(&server, "the hire", |realm| {
+            realm.agents.iter().any(|agent| agent.name == name)
+        })
+        .await
+        .agents
+        .into_iter()
+        .find(|agent| agent.name == name)
+        .unwrap()
+        .id;
+        let watched = hamlet_acceptance::chat(agent);
+        chief.open(&watched).await;
+        let reply =
+            answered(&mut chief, agent, "Who is there?").await;
+        assert_eq!(
+            reply.kind,
+            ReplyKind::Notice,
+            "{hire}: {}",
+            reply.text
+        );
+        chief.shows(&watched, "Here.").await;
+    }
+    assert_eq!(
+        chief
+            .refused(hand, &format!("/hire scholar#2@v9 in {docs}"))
+            .await,
+        "`scholar#2 (ada)` has no version `v9`"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

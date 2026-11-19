@@ -12,7 +12,7 @@ mod view;
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::Client;
-use hamlet_protocol::client::State;
+use hamlet_protocol::client::{AgentId, Reply, ReplyKind, State};
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
@@ -77,6 +77,31 @@ async fn until(
             return realm;
         }
         assert!(began.elapsed() < PATIENCE, "waited for {what}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The reply to the line `text` said to `agent`, said again while
+/// the realm refuses it as still being hired.
+async fn answered(
+    chief: &mut Client,
+    agent: AgentId,
+    text: &str,
+) -> Reply {
+    let began = Instant::now();
+    loop {
+        let reply = chief.say(agent, text).await;
+        if reply.kind != ReplyKind::Error
+            || !reply.text.ends_with(
+                "is still being hired; send the line again",
+            )
+        {
+            return reply;
+        }
+        assert!(
+            began.elapsed() < PATIENCE,
+            "{agent:?} was never hired"
+        );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
