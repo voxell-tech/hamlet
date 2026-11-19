@@ -169,6 +169,7 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<crate::updates::UpdateChannel>()
         .init_resource::<crate::screens::web::Addresses>()
         .init_resource::<crate::screens::web::AgentTabs>()
+        .init_resource::<crate::screens::web::Titles>()
         .add_systems(Update, desk::capture)
         .add_plugins(crate::remember::plugin);
 }

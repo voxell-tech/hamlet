@@ -35,8 +35,11 @@ use super::fetch::{self, Fetch, State};
 use super::{Addresses, FILES, PANEL, crop, page};
 use crate::dock::{PanelAppExt, flush_panel};
 
-/// The name of a Web panel's tab, before its page has a title.
+/// The name of a Web panel's tab in the dock's menu of panels.
 const TITLE: &str = "WEB";
+
+/// The name of a Web panel's tab with no page yet.
+const NEW_TAB: &str = "New tab";
 
 /// The letters of a page's title a tab shows.
 const TITLE_LETTERS: usize = 24;
@@ -68,27 +71,42 @@ pub(super) struct PanelId(pub String);
 #[derive(Component)]
 pub(super) struct Surface(pub PanelId);
 
-/// A Web panel's field of its address.
-#[derive(Component)]
-pub(super) struct AddressField;
-
-/// The name of the tab of a panel whose page has `title`, cut to
-/// [`TITLE_LETTERS`], and that is `agent`'s when it is an agent's.
-pub(super) fn tab_name(title: &str, agent: Option<&str>) -> String {
-    let named = match agent {
-        Some(agent) => format!("{TITLE} ({agent})"),
-        None => TITLE.to_owned(),
+/// The name of a Web panel's tab: its page's `title`, else `kept`,
+/// the title it had when the view was kept, else the host of its
+/// `address`, cut to [`TITLE_LETTERS`]; after the name of `agent`
+/// when it is an agent's tab. A panel with none of them is a new tab.
+pub(super) fn tab_name(
+    title: &str,
+    kept: Option<&str>,
+    address: Option<&str>,
+    agent: Option<&str>,
+) -> String {
+    let host = address.and_then(|address| {
+        url::Url::parse(address)
+            .ok()?
+            .host_str()
+            .map(|host| host.trim_start_matches("www.").to_owned())
+    });
+    let title = [Some(title), kept, host.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|title| !title.is_empty());
+    let mut shown = match title {
+        Some(title) => {
+            let mut cut =
+                title.chars().take(TITLE_LETTERS).collect::<String>();
+            if title.chars().count() > TITLE_LETTERS {
+                cut.push_str("...");
+            }
+            cut
+        }
+        None => NEW_TAB.to_owned(),
     };
-    let title = title.trim();
-    if title.is_empty() {
-        return named;
+    if let Some(agent) = agent {
+        shown = format!("{agent}: {shown}");
     }
-    let mut cut =
-        title.chars().take(TITLE_LETTERS).collect::<String>();
-    if title.chars().count() > TITLE_LETTERS {
-        cut.push_str("...");
-    }
-    format!("{named}: {cut}")
+    shown
 }
 
 /// Whether the dock window `id` shows a page: a Web panel or the
@@ -174,7 +192,6 @@ fn address(panel: &PanelId) -> impl View + use<> {
     .min_width(px(0.0))
     .padding(UiRect::new(px(8.0), px(30.0), px(0.0), px(0.0)))
     .rules(text_input)
-    .tagged(AddressField)
     .tagged(AddressOf(panel.clone()));
     let search =
         row((button(glyph(Glyph::Lens, ICON).tone(Tone::Dim))
@@ -378,4 +395,34 @@ fn words(words: String) -> AnyView {
             .fills_width()
     })
     .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tab_is_named_by_its_page_its_kept_title_or_its_host() {
+        let address = Some("https://www.example.com/a?b");
+        assert_eq!(
+            tab_name("Apple - Wikipedia", Some("Old"), address, None),
+            "Apple - Wikipedia"
+        );
+        assert_eq!(tab_name("", Some("Old"), address, None), "Old");
+        assert_eq!(tab_name(" ", None, address, None), "example.com");
+        assert_eq!(tab_name("", None, None, None), NEW_TAB);
+        assert_eq!(
+            tab_name(
+                "A title longer than the tab can hold",
+                None,
+                None,
+                None
+            ),
+            "A title longer than the ..."
+        );
+        assert_eq!(
+            tab_name("Docs", None, address, Some("Mayor")),
+            "Mayor: Docs"
+        );
+    }
 }
