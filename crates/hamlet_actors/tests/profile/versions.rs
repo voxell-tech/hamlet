@@ -691,6 +691,40 @@ async fn a_read_is_refused_a_revision_or_a_path_the_profile_lacks() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_edit_s_repeat_is_answered_from_its_marker_and_its_id_is_its_own()
+ {
+    let dir = Scratch::new("profile-edit-repeat");
+    let host = made(&dir).await;
+    let id = RequestId::new();
+    let first = edit(&id, "memory/a.md", "a");
+    let done = call_as(&host, &realm(), &first).await.unwrap();
+    assert_eq!(done, Done::Done);
+    edited(&host, "memory/a.md", "b").await;
+    let main = main_tip(&dir);
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let host = open(&dir);
+    assert_eq!(call_as(&host, &realm(), &first).await.unwrap(), done);
+    let other = edit(&id, "memory/a.md", "c");
+    assert_eq!(
+        error_code(call_as(&host, &realm(), &other).await),
+        "message.id_reused"
+    );
+    let erase = Erase { id };
+    assert_eq!(
+        error_code(call_as(&host, &realm(), &erase).await),
+        "message.id_reused"
+    );
+    assert_eq!(main_tip(&dir), main);
+    assert_eq!(
+        text(&dir, commit_id(main), "memory/a.md").as_deref(),
+        Some("b")
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_erase_removes_the_repository_and_the_profile() {
     let dir = Scratch::new("profile-erase");
     let host = made(&dir).await;

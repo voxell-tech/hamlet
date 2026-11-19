@@ -828,3 +828,55 @@ async fn each_action_refuses_a_caller_of_the_other_kind() {
     assert!(dir.join("library/weather").exists());
     host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verdict_s_and_an_unshelve_s_repeats_are_answered_from_their_markers()
+ {
+    let dir = Scratch::new("library-repeat");
+    let host = open(&dir, Arc::default()).await;
+    let kept = offered(&host, 7, &tidy("c1")).await;
+    let judged = verdict(kept, true);
+    let done = call_as(&host, &realm(), &judged).await.unwrap();
+    assert_eq!(done, Done::Done);
+    let removed = Unshelve {
+        skill: "tidy".into(),
+        ..unshelve("")
+    };
+    assert_eq!(
+        call_as(&host, &realm(), &removed).await.unwrap(),
+        Done::Done
+    );
+    let shelves = read_shelves(&host).await;
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let host = open(&dir, Arc::default()).await;
+    assert_eq!(
+        call_as(&host, &realm(), &judged).await.unwrap(),
+        done
+    );
+    assert_eq!(
+        call_as(&host, &realm(), &removed).await.unwrap(),
+        Done::Done
+    );
+    let other = Verdict {
+        accepted: false,
+        ..judged
+    };
+    assert_eq!(
+        error_code(call_as(&host, &realm(), &other).await),
+        "message.id_reused"
+    );
+    let other = Unshelve {
+        skill: "weather".into(),
+        ..removed
+    };
+    assert_eq!(
+        error_code(call_as(&host, &realm(), &other).await),
+        "message.id_reused"
+    );
+    assert_eq!(read_shelves(&host).await, shelves);
+    assert!(dir.join("library/weather").exists());
+    assert!(!dir.join("library/tidy").exists());
+    host.shutdown().await.unwrap();
+}
