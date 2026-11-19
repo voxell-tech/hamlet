@@ -911,8 +911,15 @@ that start the pi harness; both are for tests only. The `crashes` target,
 and serves the realm again; `remote.rs` there serves a realm in a loopback
 double of the remote workspace worker.
 
+`hamlet_server --actors` serves the same client protocol from the actors
+instead (`front.rs`, Unix only). The `node-host` feature compiles the
+`front` target, `tests/front/`, which starts that server with its Node host;
+`cargo xtask node` runs it once the Node host's packages and native module
+are in place.
+
 | Module | Responsibility and interface |
 |---|---|
+| `front.rs`, `front/` | The door to the actors behind `--actors`: `host.rs` opens the folder with the realm, workspace, profile and library actors and the agent in a Node child, and a route table that lets a client reach only the realm and an agent; `front.rs` claims the folder, checks each connection's token and every message with `clients/check.rs`, applies one connection's requests in the order sent, sends no `State` older than the last a connection was sent, and carries frames through `clients/connection.rs`; `route.rs` turns a client message into what it becomes, `call.rs` (`Calls`) is the one executor of the actors' calls, with their deadlines and error words, `hub.rs` holds an agent's `chat` subscription while a watch, an owed reply or a busy period needs it and settles a line's reply when its input ends, `frames.rs` maps chat events and answers to frames, `commands.rs` and `commands/parse.rs` run the chief's `/` commands from today's table, `words.rs` holds their words, and `view.rs` renders the `State` from the realm's world |
 | `serve.rs`, `realm.rs`, `claim.rs`, `layout.rs` | `serve` from start to stop: probes the sandbox, opens the realm, starts the core and the harness, publishes `server.json`, and closes in order. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
 | `core.rs` | `Core`, the loop that owns the realm's writes: it takes in client requests, runtime messages, finished tool calls and the jobs runner's wake-ups, makes each change in one transaction (`change` and `attempt`, the second rolling back a refusal), then wakes the jobs runner and the runtimes and publishes what was touched |
 | `change.rs`, `jobs.rs` | `Change`, a change in progress: its transaction, its time, its actor and what it touched. `Job` names each effect a change keeps for after its commit |
