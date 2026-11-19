@@ -8,7 +8,15 @@ import {
     from,
     wakeAgent,
 } from "./agent-testing.ts";
-import { A, B, part, profileAnswering, saves, say } from "./branch-testing.ts";
+import {
+    A,
+    B,
+    part,
+    piece,
+    profileAnswering,
+    saves,
+    say,
+} from "./branch-testing.ts";
 
 test("a save whose walk stops at its cap saves what it walked, and reports that files past the cap were not saved", async (t) => {
     const { calls, sent } = fakeCalls({
@@ -82,5 +90,51 @@ test("a save whose answer is lost is sent again as it was, under its call, and a
         ["memory/b.md"],
     );
     assert.equal(saves(sent).length, 3);
+    await agent.stop();
+});
+
+test("a pull after a save writes over no file changed while the save was under way, and the next save sends that change", async (t) => {
+    const saving = Promise.withResolvers<void>();
+    const saved = Promise.withResolvers<{ type: "saved"; tip: string }>();
+    const { calls, sent } = fakeCalls({
+        profile: {
+            ...profileAnswering(
+                part({ tip: A, files: [piece("notes.md", "One.")] }),
+                part({ tip: B, files: [piece("notes.md", "Theirs.")] }),
+                part({ tip: B }),
+            ),
+            save: () => {
+                saving.resolve();
+                return saves(sent).length === 1
+                    ? saved.promise
+                    : { type: "saved", tip: B };
+            },
+        },
+    });
+    const files: Record<string, string> = {};
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            fauxAssistantMessage("Saved."),
+            fauxAssistantMessage("Saved again."),
+        ],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    files["memory/a.md"] = "A.";
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-Go.",
+        input: { type: "line", text: "Go." },
+    });
+    await saving.promise;
+    files["notes.md"] = "Mine.";
+    saved.resolve({ type: "saved", tip: B });
+    await agent.idle();
+
+    assert.equal(files["notes.md"], "Mine.");
+    await say(agent, "Again.");
+    assert.deepEqual(saves(sent)[1]?.changes, [
+        { type: "write", ...piece("notes.md", "Mine.") },
+    ]);
     await agent.stop();
 });

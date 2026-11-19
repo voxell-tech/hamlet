@@ -6,8 +6,9 @@
  * profile never sends and never takes `CHARACTER.md` or `inbox/`.
  *
  * `filed` holds each file's digest as the commit in `agent.filled` holds
- * it, as far as the agent wrote or sent it, so a save sends only what
- * differs. One piece of this work runs at a time.
+ * it, as far as the agent wrote, sent or pulled it, so a save sends only
+ * what differs and a pull writes over no file the agent changed. One piece
+ * of this work runs at a time.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -176,13 +177,47 @@ export function branchOf(
         await forget(path);
     };
 
-    /** Writes what changed on the branch since `since`, or its whole tip. */
+    const file = (path: string, digest: string) =>
+        c.db.run(
+            "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
+            path,
+            digest,
+        );
+
+    /**
+     * Whether the file at `path` is as `filed` holds it, so a pull may
+     * write over it or remove it.
+     */
+    const unchanged = async (path: string): Promise<boolean> => {
+        const kept = await c.db.get<{ digest: string }>(
+            "SELECT digest FROM filed WHERE path = ?",
+            path,
+        );
+        const read = await files.read(path, context);
+        if (!read.ok) {
+            if (read.error.code !== "not_found") throw read.error;
+            return kept === undefined;
+        }
+        return kept?.digest === digestOf(read.value);
+    };
+
+    /** Removes `path` for a pull, or only forgets it if the agent changed it. */
+    const pullRemoval = async (path: string): Promise<void> => {
+        if (await unchanged(path)) await removeNow(path);
+        else await forget(path);
+    };
+
+    /**
+     * Writes what changed on the branch since `since`, or its whole tip. A
+     * file the agent changed since `filed` stays as the agent has it, so the
+     * next save sends it on the tip.
+     */
     const pull = async (
         profile: ProfileId,
         since?: CommitId,
     ): Promise<void> => {
         const calls = profileCalls(peers, profile);
-        const written = new Set<string>();
+        const atTip = new Set<string>();
         const pieces = new Map<string, Buffer[]>();
         let after: FileCursor | undefined;
         let tip: CommitId | undefined;
@@ -206,7 +241,7 @@ export function branchOf(
                 await keep(c, { character: { version, value: text } });
             }
             for (const { path } of answer.removed) {
-                await removeNow(path).catch((error: unknown) =>
+                await pullRemoval(path).catch((error: unknown) =>
                     peers.report(`${path} was not removed for a pull`, error),
                 );
             }
@@ -220,14 +255,12 @@ export function branchOf(
                 }
                 pieces.delete(piece.path);
                 const whole = Buffer.concat([...before, bytes]);
-                const wrote = await files.write(piece.path, whole, context);
-                if (!wrote.ok) throw wrote.error;
-                await c.db.run(
-                    "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
-                    piece.path,
-                    digestOf(whole),
-                );
-                written.add(piece.path);
+                if (await unchanged(piece.path)) {
+                    const wrote = await files.write(piece.path, whole, context);
+                    if (!wrote.ok) throw wrote.error;
+                }
+                await file(piece.path, digestOf(whole));
+                atTip.add(piece.path);
             }
             tip = answer.tip;
             after = answer.next;
@@ -237,8 +270,8 @@ export function branchOf(
                 "SELECT path FROM filed",
             );
             for (const { path } of kept) {
-                if (written.has(path)) continue;
-                await removeNow(path).catch((error: unknown) =>
+                if (atTip.has(path)) continue;
+                await pullRemoval(path).catch((error: unknown) =>
                     peers.report(`${path} was not removed for a fill`, error),
                 );
             }
@@ -328,13 +361,7 @@ export function branchOf(
         unanswered = undefined;
         for (const change of sending.changes) {
             if (change.bytes === undefined) await forget(change.path);
-            else {
-                await c.db.run(
-                    "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
-                    change.path,
-                    digestOf(change.bytes),
-                );
-            }
+            else await file(change.path, digestOf(change.bytes));
         }
         await pull(sending.profile, sending.base);
         if (resent) await save();

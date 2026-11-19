@@ -1,6 +1,11 @@
 /** What the tests of the agent's branch share. */
 import assert from "node:assert/strict";
-import type { FilesAnswer, FilesPart, Save } from "../src/agent/messages.ts";
+import type {
+    FilesAnswer,
+    FilesPart,
+    Piece,
+    Save,
+} from "../src/agent/messages.ts";
 import { from, named, type Sent, type Woken } from "./agent-testing.ts";
 
 export const A = "ab".repeat(20);
@@ -8,6 +13,11 @@ export const B = "cd".repeat(20);
 
 export function bytes(text: string): string {
     return Buffer.from(text).toString("base64");
+}
+
+/** All of `text` as the one piece of the file at `path`. */
+export function piece(path: string, text: string): Piece {
+    return { path, offset: 0, bytes: bytes(text), last: true };
 }
 
 export function part(
