@@ -24,9 +24,12 @@ Node on `PATH`.
 pi's optional packages are left out: they carry Anthropic's Claude
 program, whose terms are Anthropic's
 ([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)).
-When a chief first signs in to Claude, pi downloads them from npm into
-the realm's `claude-program/`: the files its `package-lock.json` names
-for that computer, each checked against the lockfile's integrity.
+When a chief first signs in to Claude, or an agent first calls Claude in
+a realm signed in before they were there, pi downloads them from npm
+into its runtime's folder, `harnesses/pi-<id>/claude-program/` in the
+realm: the files its `package-lock.json` names for that computer and C
+library, each checked against the lockfile's integrity. Sign-ins and
+calls share one download.
 
 ## The launcher
 

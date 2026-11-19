@@ -24,7 +24,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { download, downloadable, useDownloaded } from "./claude-install.ts";
+import {
+    download,
+    downloadable,
+    forLibc,
+    machine,
+    useDownloaded,
+} from "./claude-install.ts";
 
 export const PROVIDER = "claude";
 
@@ -172,11 +178,12 @@ function executable(from?: string): string | undefined {
         from === undefined ? import.meta.url : join(from, "index.js"),
     );
     const file = process.platform === "win32" ? "claude.exe" : "claude";
-    for (const libc of ["", "-musl"])
+    // `npm ci` installs both Linux builds, and a downloaded folder has only the one for this machine's C library.
+    const { libc } = machine();
+    const program = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+    for (const name of [program, `${program}-musl`])
         try {
-            return require.resolve(
-                `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${libc}/${file}`,
-            );
+            if (forLibc(name, libc)) return require.resolve(`${name}/${file}`);
         } catch {}
     return undefined;
 }
