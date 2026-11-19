@@ -1843,3 +1843,14 @@ fn an_integer_typescript_writes_is_a_u32() {
         integers::not_u32(&fixtures.samples, &fixtures.agent_answers);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+#[test]
+fn a_float_typescript_writes_reads_from_a_whole_number() {
+    let mut fixtures = Fixtures::new(false);
+    every_fixture(&mut fixtures);
+    let problems = integers::float_only(
+        &fixtures.samples,
+        &fixtures.agent_answers,
+    );
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
