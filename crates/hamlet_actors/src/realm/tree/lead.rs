@@ -21,7 +21,7 @@ use super::super::calls::{Calls, Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, laid, leftovers, oversight, record, roads, steps,
+    chiefs, drop_parts, hire, laid, oversight, record, roads, steps,
     tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
@@ -431,7 +431,7 @@ pub(in crate::realm) async fn end(
     let left = steps::apply(
         writer,
         steps::Change::Begin {
-            row: leftovers::row(agent),
+            row: drop_parts::row(agent),
         },
     )
     .await?;

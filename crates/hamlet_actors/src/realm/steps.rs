@@ -17,7 +17,7 @@ use super::change::{self, Affected, Rows, Writer};
 use super::peer::{self, Peers, When};
 use super::workers::errands;
 use super::{
-    Realm, calls, dreams, hire, leftovers, librarian, parcels,
+    Realm, calls, dreams, drop_parts, hire, librarian, parcels,
     reviews, tree, workers,
 };
 
@@ -33,7 +33,7 @@ pub(super) enum Kind {
     Parcel,
     Dream,
     Verdict,
-    Leftovers,
+    DropParts,
 }
 
 #[derive(
@@ -295,7 +295,7 @@ where
 /// Ends the row that failed for good: its hire or worker ends as
 /// failed, its errand as one that gave no answer, its review as
 /// failed, its parcel as refused, and its dream, its verdict or its
-/// leftovers as closed.
+/// dropping of parts as closed.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -317,7 +317,7 @@ async fn end_failed(
         }
         Kind::Review => (reviews::failed(row.n)?, Calls::none()),
         Kind::Parcel => parcels::failed(&rows, row.n).await?,
-        Kind::Dream | Kind::Verdict | Kind::Leftovers => {
+        Kind::Dream | Kind::Verdict | Kind::DropParts => {
             (vec![Change::Close { row }.into()], Calls::none())
         }
     };
@@ -379,9 +379,9 @@ async fn walk_row(
             })
             .await
         }
-        Kind::Leftovers => {
+        Kind::DropParts => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
-                leftovers::run(cx, row.n, step).await
+                drop_parts::run(cx, row.n, step).await
             })
             .await
         }

@@ -71,6 +71,8 @@ mod choices;
 mod copies;
 #[path = "realm/dreams.rs"]
 mod dreams;
+#[path = "realm/drop_parts.rs"]
+mod drop_parts;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]
@@ -81,8 +83,6 @@ mod found;
 mod laid;
 #[path = "realm/lead.rs"]
 mod lead;
-#[path = "realm/leftovers.rs"]
-mod leftovers;
 #[path = "realm/letters.rs"]
 mod letters;
 #[path = "realm/librarian.rs"]

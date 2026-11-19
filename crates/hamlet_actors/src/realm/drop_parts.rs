@@ -16,7 +16,7 @@ use super::steps::{Cx, Kind, StepId, Steps};
 /// The row that drops what `agent` leaves.
 pub(super) fn row(agent: AgentNumber) -> StepId {
     StepId {
-        kind: Kind::Leftovers,
+        kind: Kind::DropParts,
         n: u64::from(agent.0),
     }
 }
