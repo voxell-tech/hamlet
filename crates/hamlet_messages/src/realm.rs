@@ -228,6 +228,7 @@ pub enum SocietyTool {
     Tag,
     Revert,
     AskLibrarian,
+    SubmitSkill,
 }
 
 impl SocietyTool {
@@ -259,6 +260,7 @@ impl SocietyTool {
             Self::Tag => "tag",
             Self::Revert => "revert",
             Self::AskLibrarian => "ask_librarian",
+            Self::SubmitSkill => "submit_skill",
         }
     }
 }

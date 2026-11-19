@@ -121,7 +121,8 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
         | SocietyTool::EditProfile
         | SocietyTool::Tag
         | SocietyTool::Revert
-        | SocietyTool::AskLibrarian => None,
+        | SocietyTool::AskLibrarian
+        | SocietyTool::SubmitSkill => None,
     }
 }
 

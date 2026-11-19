@@ -263,7 +263,7 @@ pub struct Purge {
     pub by: By,
 }
 
-answer!(PurgeAnswer<PurgeRefusal> {
+answer!(PurgeAnswer<W = PurgeRefusal> {
     /// `still_hold` are the hires whose agents remove the path once
     /// idle, or did not answer.
     Purged { branches: u32, still_hold: Vec<AgentNumber> },

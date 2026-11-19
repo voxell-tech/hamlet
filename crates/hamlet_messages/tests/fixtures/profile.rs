@@ -447,6 +447,7 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
             ),
         ),
     ] {
+        let answer: PurgeAnswer = answer;
         fixtures.kept(&format!("profile/purge.{arm}"), &answer);
     }
     fixtures.args("profile/erase", &Erase { id: request() });

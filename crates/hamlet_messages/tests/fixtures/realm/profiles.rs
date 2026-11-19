@@ -1,20 +1,24 @@
 //! The fixtures of the acts that make, read and change a profile, and
 //! of an agent's question to the librarian.
 
+use hamlet_messages::library::OfferId;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, CommitId, Missing, Path, Protected,
-    ReadAnswer, RevertAnswer, Revision, Sha1, TagAnswer, TagRefusal,
-    TooLong, VersionName,
+    BadCommit, BadPath, CommitId, DreamId, DreamOpen, Missing, Path,
+    Protected, PurgeAnswer, ReadAnswer, RevertAnswer, Revision, Sha1,
+    TagAnswer, TagRefusal, TooLong, VersionName,
 };
 use hamlet_messages::realm::profiles::{
-    AskLibrarian, CreateProfile, CreateRefusal, EditProfile,
-    EditProfileRefusal, Made, ProfileRefusal, ReadProfile,
-    ReadProfileRefusal, RevertProfile, RevertProfileRefusal,
-    TagProfile, TagProfileRefusal,
+    AskLibrarian, CreateProfile, CreateRefusal, Dream,
+    DreamAskedRefusal, DreamRefusal, Dreamer, EditProfile,
+    EditProfileRefusal, Made, ProfileRefusal, PurgeProfile,
+    PurgeProfileRefusal, ReadProfile, ReadProfileRefusal,
+    RevertProfile, RevertProfileRefusal, SubmitSkill, TagProfile,
+    TagProfileRefusal,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Gate, ProfileId, Standing,
 };
+use hamlet_messages::workspace::AgentNumber;
 
 use super::super::Fixtures;
 use super::super::cases::{
@@ -29,6 +33,8 @@ pub fn enums() -> Vec<Cases> {
         tagged::<ProfileRefusal>(),
         tagged::<CreateRefusal>(),
         tagged::<Made<CreateRefusal>>(),
+        tagged::<Dreamer>(),
+        tagged::<DreamRefusal>(),
     ]
 }
 
@@ -66,6 +72,15 @@ pub fn unions() -> Vec<Union> {
             family::<Protected>(),
             family::<TooLong>(),
         ]),
+        union!(DreamAskedRefusal {
+            Profile: ProfileRefusal,
+            Dream: DreamRefusal,
+        }),
+        union!(PurgeProfileRefusal {
+            Profile: ProfileRefusal,
+            Path: BadPath,
+            Dream: DreamOpen,
+        }),
         by_an_agent_of::<RevertProfileRefusal>(vec![
             family::<ProfileRefusal>(),
             family::<Missing>(),
@@ -86,6 +101,7 @@ pub fn the_profiles_through_the_realm(fixtures: &mut Fixtures) {
     the_making_and_the_reading(fixtures);
     the_changes(fixtures);
     the_librarian(fixtures);
+    the_dreams_and_the_purge(fixtures);
     the_hire_at_a_version(fixtures);
 }
 
@@ -346,7 +362,72 @@ fn the_librarian(fixtures: &mut Fixtures) {
                 _ => None,
             })
             .collect();
-    done(fixtures, "realm/ask_librarian", standing);
+    done(fixtures, "realm/ask_librarian", standing.clone());
+    fixtures.args(
+        "realm/submit_skill",
+        &tool(SubmitSkill {
+            offer: OfferId(3),
+            skill: "lint-docs".into(),
+            reason: Some("It checks every link".into()),
+        }),
+    );
+    done(fixtures, "realm/submit_skill", standing);
+}
+
+fn the_dreams_and_the_purge(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "realm/chief_dream",
+        &asked(Dream {
+            of: Dreamer::Profile { profile: SCHOLAR },
+        }),
+    );
+    fixtures.args(
+        "realm/chief_dream.hire",
+        &asked(Dream {
+            of: Dreamer::Hire {
+                hire: AgentNumber(12),
+            },
+        }),
+    );
+    let mut dreams = named::<DreamAskedRefusal>();
+    dreams.extend([
+        ("running", DreamRefusal::Running.into()),
+        (
+            "no_such_hire",
+            DreamRefusal::NoSuchHire {
+                hire: AgentNumber(12),
+            }
+            .into(),
+        ),
+    ]);
+    done(fixtures, "realm/chief_dream", dreams);
+    fixtures.args(
+        "realm/chief_purge_profile",
+        &asked(PurgeProfile {
+            profile: SCHOLAR,
+            path: "memory/secret.md".into(),
+        }),
+    );
+    let mut purges = named::<PurgeProfileRefusal>();
+    purges.extend([
+        ("not_a_path", not_a_path().into()),
+        (
+            "dreaming",
+            DreamOpen::Dreaming { dream: DreamId(3) }.into(),
+        ),
+    ]);
+    answers(
+        fixtures,
+        "realm/chief_purge_profile",
+        [(
+            "purged",
+            PurgeAnswer::Purged {
+                branches: 3,
+                still_hold: vec![AgentNumber(12)],
+            },
+        )],
+        purges,
+    );
 }
 
 fn the_hire_at_a_version(fixtures: &mut Fixtures) {

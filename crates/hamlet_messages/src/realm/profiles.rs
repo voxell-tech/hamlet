@@ -1,7 +1,8 @@
-//! The acts that make, read and change a profile, and an agent's
-//! question to the librarian. A model calls them `create_scholar`,
-//! `read_scholar`, `edit_scholar`, `tag`, `revert` and
-//! `ask_librarian`.
+//! The acts that make, read, change, purge and dream over a profile,
+//! and an agent's acts on the library. A model calls them
+//! `create_scholar`, `read_scholar`, `edit_scholar`, `tag`, `revert`,
+//! `ask_librarian` and `submit_skill`; a chief, `/dream` and
+//! `/purge`.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,12 +10,15 @@ use super::{
     AgentRefusal, ChiefRequest, Done, ProfileId, SocietyTool,
     Standing, ToolCall,
 };
+use crate::library::OfferId;
 use crate::profile::{
-    BadCommit, BadPath, EditRefusal, Missing, Protected, ReadAnswer,
-    ReadFileRefusal, RevertAnswer, RevertRefusal, Revision,
-    TagAnswer, TagRefusal, TooLong, VersionName,
+    BadCommit, BadPath, DreamOpen, EditRefusal, Missing, Protected,
+    PurgeAnswer, PurgeRefusal, ReadAnswer, ReadFileRefusal,
+    RevertAnswer, RevertRefusal, Revision, TagAnswer, TagRefusal,
+    TooLong, VersionName,
 };
 use crate::worded;
+use crate::workspace::AgentNumber;
 
 family!(
     /// Why an act on the profile it names was not carried out.
@@ -215,4 +219,78 @@ pub struct AskLibrarian {
 impl ToolCall for AskLibrarian {
     const TOOL: SocietyTool = SocietyTool::AskLibrarian;
     type Answer = Done<Standing>;
+}
+
+/// Asks the librarian to judge the offer the library kept as `offer`.
+/// The verdict reaches the caller later, as an input.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmitSkill {
+    pub offer: OfferId,
+    pub skill: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ToolCall for SubmitSkill {
+    const TOOL: SocietyTool = SocietyTool::SubmitSkill;
+    type Answer = Done<Standing>;
+}
+
+/// Whose learning a chief's dream goes over.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Dreamer {
+    Profile { profile: ProfileId },
+    Hire { hire: AgentNumber },
+}
+
+/// Starts a dream. One dream runs at a time in the realm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Dream {
+    pub of: Dreamer,
+}
+
+family!(DreamRefusal {
+    #[error("A dream is running; one dreams at a time.")]
+    Running,
+    #[error("no agent has the address `hire#{}`", hire.0)]
+    NoSuchHire { hire: AgentNumber },
+});
+
+union!(DreamAskedRefusal {
+    Profile(ProfileRefusal),
+    Dream(DreamRefusal),
+});
+
+impl ChiefRequest for Dream {
+    const NAME: &'static str = "chief_dream";
+    type Answer = Done<DreamAskedRefusal>;
+}
+
+/// Takes `path` out of every commit of a profile and out of each of
+/// its hires' filesystems.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurgeProfile {
+    pub profile: ProfileId,
+    pub path: String,
+}
+
+union!(PurgeProfileRefusal {
+    Profile(ProfileRefusal),
+    Path(BadPath),
+    Dream(DreamOpen),
+});
+
+impl From<PurgeRefusal> for PurgeProfileRefusal {
+    fn from(why: PurgeRefusal) -> Self {
+        match why {
+            PurgeRefusal::Path(why) => why.into(),
+            PurgeRefusal::Dream(why) => why.into(),
+        }
+    }
+}
+
+impl ChiefRequest for PurgeProfile {
+    const NAME: &'static str = "chief_purge_profile";
+    type Answer = PurgeAnswer<PurgeProfileRefusal>;
 }

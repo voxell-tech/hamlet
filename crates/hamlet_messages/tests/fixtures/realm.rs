@@ -685,6 +685,7 @@ fn the_society_tools_named_in_a_gate(fixtures: &mut Fixtures) {
             SocietyTool::Tag,
             SocietyTool::Revert,
             SocietyTool::AskLibrarian,
+            SocietyTool::SubmitSkill,
         ],
     );
 }

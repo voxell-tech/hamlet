@@ -1530,7 +1530,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
-        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part|create_profile|read_profile|edit_profile|tag|revert|ask_librarian)\./,
+        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part|create_profile|read_profile|edit_profile|tag|revert|ask_librarian|submit_skill)\./,
         "an agent's call of the realm, which this agent does not make",
     ],
     [
