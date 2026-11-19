@@ -26,7 +26,7 @@ use hamlet_protocol::client::{
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
 
-use super::call::{Calls, failed, refused_words, server_failed};
+use super::call::{Calls, failed, refused_words};
 use super::route::number;
 use super::{Frames, Keys, To, frames};
 use crate::clients::check::{fault, reply};
@@ -472,11 +472,17 @@ impl Shared {
                 if found.watches[at].seen.is_none() {
                     found.watches.remove(at);
                 }
-                let fault = match refused_words(&error) {
-                    Some(words) => fault(Some(&open.id), words),
-                    None => server_failed(Some(&open.id), &error),
-                };
-                self.send(client, fault);
+                // A chat that is not there is refused with an error
+                // reply, and a page before an item it lacks with a
+                // fault; only a page asked before an item names one.
+                let refused =
+                    match (refused_words(&error), &open.before) {
+                        (Some(words), Some(_)) => {
+                            fault(Some(&open.id), words)
+                        }
+                        _ => failed(&open.id, &error),
+                    };
+                self.send(client, refused);
             }
         }
     }

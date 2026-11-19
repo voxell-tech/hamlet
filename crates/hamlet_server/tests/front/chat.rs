@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    Check, Choice, ClientMessage, Edit, ItemKind, Login, LoginMethod,
-    LoginReply, LoginStart, LoginStep, New, Open, Read, ReadResult,
-    ReplyKind, RequestId, Resume, Retry, Say, ServerMessage, Stop,
+    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Login,
+    LoginMethod, LoginReply, LoginStart, LoginStep, New, Open, Read,
+    ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
+    ServerMessage, Stop,
 };
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
@@ -277,6 +278,25 @@ async fn an_open_after_its_follow_ended_follows_again() {
         matches!(&missed, ServerMessage::Fault(_)),
         "a page before an item that is not there is a fault: \
          {missed:?}"
+    );
+    let past = chief
+        .ask(|id| {
+            ClientMessage::Open(Open {
+                id,
+                chat: ChatRef {
+                    past: Some(77),
+                    ..chat.clone()
+                },
+                before: None,
+            })
+        })
+        .await;
+    let ServerMessage::Reply(past) = past else {
+        panic!("a session that is not there is refused: {past:?}");
+    };
+    assert_eq!(
+        (past.kind, past.text.as_str()),
+        (ReplyKind::Error, "there is no past session 77 here")
     );
     chief.open(&chat).await;
     chief.tell(hand, "Say more.").await;
