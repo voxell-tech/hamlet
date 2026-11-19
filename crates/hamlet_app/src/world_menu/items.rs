@@ -11,7 +11,7 @@ use bevy_fynix::views::{
 };
 use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
-    Left,
+    Left, LivesIn,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
@@ -37,6 +37,23 @@ fn plain_agent(world: &World, thing: Thing) -> Option<Entity> {
         && world.get::<Lead>(agent).is_none()
         && world.get::<Left>(agent).is_none();
     plain.then_some(agent)
+}
+
+/// Words around the chip of `them`, the other of two chosen agents,
+/// named as in the chat; the agent the menu is of goes unnamed.
+fn naming(
+    world: &World,
+    them: Entity,
+    before: &str,
+    after: &str,
+) -> impl View {
+    row((
+        label(before.to_owned()).wrap(false),
+        agent_chip(world, them),
+        label(after.to_owned()).wrap(false),
+    ))
+    .gap(5.0)
+    .align(AlignItems::Center)
 }
 
 /// What an item shows: its icon in `tone`, then `words`.
@@ -294,31 +311,64 @@ fn for_agent(
             absorbed: agent,
             kept: them,
         };
-        // The other is named by its chip, as in the chat; this one
-        // is what the menu is of.
-        let words = |before: &str, after: &str| {
-            row((
-                label(before.to_owned()).wrap(false),
-                agent_chip(world, them),
-                label(after.to_owned()).wrap(false),
-            ))
-            .gap(5.0)
-            .align(AlignItems::Center)
-        };
         items.push(asking(
             Glyph::Merge,
             Tone::Merged,
-            words("Merge", "Into This"),
+            naming(world, them, "Merge", "Into This"),
             into_me,
             at,
         ));
         items.push(asking(
             Glyph::Merge,
             Tone::Merged,
-            words("Merge Into", ""),
+            naming(world, them, "Merge Into", ""),
             into_other,
             at,
         ));
+    }
+    // A new parent may be the lead, which is never moved itself.
+    let parent = chosen
+        .into_iter()
+        .flatten()
+        .filter_map(|thing| match thing {
+            Thing::Agent(other) | Thing::House(other) => Some(other),
+            _ => None,
+        })
+        .find(|other| {
+            *other != agent
+                && world.get::<Left>(*other).is_none()
+                && world.get::<Kind>(*other).map(|kind| kind.0)
+                    == Some(protocol::AgentKind::Hamlet)
+                && world.get::<LivesIn>(*other).map(|lives| lives.0)
+                    == world
+                        .get::<LivesIn>(agent)
+                        .map(|lives| lives.0)
+        });
+    if let Some(them) =
+        parent.filter(|_| Actions::is_allowed(world, "reparent"))
+    {
+        items.push(asking(
+            Glyph::Move,
+            Tone::Attention,
+            naming(world, them, "Move Under", ""),
+            Action::Reparent {
+                moved: agent,
+                parent: them,
+            },
+            at,
+        ));
+        if world.get::<Lead>(them).is_none() {
+            items.push(asking(
+                Glyph::Move,
+                Tone::Attention,
+                naming(world, them, "Move", "Under This"),
+                Action::Reparent {
+                    moved: them,
+                    parent: agent,
+                },
+                at,
+            ));
+        }
     }
     if Actions::is_allowed(world, "lead") {
         items.push(asking(

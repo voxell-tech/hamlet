@@ -446,6 +446,73 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
+/// Moves the living agent `id`, and everything under it, under the
+/// living agent `parent` of its hamlet (H41, ADR 0016).
+pub(crate) fn reparent(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    parent: AgentId,
+    reason: &str,
+) -> Done<()> {
+    // A worker or the Hand has no place in a hamlet's tree.
+    for one in [id, parent] {
+        if find(cx.db, one)?.is_none() {
+            reject!(Rejection::NotHamletAgent {
+                name: super::addresses::name_of(cx.db, one)?
+            });
+        }
+    }
+    let agent = get(cx.db, id)?;
+    let target = get(cx.db, parent)?;
+    done!(require_living(cx.db, id));
+    done!(require_living(cx.db, parent));
+    if agent.hamlet != target.hamlet {
+        reject!(Rejection::OtherHamlet {
+            name: super::addresses::name_of(cx.db, parent)?
+        });
+    }
+    if agent.parent.is_none() {
+        reject!(Rejection::MovingLead);
+    }
+    let name = super::addresses::name_of(cx.db, id)?;
+    let new = super::addresses::name_of(cx.db, parent)?;
+    if agent.parent == Some(parent) {
+        reject!(Rejection::AlreadyUnder { name, parent: new });
+    }
+    if parent == id || tree::is_above(cx.db, id, parent)? {
+        reject!(Rejection::UnderItself { name, parent: new });
+    }
+    let allowed = match cx.actor {
+        // An agent moves only inside its own subtree.
+        Actor::Agent(from) => {
+            super::authority::may_direct(cx.db, cx.actor, id)?
+                && (from == parent
+                    || super::authority::may_direct(
+                        cx.db, cx.actor, parent,
+                    )?)
+        }
+        _ => super::authority::may_direct(cx.db, cx.actor, id)?,
+    };
+    if !allowed {
+        reject!(Rejection::NotParent { name });
+    }
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::parent.eq(Some(parent)))
+        .execute(cx.db)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Reparented, reason)
+            .hamlet(&agent.hamlet)
+            .subject(id)
+            .other(parent)
+            .detail(json!({ "from": agent.parent })),
+    )?;
+    cx.touched.agents.extend([id, parent]);
+    cx.touched.agents.extend(agent.parent);
+    cx.touched.hamlets.insert(agent.hamlet);
+    Ok(Ok(()))
+}
+
 /// Gives the office of `hamlet` to its agent `id`, the old lead going
 /// under it.
 pub(crate) fn set_lead(

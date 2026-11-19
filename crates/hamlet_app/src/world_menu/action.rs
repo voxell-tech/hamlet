@@ -46,6 +46,11 @@ pub(crate) enum Action {
     Unshelve(String),
     /// Makes this agent the lead of its hamlet.
     Lead(Entity),
+    /// Moves `moved`, and the agents under it, under `parent`.
+    Reparent {
+        moved: Entity,
+        parent: Entity,
+    },
     /// Rewinds the open conversation to before message `entry`, its
     /// words going back to the field of the Hub it was asked in.
     Rewind {
@@ -117,6 +122,14 @@ impl Action {
                 let text = with(format!("/lead {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
+            Action::Reparent { moved, parent } => {
+                let text = with(format!(
+                    "/reparent {} {}",
+                    name(*moved),
+                    name(*parent)
+                ));
+                orders::decree(world, *moved, text);
+            }
             // The hamlets and the library are the realm's.
             Action::Close(hamlet) => {
                 let text = with(format!("/remove-hamlet {hamlet}"));
@@ -147,6 +160,7 @@ impl Action {
                 | Action::EndWithDream(_)
                 | Action::Merge { .. }
                 | Action::Lead(_)
+                | Action::Reparent { .. }
                 | Action::Close(_)
         )
     }
@@ -159,6 +173,7 @@ impl Action {
             Self::Erase(_) => "erase",
             Self::Unshelve(_) => "unshelve",
             Self::Lead(_) => "lead",
+            Self::Reparent { .. } => "reparent",
             Self::DefaultCharter
             | Self::MoveWorktrees
             | Self::Rewind { .. } => return true,
@@ -188,6 +203,13 @@ impl Action {
             }
             Action::Lead(agent) => {
                 format!("Make {} lead?", name(agent))
+            }
+            Action::Reparent { moved, parent } => {
+                format!(
+                    "Move {} under {}?",
+                    name(moved),
+                    name(parent)
+                )
             }
             Action::Rewind { .. } => "Rewind to here?".to_string(),
             Action::DefaultCharter => {
@@ -240,6 +262,12 @@ impl Action {
                  becomes one of its agents.",
                 name(agent)
             ),
+            Action::Reparent { moved, parent } => format!(
+                "{} and the agents under it answer to {} from now \
+                 on. Opened channels and spending stay as they are.",
+                name(moved),
+                name(parent)
+            ),
             Action::Rewind { chat, .. } => format!(
                 "{} forgets this message and everything after it, \
                  and the message goes back in the message box. \
@@ -281,6 +309,7 @@ impl Action {
             Action::Erase(_) => "Delete",
             Action::Unshelve(_) => "Take Out",
             Action::Lead(_) => "Make Lead",
+            Action::Reparent { .. } => "Move",
             Action::Rewind { .. } => "Rewind",
             Action::DefaultCharter => "Use the Default",
             Action::MoveWorktrees => "Replace Them",
@@ -306,6 +335,7 @@ impl Action {
             Action::Erase(_)
             | Action::Unshelve(_)
             | Action::Lead(_)
+            | Action::Reparent { .. }
             | Action::Rewind { .. }
             | Action::DefaultCharter
             | Action::MoveWorktrees => Vec::new(),
@@ -350,11 +380,13 @@ pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
         };
         let done = action.clone();
         let alternative = action.alternative();
-        // A merge that completes is purple; the rest end something.
+        // A merge that completes is purple, a move ends nothing; the
+        // rest end something.
         let variant = match &action {
             Action::Merge { .. } => {
                 Variant::Tinted(StatusKind::Merged)
             }
+            Action::Reparent { .. } => Variant::Primary,
             _ => Variant::Danger,
         };
         let (gap, section, padding, heading) = {

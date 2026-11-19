@@ -272,6 +272,19 @@ pub(crate) struct CloseChannel {
     pub reason: String,
 }
 
+/// Move an agent, and the agents under it, under another agent of
+/// the same hamlet.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ReparentAgent {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    #[schemars(description = ADDRESS)]
+    pub under: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
 /// As a lead, agree a channel between an agent of your hamlet and
 /// one of another. It opens once both leads agree.
 #[derive(Deserialize, JsonSchema)]
@@ -788,6 +801,7 @@ called!(
     RenameAgent,
     OpenChannel,
     CloseChannel,
+    ReparentAgent,
     AgreeChannel,
     FoundHamlet,
     SetLead,

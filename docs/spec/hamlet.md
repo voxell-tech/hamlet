@@ -42,6 +42,7 @@ the chief is talking to.
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many agents the hamlet holds (H40) |
 | `/lead <address> [reason]` | Give the hamlet's office to another agent (H18) |
+| `/reparent <address> <new parent> [reason]` | Move an agent, and those under it, under another agent of its hamlet (H41) |
 | `/add-agent <profile#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Add an agent of a profile to the hamlet, or a blank agent (H40) |
 | `/end <address> [dream] [reason]`, `/merge <address> into <address> [reason]` | End an agent, with `dream` dreaming once more first (H40, H43), or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended agent back, or split a merged one out again, or erase it for good (H20) |
@@ -248,6 +249,16 @@ parents make it. An agent with agents under it is a parent.
   channels among them. Every agent of a hamlet has these tools (H35), so any
   of them can become a parent.
 - The Hand is above every lead, and a chief overrules anything (H23).
+- A chief, the Hand, or an agent above both can move an agent, and all
+  under it, under another living agent of its hamlet (`reparent_agent`,
+  `/reparent`), so a parent reshuffles only inside its own subtree. It is
+  refused for the lead (the office moves by H18), for a new parent that is
+  the agent itself or anywhere under it, one of another hamlet, one that has
+  left, or one it is already under. Tree channels
+  follow the new parent. Opened and agreed channels, the agent's own
+  allowance and all spend stay as they were; the allowances that bound it
+  (H44) are now its new parents'. An agent on a chief's task may be moved.
+  The move is kept in the record (H17).
 - An agent has a channel to its parent and to each agent under it while they
   live (H3).
 - A chief's instruction to an agent is reviewed by its parent (H10).
@@ -544,7 +555,7 @@ only the tools in its own row:
 |---|---|
 | Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
 | Every agent of a hamlet | `propose_channel` |
-| A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `open_channel`, `close_channel` |
+| A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `reparent_agent` (H41), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |
 | The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `set_mode`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
 | Every agent but a worker, in its one conversation | `object` (H10) |

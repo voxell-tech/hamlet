@@ -109,6 +109,17 @@ pub(crate) enum Rejection {
     OnChiefsTask { name: String },
     #[error("`{name}` is already the lead")]
     AlreadyLead { name: String },
+    #[error(
+        "the lead cannot be moved; give the office to another agent"
+    )]
+    MovingLead,
+    #[error("`{name}` is already under `{parent}`")]
+    AlreadyUnder { name: String, parent: String },
+    #[error(
+        "`{name}` cannot go under `{parent}`, which is itself or \
+         under it"
+    )]
+    UnderItself { name: String, parent: String },
     #[error("`{name}` is in another hamlet")]
     OtherHamlet { name: String },
     #[error("no agent has the address `{address}`")]

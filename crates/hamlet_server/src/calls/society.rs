@@ -17,7 +17,7 @@ use hamlet_store::ids::{
 use self::args::{
     AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
     FoundHamlet, MakeProfile, MergeAgents, ReadRecord, RenameAgent,
-    SetAllowance, SetLead, SetModel, SetTools,
+    ReparentAgent, SetAllowance, SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
 use super::{Call, rejected, said};
@@ -349,6 +349,22 @@ impl Core<'_, '_> {
                             )
                         },
                     ))
+                })
+            }
+            Called::ReparentAgent(ReparentAgent {
+                agent,
+                under,
+                reason,
+            }) => {
+                let moved = done!(self.named(&agent, here));
+                let parent = done!(self.named(&under, here));
+                let (one, other) =
+                    (self.name(moved)?, self.name(parent)?);
+                self.carry(call, |cx, _| {
+                    Ok(hamlet_agents::reparent(
+                        cx, moved, parent, &reason,
+                    )?
+                    .map(|()| format!("{one} is under {other} now.")))
                 })
             }
             Called::MergeAgents(MergeAgents {
