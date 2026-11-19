@@ -21,8 +21,9 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, Missing, Path as FilePath, ProfileInput, Read,
-    ReadAnswer,
+    BadPath, Branch, CommitId, Edit, EditRefusal, Missing,
+    Path as FilePath, ProfileInput, Read, ReadAnswer, Revert,
+    RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -147,6 +148,9 @@ struct Seen {
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     profiles: Mutex<Vec<(ProfileId, ProfileInput)>>,
     reads: Mutex<Vec<(ProfileId, Read)>>,
+    edits: Mutex<Vec<(ProfileId, Edit)>>,
+    tags: Mutex<Vec<(ProfileId, Tag)>>,
+    reverts: Mutex<Vec<(ProfileId, Revert)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -374,7 +378,7 @@ struct ProfileStandIn {
 impl Actor for ProfileStandIn {
     /// `None` for a profile a test calls without making it.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Read);
+    type Actions = (Branch, Read, Edit, Tag, Revert);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -463,6 +467,71 @@ impl Handler<Read> for ProfileStandIn {
             Some(path) => ReadAnswer::Refused {
                 why: BadPath::NotAPath { path }.into(),
             },
+        })
+    }
+}
+
+/// The commit every stand-in profile's change answers with.
+const COMMIT: CommitId = CommitId(Sha1([7; 20]));
+
+/// A path a stand-in profile refuses to write.
+const NOT_A_PATH: &str = "../out";
+
+impl Handler<Edit> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        edit: Edit,
+    ) -> anyhow::Result<Done<EditRefusal>> {
+        let path = edit.path.clone();
+        self.seen.edits.lock().unwrap().push((self.profile, edit));
+        Ok(if path == NOT_A_PATH {
+            Done::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            }
+        } else {
+            Done::Done
+        })
+    }
+}
+
+impl Handler<Tag> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        tag: Tag,
+    ) -> anyhow::Result<TagAnswer> {
+        let version = tag.version.clone();
+        self.seen.tags.lock().unwrap().push((self.profile, tag));
+        Ok(if version.0 == HELD_VERSION {
+            TagAnswer::Refused {
+                why: TagRefusal::Taken { version },
+            }
+        } else {
+            TagAnswer::Tagged {
+                version,
+                commit: COMMIT,
+            }
+        })
+    }
+}
+
+impl Handler<Revert> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        revert: Revert,
+    ) -> anyhow::Result<RevertAnswer> {
+        self.seen
+            .reverts
+            .lock()
+            .unwrap()
+            .push((self.profile, revert));
+        Ok(RevertAnswer::Reverted {
+            commit: COMMIT,
+            clashes: vec![FilePath {
+                path: "notes.md".to_owned(),
+            }],
         })
     }
 }

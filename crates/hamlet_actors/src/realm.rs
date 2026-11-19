@@ -61,7 +61,9 @@ use hamlet_messages::realm::oversight::{
     AskChief, Lapse, Object, Revoke,
 };
 use hamlet_messages::realm::parcels::FetchPart;
-use hamlet_messages::realm::profiles::ReadProfile;
+use hamlet_messages::realm::profiles::{
+    EditProfile, ReadProfile, RevertProfile, TagProfile,
+};
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
@@ -218,6 +220,12 @@ impl Actor for Realm {
         FetchPart,
         profiles::Create,
         Relays<ByHand<Tool<ReadProfile>>>,
+        ByHand<Tool<EditProfile>>,
+        ByHand<Tool<TagProfile>>,
+        ByHand<Tool<RevertProfile>>,
+        Relays<Asked<EditProfile>>,
+        Relays<Asked<TagProfile>>,
+        Relays<Asked<RevertProfile>>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;

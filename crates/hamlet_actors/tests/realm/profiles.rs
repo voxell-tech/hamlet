@@ -1,23 +1,28 @@
 use hamlet_messages::profile::{
-    BadPath, Path, ProfileInput, ReadAnswer, VersionName,
+    BadPath, By, Edit, Path, ProfileInput, ReadAnswer, RevertAnswer,
+    Revision, TagAnswer, TagRefusal, VersionName,
 };
 use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::profiles::{
-    CreateProfile, CreateRefusal, Made, ProfileRefusal, ReadProfile,
-    ReadProfileRefusal,
+    CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
+    Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
+    RevertProfile, TagProfile, TagProfileRefusal,
 };
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentRefusal, Done, Hire, HireAnswer, HireRefusal, LeadRefusal,
-    ProfileId,
+    AgentRefusal, Asked, ChiefRequest, Done, Gate, Hire, HireAnswer,
+    HireRefusal, LeadRefusal, ProfileId,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
+use super::reserved::{in_turn, notices, waits};
 use super::steps::hiring_and_how;
 use super::{
-    MAYOR, Realm, THREE, founded, hamlet_with, hire, hired, tell, to,
-    tool, words,
+    MAYOR, Realm, THREE, answer, founded, hamlet_with, hire, hired,
+    tell, to, tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";
@@ -309,6 +314,11 @@ async fn the_hand_reads_a_made_profile_in_the_profiles_words() {
         }
     );
     assert_eq!(
+        read(&realm, Hand::NUMBER, 3, Some("")).await.unwrap(),
+        read(&realm, Hand::NUMBER, 3, None).await.unwrap(),
+        "an empty path lists the files"
+    );
+    assert_eq!(
         read(&realm, Hand::NUMBER, 3, Some("CHARACTER.md"))
             .await
             .unwrap(),
@@ -338,6 +348,278 @@ async fn the_hand_reads_a_made_profile_in_the_profiles_words() {
         ))
     );
     assert!(read(&realm, MAYOR, 3, None).await.is_err());
-    assert_eq!(realm.seen.reads.lock().unwrap().len(), 3);
+    assert_eq!(realm.seen.reads.lock().unwrap().len(), 5);
+    realm.host.shutdown().await.unwrap();
+}
+
+fn edit(profile: u32, path: &str) -> EditProfile {
+    EditProfile {
+        profile: ProfileId(profile),
+        path: path.to_owned(),
+        text: "dig deep".to_owned(),
+        message: None,
+    }
+}
+
+fn tag(version: &str) -> TagProfile {
+    TagProfile {
+        profile: ProfileId(3),
+        version: VersionName(version.to_owned()),
+        note: String::new(),
+    }
+}
+
+fn revert() -> RevertProfile {
+    RevertProfile {
+        profile: ProfileId(3),
+        what: Revision::Version {
+            version: VersionName("v1".to_owned()),
+        },
+        reason: None,
+    }
+}
+
+fn edits(realm: &Realm) -> Vec<(ProfileId, Edit)> {
+    realm.seen.edits.lock().unwrap().clone()
+}
+
+async fn notices_until(realm: &Realm, count: usize) -> Vec<String> {
+    let seen = || {
+        super::submits_to(realm, Hand::NUMBER)
+            .iter()
+            .filter(|submit| {
+                matches!(
+                    submit.input,
+                    hamlet_messages::agent::Input::Notice { .. }
+                )
+            })
+            .count()
+    };
+    until(&format!("the Hand is told {count} notices"), || {
+        seen() >= count
+    })
+    .await;
+    notices(realm, Hand::NUMBER).await
+}
+
+fn reserved<R>(wait: u64) -> AgentRefusal<R> {
+    AgentRefusal::Gate(Gate::Reserved { wait: WaitId(wait) })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hands_change_to_a_profile_runs_once_a_chief_allows_it() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+
+    let edited = realm
+        .tool(Hand::NUMBER, &in_turn("e1", edit(3, "notes.md"), None))
+        .await
+        .unwrap();
+    let tagged = realm
+        .tool(Hand::NUMBER, &in_turn("t1", tag("v2"), None))
+        .await
+        .unwrap();
+    let reverted = realm
+        .tool(Hand::NUMBER, &in_turn("r1", revert(), None))
+        .await
+        .unwrap();
+    let asked = edits(&realm);
+    let subjects = waits(&realm)
+        .await
+        .into_iter()
+        .map(|(_, kind, subject, _)| (kind, subject))
+        .collect::<Vec<_>>();
+    let allow_edit = answer("#1", Choice::Allow, None);
+    for allow in [
+        allow_edit.clone(),
+        answer("#2", Choice::Allow, None),
+        answer("#3", Choice::Allow, None),
+    ] {
+        assert_eq!(realm.ask(&allow).await.unwrap(), Done::Done);
+    }
+    let told = notices_until(&realm, 3).await;
+    assert_eq!(realm.ask(&allow_edit).await.unwrap(), Done::Done);
+    until("the repeat reaches the profile", || {
+        edits(&realm).len() == 2
+    })
+    .await;
+
+    assert_eq!(edited, Done::Refused { why: reserved(1) });
+    assert_eq!(tagged, TagAnswer::Refused { why: reserved(2) });
+    assert_eq!(reverted, RevertAnswer::Refused { why: reserved(3) });
+    assert!(
+        asked.is_empty(),
+        "nothing runs before a chief allows it"
+    );
+    assert_eq!(
+        subjects,
+        [
+            (
+                "reserved".to_owned(),
+                r#"edit_scholar {"content":"dig deep","path":"notes.md","scholar":"scholar#3"}"#
+                    .to_owned()
+            ),
+            (
+                "reserved".to_owned(),
+                r#"tag {"scholar":"scholar#3","tag":"v2"}"#.to_owned()
+            ),
+            (
+                "reserved".to_owned(),
+                r#"revert {"commit":"v1","scholar":"scholar#3"}"#
+                    .to_owned()
+            ),
+        ]
+    );
+    assert_eq!(
+        told,
+        [
+            "Wrote notes.md of scholar#3.",
+            "Tagged scholar#3's main as v2.",
+            "Reverted the commit on scholar#3's main; these files \
+             changed again since and kept their later lines: \
+             notes.md",
+        ]
+    );
+    let [(profile, first), (_, again)] = &edits(&realm)[..] else {
+        panic!("the edit and its repeat");
+    };
+    assert_eq!(*profile, ProfileId(3));
+    assert_eq!(
+        first.by,
+        By::Agent {
+            agent: Hand::NUMBER
+        }
+    );
+    assert_eq!(first.id, again.id, "a repeat asks with the same id");
+    let tags = realm.seen.tags.lock().unwrap().clone();
+    assert_ne!(tags[0].1.id, first.id, "each call has its own id");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowed_change_that_is_refused_is_told_in_its_words() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+
+    for (call, edited) in
+        [("e1", edit(2, "notes.md")), ("e2", edit(3, "../out"))]
+    {
+        realm
+            .tool(Hand::NUMBER, &in_turn(call, edited, None))
+            .await
+            .unwrap();
+    }
+    for wait in ["#1", "#2"] {
+        let allow = answer(wait, Choice::Allow, None);
+        assert_eq!(realm.ask(&allow).await.unwrap(), Done::Done);
+    }
+
+    assert_eq!(
+        notices_until(&realm, 2).await,
+        [
+            "`scholar#2 (Mayor)` is a blank hire's own, not a \
+             scholar of the city",
+            "there is no file `../out` here",
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_hand_changes_a_profile() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+
+    let by_mayor = realm
+        .tool(MAYOR, &in_turn("e1", edit(3, "notes.md"), None))
+        .await;
+
+    assert!(by_mayor.is_err(), "{by_mayor:?}");
+    assert!(waits(&realm).await.is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+async fn asked<T: ChiefRequest>(
+    realm: &Realm,
+    id: &RequestId,
+    act: T,
+) -> T::Answer {
+    realm
+        .ask(&Asked {
+            id: id.clone(),
+            act,
+        })
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_change_to_a_profile_is_answered_from_the_profile() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let id = RequestId::new();
+
+    let edited = asked(&realm, &id, edit(3, "notes.md")).await;
+    let tagged = asked(&realm, &RequestId::new(), tag("v2")).await;
+    let taken = asked(&realm, &RequestId::new(), tag("v1")).await;
+    let reverted = asked(&realm, &RequestId::new(), revert()).await;
+    let apart =
+        asked(&realm, &RequestId::new(), edit(2, "notes.md")).await;
+    let missing =
+        asked(&realm, &RequestId::new(), edit(9, "notes.md")).await;
+
+    assert_eq!(edited, Done::Done);
+    assert_eq!(
+        edits(&realm),
+        [(
+            ProfileId(3),
+            Edit {
+                id,
+                path: "notes.md".to_owned(),
+                text: "dig deep".to_owned(),
+                message: None,
+                by: By::Chief { chief: 1 },
+            }
+        )]
+    );
+    let TagAnswer::Tagged { version, .. } = tagged else {
+        panic!("tagged: {tagged:?}");
+    };
+    assert_eq!(version, VersionName("v2".to_owned()));
+    assert_eq!(
+        taken,
+        TagAnswer::Refused {
+            why: TagProfileRefusal::Tag(TagRefusal::Taken {
+                version: VersionName("v1".to_owned()),
+            }),
+        }
+    );
+    let RevertAnswer::Reverted { clashes, .. } = reverted else {
+        panic!("reverted: {reverted:?}");
+    };
+    assert_eq!(
+        clashes,
+        [Path {
+            path: "notes.md".to_owned(),
+        }]
+    );
+    assert_eq!(
+        apart,
+        Done::Refused {
+            why: EditProfileRefusal::Profile(ProfileRefusal::Apart {
+                label: "scholar#2 (Mayor)".to_owned(),
+            }),
+        }
+    );
+    assert_eq!(
+        missing,
+        Done::Refused {
+            why: EditProfileRefusal::Profile(
+                ProfileRefusal::NoSuchProfile {
+                    profile: ProfileId(9),
+                }
+            ),
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }

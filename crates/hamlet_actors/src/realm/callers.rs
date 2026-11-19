@@ -386,7 +386,7 @@ where
 
 impl<T> Handler<Tool<T>> for Realm
 where
-    T: ToolAct,
+    T: ToolAct<Agent>,
     <T::Answer as Refusable>::Why: From<Standing> + From<Gate>,
 {
     async fn handle(
@@ -403,7 +403,7 @@ where
 
 impl<T> Handler<ByHand<Tool<T>>> for Realm
 where
-    T: ToolCall + Act<Hand, Output = <T as ToolCall>::Answer>,
+    T: ToolAct<Hand>,
 {
     async fn handle(
         self: Arc<Self>,
@@ -412,11 +412,8 @@ where
     ) -> Result<<T as ToolCall>::Answer> {
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &hand)?;
-        let ByHand(tool) = hand;
-        let id = marker::Id::Call(tool.call.clone());
-        let key = marker::Key::of(&by, id, name, &tool)?;
-        act::run_keyed(&self, &ctx, by, Some(key), name, tool.act)
-            .await
+        let (key, _, act) = act::keyed(&by, name, hand.0)?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, act).await
     }
 }
 
@@ -460,17 +457,27 @@ where
         relays: Relays<M>,
     ) -> Result<<M as Action>::Output> {
         let by = sender(&ctx, &relays)?;
-        let asked = relays.0.ask(&by, &Rows::outside(&ctx)?).await?;
-        let (profile, call) = match asked {
+        relay(&self, &ctx, &by, &relays.0, When::BeforeAnswer).await
+    }
+}
+
+/// Answers `relayed`, asked by `by`, from the answer of the profile
+/// it names.
+pub(super) async fn relay<By, M: Relay<By>>(
+    realm: &Realm,
+    ctx: &Ctx<Realm>,
+    by: &By,
+    relayed: &M,
+    when: When,
+) -> Result<M::Output> {
+    let (profile, call) =
+        match relayed.ask(by, &Rows::outside(ctx)?).await? {
             Ok(asked) => asked,
             Err(answer) => return Ok(answer),
         };
-        let answered = self
-            .peers
-            .call(&Profile(profile), &call, When::BeforeAnswer)
-            .await?;
-        Ok(M::answer(answered))
-    }
+    let answered =
+        realm.peers.call(&Profile(profile), &call, when).await?;
+    Ok(M::answer(answered))
 }
 
 impl<M> Handler<Looks<M>> for Realm
