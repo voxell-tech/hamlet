@@ -65,7 +65,7 @@ use hamlet_messages::realm::oversight::{
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
     AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
-    TagProfile,
+    SubmitSkill, TagProfile,
 };
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
@@ -243,6 +243,7 @@ impl Actor for Realm {
         profiles::Purging,
         Asked<Dream>,
         Unreserved<Tool<AskLibrarian>>,
+        Unreserved<Tool<SubmitSkill>>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;

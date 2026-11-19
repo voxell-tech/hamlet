@@ -311,4 +311,8 @@ CREATE TABLE IF NOT EXISTS librarian (
 	errand INTEGER PRIMARY KEY,
 	asker INTEGER NOT NULL,
 	call TEXT NOT NULL,
-	conversation TEXT) STRICT;
+	conversation TEXT,
+	offer INTEGER,
+	skill TEXT,
+	accepted INTEGER,
+	words TEXT) STRICT;

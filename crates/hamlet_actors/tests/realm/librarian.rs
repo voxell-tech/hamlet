@@ -1,5 +1,6 @@
 use hamlet_messages::agent::{Input, InputId, Submit};
-use hamlet_messages::realm::profiles::AskLibrarian;
+use hamlet_messages::library::{OfferId, Verdict};
+use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{Done, Tool};
 use hamlet_messages::workspace::{
@@ -7,7 +8,8 @@ use hamlet_messages::workspace::{
 };
 
 use super::{
-    Realm, THREE, hamlet_with, made_until, seen_submits, standing,
+    Callee, Realm, THREE, hamlet_with, made_until, seen_submits,
+    standing, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -29,17 +31,15 @@ fn ask(question: &str) -> AskLibrarian {
     }
 }
 
-/// The librarian's instructions before a question, as today words
-/// them, with the stand-in library's one skill.
-const LOOKING: &str =
+/// The librarian's part and the stand-in library's shelves, as today
+/// words them, before what it is asked.
+const ROLE: &str =
     "You are the realm's librarian. You keep the library of skills \
      every agent shares: you know what is on its shelves, you take \
      a skill offered only when it is useful to others, distinct \
      from the shelves, clear enough to run and free of private \
      names, keys and paths, and you never invent a skill.\n\n# The \
-     shelves\n- dig: Digs a well.\n\nName the skills on the shelves \
-     that do what is asked, with their exact commands. If nothing \
-     fits, say so.";
+     shelves\n- dig: Digs a well.";
 
 async fn ended(realm: &Realm, n: u32, ended: Ended) {
     realm.tool(errand(n), &ErrandDone { ended }).await.unwrap();
@@ -74,7 +74,14 @@ async fn the_librarians_answer_reaches_the_asker_after_the_call() {
     let made = made_until(&realm, errand(0)).await;
     assert_eq!(made.task, task);
     let brief = made.brief.unwrap();
-    assert_eq!(brief.instructions.as_deref(), Some(LOOKING));
+    assert_eq!(
+        brief.instructions,
+        Some(format!(
+            "{ROLE}\n\nName the skills on the shelves that do what \
+             is asked, with their exact commands. If nothing fits, \
+             say so."
+        ))
+    );
     assert_eq!(brief.text, "hire#3 asks: Which skill digs?");
     ended(
         &realm,
@@ -118,6 +125,140 @@ async fn a_librarian_that_fails_is_told_to_the_asker() {
             "The librarian could not answer: the model is gone",
             &task
         )]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+fn submit(offer: u32, skill: &str) -> SubmitSkill {
+    SubmitSkill {
+        offer: OfferId(offer),
+        skill: skill.to_owned(),
+        reason: Some("for digging".to_owned()),
+    }
+}
+
+fn verdicts(realm: &Realm) -> Vec<Verdict> {
+    realm.seen.verdicts.lock().unwrap().clone()
+}
+
+const TOOK: &str = "The librarian took `well`: ACCEPT Clear and \
+                    useful. It goes on the shelves for every agent; \
+                    use the library's copy.";
+
+/// The library fails the first verdict as an actor not ready; the
+/// realm calls it again a second later.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_librarians_verdict_reaches_the_library_then_the_offerer()
+{
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    realm.seen.fail_once(Callee::Verdict, AgentNumber(7));
+
+    let answer = realm
+        .tool(THREE, &in_conversation("s1", submit(7, "well")))
+        .await
+        .unwrap();
+    let again = realm
+        .tool(THREE, &in_conversation("s2", submit(7, "well")))
+        .await
+        .unwrap();
+
+    assert_eq!((answer, again), (Done::Done, Done::Done));
+    let brief = made_until(&realm, errand(0)).await.brief.unwrap();
+    assert_eq!(
+        brief.instructions,
+        Some(format!(
+            "{ROLE}\n\nAnswer with ACCEPT or REFUSE as your first \
+             word, then say why in a sentence or two."
+        ))
+    );
+    assert_eq!(
+        brief.text,
+        "hire#3 offers the skill `well`: for digging"
+    );
+    ended(
+        &realm,
+        0,
+        Ended::Answered {
+            text: "ACCEPT Clear and useful.".to_owned(),
+        },
+    )
+    .await;
+    assert_eq!(
+        seen_submits(&realm, THREE, 1).await,
+        [notice(0, TOOK, &task)]
+    );
+    let called = verdicts(&realm);
+    let [failed, taken] = called.as_slice() else {
+        panic!("one verdict, called twice: {called:?}");
+    };
+    assert_eq!(failed, taken, "the call again is the same verdict");
+    assert_eq!(
+        (taken.offer, taken.accepted, taken.words.as_str()),
+        (OfferId(7), true, TOOK)
+    );
+    assert!(
+        super::made(&realm, errand(1)).is_none(),
+        "an offer is judged once"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_or_failed_judging_is_told_in_todays_words() {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    for (call, offer) in [("s1", 7), ("s2", 8)] {
+        realm
+            .tool(
+                THREE,
+                &in_conversation(call, submit(offer, "well")),
+            )
+            .await
+            .unwrap();
+    }
+    made_until(&realm, errand(1)).await;
+
+    ended(
+        &realm,
+        0,
+        Ended::Answered {
+            text: "Refuse: it names a private path.".to_owned(),
+        },
+    )
+    .await;
+    ended(
+        &realm,
+        1,
+        Ended::Failed {
+            why: "the model is gone".to_owned(),
+        },
+    )
+    .await;
+
+    let refused = "The librarian did not take `well`: Refuse: it \
+                   names a private path. It stays in your lodge.";
+    let failed =
+        "The librarian could not judge `well`: the model is gone";
+    let mut told = seen_submits(&realm, THREE, 2).await;
+    told.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+    assert_eq!(
+        told,
+        [notice(0, refused, &task), notice(1, failed, &task)]
+    );
+    until("both verdicts", || verdicts(&realm).len() == 2).await;
+    let mut called = verdicts(&realm);
+    called.sort_by_key(|verdict| verdict.offer.0);
+    assert_eq!(
+        called
+            .iter()
+            .map(|verdict| (verdict.accepted, verdict.words.as_str()))
+            .collect::<Vec<_>>(),
+        [(false, refused), (false, failed)]
+    );
+    assert_ne!(
+        called[0].id, called[1].id,
+        "each call has its own id"
     );
     realm.host.shutdown().await.unwrap();
 }

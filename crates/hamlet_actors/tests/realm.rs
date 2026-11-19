@@ -20,7 +20,9 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::library::{ReadShelves, ShelfList, Skill};
+use hamlet_messages::library::{
+    ReadShelves, ShelfList, Skill, Verdict, VerdictRefusal,
+};
 use hamlet_messages::profile::{
     BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
     Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
@@ -146,6 +148,8 @@ enum Callee {
     Purge,
     SetReach,
     Submit,
+    /// The library's verdict, by the offer's number.
+    Verdict,
 }
 
 #[derive(Default)]
@@ -168,6 +172,8 @@ struct Seen {
     /// when it came.
     prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
     dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    /// Each verdict the library was called with, failed calls too.
+    verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -636,18 +642,20 @@ impl Handler<EndDream> for ProfileStandIn {
     }
 }
 
-struct LibraryStandIn;
+struct LibraryStandIn {
+    seen: Arc<Seen>,
+}
 
 #[async_trait::async_trait]
 impl Actor for LibraryStandIn {
     type Input = ();
-    type Actions = (ReadShelves,);
+    type Actions = (ReadShelves, Verdict);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
 
-    async fn create(_: &Ctx<Self>) -> anyhow::Result<Self> {
-        Ok(Self)
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self { seen: seen(ctx)? })
     }
 }
 
@@ -670,6 +678,21 @@ impl Handler<ReadShelves> for LibraryStandIn {
             version: 1,
             skills: vec![shelved()],
         })
+    }
+}
+
+impl Handler<Verdict> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        verdict: Verdict,
+    ) -> anyhow::Result<Done<VerdictRefusal>> {
+        let offer = verdict.offer;
+        self.seen.verdicts.lock().unwrap().push(verdict);
+        self.seen
+            .called(Callee::Verdict, AgentNumber(offer.0))
+            .await?;
+        Ok(Done::Done)
     }
 }
 

@@ -371,7 +371,7 @@ async fn asked<T: ProfileChange>(
 
 /// The id `agent`'s call `call` is asked under: the same for each
 /// repeat of the call.
-fn request_id(
+pub(super) fn request_id(
     agent: AgentNumber,
     call: &CallId,
 ) -> Result<RequestId> {

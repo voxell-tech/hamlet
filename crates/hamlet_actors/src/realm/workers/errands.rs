@@ -193,17 +193,16 @@ pub(in crate::realm) async fn next(
         .context("every errand number is taken")
 }
 
-/// The changes that end errand `n`, paid by `task`, as `ended`, with
-/// what its end makes by its purpose.
+/// The changes that end errand `n` as `ended`, with what its end
+/// makes by its purpose.
 fn ending(
     n: ErrandNumber,
     purpose: Purpose,
-    task: TaskId,
     ended: Ended,
 ) -> Vec<change::Change> {
     let made = match purpose {
         Purpose::Review { task } => reviews::ended(task, &ended),
-        Purpose::Librarian => librarian::ended(n, task, &ended),
+        Purpose::Librarian => librarian::ended(n, &ended),
     };
     [
         Change::End { n, ended }.into(),
@@ -228,7 +227,7 @@ pub(in crate::realm) async fn failed(
     let ended = Ended::Failed {
         why: NO_ANSWER.to_owned(),
     };
-    Ok(ending(n, errand.purpose, errand.task, ended))
+    Ok(ending(n, errand.purpose, ended))
 }
 
 fn number_of(n: u64) -> Result<ErrandNumber> {
@@ -414,8 +413,8 @@ fn outside() -> Place {
 
 impl Act<Agent> for ErrandDone {
     type Output = ();
-    /// The errand, its purpose and its task, while it has not ended.
-    type Loaded = Option<(ErrandNumber, Purpose, TaskId)>;
+    /// The errand and its purpose, while it has not ended.
+    type Loaded = Option<(ErrandNumber, Purpose)>;
     type Done = ();
 
     async fn load(
@@ -427,11 +426,7 @@ impl Act<Agent> for ErrandDone {
             return callers::refuse(ErrandDone::NAME, *by);
         };
         let errand = errand_of(rows, n).await?;
-        Ok(errand.ended.is_none().then_some((
-            n,
-            errand.purpose,
-            errand.task,
-        )))
+        Ok(errand.ended.is_none().then_some((n, errand.purpose)))
     }
 
     fn decide(
@@ -439,12 +434,11 @@ impl Act<Agent> for ErrandDone {
         _by: &Agent,
         loaded: Self::Loaded,
     ) -> Decision<(), ()> {
-        let Some((n, purpose, task)) = loaded else {
+        let Some((n, purpose)) = loaded else {
             return Decision::Again(());
         };
         let mut decided = Decided::new(());
-        decided.changes =
-            ending(n, purpose, task, self.ended.clone());
+        decided.changes = ending(n, purpose, self.ended.clone());
         Decision::Change(decided)
     }
 
