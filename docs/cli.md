@@ -79,10 +79,12 @@ runs in then ends pi and every command with it.
 ## Typed commands
 
 The server advertises its supported actions in the state it sends, and
-`clients/commands.rs` carries them out: hamlets and agents, the tree and its channels,
-versions of a profile, the library, the record, the budget and what waits.
-The server parses commands; the terminal handles only `/hand`, `/hamlet` and
-`/agent` as address changes, and `/attach`. `/hand` talks to the Hand,
+`crates/hamlet_server/src/clients/commands.rs` carries them out: hamlets
+and agents, the tree and its channels, versions of a profile, the
+library, the record, the budget and what waits. The server parses
+commands; the terminal handles only `/hand`, `/hamlet` and `/agent` as
+address changes, `/attach`, and `/unsend`, which takes back the last
+line that waits its turn. `/hand` talks to the Hand,
 `/hamlet <hamlet>` to that hamlet's lead, and `/agent` finds an agent
 anywhere in the realm by its address (`hand`, `agent#<id>`, `lead@<hamlet>`,
 `worker#<id>`). The CLI replaces its realm view on whole states as well as

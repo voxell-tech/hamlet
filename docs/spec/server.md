@@ -180,12 +180,13 @@ server, and opens a window. Closing the window or terminal stops no agent.
 
 | Command | Does |
 |---|---|
-| `hamlet` | Serves the realm in the background or reuses its server, and opens a window |
+| `hamlet [--insecure]` | Serves the realm in the background or reuses its server, and opens a window |
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
-| `server [--port <n>] [--faux <script.json>]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
-| `chat [--to <hand\|agent#id\|lead@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
-| `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
+| `server [--port <n>] [--faux <script.json>] [--insecure]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
+| `chat [--to <hand\|agent#id\|lead@hamlet>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
+| `import [--file <export>] [--all] [--sessions \| --suggested \| <project or conversation id>...]` | Lists the projects other programs worked on, or brings the suggested or named ones in as hamlets, each with an agent for each conversation (C35) |
+| `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
 | `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <profile#id>`, `edit memory <profile#id\|agent#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |

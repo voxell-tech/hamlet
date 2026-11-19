@@ -15,7 +15,7 @@ sections; the pi harness asks for them before each request.
 | The memory | The files at the root of the worktree's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
 | The skills | The worktree's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
 | The place | Who the agent is, whom it answers to, the agents under it, the channels it can send messages along, the tools its parent turned off, and how its hamlet was run lately; that this is its one conversation, that a message from an agent opens with a heading in brackets naming it, as `[A notification from agent#3 (Mira)]`, and that only a chief's own lines carry a chief's instructions | The record |
-| The realm | For the Hand and leads, the other hamlets, their leads and agents; a realm with none says so and that a chief or the Hand can found one | The realm's record |
+| The realm | For the Hand and leads, the other hamlets, their leads and agents; for the Hand, a realm with none says so and that it can found one | The realm's record |
 | The profiles | For the Hand and a parent, the living profiles it may add agents of, each as `profile#<id> (<name>)`, since no name finds one | The city |
 
 `crates/hamlet_server/src/conversations/prompt.rs` composes the sections;

@@ -6,7 +6,7 @@ Hamlet's server. There is no HTTP API. The wire carries JSON messages.
 The contract is the Rust types in
 [`hamlet_protocol::client`](../crates/hamlet_protocol/src/client.rs), one
 module per area: `state`, `chat`, `waits`, `images`, `files`, `documents`,
-`limits` and `settings`.
+`imports`, `limits`, `settings`, `terminals` and `transcript`.
 The names below, such as `Hello` and `ClientMessage`, are their type names.
 The handshake's `v` is the protocol's version, `VERSION`, in semver. A
 server takes a client whose version is compatible with its own by
@@ -67,7 +67,6 @@ are in
 | `FileId` | The SHA-256 of a file's bytes as 64 lowercase hexadecimal digits. |
 | `AttachedImage` | `{id: ImageId, at?: integer}`: an image a line carries and where it sits in the line's text. |
 | `AttachedFile` | `{id: FileId, name: string, size: integer, at?: integer}`: a file a line carries and the name the agent finds it under, its path in an attached folder with `/` between the parts (no empty part, no `.` or `..`), at most 1024 characters, and where it sits in the line's text. |
-
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
@@ -136,7 +135,6 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
 | `move-worktrees` (`MoveWorktrees`) | none | Copy every agent's worktree from the workspace the server works in to the one chosen in Settings, replacing the worktrees there; `reply` once done. Progress also changes through `change`. |
-
 | `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch, rename or close a terminal. |
 
 `Terminal` is discriminated by `op`:

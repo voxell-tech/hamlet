@@ -37,7 +37,7 @@ trusting memory: the engine moves every release.
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |
 | Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `ChiefMessage`, `Carried`, `Reconnected` |
-| Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `SessionOutput`, `TagAnswered`, `JobFinished` |
+| Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `ChatOutput`, `TagAnswered`, `JobFinished` |
 | Something happened, and a system reads it in its turn | A message (`MessageWriter`, `MessageReader`) | `Played`, `Cue`, `SetDown` |
 | A component came or went | `On<Add, T>`, `On<Insert, T>`, `On<Discard, T>` | A chat is opened when its `Chat` is inserted and closed when it is discarded |
 | A map that must follow a component | `on_insert` and `on_discard` hooks on an `immutable` component | `hamlet_client`'s `Index` |
@@ -140,7 +140,7 @@ Three orders are easy to get wrong:
   either side. The steps are chained before `WorldSystems` in `Update`:
   `Steer` (the camera moved by hand, and the stage the chief sets),
   `Aim` (the pointer's place over the world), `Act` (the hand, the
-  things carried, the clockworks, the chief and the library) and
+  things carried, the clockworks, the mascot and the library) and
   `Bridge` (the client's hamlets, agents and channels drawn, then the view
   framed on them).
 - A field's text reaches its handler only when the field loses focus:
@@ -174,9 +174,10 @@ its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from
 `rolled`, `moved::<R>()` or `either(..)` in `roll.rs`.
 
-A command about an agent or a hamlet goes through `chat::decree`, which
-gives it to that hamlet whoever the chat is with. `chat::send` is for what
-the chief typed and for what is about the open chat or the whole realm.
+A command about a hamlet goes through `chat::decree`, which gives it to
+that hamlet's lead whichever chat a Hub shows, and one about the realm
+through `chat::command`, to the Hand. `chat::send` is for what the chief
+typed in a Hub's field, to that Hub's chat.
 
 ## The server
 

@@ -44,8 +44,8 @@ harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.
 
 `/make-profile <address> [name]`, Make Profile in an agent's menu, or
 `make_profile` makes a profile of the city of what an agent has learned
-(`commands/promotion.rs`, `city::make_of_agent`). A blank agent's own
-profile joins the city with the agent's branch merged into its `main`. An
+(`clients/commands/promotion.rs`, `city::make_of_agent`). A blank agent's
+own profile joins the city with the agent's branch merged into its `main`. An
 agent of a city profile starts a new profile forked from its branch,
 keeping its old profile. Either arrives as a new profile does: housed when
 a chief or the Hand makes it, a newcomer when a parent does.

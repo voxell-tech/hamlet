@@ -102,8 +102,8 @@ commands.entity(robot).insert(Trip::new(road_points, clock.t, &motion));
 
 - A `Trip` moves the robot along a line of points, with steps timed to the
   ground covered so the feet do not slide. Play `Walk` or `Carry` with it.
-- A letter: both robots face each other `TALK_GAP` apart, then `HandOver`
-  on one and `Receive` on the other at the same clock time.
+- A message passed: both robots face each other `TALK_GAP` apart, then
+  `HandOver` on one and `Receive` on the other at the same clock time.
 - A merge: `MERGE_GAP` apart, `MergeInto` and `MergeHost` together.
 
 ## Houses coming in and going out

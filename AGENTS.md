@@ -72,7 +72,9 @@ release or another site.
 ## Running safely
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
-`crates/hamlet_server`, and the window `hamlet_app` in `crates/hamlet_app`.
+`crates/hamlet_server`, and the window `hamlet_app` in `crates/hamlet_app`;
+`hamlet_cli` also has `hamlet_launch`, which an installed app opens, and
+`hamlet` is its default binary.
 Use the Node version in `harnesses/pi/.nvmrc` and install the harness with
 `npm ci --prefix harnesses/pi`. No global npm command is needed.
 For local work:
@@ -116,9 +118,10 @@ fetches it itself. Nothing inside it changes. `cargo xtask check` runs
 every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` for
-`x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
-no C compiler), `deny` (`cargo deny check`), `test`
+`-D warnings` on both), `cross` (clippy on `hamlet_os` and its test
+helpers in `hamlet_testing` for `x86_64-pc-windows-gnu`, the target
+`rust-toolchain.toml` installs, with no C compiler), `deny`
+(`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
 with `-D warnings`) and `node` (pi's checks). `deny` needs cargo-deny:

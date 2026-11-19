@@ -14,7 +14,7 @@ too (`library.git`), and the Hand has a profile of its own.
 
 An agent of a hamlet is a profile working in it, and it gets a branch of its
 profile's repository, `agents/<agent id>`, starting at `main` or at its pin.
-Its worktree, `hamlets/<hamlet>/<number>/` (the Hand's is `hand/`), is a
+Its worktree, `hamlets/<hamlet id>/<agent id>/` (the Hand's is `hand/`), is a
 checkout of that branch, without `CHARACTER.md`, plus an `inbox/` that is
 never committed. Its tools write there. After a turn that changed the
 worktree the server commits it to the branch. What an agent learns stays on its branch

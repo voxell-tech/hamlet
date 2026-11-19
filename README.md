@@ -169,9 +169,9 @@ HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
 
 ### Models and credentials
 
-Use an API key, a local model endpoint, or sign in with ChatGPT or
-OpenRouter. Credentials stay on the server, and subscription refreshes are
-saved there before the harness continues.
+Use an API key, a local model endpoint, or sign in with ChatGPT, Claude
+or OpenRouter. Credentials stay on the server, and subscription refreshes
+are saved there before the harness continues.
 
 ### Tools and platforms
 
@@ -190,10 +190,11 @@ saved there before the harness continues.
 | Variable | Meaning |
 | --- | --- |
 | `HAMLET_HOME` | The folder the server keeps its realm in. Defaults to `~/.hamlet`. Use a scratch folder when trying things out. |
-| `HAMLET_VIEW` | Where the window keeps its size, layout and look. Defaults to the OS's config folder for Hamlet. Set it to a scratch folder when running the window outside `hamlet dev`. |
+| `HAMLET_VIEW` | Where the window keeps its size, layout and theme. Defaults to the OS's config folder for Hamlet. Set it to a scratch folder when running the window outside `hamlet dev`. |
 | `HAMLET_SERVER_BIN` | An existing server binary. Skips the server build in `dev`. |
 | `HAMLET_APP` | An existing window binary. Skips the window build in `dev`. |
 | `HAMLET_SERVER` | A remote WebSocket URL, never an executable. |
+| `HAMLET_TOKEN` | The token of that remote server's realm, which `HAMLET_SERVER` needs. |
 | `HAMLET_PI_HARNESS` | Pi's `src/main.ts`. |
 | `HAMLET_NODE` | A Node executable. |
 | `HAMLET_NO_UPDATE` | Set to anything, an installed release stops looking for updates. |

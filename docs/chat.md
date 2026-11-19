@@ -12,7 +12,9 @@ wire messages, watch rules and page boundaries; this page covers the window.
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 `TalksTo(agent)` relationship. Its reference names the agent by its id
 (the Hand, an agent of a hamlet or a worker). Adding the chat sends `open`; removing it
-sends `close`. Reconnecting opens every watched chat again.
+sends `close`. Reconnecting opens every watched chat again. A Hub shows
+one chat, and a desk can hold several Hubs, each with a chat and a field
+of its own.
 
 The server answers with a `transcript` page. Live `turn` operations add or
 replace an item, append text, close a tool, remove an item, change status
@@ -116,8 +118,9 @@ item's ID. Only one page request is outstanding, and the returned items go
 above the rows already there, which stay where they are on screen.
 
 Sending a line triggers `ChiefMessage`, which the client sends as `say` to
-the selected address. Typed slash lines are refused locally with directions
-to use the window's controls; those controls send commands to the server.
+the address of the Hub's chat. Typed slash lines run only as the commands the
+field lists; any other is refused locally with directions to use the
+window's controls, which send commands to the server.
 
 **What the field lists.** While the word at the caret starts with a sign of
 `hamlet_protocol::signs`, a list over the field offers what it may name:
@@ -135,7 +138,8 @@ those keys to the list only while it is open. Each kind is a `Source` in
 `crates/hamlet_app/src/screens/chat/suggestions/`, added with `add_source`.
 
 Unaddressed server faults and error replies to the chat's own requests show
-under the field and play the Error sound. Fault waits stay on the realm's page
+under the field, of the Hub the chief works in or the one that made the
+request, and play the Error sound. Fault waits stay on the realm's page
 in the Hub. Faults with a `setup` cause, no model or refused credentials,
 share one toast per cause and model, as "5 leads can't use Claude Sonnet
 5.5" (`toasts.rs`); a fault's words come from `conversations/failures.rs`.
@@ -151,10 +155,10 @@ A web address, a file or an agent named in the chat can be clicked.
 - Nothing in a fenced code block is a link.
 
 **Which files.** Files resolve only on the window's machine. An absolute
-path must exist there. A relative path is looked for under the selected
-hamlet's received work folder, and becomes a link only if its canonical
-path stays under that folder. `..` and symlinks are followed before that
-check. The received realm folder is excluded after resolving links, for
+path must exist there. A relative path is looked for under the received
+work folder of the hamlet of the agent the Hub's chat is with, and
+becomes a link only if its canonical path stays under that folder. `..`
+and symlinks are followed before that check. The received realm folder is excluded after resolving links, for
 absolute and relative paths alike. No file under an agent's worktree becomes a
 link or a local picture. The work folder is a path on the server's machine;
 with `hamlet dev` it is local too. Nothing downloads a server file.
@@ -163,7 +167,7 @@ text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
 is built, never while reading. The answer is kept until a turn ends or the
-selected chat, work folder or received realm folder changes.
+work folders of the Hubs' chats or the received realm folder change.
 
 **A click.** A web address goes to the system's browser. A file is checked
 once more and then shown by the system's own program, given the path as
@@ -224,8 +228,8 @@ A message can answer another, to say which one it is about.
 **In the window.** Every message that has words carries a small mark,
 shown while the pointer is on its row. A click puts "Replying to" and
 the start of the message over the field, with a cross to drop it. The
-next message sent is the reply. A reply begun in one chat is dropped
-when another chat is opened.
+next message sent is the reply. A reply stays with the chat it was begun
+in, and is shown again when the Hub returns to that chat.
 
 **What is sent.** The reply is part of the message's own words: a first
 line that names the message it answers, its words as a JSON string, and

@@ -87,6 +87,7 @@ endpoint, which bills a fixed price per answer.
 | `library` | `submit_skill` judged by the librarian, `request_librarian` and `/unshelve`. |
 | `review` | A parent's review of a chief's line to an agent, and a chief's `/worker`. |
 | `dreams` | `/dream` of an agent and of a profile. |
+| `terminals` | The chief's own terminals, the read-only commands of an agent's shell tool, and what a restart keeps of them. |
 | `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
 
 ## Recording protocol frames

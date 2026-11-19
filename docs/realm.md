@@ -98,8 +98,10 @@ snapshots or final answers; tool output and client messages are scrubbed too.
 `HAMLET_API_KEY` is an in-memory override for the settings' model's
 endpoint, not a file update.
 
-ChatGPT and OpenRouter support subscription sign-in. ChatGPT credentials
-are separate from OpenAI API keys. The server serializes credential
+ChatGPT, Claude and OpenRouter support subscription sign-in. ChatGPT
+credentials are separate from OpenAI API keys. Claude's login stays with
+Claude's own program, which pi runs; the server keeps only a mark of the
+sign-in. The server serializes credential
 refreshes per provider and saves a rotation before acknowledging it.
 An already-started refresh can finish after its client disconnects;
 logout or a newer sign-in invalidates its result. Retired credentials and

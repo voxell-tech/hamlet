@@ -129,7 +129,7 @@ before they are packed, and the installer after.
 
 An installed release looks for a newer one while its window is open:
 15 seconds after the window opens, then every hour, and at once when
-the chief picks **Check for updates** in the Hamlet menu, which then
+the chief picks **Check for Updates** in the Hamlet menu, which then
 says whether Hamlet is up to date or why it could not look. `hamlet_update`
 holds the looking, the download and the putting in place; the window
 and `hamlet_launch` use it.

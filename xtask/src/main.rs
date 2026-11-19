@@ -25,8 +25,8 @@ Usage: cargo xtask <task> [args]
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
                      and on xtask
-  cross            clippy with warnings as errors on hamlet_os for \
-                     Windows, which needs no C compiler
+  cross            clippy with warnings as errors on hamlet_os and \
+                     hamlet_testing for Windows, with no C compiler
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
