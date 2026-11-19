@@ -537,7 +537,16 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const builtIns: BuiltIns | undefined =
         offer === undefined
             ? undefined
-            : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
+            : {
+                  listed: [
+                      workspaceTools(peers),
+                      ownFiles(
+                          peers,
+                          async () => (await prompt.where()).place.folder,
+                      ),
+                  ],
+                  offer,
+              };
     for (const part of parts(
         builtIns,
         turnEnded,

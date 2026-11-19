@@ -25,7 +25,6 @@ import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,
-    type Execute,
     editsOf,
     type FileTool,
     type FileToolArgs,
@@ -34,18 +33,15 @@ import {
     wrote,
 } from "./workspace-tools.ts";
 
-function start(files: AgentFilesystem): string {
-    // No message tells the agent its project folder, so paths start from
-    // its own filesystem.
-    return files.root;
-}
-
-/** A path is own when it normalises, as today's `footing` does, into the root. */
+/**
+ * A path is own when it normalises, as today's `footing` does, into the root.
+ * A relative path and a left-out one start from `from`.
+ */
 function reached(
     files: AgentFilesystem,
+    from: string,
     path: string | undefined,
 ): { readonly own: boolean; readonly path: string } {
-    const from = start(files);
     const normal = posix.normalize(
         path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`,
     );
@@ -55,8 +51,16 @@ function reached(
     };
 }
 
+/** An own tool, given also the folder a relative path started from. */
+type Route<Args> = (
+    args: Args,
+    api: ToolExecutionApi,
+    context: Context,
+    from: string,
+) => Promise<ToolExecutionResult>;
+
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Execute<AbsoluteFileCall<N>>;
+    readonly [N in FileTool]: Route<AbsoluteFileCall<N>>;
 } {
     const { files } = peers;
     return {
@@ -96,30 +100,36 @@ function routes(peers: Peers): {
             });
         },
         write: (args, _api, context) => written(files, args, context),
-        search: (args, _api, context) => searched(files, args, context),
-        find: (args, _api, context) => found(files, args, context),
+        search: (args, _api, context, from) =>
+            searched(files, from, args, context),
+        find: (args, _api, context, from) => found(files, from, args, context),
     };
 }
 
 /**
- * pi-durable applies every wrap after it has gathered every tool, so the
- * order of the two extensions does not matter.
+ * A path starts from the project `folder` reads, else from the agent's own
+ * filesystem. pi-durable applies every wrap after it has gathered every
+ * tool, so the order of the two extensions does not matter.
  */
-export function ownFiles(peers: Peers): Extension {
+export function ownFiles(
+    peers: Peers,
+    folder: () => Promise<string | undefined>,
+): Extension {
     const own = routes(peers);
     const wrapOf = <N extends FileTool>(name: N): Wrap => ({
         tool: name,
         wrap: (tool: ToolRegistration): ToolRegistration => ({
             ...tool,
-            execute: (
+            execute: async (
                 args: FileToolArgs[N],
                 api: ToolExecutionApi,
                 context: Context,
             ) => {
-                const at = reached(peers.files, args.path);
+                const from = (await folder()) ?? peers.files.root;
+                const at = reached(peers.files, from, args.path);
                 const resolved = { ...args, path: at.path };
                 return at.own
-                    ? own[name](resolved, api, context).then(scrub)
+                    ? own[name](resolved, api, context, from).then(scrub)
                     : tool.execute(resolved, api, context);
             },
         }),
@@ -282,6 +292,7 @@ async function written(
 
 async function searched(
     files: AgentFilesystem,
+    from: string,
     args: AbsoluteFileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
@@ -304,22 +315,24 @@ async function searched(
             ...found.value,
             found: found.value.found.map(
                 (match) =>
-                    `${shown(files, match.path)}:${match.line}: ${match.text}`,
+                    `${shown(from, match.path)}:${match.line}: ${match.text}`,
             ),
         },
         "no match",
     );
 }
 
-function shown(files: AgentFilesystem, path: string): string {
-    const from = `${start(files)}/`;
-    const under = path.startsWith(from) ? path.slice(from.length) : "";
+function shown(from: string, path: string): string {
+    const under = path.startsWith(`${from}/`)
+        ? path.slice(from.length + 1)
+        : "";
     // Today's `shown` (`walk.rs`) gives whole a name that begins with `..`.
     return under === "" || under.startsWith("..") ? path : under;
 }
 
 async function found(
     files: AgentFilesystem,
+    from: string,
     args: AbsoluteFileCall<"find">,
     context: Context,
 ): Promise<ToolExecutionResult> {
@@ -338,7 +351,7 @@ async function found(
     return reported(
         {
             ...matched.value,
-            found: matched.value.found.map((path) => shown(files, path)),
+            found: matched.value.found.map((path) => shown(from, path)),
         },
         "no file by that name",
     );
