@@ -144,6 +144,11 @@ impl Held {
         self.held().stored.version
     }
 
+    /// `text` with every secret the realm holds removed.
+    pub fn scrub(&self, text: &str) -> String {
+        hamlet_sandbox::scrub::scrub_text(&self.list().values, text)
+    }
+
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may
     /// only replace its provider's OAuth login with another, and is
     /// refused as a wrong caller otherwise.

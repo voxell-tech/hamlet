@@ -417,6 +417,34 @@ fn done(kind: &str) -> &'static str {
     }
 }
 
+/// The decisions of `hamlet` made at or after `since`, in ms since
+/// the Unix epoch, oldest first, in words: its latest decisions, as
+/// many as were made since.
+pub(super) async fn since(
+    rows: &Rows<'_>,
+    hamlet: &HamletId,
+    since: i64,
+) -> Result<Vec<String>> {
+    let made = rows
+        .value::<u64>(
+            "SELECT COUNT(*) FROM decision WHERE hamlet = ?1 AND at \
+             >= ?2",
+            vec![
+                BindParam::Text(hamlet.0.clone()),
+                BindParam::Integer(since),
+            ],
+        )
+        .await?
+        .unwrap_or(0);
+    let mut lines = lines(rows, Some(hamlet)).await?;
+    let made = usize::try_from(made)?.min(lines.len());
+    Ok(lines
+        .split_off(lines.len() - made)
+        .into_iter()
+        .map(|line| line.text)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::change::{Transaction, Write};

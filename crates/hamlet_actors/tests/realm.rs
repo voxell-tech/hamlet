@@ -98,6 +98,8 @@ mod parcels;
 mod places;
 #[path = "realm/profiles.rs"]
 mod profiles;
+#[path = "realm/prompt.rs"]
+mod prompt;
 #[path = "realm/record.rs"]
 mod record;
 #[path = "realm/repeats.rs"]

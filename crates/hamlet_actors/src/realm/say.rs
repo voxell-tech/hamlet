@@ -92,11 +92,11 @@ impl Act<Client> for Say {
                     None => Said::Line(target.task),
                 };
                 let mut decided =
-                    Decided::new(said).change(tasks::Change::Open {
+                    Decided::new(said).change(tasks::Change::Line {
                         task: target.task,
-                        origin: tasks::Origin::Chief,
                         agent: agent.agent,
                         payer: chiefs::payer_of(&lineage),
+                        text: self.0.text.clone(),
                     });
                 if agent.can_take_purpose()
                     && let Some(purpose) =
@@ -243,12 +243,16 @@ mod tests {
         say(&RequestId::new(), to, text).decide(&Client, target)
     }
 
-    fn opened(agent: AgentNumber, payer: Payer) -> tasks::Change {
-        tasks::Change::Open {
+    fn opened(
+        agent: AgentNumber,
+        payer: Payer,
+        text: &str,
+    ) -> tasks::Change {
+        tasks::Change::Line {
             task: task_7(),
-            origin: tasks::Origin::Chief,
             agent,
             payer,
+            text: text.to_owned(),
         }
     }
 
@@ -261,30 +265,35 @@ mod tests {
             decide(Some(mayor(Status::Live, false)), text),
             Decision::Change(
                 Decided::new(Said::Line(task_7()))
-                    .change(opened(AgentNumber(2), by_hamlet.clone()))
+                    .change(opened(
+                        AgentNumber(2),
+                        by_hamlet.clone(),
+                        text,
+                    ))
                     .change(tree::Change::Purpose {
                         hire: AgentNumber(2),
                         text: "build the mill".to_owned(),
                     })
             )
         );
-        let only_the_task = |agent, payer| {
+        let only_the_task = |agent, payer, text| {
             Decision::Change(
                 Decided::new(Said::Line(task_7()))
-                    .change(opened(agent, payer)),
+                    .change(opened(agent, payer, text)),
             )
         };
+        let blank = " \n\t\n";
         assert_eq!(
             decide(Some(mayor(Status::Live, true)), text),
-            only_the_task(AgentNumber(2), by_hamlet.clone())
+            only_the_task(AgentNumber(2), by_hamlet.clone(), text)
         );
         assert_eq!(
-            decide(Some(mayor(Status::Live, false)), " \n\t\n"),
-            only_the_task(AgentNumber(2), by_hamlet)
+            decide(Some(mayor(Status::Live, false)), blank),
+            only_the_task(AgentNumber(2), by_hamlet, blank)
         );
         assert_eq!(
             decide(Some(hand()), text),
-            only_the_task(Hand::NUMBER, Payer::Realm)
+            only_the_task(Hand::NUMBER, Payer::Realm, text)
         );
     }
 

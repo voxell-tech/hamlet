@@ -3,6 +3,7 @@ mod push;
 use anyhow::Result;
 use hamlet_messages::agent::{Place, PlaceVersion};
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::reach::Mode;
 pub(super) use push::send;
 
 use super::change::Rows;
@@ -16,12 +17,13 @@ pub(super) async fn of(
     let version = PlaceVersion(versions::place(rows, agent).await?);
     let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
-    let folder = match chiefs::hamlet::of_agent(rows, agent).await? {
-        Some(hamlet) => chiefs::hamlet(rows, &hamlet)
-            .await?
-            .and_then(|hamlet| hamlet.folder),
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => chiefs::hamlet(rows, &hamlet).await?,
         None => None,
     };
+    let (folder, mode) =
+        hamlet.map(|hamlet| (hamlet.folder, hamlet.mode)).unzip();
+    let folder = folder.flatten();
     let (hires, roads) = roads::of(rows, agent)
         .await?
         .into_iter()
@@ -36,8 +38,8 @@ pub(super) async fn of(
         hires,
         roads,
         tools_off: tree::tools::off_for(rows, agent).await?,
+        manual: folder.is_some() && mode == Some(Mode::Manual),
         folder,
-        manual: false,
     })
 }
 
