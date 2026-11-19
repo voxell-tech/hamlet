@@ -88,9 +88,8 @@ fn oldest(realm: &State) -> Option<String> {
         .map(|wait| wait.id.clone())
 }
 
-/// A hamlet's mayor is still being hired here, so it holds no wait:
-/// a command said to it answers the oldest of all, and one said to
-/// the Hand the oldest of the Hand's.
+/// A hamlet's mayor holds no wait: a command said to it answers the
+/// oldest of all, and one said to the Hand the oldest of the Hand's.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_oldest_wait_is_answered_when_none_is_named() {
     let (mut server, _home, _side) = serve(json!([

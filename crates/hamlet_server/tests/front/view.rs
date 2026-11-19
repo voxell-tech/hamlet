@@ -12,7 +12,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::Scratch;
 use serde_json::json;
 
-use super::{look, serve, serve_with, until};
+use super::{answered, look, serve, serve_with, until};
 
 /// What the faux Hand says once it founded the hamlet.
 const FOUNDED: &str = "Docs is founded.";
@@ -69,22 +69,23 @@ async fn hello_shows_the_hand_and_its_hamlet() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// Two chiefs rename one hamlet over and over at once: each is shown
-/// the realm only ever moving forward, and last as it is.
+/// Two chiefs rename one hamlet over and over at once, its mayor
+/// hired: each is shown the realm only ever moving forward, and last
+/// as it is.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_client_is_shown_the_realm_moving_forward() {
-    let (mut server, _home, _side) = serve(json!([])).await;
+    let (mut server, _home, _side) = serve(json!(["Here."])).await;
     let mut one = Client::join(&server).await;
     let mut two = Client::join(&server).await;
     let hand = one.hand();
     one.command(hand, "/create-hamlet Docs").await;
-    let hamlet = until(&server, "the hamlet", |realm| {
+    let founded = until(&server, "the hamlet", |realm| {
         !realm.hamlets.is_empty()
     })
-    .await
-    .hamlets[0]
-        .id
-        .clone();
+    .await;
+    let (hamlet, mayor) =
+        (founded.hamlets[0].id.clone(), founded.hamlets[0].mayor);
+    answered(&mut one, mayor, "Are you hired?").await;
     let mut sent = (Vec::new(), Vec::new());
     for n in 0..20 {
         for (chief, ids, tag) in [
