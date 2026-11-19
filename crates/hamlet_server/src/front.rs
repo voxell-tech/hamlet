@@ -83,7 +83,9 @@ impl Keys {
 
 /// Serves the realm at `options.home` from the actors until SIGTERM
 /// or Ctrl-C, then closes the clients, the Node host and the host,
-/// in that order.
+/// in that order. It publishes its address once the realm answers;
+/// a request that needs an agent before the Node host is up waits
+/// for it.
 pub(crate) async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
@@ -107,7 +109,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
     let mut published = None;
     let served = async {
         let started = tokio::select! {
-            started = host::start(&host, &supervisor) => started,
+            started = host::start_realm(&host) => started,
             () = signals.next() => return Ok(()),
         };
         started?;
@@ -133,6 +135,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
             own,
             listener,
             &mut signals,
+            host::start_agents(&host, &supervisor),
         )
         .await
     }
@@ -177,14 +180,16 @@ struct Door {
 }
 
 impl Door {
-    /// Serves the connections `listener` accepts until a signal
-    /// comes, then closes them.
+    /// Serves the connections `listener` accepts while `agents`
+    /// starts the agents, until a signal comes or that start fails,
+    /// then closes them.
     async fn serve(
         host: Host,
         credentials: Keys,
         own: view::Own,
         listener: TcpListener,
         signals: &mut Signals,
+        agents: impl Future<Output = Result<()>>,
     ) -> Result<()> {
         let (events, mut event) = mpsc::channel(1024);
         let (frames, mut frame) = mpsc::unbounded_channel();
@@ -211,9 +216,15 @@ impl Door {
             connections: JoinSet::new(),
             work: JoinSet::new(),
         };
+        let mut agents = std::pin::pin!(agents);
+        let mut starting = true;
         let result = loop {
             let step = tokio::select! {
                 () = signals.next() => break Ok(()),
+                started = &mut agents, if starting => {
+                    starting = false;
+                    started.map(|()| door.started())
+                }
                 accepted = listener.accept() => {
                     if let Ok((stream, _)) = accepted {
                         door.accept(stream);
@@ -240,6 +251,16 @@ impl Door {
         let _ = tokio::time::timeout(GRACE, drained).await;
         door.connections.abort_all();
         result
+    }
+
+    /// Shows every client the realm once its agents started, since
+    /// the Hand going live changed it.
+    fn started(&mut self) {
+        let (calls, own) = (self.calls.clone(), self.own.clone());
+        let frames = self.frames.clone();
+        self.work.spawn(async move {
+            show(&calls, &own, &frames, To::Welcomed).await;
+        });
     }
 
     fn accept(&mut self, stream: TcpStream) {

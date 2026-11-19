@@ -37,7 +37,8 @@ const SIGN_IN: &str = "HAMLET_DEMO_SIGN_IN";
 /// The longest the Node host may take to be ready.
 const READY_WITHIN: Duration = Duration::from_secs(20);
 
-/// The longest the Hand may take to be live once the realm runs.
+/// The longest the Hand may take to be live once the Node host is
+/// ready.
 const LIVE_WITHIN: Duration = Duration::from_secs(20);
 
 /// The longest a read of the world may take.
@@ -98,11 +99,20 @@ pub(crate) fn open(
     child::open(root, factories, options, child)
 }
 
-/// Starts the actors: once the Node host is ready, the workspace,
-/// the Hand's profile, then the realm, then, once the Hand is live,
-/// every actor that was running. So no agent wakes before its realm,
-/// and nothing reaches the Hand before its actor is made.
-pub(crate) async fn start(
+/// Starts the workspace, the Hand's profile, then the realm, which
+/// answers a client from then on. The agents follow with
+/// [`start_agents`].
+pub(crate) async fn start_realm(host: &Host) -> Result<()> {
+    host.get_or_start(&address::Workspace.address()?).await?;
+    make_hand_profile(host).await?;
+    host.get_or_start(&address::Realm.address()?).await?;
+    Ok(())
+}
+
+/// Once the Node host is ready and the realm shows the Hand live,
+/// starts every actor that was running, so no agent wakes before its
+/// realm.
+pub(crate) async fn start_agents(
     host: &Host,
     supervisor: &Supervisor,
 ) -> Result<()> {
@@ -118,9 +128,6 @@ pub(crate) async fn start(
             READY_WITHIN.as_secs()
         )
     })??;
-    host.get_or_start(&address::Workspace.address()?).await?;
-    make_hand_profile(host).await?;
-    host.get_or_start(&address::Realm.address()?).await?;
     ensure!(
         hand_live(host).await?,
         "the Hand was not live within {} s",

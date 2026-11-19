@@ -1,14 +1,18 @@
 //! The realm a client is shown through the door.
 
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
-    AgentKind, ClientMessage, RequestId, Say, ServerMessage,
+    AgentKind, ClientMessage, ItemKind, ReplyKind, RequestId, Say,
+    ServerMessage,
 };
+use hamlet_testing::Scratch;
 use serde_json::json;
 
-use super::{look, serve, until};
+use super::{look, serve, serve_with, until};
 
 /// What the faux Hand says once it founded the hamlet.
 const FOUNDED: &str = "Docs is founded.";
@@ -122,5 +126,42 @@ async fn each_client_is_shown_the_realm_moving_forward() {
     }
     one.close().await;
     two.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// The Node host starts 3 s later here than it would alone: a hello
+/// is answered before it is up, and a line sent then waits for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_is_served_before_the_node_host_is_up() {
+    let slow = Scratch::new("front-slow-node");
+    let node = slow.join("node");
+    std::fs::write(&node, "#!/bin/sh\nsleep 3\nexec node \"$@\"\n")
+        .unwrap();
+    std::fs::set_permissions(&node, Permissions::from_mode(0o755))
+        .unwrap();
+    let (mut server, home, _side) = serve_with(
+        json!(["Waited for."]),
+        &[("HAMLET_NODE", node.to_str().unwrap())],
+    )
+    .await;
+    let mut chief = Client::join(&server).await;
+    assert!(
+        !home.join("demo-node.pid").exists(),
+        "the hello was answered only once the Node host was up"
+    );
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    let reply = chief.say(hand, "Are you up?").await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    let answered = chief.items(&chat).into_iter().any(|item| {
+        item.kind == ItemKind::Assistant && item.text == "Waited for."
+    });
+    assert!(
+        answered,
+        "the line was answered: {:?}",
+        chief.texts(&chat)
+    );
+    chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

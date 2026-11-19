@@ -176,9 +176,11 @@ async fn a_line_dropped_by_stop_is_answered() {
 /// nothing and is answered first, within 1 s.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
-    let (mut server, home, _side) = serve(json!(["Back."])).await;
+    let (mut server, home, _side) =
+        serve(json!(["Up.", "Back."])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
     let pid = std::fs::read_to_string(home.join("demo-node.pid"))
         .unwrap()
         .trim()
