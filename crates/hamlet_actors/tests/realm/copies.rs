@@ -38,6 +38,6 @@ async fn a_hire_is_made_with_the_chiefs_charter_and_model() {
         copies.model.map(|model| model.value.model).as_deref(),
         Some("faux::faux-1")
     );
-    assert!(copies.settings.is_some() && copies.character.is_some());
+    assert!(copies.settings.is_some());
     realm.host.shutdown().await.unwrap();
 }

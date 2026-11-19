@@ -10,6 +10,7 @@ import {
     fakeCalls,
     from,
     named,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -75,6 +76,13 @@ function said(all: Map<ConversationId, Shown[]>, id: ConversationId): string[] {
         .map((entry) => entry.text);
 }
 
+async function reflected(agent: Woken, words: string): Promise<void> {
+    await until(async () => {
+        const { root, all } = await chats(agent);
+        return said(all, root).at(-1) === words;
+    });
+}
+
 async function wake(
     t: TestContext,
     calls: Calls,
@@ -121,7 +129,7 @@ test("a repeated /new answers the same number", async (t) => {
         { number: 2 },
     );
     // The session left reflects first, so the faux answers come in order.
-    await agent.idle();
+    await reflected(agent, "Kept it.");
     await send(line("b"));
 
     const { root, all } = await chats(agent);
@@ -160,7 +168,7 @@ test("A2: sessions are numbered and come back", async (t) => {
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
-    await agent.idle();
+    await reflected(agent, "Kept it.");
     await send(line("b"));
 
     const { sessions } = await agent.actions.read_history(client);
@@ -306,6 +314,12 @@ test("two /new with one id at once leave one new session", async (t) => {
     ]);
 
     assert.deepEqual(answers, [{ number: 2 }, { number: 2 }]);
+    await until(
+        async () =>
+            holding((await chats(agent)).all, "Started a new session.").length >
+            0,
+    );
+    await agent.idle();
     const { all } = await chats(agent);
     assert.equal(all.size, 2);
     assert.equal(holding(all, "Started a new session.").length, 1);

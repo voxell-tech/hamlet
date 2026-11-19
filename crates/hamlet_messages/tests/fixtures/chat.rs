@@ -500,10 +500,6 @@ pub(super) fn copies() -> Copies {
             version: CopyVersion(3),
             value: "Be brief.".into(),
         }),
-        character: Some(Versioned {
-            version: CopyVersion(2),
-            value: "Calm.".into(),
-        }),
         model: Some(Versioned {
             version: CopyVersion(5),
             value: ModelChoice {

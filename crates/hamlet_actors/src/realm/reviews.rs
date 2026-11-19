@@ -27,10 +27,6 @@ use super::{
     Options, REVIEW_DEADLINE, Realm, documents, record, waits,
 };
 
-/// The most an errand may spend: today's review has no cap of its
-/// own, so only its task's budget bounds it.
-const CAP: u64 = i64::MAX.unsigned_abs();
-
 /// The provider every agent runs in a faux realm.
 const FAUX: &str = "faux";
 
@@ -302,7 +298,7 @@ pub(super) async fn intercept(
         ),
         task,
         model,
-        cap: CAP,
+        cap: errands::UNCAPPED,
     };
     Ok(Some(vec![
         Change::Hold {

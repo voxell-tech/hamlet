@@ -53,11 +53,16 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Uint8Array, FileError>>;
-    /** Writes the file whole, making its folders. A link there is replaced, not written through. */
+    /**
+     * Writes the file whole, making its folders. A link there is replaced,
+     * not written through. With `executable`, the file runs or does not;
+     * without it, it keeps the mode of the file it replaces.
+     */
     write(
         path: string,
         content: string | Uint8Array,
         context: Context,
+        executable?: boolean,
     ): Promise<Result<void, FileError>>;
     /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
     edit(
@@ -95,6 +100,27 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Found<string>, FileError>>;
+    /**
+     * Every file at or below `path`, each from the folder, after at most
+     * `LOOKED` names looked at, and those of them that run where the
+     * filesystem keeps that. It goes into no folder today's walk skips
+     * below `path`.
+     */
+    walk(
+        path: string,
+        context: Context,
+    ): Promise<
+        Result<
+            {
+                readonly files: string[];
+                readonly capped: boolean;
+                readonly executable?: readonly string[];
+            },
+            FileError
+        >
+    >;
+    /** Removes the file, or the folder with all it holds. */
+    remove(path: string, context: Context): Promise<Result<void, FileError>>;
     /** Copies a file to another place in the agent's filesystem. */
     copy(
         from: string,

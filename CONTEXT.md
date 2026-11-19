@@ -330,6 +330,12 @@ The skills shared by every agent of the realm.
 **Librarian**:
 The judge of skills offered to the library, and the adviser on its shelves.
 
+**Offer**:
+A skill an agent gives the library to be judged, its files sent in parts.
+The librarian's verdict puts it on the shelves or refuses it, and the parts
+of an offer still under way are dropped when its hire ends.
+_Avoid_: gift, submission
+
 **Archive**:
 What is kept of hires and hamlets that left, so a chief can restore them.
 _Avoid_: trash, deleted agents

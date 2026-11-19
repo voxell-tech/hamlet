@@ -3,6 +3,8 @@
  * sends the same call and the realm answers what it recorded. All are
  * `replay: "safe"`.
  */
+
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
     defineExtension,
@@ -10,13 +12,19 @@ import {
     type Extension,
     GenerationTask,
     hook,
+    type ToolExecutionApi,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { inParts } from "./branch.ts";
 import { hasWordsOrCall } from "./compaction.ts";
+import { LOOKED } from "./filesystem.ts";
 import {
     type Named,
+    type OfferAnswer,
+    type Piece,
     type ProfileId,
     REALM,
+    type Revision,
     type SocietyActs,
     type SocietyTool,
     type Tier,
@@ -25,22 +33,40 @@ import {
 } from "./messages.ts";
 import {
     type ActOf,
+    callOf,
     callOut,
     failed,
     type Granted,
+    libraryCalls,
     type Peers,
     words,
 } from "./turn.ts";
 
 type Invalid = { readonly invalid: string };
 
+/** The context an act reads beside the model's arguments. */
+interface Calling {
+    readonly peers: Peers;
+    readonly api: Pick<ToolExecutionApi, "taskId">;
+}
+
 interface Definition<N extends SocietyTool> {
     readonly name: string;
     readonly description: string;
     /** pi-durable checks a call against it first. */
     readonly parameters: object;
-    readonly act: (args: never) => ActOf<N> | Invalid;
-    readonly said: (answer: Granted<SocietyActs[N]["answer"]>) => string;
+    readonly act: (
+        args: never,
+        calling: Calling,
+    ) => ActOf<N> | Invalid | Promise<ActOf<N> | Invalid>;
+    /**
+     * Absent for an act the realm keeps for a chief: its answer is always
+     * a refusal, and what the chief rules arrives later as a notice.
+     */
+    readonly said?: (
+        answer: Granted<SocietyActs[N]["answer"]>,
+        args: never,
+    ) => string;
 }
 
 /** Today's words for an address (`crates/hamlet_server/src/calls/society.rs`). */
@@ -104,19 +130,91 @@ function named(given: string): Named | Invalid {
     return { invalid: `\`${address}\` is not an address` };
 }
 
-/**
- * As `parse_scholar` of `crates/hamlet_server/src/society/addresses.rs`. The
- * act has no field for a pinned `@<version>`, so a pin is refused, not
- * hired at `main`.
- */
-function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
-    const given = present(text);
-    if (given === undefined) return undefined;
+/** As `parse_scholar` of `crates/hamlet_server/src/society/addresses.rs`. */
+function profileNamed(text: string): ProfileId | Invalid {
+    const given = text.trim();
     return (
         numberOf("scholar", given) ?? {
             invalid: `\`${given}\` is not an address`,
         }
     );
+}
+
+function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
+    const given = present(text);
+    return given === undefined ? undefined : profileNamed(given);
+}
+
+/**
+ * A version or a commit as today's `version_of` names one
+ * (`crates/hamlet_server/src/calls/society/scholars.rs:55-71`): `main`, a
+ * commit's 40 hex digits, or a branch's or a version's name.
+ */
+function revisionOf(text: string): Revision {
+    if (text === "main") return { type: "main" };
+    if (/^[0-9a-f]{40}$/.test(text)) return { type: "commit", commit: text };
+    return { type: "version", version: text };
+}
+
+/** As `crates/hamlet_server/src/calls/society/library.rs:131-139`. */
+const NOT_A_SKILL =
+    "`skill` is its folder under skills/, in letters, digits, hyphens and underscores.";
+
+/**
+ * Offers the files of `skills/<skill>/` to the library under the tool's call,
+ * so a rerun offers the same parts.
+ */
+async function offered(
+    { peers, api }: Calling,
+    skill: string,
+    reason: string,
+): Promise<OfferAnswer | { invalid: string }> {
+    const folder = `skills/${skill}`;
+    const walked = await peers.files.walk(folder, BACKGROUND_CONTEXT);
+    // As `skill_files` (`crates/hamlet_server/src/calls/society/library.rs:252-257`).
+    if (!walked.ok || walked.value.files.length === 0) {
+        return { invalid: `no skill is named \`${skill}\`` };
+    }
+    if (walked.value.capped) {
+        return {
+            invalid: `\`${skill}\` holds more files than the agent can list, ${LOOKED}, so it was not offered.`,
+        };
+    }
+    const files = [];
+    for (const path of walked.value.files.sort()) {
+        const read = await peers.files.read(path, BACKGROUND_CONTEXT);
+        if (!read.ok) throw read.error;
+        files.push({ path: path.slice(folder.length + 1), bytes: read.value });
+    }
+    const parts = inParts(files);
+    const call = callOf(api);
+    let answer: OfferAnswer = { type: "more" };
+    for (const [part, changes] of parts.entries()) {
+        answer = await libraryCalls(peers).offer({
+            call,
+            skill,
+            reason,
+            part,
+            last: part === parts.length - 1,
+            files: changes.flatMap(({ type, ...piece }) =>
+                type === "write" ? [piece as Piece] : [],
+            ),
+        });
+        if (answer.type === "refused") return answer;
+    }
+    return answer;
+}
+
+/** `text` before and after the first `separator`, if it holds one. */
+function splitOnce(
+    text: string | undefined,
+    separator: string,
+): [string | undefined, string | undefined] {
+    if (text === undefined) return [undefined, undefined];
+    const at = text.indexOf(separator);
+    return at < 0
+        ? [text, undefined]
+        : [text.slice(0, at), text.slice(at + separator.length)];
 }
 
 function withNamed<K extends string, Act>(
@@ -179,6 +277,190 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             }));
         },
         said: () => "Your lead has the request.",
+    },
+    create_profile: {
+        name: "create_scholar",
+        description:
+            "Make a new scholar of the city, to hire next. Without a character it starts from the realm's own. A scholar you make may wait at the harbor until it is let into the city; its hires work all the same.",
+        parameters: object(
+            {
+                name: string(
+                    "A short name, one line with no colon. It is a label and may repeat.",
+                ),
+                character: string("Who the scholar is and how it works."),
+            },
+            ["name"],
+        ),
+        act: (args: { name: string; character?: string }) => {
+            const character = present(args.character);
+            return {
+                name: args.name.trim(),
+                ...(character === undefined ? {} : { character }),
+            };
+        },
+        // The realm keeps no harbor: a scholar it makes lives in the city.
+        said: (answer) =>
+            `The scholar ${answer.label} lives in the city; hire it next.`,
+    },
+    read_profile: {
+        name: "read_scholar",
+        description:
+            "List a scholar's files, or read one, at its `main` or a version.",
+        parameters: object(
+            {
+                scholar: string("The scholar's address, `scholar#<id>`."),
+                path: string("A file to read."),
+                version: string("A version or commit."),
+            },
+            ["scholar"],
+        ),
+        act: (args: { scholar: string; path?: string; version?: string }) => {
+            const profile = profileNamed(args.scholar);
+            if (typeof profile === "object") return profile;
+            const path = present(args.path);
+            const version = present(args.version);
+            return {
+                profile,
+                ...(version === undefined ? {} : { at: revisionOf(version) }),
+                ...(path === undefined ? {} : { path }),
+            };
+        },
+        // As `read_scholar` (`crates/hamlet_server/src/calls/society/scholars.rs:94-113`).
+        said: (answer, args: { scholar: string }) => {
+            if (answer.type === "text") {
+                return answer.cut ? `${answer.text}\n[cut here]` : answer.text;
+            }
+            return answer.paths.length === 0
+                ? `${args.scholar.trim()} has no files.`
+                : answer.paths.map(({ path }) => `- ${path}`).join("\n");
+        },
+    },
+    edit_profile: {
+        name: "edit_scholar",
+        description:
+            "Write a file of a scholar's `main`; a chief approves it first.",
+        parameters: object(
+            {
+                scholar: string("The scholar's address, `scholar#<id>`."),
+                path: string("The file."),
+                content: string("Its new text; empty removes it."),
+                message: string("What the change does."),
+            },
+            ["scholar", "path", "content", "message"],
+        ),
+        act: (args: {
+            scholar: string;
+            path: string;
+            content: string;
+            message?: string;
+        }) => {
+            const profile = profileNamed(args.scholar);
+            if (typeof profile === "object") return profile;
+            const message = present(args.message);
+            return {
+                profile,
+                path: args.path.trim(),
+                text: args.content,
+                ...(message === undefined ? {} : { message }),
+            };
+        },
+    },
+    tag: {
+        name: "tag",
+        description:
+            "Name the scholar's `main` as a version; a chief approves it first.",
+        parameters: object(
+            {
+                scholar: string("The scholar's address, `scholar#<id>`."),
+                tag: string("The version's name."),
+                note: string("What it holds."),
+            },
+            ["scholar", "tag"],
+        ),
+        act: (args: { scholar: string; tag: string; note?: string }) => {
+            const profile = profileNamed(args.scholar);
+            if (typeof profile === "object") return profile;
+            const note = present(args.note);
+            return {
+                profile,
+                version: args.tag.trim(),
+                ...(note === undefined ? {} : { note }),
+            };
+        },
+    },
+    revert: {
+        name: "revert",
+        description:
+            "Undo a commit of a scholar's `main`; a chief approves it first.",
+        parameters: object(
+            {
+                scholar: string("The scholar's address, `scholar#<id>`."),
+                commit: string("The commit or version to undo."),
+                reason,
+            },
+            ["scholar", "commit"],
+        ),
+        act: (args: { scholar: string; commit: string; reason?: string }) => {
+            const profile = profileNamed(args.scholar);
+            if (typeof profile === "object") return profile;
+            const why = present(args.reason);
+            return {
+                profile,
+                what: revisionOf(present(args.commit) ?? "main"),
+                ...(why === undefined ? {} : { reason: why }),
+            };
+        },
+    },
+    ask_librarian: {
+        name: "ask_librarian",
+        description:
+            "Ask the librarian which skills in the library help with something.",
+        parameters: object({ question: string("What you need a skill for.") }, [
+            "question",
+        ]),
+        act: (args: { question: string }) => {
+            const question = present(args.question);
+            // As `crates/hamlet_server/src/calls/society/library.rs:81-84`.
+            return question === undefined
+                ? { invalid: "Say what you need a skill for." }
+                : { question };
+        },
+        said: () => "The librarian is looking.",
+    },
+    submit_skill: {
+        name: "submit_skill",
+        description:
+            "Offer a skill from your skills/ folder to the library, where every agent can read it. The librarian judges it.",
+        parameters: object(
+            {
+                skill: string("The skill's folder name under skills/."),
+                reason,
+            },
+            ["skill"],
+        ),
+        act: async (
+            args: { skill: string; reason?: string },
+            calling: Calling,
+        ) => {
+            const skill = args.skill.trim();
+            if (!/^[A-Za-z0-9_-]+$/.test(skill))
+                return { invalid: NOT_A_SKILL };
+            const reason = present(args.reason);
+            const answer = await offered(calling, skill, reason ?? "");
+            if ("invalid" in answer) return answer;
+            if (answer.type === "refused") return { invalid: answer.words };
+            if (answer.type === "more") {
+                throw new Error(
+                    "the library kept no offer after the last part",
+                );
+            }
+            return {
+                offer: answer.offer,
+                skill,
+                ...(reason === undefined ? {} : { reason }),
+            };
+        },
+        said: () => "The librarian is judging it.",
     },
     found: {
         name: "found_hamlet",
@@ -255,13 +537,16 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                         "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
                 };
             }
-            const profile = profileOf(args.scholar);
+            // As `scholar_pinned` (`crates/hamlet_server/src/commands.rs:1484-1497`).
+            const [pinned, version] = splitOnce(present(args.scholar), "@");
+            const profile = profileOf(pinned);
             if (typeof profile === "object") return profile;
             const hamlet = present(args.hamlet);
             return {
                 purpose: args.purpose,
                 ...(hamlet === undefined ? {} : { hamlet }),
                 ...(profile === undefined ? {} : { profile }),
+                ...(version === undefined ? {} : { version }),
                 ...(under === undefined ? {} : { under }),
             };
         },
@@ -337,7 +622,7 @@ function societyTool<N extends SocietyTool>(
         parameters: definition.parameters,
         replay: "safe",
         execute: async (args, api, context) => {
-            const made = definition.act(args as never);
+            const made = await definition.act(args as never, { peers, api });
             if ("invalid" in made) return failed(made.invalid);
             return callOut(
                 peers,
@@ -346,9 +631,18 @@ function societyTool<N extends SocietyTool>(
                 REALM,
                 act as SocietyTool,
                 // A name that stands for any act loses the row's pairing, so
-                // these two casts restate what `TOOLS` already checked.
+                // these casts restate what `TOOLS` already checked.
                 made as never,
-                (answer) => words(definition.said(answer as never)),
+                (answer) => {
+                    if (definition.said === undefined) {
+                        throw new Error(
+                            `the realm granted ${definition.name}, which it keeps for a chief`,
+                        );
+                    }
+                    return words(
+                        definition.said(answer as never, args as never),
+                    );
+                },
                 definition.name,
             );
         },

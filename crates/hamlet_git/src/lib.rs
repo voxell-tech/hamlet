@@ -285,6 +285,15 @@ impl Repository {
             .map(|_| id))
     }
 
+    /// Whether the repository keeps the commit `commit`. An object of
+    /// another kind is no commit; an object that cannot be read is an
+    /// error.
+    pub fn has_commit(&self, commit: CommitId) -> Result<bool> {
+        Ok(self.0.try_find_object(commit.0)?.is_some_and(|object| {
+            object.kind == gix::objs::Kind::Commit
+        }))
+    }
+
     fn peel(&self, name: &str) -> Result<Option<CommitId>> {
         let Some(mut found) = self.0.try_find_reference(name)? else {
             return Ok(None);

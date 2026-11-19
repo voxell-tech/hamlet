@@ -366,7 +366,6 @@ async function workerPrompt(t: TestContext): Promise<string> {
         realm: {
             read_copies: (): Copies => ({
                 charter: { version: 1, value: "Keep the docs whole." },
-                character: { version: 1, value: "Calm." },
             }),
             worker_done: () => null,
         },

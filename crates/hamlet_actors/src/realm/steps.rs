@@ -16,7 +16,10 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::{self, Peers, When};
 use super::workers::errands;
-use super::{Realm, calls, hire, parcels, reviews, tree, workers};
+use super::{
+    Realm, calls, dreams, drop_parts, hire, librarian, parcels,
+    reviews, tree, versions, workers,
+};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -28,6 +31,9 @@ pub(super) enum Kind {
     Errand,
     Review,
     Parcel,
+    Dream,
+    Verdict,
+    DropParts,
 }
 
 #[derive(
@@ -217,15 +223,17 @@ impl Cx<'_> {
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
-    ) -> Result<()> {
+    ) -> Result<Vec<anyhow::Error>> {
         let pushes =
             change::commit(self.realm, self.ctx, changes).await?;
-        let failed =
-            calls::push_all(self.realm, self.ctx, pushes).await;
-        if failed > 0 {
-            bail!("{failed} of the commit's pushes failed");
-        }
-        Ok(())
+        Ok(calls::push_all(self.realm, self.ctx, pushes).await)
+    }
+
+    pub async fn want_reach(&self, agent: AgentNumber) -> Result<()> {
+        let failed = self
+            .commit(vec![versions::Change::WantReach(agent).into()])
+            .await?;
+        failed.into_iter().next().map_or(Ok(()), Err)
     }
 }
 
@@ -248,7 +256,9 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
         walked
     })
     .await;
-    if refused && let Err(error) = end_failed(realm, ctx, row).await {
+    if let Some(why) = refused
+        && let Err(error) = end_failed(realm, ctx, row, why).await
+    {
         tracing::warn!(?row, "ending a failed row: {error:#}");
     }
 }
@@ -256,12 +266,11 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
 /// Runs `attempt`, after `wait` when one is given, and again after
 /// each failure in passing, waiting [`FIRST_RETRY`] doubled after
 /// each up to [`LAST_RETRY`], until it is done or the realm stops.
-/// Returns whether the callee refused it, which ends it.
 pub(super) async fn retried<F>(
     ctx: &Ctx<Realm>,
     mut wait: Option<Duration>,
     mut attempt: impl FnMut() -> F,
-) -> bool
+) -> Option<String>
 where
     F: Future<Output = Result<()>>,
 {
@@ -269,15 +278,15 @@ where
     loop {
         if let Some(wait) = wait {
             tokio::select! {
-                () = stopping.cancelled() => return false,
+                () = stopping.cancelled() => return None,
                 () = tokio::time::sleep(wait) => {}
             }
         }
         let Err(error) = attempt().await else {
-            return false;
+            return None;
         };
         if peer::refused(&error) {
-            return true;
+            return Some(error.root_cause().to_string());
         }
         wait =
             Some(wait.map_or(FIRST_RETRY, |wait| {
@@ -286,21 +295,19 @@ where
     }
 }
 
-/// Ends the row that failed for good: its hire or worker ends as
-/// failed, its errand as one that gave no answer, its review as
-/// failed and its parcel as refused.
+/// Ends the row that failed for good, and closes what it ran as
+/// failed.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     row: StepId,
+    why: String,
 ) -> Result<()> {
     let agent = u32::try_from(row.n).map(AgentNumber);
     let tx = change::Transaction::begin(ctx).await?;
     let rows = tx.rows();
     let (changes, calls) = match row.kind {
-        Kind::Hire => {
-            (tree::failed(&rows, agent?).await?, Calls::none())
-        }
+        Kind::Hire => tree::failed(&rows, agent?, why).await?,
         Kind::Worker => (
             workers::failed(&rows, agent?).await?,
             Calls::after_answer(Delivery::WorkerAnswer(agent?)),
@@ -310,6 +317,9 @@ async fn end_failed(
         }
         Kind::Review => (reviews::failed(row.n)?, Calls::none()),
         Kind::Parcel => parcels::failed(&rows, row.n).await?,
+        Kind::Dream | Kind::Verdict | Kind::DropParts => {
+            (vec![Change::Close { row }.into()], Calls::none())
+        }
     };
     if changes.is_empty() {
         return Ok(());
@@ -354,6 +364,24 @@ async fn walk_row(
         Kind::Parcel => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 parcels::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Dream => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                dreams::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Verdict => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                librarian::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::DropParts => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                drop_parts::run(cx, row.n, step).await
             })
             .await
         }
@@ -403,7 +431,10 @@ async fn walk<S: Steps>(
         if next + 1 == S::ALL.len() {
             changes.push(Change::Close { row: id }.into());
         }
-        cx.commit(changes).await?;
+        let failed = cx.commit(changes).await?;
+        if !failed.is_empty() {
+            bail!("{} of the commit's pushes failed", failed.len());
+        }
     }
 }
 

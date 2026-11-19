@@ -6,10 +6,12 @@ use std::collections::BTreeMap;
 use hamlet_git::Change;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
-    BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Missing,
-    NotAHire, Piece, Pin, PinAnswer, PinRefusal, Protected, Purge,
-    PurgeAnswer, Save, SaveAnswer, SaveRefusal, TooLarge,
+    BadPath, Cursor, DropSaveParts, FileChange, Files, FilesAnswer,
+    Gone, Missing, NotAHire, Piece, Pin, PinAnswer, PinRefusal,
+    Protected, Purge, PurgeAnswer, Save, SaveAnswer, SaveRefusal,
+    TooLarge,
 };
+use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::CallId;
 use hamlet_messages::{MOST_CALL, MOST_PART, PIECE_FRAME};
 
@@ -482,6 +484,27 @@ async fn a_purge_drops_the_parts_of_a_save_under_way() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_ended_hires_save_under_way_is_dropped() {
+    let dir = Scratch::new("profile-save-drop");
+    let host = hired(&dir, &[], Arc::default()).await;
+    host.get_or_start(&agent()).await.unwrap();
+    let base = fill(&host, None).await.tip.unwrap();
+    let first = save("s1", base, 0, false, vec![whole("a.md", b"a")]);
+    let kept = call_as(&host, &agent(), &first).await.unwrap();
+    assert_eq!(kept, SaveAnswer::Kept);
+
+    let drop = DropSaveParts {
+        agent: AgentNumber(7),
+    };
+    call_as(&host, &realm(), &drop).await.unwrap();
+    call_as(&host, &realm(), &drop).await.unwrap();
+
+    let rest = save("s1", base, 1, true, vec![whole("b.md", b"b")]);
+    call_as(&host, &agent(), &rest).await.unwrap_err();
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_save_onto_a_moved_branch_keeps_both_and_its_side_wins() {
     let dir = Scratch::new("profile-save-moved");
     let notes = write("notes.md", "one\ntwo\nthree\n");
@@ -741,5 +764,90 @@ async fn a_pin_holds_a_hire_where_main_moves_the_others() {
             .await
             .unwrap();
     assert_eq!(follows, PinAnswer::FollowsMain);
+    host.shutdown().await.unwrap();
+}
+
+fn branch_at(number: u32, from: Option<&str>) -> Branch {
+    Branch {
+        name: format!("hires/{number}"),
+        from: from.map(|from| VersionName(from.into())),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_made_at_a_version_starts_there_and_stays_there() {
+    let dir = Scratch::new("profile-branch-at");
+    let told = Arc::new(Told::default());
+    let host = open_with(&dir, told.clone());
+    create(&host, 1, &character()).await.unwrap();
+    let v1 = commit_main(&dir, &[write("memory/old.md", "old")]);
+    settle(&host, "v1").await;
+    commit_main(
+        &dir,
+        &[
+            write("memory/new.md", "new"),
+            write("CHARACTER.md", "A bolder reader."),
+        ],
+    );
+
+    let at_v1 = branch_at(7, Some("v1"));
+    let made = call_as(&host, &realm(), &at_v1).await.unwrap();
+    assert_eq!(made, Done::Done);
+    hire(&host, 8).await;
+    assert_eq!(tip(&dir, "hires/7"), Some(v1));
+    let filled = fill(&host, None).await;
+    assert_eq!(filled.tip, Some(commit_id(v1)));
+    assert_eq!(filled.files, given(&dir, commit_id(v1)));
+    assert_eq!(
+        filled.character,
+        Some(Character {
+            version: 1,
+            text: CHARACTER.into()
+        })
+    );
+
+    host.get_or_start(&agent_at(8)).await.unwrap();
+    let main =
+        commit_main(&dir, &[write("memory/later.md", "later")]);
+    settle(&host, "v2").await;
+    assert_eq!(moved_to(&told, 8).await.tip, commit_id(main));
+    assert_eq!(tip(&dir, "hires/7"), Some(v1));
+    assert!(
+        told.0
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(to, _)| *to != agent().to_string())
+    );
+    assert_eq!(call_as(&host, &realm(), &at_v1).await.unwrap(), made);
+    assert_eq!(tip(&dir, "hires/7"), Some(v1));
+    let follows =
+        call_as(&host, &realm(), &pin(&RequestId::new(), 7, None))
+            .await
+            .unwrap();
+    assert_eq!(follows, PinAnswer::FollowsMain);
+    assert_eq!(tip(&dir, "hires/7"), Some(main));
+
+    let missing = branch_at(9, Some("v9"));
+    let refused = Done::Refused {
+        why: Missing::NoVersion {
+            profile: ProfileId(1),
+            version: VersionName("v9".into()),
+        },
+    };
+    for _ in 0..2 {
+        let answer =
+            call_as(&host, &realm(), &missing).await.unwrap();
+        assert_eq!(answer, refused);
+    }
+    assert_eq!(tip(&dir, "hires/9"), None);
+    let files = Files {
+        since: None,
+        after: None,
+    };
+    assert_eq!(
+        error_code(call_as(&host, &agent_at(9), &files).await),
+        "message.wrong_caller"
+    );
     host.shutdown().await.unwrap();
 }

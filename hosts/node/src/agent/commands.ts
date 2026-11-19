@@ -9,15 +9,18 @@ import {
     type Cursor,
     type EntryId,
     type Harness,
+    InboxDoc,
     LiveDoc,
     type SubmissionDraft,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import { stands } from "./compaction.ts";
+import { couldNotAnswer } from "./failed.ts";
 import {
     type ClientActions,
     type LapseReason,
+    type LetterId,
     type NewSession,
     type Resume,
     type ResumeAnswer,
@@ -27,7 +30,11 @@ import {
     type RewindAnswer,
     u32,
 } from "./messages.ts";
-import { reflectIn, reflectOnLeaving } from "./reflect.ts";
+import {
+    reflectBeforeLeaving,
+    reflectIn,
+    reflectOnLeaving,
+} from "./reflect.ts";
 import {
     begin,
     chiefSession,
@@ -35,12 +42,19 @@ import {
     current,
     makeCurrent,
     moveTo,
-    nowSeconds,
+    noticeEntry,
     session,
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
-import { refused, textOf } from "./transcript.ts";
-import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import { holdFollowers, refused, textOf } from "./transcript.ts";
+import {
+    callOf,
+    conversationsOf,
+    draftOf,
+    isBusy,
+    type Kept,
+    refOf,
+} from "./turn.ts";
 import { endsLater } from "./workspace-tools.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
@@ -51,7 +65,9 @@ type Answer<N extends keyof ClientActions> = Promise<
  * Stops every run of the agent and drops what each had queued, then, as
  * today, cancels every call the agent has out and lapses all it was
  * trusted with. Both go out even when nothing ran, so the repeat of a stop
- * cut off before them sends them.
+ * cut off before them sends them. Each question dropped is answered that
+ * its turn was stopped, as today's follow answers it
+ * (`crates/hamlet_server/src/talk/follow.rs:70-84`).
  */
 export async function stop(c: AgentCall): Answer<"stop"> {
     const { options, peers, retrying } = generationOf(c);
@@ -63,37 +79,79 @@ export async function stop(c: AgentCall): Answer<"stop"> {
         const each = await Promise.all(
             (await conversationsOf(harness, context)).map(async (id) => {
                 if (!(await isBusy(harness, id, context))) return [];
+                const dropped = await droppedQuestions(harness, id, context);
                 await (await harness.conversation(id, context))?.abort(context);
-                return [id];
+                return [dropped];
             }),
         );
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
     await peers.reach.lapse({ why: "stopped" });
+    for (const question of stopped.flat()) {
+        await couldNotAnswer(
+            peers,
+            question,
+            "its turn was stopped",
+            undefined,
+        );
+    }
     return { turns: stopped.length };
+}
+
+/**
+ * Withdraws each input `conversation` has queued and gives the questions
+ * among them; one a run took first is left to that run's end.
+ */
+async function droppedQuestions(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<LetterId[]> {
+    const queued = await harness.snapshot(InboxDoc, conversation, context);
+    const questions: LetterId[] = [];
+    for (const item of queued?.items ?? []) {
+        if (item.mode === "write") continue;
+        const withdrawn = await harness.abortSubmission(
+            item.id,
+            context,
+            conversation,
+        );
+        const { question } = (item.entry?.data ?? {}) as Kept;
+        if (withdrawn === "aborted" && question !== undefined) {
+            questions.push(question);
+        }
+    }
+    return questions;
 }
 
 export async function newSession(
     c: AgentCall,
     message: NewSession,
 ): Answer<"new_session"> {
-    const { number, left } = await generationOf(c).inTurn(async () => {
-        const begun = await begin(c, message.id);
-        // As `crates/hamlet_server/src/talk/chats.rs` writes it.
-        await noticed(
-            c,
-            begun.to,
-            `new:${message.id}`,
-            "Started a new session.",
-        );
-        return begun;
-    });
-    // As today, the session left keeps what it waits for. A repeat asks its
-    // reflection again: a kill may have cut the first off after the session
-    // began.
-    if (left !== undefined) await reflectOnLeaving(c, left);
-    return { number };
+    const generation = generationOf(c);
+    const answered = Promise.withResolvers<void>();
+    try {
+        const { number, left } = await generation.inTurn(() => {
+            // Followers hear of the new session after its answer, once its
+            // chat's row is kept: a commit folded before that is never sent.
+            holdFollowers(c, answered.promise);
+            return begin(c, message.id);
+        });
+        // As today, the session left keeps what it waits for.
+        if (left !== undefined) {
+            void reflectOnLeaving(c, left).catch((error: unknown) =>
+                generation.peers.report(
+                    "the session left was not asked to reflect",
+                    error,
+                ),
+            );
+        }
+        return { number };
+    } finally {
+        // The answer is handed to the runtime before the next turn of the loop.
+        setImmediate(answered.resolve);
+    }
 }
 
 export async function resume(
@@ -121,7 +179,7 @@ export async function resume(
     await generationOf(c).inTurn(async () => {
         const left = await current(c.db);
         if (left !== undefined && left !== to) {
-            await reflectOnLeaving(c, left);
+            await reflectBeforeLeaving(c, left);
         }
         await makeCurrent(c, to);
         await noticed(
@@ -139,14 +197,7 @@ export async function resume(
  * appends it at once, even mid-run. `requestId` admits it once.
  */
 export function notice(requestId: string, text: string): SubmissionDraft {
-    return {
-        type: "write",
-        requestId,
-        entry: {
-            kind: "hamlet.notice",
-            data: { text, at: nowSeconds() },
-        },
-    };
+    return { type: "write", requestId, entry: noticeEntry(text) };
 }
 
 function noticed(

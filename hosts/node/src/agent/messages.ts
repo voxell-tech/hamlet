@@ -296,6 +296,8 @@ export interface SocietyActs {
             readonly hamlet?: HamletId;
             readonly under?: Named;
             readonly profile?: ProfileId;
+            /** The profile's version the hire starts from; `main` when absent. */
+            readonly version?: string;
             readonly purpose?: string;
         };
         answer: HireAnswer;
@@ -337,6 +339,86 @@ export interface SocietyActs {
             readonly hire: Named;
             readonly off?: readonly ToolName[];
             readonly on?: readonly ToolName[];
+        };
+        answer: Done;
+    };
+    create_profile: {
+        /** Without a character, the profile starts from the realm's. */
+        act: { readonly name: string; readonly character?: string };
+        answer:
+            | {
+                  readonly type: "made";
+                  readonly profile: ProfileId;
+                  /** `scholar#<id> (<name>)`. */
+                  readonly label: string;
+              }
+            | Refused;
+    };
+    read_profile: {
+        /** Without `path`, the files are listed; without `at`, at `main`. */
+        act: {
+            readonly profile: ProfileId;
+            readonly at?: Revision;
+            readonly path?: string;
+        };
+        answer:
+            | { readonly type: "listed"; readonly paths: readonly Path[] }
+            | {
+                  readonly type: "text";
+                  readonly text: string;
+                  /** Cut after the profile's most bytes a read gives. */
+                  readonly cut: boolean;
+              }
+            | Refused;
+    };
+    edit_profile: {
+        /** An empty `text` removes the file. */
+        act: {
+            readonly profile: ProfileId;
+            readonly path: string;
+            readonly text: string;
+            readonly message?: string;
+        };
+        answer: Done;
+    };
+    tag: {
+        act: {
+            readonly profile: ProfileId;
+            readonly version: string;
+            readonly note?: string;
+        };
+        answer:
+            | {
+                  readonly type: "tagged";
+                  readonly version: string;
+                  readonly commit: CommitId;
+              }
+            | Refused;
+    };
+    revert: {
+        act: {
+            readonly profile: ProfileId;
+            readonly what: Revision;
+            readonly reason?: string;
+        };
+        answer:
+            | {
+                  readonly type: "reverted";
+                  readonly commit: CommitId;
+                  /** Files that changed again since and kept their later lines. */
+                  readonly clashes: readonly Path[];
+              }
+            | { readonly type: "unchanged" }
+            | Refused;
+    };
+    /** The librarian's answer arrives later, as an input. */
+    ask_librarian: { act: { readonly question: string }; answer: Done };
+    /** Asks the librarian to judge an offer the library kept; its verdict arrives later, as an input. */
+    submit_skill: {
+        act: {
+            readonly offer: OfferId;
+            readonly skill: string;
+            readonly reason?: string;
         };
         answer: Done;
     };
@@ -414,7 +496,6 @@ export type TaskOpened =
 /** The versions the agent holds; the realm answers the parts newer than these. */
 export interface ReadCopies {
     readonly charter?: number;
-    readonly character?: number;
     readonly model?: number;
     readonly settings?: number;
 }
@@ -423,6 +504,122 @@ export interface ReadCopies {
 export interface SecretList {
     readonly version: number;
     readonly values: readonly string[];
+}
+
+/** A commit of a profile's repository: its SHA-1, as 40 hex digits. */
+export type CommitId = string;
+
+export interface Path {
+    readonly path: string;
+}
+
+/** A commit as a model names it. */
+export type Revision =
+    | { readonly type: "main" }
+    | { readonly type: "version"; readonly version: string }
+    | { readonly type: "commit"; readonly commit: CommitId };
+
+/** The character at a profile's tip, which the agent keeps when its version is newer. */
+export interface Character {
+    readonly version: number;
+    readonly text: string;
+}
+
+/**
+ * A file, or the bytes of one from `offset` when it is too large for one
+ * part: a whole file is one piece at 0 that is `last`.
+ */
+export interface Piece {
+    readonly path: string;
+    readonly offset: number;
+    /** Base64. */
+    readonly bytes: string;
+    readonly last: boolean;
+    readonly executable?: boolean;
+}
+
+/** Where the next part of a fill starts, in the commit its first part read. */
+export interface FileCursor {
+    readonly commit: CommitId;
+    readonly file: number;
+    readonly offset: number;
+}
+
+/** One part of every file at the branch's tip, or of what changed since `since`. */
+export interface Files {
+    readonly since?: CommitId;
+    readonly after?: FileCursor;
+}
+
+export interface FilesPart {
+    readonly type: "part";
+    readonly tip: CommitId;
+    readonly files: readonly Piece[];
+    readonly removed: readonly Path[];
+    /** Absent on the last part. */
+    readonly next?: FileCursor;
+    /** On the first part. */
+    readonly character?: Character;
+}
+
+export type FilesAnswer = FilesPart | Refused;
+
+export type FileChange =
+    | ({ readonly type: "write" } & Piece)
+    | { readonly type: "remove"; readonly path: string };
+
+/** One part of what the agent's filesystem changed since `base`. */
+export interface Save {
+    readonly call: CallId;
+    readonly base: CommitId;
+    readonly part: number;
+    readonly last: boolean;
+    readonly changes: readonly FileChange[];
+}
+
+export type SaveAnswer =
+    | { readonly type: "saved"; readonly tip: CommitId }
+    | { readonly type: "kept" }
+    | Refused;
+
+export interface ProfileActions {
+    files(message: Files): FilesAnswer;
+    save(message: Save): SaveAnswer;
+}
+
+type OfferId = number;
+
+export interface Skill {
+    /** The skill's folder. */
+    readonly name: string;
+    readonly description: string;
+    readonly usage: string;
+}
+
+/** The library's shelves, of one version. */
+export interface ShelfList {
+    readonly version: number;
+    readonly skills: readonly Skill[];
+}
+
+/** One part of the files of `skills/<skill>/`, each path from that folder. */
+export interface Offer {
+    readonly call: CallId;
+    readonly skill: string;
+    readonly reason: string;
+    readonly part: number;
+    readonly last: boolean;
+    readonly files: readonly Piece[];
+}
+
+export type OfferAnswer =
+    | { readonly type: "kept"; readonly offer: OfferId }
+    | { readonly type: "more" }
+    | Refused;
+
+export interface LibraryActions {
+    shelves(message: { readonly version_seen?: number }): ShelfList;
+    offer(message: Offer): OfferAnswer;
 }
 
 export type Ended =
@@ -527,7 +724,6 @@ export interface Place {
 
 export interface Fill {
     readonly profile: ProfileId;
-    readonly branch: string;
 }
 
 export interface AgentInput {
@@ -587,9 +783,26 @@ export interface AgentSettings {
 /** The parts the realm owns that the agent keeps a copy of. */
 export interface Copies {
     readonly charter?: Versioned<string>;
-    readonly character?: Versioned<string>;
     readonly model?: Versioned<ModelChoice>;
     readonly settings?: Versioned<AgentSettings>;
+}
+
+/** The agent's profile moved its branch to `tip`, or changed the character there. */
+export interface Moved {
+    readonly tip: CommitId;
+    readonly character?: Character;
+}
+
+/** Asks the agent to remove a file or a folder of its filesystem, for a purge. */
+export interface RemovePath {
+    readonly path: string;
+}
+
+/** `later`: a turn or other work of the agent runs, and it removes the path once that ends. */
+export type Removal = "removed" | "later";
+
+export interface ShelvesChanged {
+    readonly list: ShelfList;
 }
 
 export interface AgentActions {
@@ -598,6 +811,9 @@ export interface AgentActions {
     place(message: Place): null;
     fill(message: Fill): null;
     copies(message: Copies): null;
+    moved(message: Moved): null;
+    remove_path(message: RemovePath): Removal;
+    shelves_changed(message: ShelvesChanged): null;
 }
 
 export type RequestId = string;
@@ -867,6 +1083,14 @@ export const WORKSPACE: Address<WorkspaceActions> = Address.of(
     "local",
 );
 export const REALM: Address<RealmActions> = Address.of("realm", "local");
+export const LIBRARY: Address<LibraryActions> = Address.of("library", "local");
+
+export function profileAt(profile: ProfileId): Address<ProfileActions> {
+    return Address.of("profile", String(profile));
+}
+
+/** The profile the agent was filled from, whichever it is. */
+export const OWN_PROFILE = "own profile";
 
 /** As each message's `Message::From` says. */
 export const SENDERS = {
@@ -875,7 +1099,12 @@ export const SENDERS = {
     place: REALM,
     fill: REALM,
     copies: REALM,
-} as const satisfies { readonly [N in keyof AgentActions]: Address };
+    moved: OWN_PROFILE,
+    remove_path: OWN_PROFILE,
+    shelves_changed: LIBRARY,
+} as const satisfies {
+    readonly [N in keyof AgentActions]: Address | typeof OWN_PROFILE;
+};
 
 const OPEN = { open: true } as const;
 const U32 = int({ minimum: 0, maximum: U32_MAX });
@@ -922,6 +1151,27 @@ const BRIEF = obj(
     OPEN,
 );
 const SETTINGS = obj({ reflect_every: U32, allow_net: bool() }, OPEN);
+const CHARACTER = obj({ version: U32, text: str() }, OPEN);
+const SHELF_LIST = obj(
+    {
+        version: U32,
+        skills: arr(
+            obj({ name: str(), description: str(), usage: str() }, OPEN),
+        ),
+    },
+    OPEN,
+);
+const PIECE = obj(
+    {
+        path: str(),
+        offset: U32,
+        bytes: str(),
+        last: bool(),
+        executable: opt(bool()),
+    },
+    OPEN,
+);
+const CURSOR = obj({ commit: str(), file: U32, offset: U32 }, OPEN);
 
 function versioned<S extends Schema>(value: S) {
     return obj({ version: U32, value }, OPEN);
@@ -930,7 +1180,6 @@ function versioned<S extends Schema>(value: S) {
 const COPIES_SHAPE = obj(
     {
         charter: opt(versioned(str())),
-        character: opt(versioned(str())),
         model: opt(versioned(MODEL)),
         settings: opt(versioned(SETTINGS)),
     },
@@ -1014,9 +1263,109 @@ export const read: {
         (finished) => finished as unknown as Finished,
     ),
     place: reader(PLACE, placeOf),
-    fill: reader(obj({ profile: U32, branch: str() }, OPEN), (fill) => fill),
+    fill: reader(obj({ profile: U32 }, OPEN), ({ profile }) => ({ profile })),
     copies: reader(COPIES_SHAPE, copiesOf),
+    moved: reader(
+        obj({ tip: str(), character: opt(CHARACTER) }, OPEN),
+        ({ tip, character }) => ({
+            tip,
+            ...(character === undefined
+                ? {}
+                : { character: characterOf(character) }),
+        }),
+    ),
+    remove_path: reader(obj({ path: str() }, OPEN), ({ path }) => ({ path })),
+    shelves_changed: reader(obj({ list: SHELF_LIST }, OPEN), ({ list }) => ({
+        list: shelfListOf(list),
+    })),
 };
+
+/** The answers the agent keeps or writes what they hold, each checked as a message is. */
+export const readAnswer = {
+    shelves: reader(SHELF_LIST, shelfListOf),
+    files: reader(
+        union([
+            obj(
+                {
+                    type: lit("part"),
+                    tip: str(),
+                    files: arr(PIECE),
+                    removed: arr(obj({ path: str() }, OPEN)),
+                    next: opt(CURSOR),
+                    character: opt(CHARACTER),
+                },
+                OPEN,
+            ),
+            obj(
+                {
+                    type: lit("refused"),
+                    why: obj({ type: str() }, OPEN),
+                    words: str(),
+                },
+                OPEN,
+            ),
+        ]),
+        (answer): FilesAnswer =>
+            answer.type === "refused"
+                ? {
+                      type: "refused",
+                      why: { type: answer.why.type },
+                      words: answer.words,
+                  }
+                : {
+                      type: "part",
+                      tip: answer.tip,
+                      files: answer.files.map(pieceOf),
+                      removed: answer.removed.map(({ path }) => ({ path })),
+                      ...(answer.next === undefined
+                          ? {}
+                          : {
+                                next: {
+                                    commit: answer.next.commit,
+                                    file: answer.next.file,
+                                    offset: answer.next.offset,
+                                },
+                            }),
+                      ...(answer.character === undefined
+                          ? {}
+                          : { character: characterOf(answer.character) }),
+                  },
+    ),
+};
+
+function characterOf({ version, text }: Static<typeof CHARACTER>): Character {
+    return { version, text };
+}
+
+function shelfListOf({
+    version,
+    skills,
+}: Static<typeof SHELF_LIST>): ShelfList {
+    return {
+        version,
+        skills: skills.map(({ name, description, usage }) => ({
+            name,
+            description,
+            usage,
+        })),
+    };
+}
+
+function pieceOf({
+    path,
+    offset,
+    bytes,
+    last,
+    executable,
+}: Static<typeof PIECE>): Piece {
+    return {
+        path,
+        offset,
+        bytes,
+        last,
+        ...(executable === undefined ? {} : { executable }),
+    };
+}
 
 /**
  * A client's number is a `u64` or an `i64`. One that is no safe integer
@@ -1148,7 +1497,6 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
     }));
     return {
         ...(raw.charter === undefined ? {} : { charter: raw.charter }),
-        ...(raw.character === undefined ? {} : { character: raw.character }),
         ...(model === undefined ? {} : { model }),
         ...(settings === undefined ? {} : { settings }),
     };

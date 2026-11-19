@@ -17,7 +17,6 @@ import type { Turns } from "../src/agent/turn.ts";
 import { piRuntime } from "../src/pi/runtime.ts";
 import {
     fakeCalls,
-    fakeFiles,
     from,
     named,
     toolCall,
@@ -106,7 +105,6 @@ test("a wrong caller is refused, and nothing is taken", async (t) => {
     await assert.rejects(
         agent.actions.fill(agent.by(from.workspace), {
             profile: 2,
-            branch: "hires/7",
         }),
         wrong,
     );
@@ -249,37 +247,6 @@ test("an answer goes to the conversation it names, and to the root when that is 
     await agent.stop();
 });
 
-test("the same fill again fills nothing and answers the same", async (t) => {
-    const { calls } = fakeCalls({});
-    let filled = 0;
-    const agent = await wakeAgent(t, {
-        calls,
-        fill: async () => {
-            filled += 1;
-        },
-    });
-    const fill = { profile: 2, branch: "hires/7" };
-    assert.equal(await agent.actions.fill(agent.by(from.realm), fill), null);
-    assert.equal(await agent.actions.fill(agent.by(from.realm), fill), null);
-    assert.equal(filled, 1);
-    await agent.stop();
-});
-
-test("a fill with no profile to read writes nothing and answers", async (t) => {
-    const { calls } = fakeCalls({});
-    const files: Record<string, string> = {};
-    const agent = await wakeAgent(t, { calls, files: fakeFiles(files) });
-    assert.equal(
-        await agent.actions.fill(agent.by(from.realm), {
-            profile: 2,
-            branch: "hires/7",
-        }),
-        null,
-    );
-    assert.deepEqual(files, {});
-    await agent.stop();
-});
-
 test("the kind's definition passes actor()'s own checks, and its actions are the agent's messages, a client's calls and pi.wake", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, { calls });
@@ -292,6 +259,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "fill",
             "finished",
             "login",
+            "moved",
             "new_session",
             "pi.wake",
             "place",
@@ -300,9 +268,11 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "read_models",
             "read_prompt",
             "reflect",
+            "remove_path",
             "resume",
             "retry",
             "rewind",
+            "shelves_changed",
             "stop",
             "submit",
         ],

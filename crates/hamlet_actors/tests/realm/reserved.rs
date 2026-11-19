@@ -93,7 +93,7 @@ fn take_up(a: AgentNumber, b: AgentNumber) -> TakeUpRoad {
 }
 
 /// Each wait's id, kind, subject and choice.
-async fn waits(
+pub(super) async fn waits(
     realm: &Realm,
 ) -> Vec<(i64, String, String, Option<String>)> {
     realm
@@ -142,7 +142,10 @@ async fn roads(realm: &Realm) -> Vec<(u32, u32, bool)> {
 }
 
 /// The notices `agent` was given.
-async fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
+pub(super) async fn notices(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> Vec<String> {
     decisions(realm).await;
     submits_to(realm, agent)
         .into_iter()

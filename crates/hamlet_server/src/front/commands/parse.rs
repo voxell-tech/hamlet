@@ -487,6 +487,7 @@ fn hire(
         hamlet: Some(hamlet),
         under,
         profile,
+        version: None,
         purpose: Some(purpose).filter(|purpose| !purpose.is_empty()),
         name: None,
     }))
@@ -700,6 +701,7 @@ mod tests {
                 hamlet: Some(docs()),
                 under: Some(Named::MayorOf { hamlet: docs() }),
                 profile: None,
+                version: None,
                 purpose: Some("write the guide".into()),
                 name: None,
             }))

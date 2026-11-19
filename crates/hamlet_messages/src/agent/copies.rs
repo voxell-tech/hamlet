@@ -1,8 +1,11 @@
 //! What the realm keeps that reaches an agent's prompt and its
 //! model calls, given to the agent as copies with a version.
 
+use std::fmt;
+
 use hamlet_actor::Action;
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Message;
 use crate::address::{Agent, Realm};
@@ -15,8 +18,6 @@ use crate::address::{Agent, Realm};
 pub struct Copies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charter: Option<Versioned<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub character: Option<Versioned<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Versioned<ModelChoice>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -70,10 +71,42 @@ pub struct ModelChoice {
 /// Dollars per million tokens.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Price {
+    #[serde(deserialize_with = "dollars")]
     pub input: f64,
+    #[serde(deserialize_with = "dollars")]
     pub output: f64,
+    #[serde(deserialize_with = "dollars")]
     pub cache_read: f64,
+    #[serde(deserialize_with = "dollars")]
     pub cache_write: f64,
+}
+
+/// A price read as a float or as an integer: the Node host's encoder
+/// writes a whole number such as 3 as an integer.
+fn dollars<'de, D: Deserializer<'de>>(
+    from: D,
+) -> Result<f64, D::Error> {
+    struct Dollars;
+    impl Visitor<'_> for Dollars {
+        type Value = f64;
+
+        fn expecting(&self, out: &mut fmt::Formatter) -> fmt::Result {
+            out.write_str("a number")
+        }
+
+        fn visit_f64<E>(self, price: f64) -> Result<f64, E> {
+            Ok(price)
+        }
+
+        fn visit_u64<E>(self, price: u64) -> Result<f64, E> {
+            Ok(price as f64)
+        }
+
+        fn visit_i64<E>(self, price: i64) -> Result<f64, E> {
+            Ok(price as f64)
+        }
+    }
+    from.deserialize_any(Dollars)
 }
 
 /// The realm's settings an agent's turns read.

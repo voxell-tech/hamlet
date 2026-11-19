@@ -14,6 +14,9 @@ use crate::cbor;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum When {
     BeforeAnswer,
+    /// Before the answer, to a callee that first asks agents, each
+    /// within [`BEFORE_ANSWER`].
+    OverAgents,
     AfterAnswer,
 }
 
@@ -21,6 +24,7 @@ impl When {
     pub const fn deadline(self) -> Duration {
         match self {
             Self::BeforeAnswer => BEFORE_ANSWER,
+            Self::OverAgents => Duration::from_secs(8),
             Self::AfterAnswer => Duration::from_secs(10),
         }
     }
@@ -97,6 +101,11 @@ fn marked(error: anyhow::Error) -> anyhow::Error {
         }
         _ => error,
     }
+}
+
+/// The refusal `why` a callee answered, as an error of its own.
+pub(super) fn refusal(why: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::msg(why.to_string()).context(Refused)
 }
 
 /// Whether `error` is a callee's own answer to a call of the

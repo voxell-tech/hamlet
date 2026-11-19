@@ -493,11 +493,14 @@ test("a client following the chief's chat reads again after /new", async (t) => 
         to: 7,
     });
     await send(line("b"));
+    const after = () =>
+        chatEvents(agent).filter((event) => event.number > page.number);
+    await until(() =>
+        after().some((event) => event.ops.some((op) => op.type === "reset")),
+    );
 
     const followed = new Followed(CHIEF, page);
-    const events = chatEvents(agent).filter(
-        (event) => event.number > page.number,
-    );
+    const events = after();
     const stopped = events.findIndex((event) => !followed.take(event));
     assert.notEqual(stopped, -1, "the client was told to read again");
     const again = await read(agent, CHIEF);
@@ -514,6 +517,99 @@ test("a client following the chief's chat reads again after /new", async (t) => 
         "notice: reflection",
         "assistant: Kept.",
     ]);
+});
+
+// As today's `/new` (`crates/hamlet_server/src/commands.rs`): the chief is
+// answered once the new session has begun.
+test("/new begins its session with its notice, and a follower hears of it after the answer", async (t) => {
+    const asked = Promise.withResolvers<void>();
+    const opened = Promise.withResolvers<void>();
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({
+            realm: {
+                open_task: async () => {
+                    asked.resolve();
+                    await opened.promise;
+                    throw new Error(
+                        "the reflection runs under the standing task",
+                    );
+                },
+            },
+        }).calls,
+        files: fakeFiles({}),
+        responses: reflecting(["One.", "Two."]),
+    });
+    t.after(() => agent.stop());
+    assert.equal((await read(agent, CHIEF)).session, 1);
+    await sender(agent)(line("a"));
+    await until(async () =>
+        chatEvents(agent).some((event) =>
+            event.ops.some((op) => op.type === "status" && !op.working),
+        ),
+    );
+    const before = chatEvents(agent).length;
+    const ofCurrent = () =>
+        chatEvents(agent)
+            .slice(before)
+            .filter(
+                (event) =>
+                    event.chat.past === undefined &&
+                    event.chat.from === undefined,
+            );
+
+    assert.deepEqual(
+        await agent.actions.new_session(agent.by(from.client), {
+            id: "new-1",
+            to: 7,
+        }),
+        { number: 2 },
+    );
+    assert.deepEqual(ofCurrent(), [], "the answer comes first");
+    await until(async () =>
+        ofCurrent().some((event) =>
+            event.ops.some((op) => op.type === "reset"),
+        ),
+    );
+    await asked.promise;
+    const page = await read(agent, CHIEF);
+    assert.equal(page.session, 2);
+    assert.deepEqual(shown(page.items), ["notice: Started a new session."]);
+    opened.resolve();
+    await agent.idle();
+});
+
+test("/new waiting behind another command holds no follower back", async (t) => {
+    const reached = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<void>();
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({
+            realm: {
+                open_task: async () => {
+                    reached.resolve();
+                    await held.promise;
+                    return { type: "opened", task: "task-retry" };
+                },
+            },
+        }).calls,
+        files: fakeFiles({}),
+        responses: reflecting(["One.", "Two."]),
+    });
+    t.after(() => agent.stop());
+    const client = agent.by(from.client);
+    await read(agent, CHIEF);
+    const retried = agent.actions.retry(client, { id: "r-1", to: 7 });
+    await reached.promise;
+    const begun = agent.actions.new_session(client, { id: "new-1", to: 7 });
+    const before = chatEvents(agent).length;
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "letter-held",
+        input: letter("Hello."),
+    });
+    await until(() => chatEvents(agent).length > before);
+    held.resolve();
+    await retried;
+    await begun;
+    await agent.idle();
 });
 
 test("a page read after the wake could not open the harness is followed", async (t) => {

@@ -22,7 +22,9 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Party, Realm, Workspace};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::bytes::{Base64, Sha256};
-use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
+use hamlet_messages::realm::{
+    NeedsChief, SecretList, Secrets, SocietyTool,
+};
 use hamlet_messages::sender::{Hand, id_reused, wrong_caller};
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, ChangeEnd, CutBy, EditDiff, EditFile, Find,
@@ -1793,8 +1795,11 @@ impl Seen {
 
 fn the_errors(fixtures: &mut Fixtures) {
     let realm = Caller::Actor(Realm.address().unwrap());
+    let agent =
+        Caller::Actor(Agent(AgentNumber(1)).address().unwrap());
     for (name, action, caller) in [
         ("run.realm", Run::NAME, Some(realm)),
+        ("tell.agent", SocietyTool::Tell.name(), Some(agent)),
         ("set_reach.client", SetReach::NAME, Some(Caller::Client)),
         ("set_reach.program", SetReach::NAME, None),
     ] {
@@ -1836,5 +1841,16 @@ fn an_integer_typescript_writes_is_a_u32() {
     every_fixture(&mut fixtures);
     let problems =
         integers::not_u32(&fixtures.samples, &fixtures.agent_answers);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn a_float_typescript_writes_reads_from_a_whole_number() {
+    let mut fixtures = Fixtures::new(false);
+    every_fixture(&mut fixtures);
+    let problems = integers::float_only(
+        &fixtures.samples,
+        &fixtures.agent_answers,
+    );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

@@ -18,9 +18,19 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Fill, Place, PlaceVersion, Submit,
+    AgentInput, Fill, Input, InputId, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::profile::Branch;
+use hamlet_messages::library::{
+    DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
+    ShelfList, Skill, Verdict, VerdictRefusal,
+};
+use hamlet_messages::profile::{
+    BadPath, Branch, CommitId, DreamEnd, DropSaveParts, Edit,
+    EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
+    Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
+    Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
+    VersionList, VersionName, VersionSeen, Versions,
+};
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
 };
@@ -28,8 +38,8 @@ use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, SetLimits, Tell, Tier,
-    Tool,
+    HireRefusal, Named, NeedsChief, ProfileId, Refusable as _,
+    SetLimits, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -60,6 +70,10 @@ mod chiefs;
 mod choices;
 #[path = "realm/copies.rs"]
 mod copies;
+#[path = "realm/dreams.rs"]
+mod dreams;
+#[path = "realm/drop_parts.rs"]
+mod drop_parts;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]
@@ -72,6 +86,8 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/librarian.rs"]
+mod librarian;
 #[path = "realm/living.rs"]
 mod living;
 #[path = "realm/oversight.rs"]
@@ -80,6 +96,8 @@ mod oversight;
 mod parcels;
 #[path = "realm/places.rs"]
 mod places;
+#[path = "realm/profiles.rs"]
+mod profiles;
 #[path = "realm/record.rs"]
 mod record;
 #[path = "realm/repeats.rs"]
@@ -122,12 +140,28 @@ const FOUR: AgentNumber = AgentNumber(4);
 enum Callee {
     Branch,
     Create,
+    /// The library's drop of an agent's offers under way, by the
+    /// agent's number.
+    DropOfferParts,
+    /// A profile's drop of an agent's save under way, by the agent's
+    /// number.
+    DropSaveParts,
+    /// A profile's edit, by the profile's number.
+    Edit,
+    /// A profile's end of a dream, by the profile's number.
+    EndDream,
     Fill,
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
+    /// A profile's preparation of a dream, by the profile's number.
+    PrepareDream,
+    /// A profile's purge, by the profile's number.
+    Purge,
     SetReach,
     Submit,
+    /// The library's verdict, by the offer's number.
+    Verdict,
 }
 
 #[derive(Default)]
@@ -140,6 +174,20 @@ struct Seen {
     reaches: Mutex<Vec<SetReach>>,
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
+    profiles: Mutex<Vec<(ProfileId, ProfileInput)>>,
+    reads: Mutex<Vec<(ProfileId, Read)>>,
+    edits: Mutex<Vec<(ProfileId, Edit)>>,
+    tags: Mutex<Vec<(ProfileId, Tag)>>,
+    reverts: Mutex<Vec<(ProfileId, Revert)>>,
+    purges: Mutex<Vec<(ProfileId, Purge)>>,
+    /// Each preparation of a dream, with whether a purge was held
+    /// when it came.
+    prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
+    dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    save_drops: Mutex<Vec<(ProfileId, DropSaveParts)>>,
+    offer_drops: Mutex<Vec<DropOfferParts>>,
+    /// Each verdict the library was called with, failed calls too.
+    verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -365,8 +413,20 @@ struct ProfileStandIn {
 
 #[async_trait::async_trait]
 impl Actor for ProfileStandIn {
-    type Input = ();
-    type Actions = (Branch,);
+    /// `None` for a profile a test calls without making it.
+    type Input = Option<ProfileInput>;
+    type Actions = (
+        Branch,
+        Versions,
+        Read,
+        Edit,
+        Tag,
+        Revert,
+        Purge,
+        PrepareDream,
+        EndDream,
+        DropSaveParts,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -377,26 +437,370 @@ impl Actor for ProfileStandIn {
             profile: ProfileId(key(ctx)?),
         })
     }
+
+    async fn on_create(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+    ) -> anyhow::Result<()> {
+        if let Some(input) = ctx.input()? {
+            self.seen
+                .profiles
+                .lock()
+                .unwrap()
+                .push((self.profile, input));
+        }
+        Ok(())
+    }
 }
+
+const HELD_VERSION: &str = "v1";
 
 impl Handler<Branch> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
         _: Ctx<Self>,
         branch: Branch,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Done<Missing>> {
         let agent = branch
             .name
             .strip_prefix("hires/")
             .context("a hire's branch is hires/<n>")?
             .parse()?;
         self.seen.called(Callee::Branch, AgentNumber(agent)).await?;
+        let from = branch.from.clone();
         self.seen
             .branches
             .lock()
             .unwrap()
             .push((self.profile, branch));
+        Ok(match from {
+            Some(version) if version.0 != HELD_VERSION => {
+                Done::Refused {
+                    why: Missing::NoVersion {
+                        profile: self.profile,
+                        version,
+                    },
+                }
+            }
+            _ => Done::Done,
+        })
+    }
+}
+
+impl Handler<Versions> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Versions,
+    ) -> anyhow::Result<VersionList> {
+        Ok(VersionList {
+            versions: vec![VersionSeen {
+                version: VersionName(HELD_VERSION.to_owned()),
+                commit: COMMIT,
+                note: String::new(),
+                by: "chief:1".to_owned(),
+            }],
+            commits: Vec::new(),
+        })
+    }
+}
+
+const HELD_FILE: &str = "CHARACTER.md";
+
+impl Handler<Read> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        read: Read,
+    ) -> anyhow::Result<ReadAnswer> {
+        let path = read.path.clone();
+        self.seen.reads.lock().unwrap().push((self.profile, read));
+        Ok(match path {
+            None => ReadAnswer::Listed {
+                paths: vec![FilePath {
+                    path: HELD_FILE.to_owned(),
+                }],
+            },
+            Some(path) if path == HELD_FILE => ReadAnswer::Text {
+                text: format!(
+                    "scholar#{}'s character",
+                    self.profile.0
+                ),
+                cut: false,
+            },
+            Some(path) => ReadAnswer::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            },
+        })
+    }
+}
+
+/// The commit every stand-in profile's change answers with.
+const COMMIT: CommitId = CommitId(Sha1([7; 20]));
+
+/// A path a stand-in profile refuses to write.
+const NOT_A_PATH: &str = "../out";
+
+/// An offer the stand-in library does not hold.
+const NO_OFFER: u32 = 404;
+
+/// An offer of agent 9's in the stand-in library.
+const OTHERS_OFFER: u32 = 405;
+
+/// An offer whose verdict the stand-in library refuses as judged.
+const JUDGED_OFFER: u32 = 406;
+
+const SKILL_MD: &str =
+    "---\nname: well\ndescription: Digs a well.\n---\n";
+
+impl Handler<Edit> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        edit: Edit,
+    ) -> anyhow::Result<Done<EditRefusal>> {
+        let path = edit.path.clone();
+        self.seen.edits.lock().unwrap().push((self.profile, edit));
+        self.seen
+            .called(Callee::Edit, AgentNumber(self.profile.0))
+            .await?;
+        Ok(if path == NOT_A_PATH {
+            Done::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            }
+        } else {
+            Done::Done
+        })
+    }
+}
+
+impl Handler<Tag> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        tag: Tag,
+    ) -> anyhow::Result<TagAnswer> {
+        let version = tag.version.clone();
+        self.seen.tags.lock().unwrap().push((self.profile, tag));
+        Ok(if version.0 == HELD_VERSION {
+            TagAnswer::Refused {
+                why: TagRefusal::Taken { version },
+            }
+        } else {
+            TagAnswer::Tagged {
+                version,
+                commit: COMMIT,
+            }
+        })
+    }
+}
+
+impl Handler<Revert> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        revert: Revert,
+    ) -> anyhow::Result<RevertAnswer> {
+        self.seen
+            .reverts
+            .lock()
+            .unwrap()
+            .push((self.profile, revert));
+        Ok(RevertAnswer::Reverted {
+            commit: COMMIT,
+            clashes: vec![FilePath {
+                path: "notes.md".to_owned(),
+            }],
+        })
+    }
+}
+
+/// The hire every stand-in profile's purge leaves holding the path.
+const STILL_HOLDS: AgentNumber = AgentNumber(3);
+
+impl Handler<Purge> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        purge: Purge,
+    ) -> anyhow::Result<PurgeAnswer> {
+        self.seen
+            .called(Callee::Purge, AgentNumber(self.profile.0))
+            .await?;
+        let path = purge.path.clone();
+        self.seen.purges.lock().unwrap().push((self.profile, purge));
+        Ok(if path == NOT_A_PATH {
+            PurgeAnswer::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            }
+        } else {
+            PurgeAnswer::Purged {
+                branches: 2,
+                still_hold: vec![STILL_HOLDS],
+            }
+        })
+    }
+}
+
+impl Handler<PrepareDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        prepare: PrepareDream,
+    ) -> anyhow::Result<Prepared> {
+        let purging = self
+            .seen
+            .waiting
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|&(callee, _)| callee == Callee::Purge);
+        self.seen
+            .called(Callee::PrepareDream, AgentNumber(self.profile.0))
+            .await?;
+        let dream = prepare.dream.0;
+        self.seen.prepares.lock().unwrap().push((
+            self.profile,
+            prepare,
+            purging,
+        ));
+        Ok(Prepared::Ready {
+            main: format!("dreams/{dream}/main"),
+            hire: None,
+        })
+    }
+}
+
+impl Handler<EndDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        end: EndDream,
+    ) -> anyhow::Result<DreamEnd> {
+        self.seen
+            .called(Callee::EndDream, AgentNumber(self.profile.0))
+            .await?;
+        self.seen
+            .dream_ends
+            .lock()
+            .unwrap()
+            .push((self.profile, end));
+        Ok(DreamEnd::Nothing)
+    }
+}
+
+struct LibraryStandIn {
+    seen: Arc<Seen>,
+}
+
+#[async_trait::async_trait]
+impl Actor for LibraryStandIn {
+    type Input = ();
+    type Actions = (ReadShelves, ReadOffer, Verdict, DropOfferParts);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self { seen: seen(ctx)? })
+    }
+}
+
+/// The one skill on every stand-in library's shelves.
+fn shelved() -> Skill {
+    Skill {
+        name: "dig".to_owned(),
+        description: "Digs a well.".to_owned(),
+        usage: "dig <depth>".to_owned(),
+    }
+}
+
+impl Handler<ReadShelves> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: ReadShelves,
+    ) -> anyhow::Result<ShelfList> {
+        Ok(ShelfList {
+            version: 1,
+            skills: vec![shelved()],
+        })
+    }
+}
+
+impl Handler<ReadOffer> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        ReadOffer { offer }: ReadOffer,
+    ) -> anyhow::Result<OfferRead> {
+        let agent = match offer.0 {
+            NO_OFFER => {
+                return Ok(OfferRead::Refused {
+                    why: NoOffer::NoSuchOffer { offer },
+                });
+            }
+            OTHERS_OFFER => AgentNumber(9),
+            _ => THREE,
+        };
+        Ok(OfferRead::Offered {
+            agent,
+            skill: "well".to_owned(),
+            reason: "for digging".to_owned(),
+            paths: vec!["SKILL.md".to_owned(), "dig.sh".to_owned()],
+            skill_md: SKILL_MD.to_owned(),
+        })
+    }
+}
+
+impl Handler<DropOfferParts> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropOfferParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropOfferParts, dropped.agent)
+            .await?;
+        self.seen.offer_drops.lock().unwrap().push(dropped);
         Ok(())
+    }
+}
+
+impl Handler<DropSaveParts> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropSaveParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropSaveParts, dropped.agent)
+            .await?;
+        self.seen
+            .save_drops
+            .lock()
+            .unwrap()
+            .push((self.profile, dropped));
+        Ok(())
+    }
+}
+
+impl Handler<Verdict> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        verdict: Verdict,
+    ) -> anyhow::Result<Done<VerdictRefusal>> {
+        let offer = verdict.offer;
+        self.seen.verdicts.lock().unwrap().push(verdict);
+        self.seen
+            .called(Callee::Verdict, AgentNumber(offer.0))
+            .await?;
+        Ok(if offer.0 == JUDGED_OFFER {
+            Done::refused(VerdictRefusal::Judged { offer })
+        } else {
+            Done::Done
+        })
     }
 }
 
@@ -490,6 +894,10 @@ async fn open(
             address::Workspace::KIND.to_owned(),
             kind::<WorkspaceStandIn>(address::Workspace::KIND),
         ),
+        (
+            address::Library::KIND.to_owned(),
+            kind::<LibraryStandIn>(address::Library::KIND),
+        ),
     ]);
     let mut host_options =
         HostOptions::default().with_value(seen.clone());
@@ -497,9 +905,12 @@ async fn open(
         host_options = host_options.with_value(options.clone());
     }
     let host = Host::open_with(dir, kinds, host_options).unwrap();
-    host.get_or_start(&address::Workspace.address().unwrap())
-        .await
-        .unwrap();
+    for started in [
+        address::Workspace.address().unwrap(),
+        address::Library.address().unwrap(),
+    ] {
+        host.get_or_start(&started).await.unwrap();
+    }
     host
 }
 
@@ -737,6 +1148,7 @@ fn hire(under: Option<Named>) -> Hire {
         hamlet: None,
         under,
         profile: None,
+        version: None,
         purpose: Some("Check the links".to_owned()),
         name: None,
     }
@@ -884,6 +1296,28 @@ async fn seen_submits(
     submits_to(realm, agent)
 }
 
+async fn told_of_failed(
+    realm: &Realm,
+    lead: AgentNumber,
+    hire: AgentNumber,
+) -> String {
+    let id = InputId(format!("hire/{}", hire.0));
+    let told = || {
+        submits_to(realm, lead)
+            .into_iter()
+            .find(|seen| seen.id == id)
+    };
+    until(
+        &format!("agent {} is told of hire {}", lead.0, hire.0),
+        || told().is_some(),
+    )
+    .await;
+    match told().map(|seen| seen.input) {
+        Some(Input::Notice { text, .. }) => text,
+        other => panic!("not a notice: {other:?}"),
+    }
+}
+
 fn to(agent: AgentNumber) -> Named {
     Named::Agent { agent }
 }
@@ -1019,6 +1453,7 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
     };
     let branch = Branch {
         name: "hires/2".into(),
+        from: None,
     };
 
     call(&host, &address::Agent(AgentNumber(2)), &place)

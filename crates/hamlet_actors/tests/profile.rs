@@ -272,6 +272,7 @@ async fn hired(
 async fn hire(host: &Host, number: u32) {
     let branch = Branch {
         name: format!("hires/{number}"),
+        from: None,
     };
     call_as(host, &realm(), &branch).await.unwrap();
 }
@@ -393,6 +394,27 @@ async fn a_tag_is_kept_and_its_repeat_answered_from_the_marker() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tag_at_a_commit_git_fails_to_read_fails_and_tags_nothing()
+{
+    let dir = Scratch::new("profile-tag-damaged");
+    let host = made(&dir).await;
+    let damaged: hamlet_git::CommitId =
+        "cd".repeat(20).parse().unwrap();
+    let hex = damaged.to_string();
+    let folder = dir.join("scholars/1.git/objects").join(&hex[..2]);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(&hex[2..]), b"not a git object")
+        .unwrap();
+    let asked = Tag {
+        at: Some(commit_id(damaged)),
+        ..tag(&RequestId::new(), "v1", "")
+    };
+    call_as(&host, &realm(), &asked).await.unwrap_err();
+    assert!(repository(&dir, 1).versions().unwrap().is_empty());
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_wrong_caller_is_refused_before_anything() {
     let dir = Scratch::new("profile-caller");
     let host = made(&dir).await;
@@ -404,6 +426,7 @@ async fn a_wrong_caller_is_refused_before_anything() {
     assert_eq!(error_code(read), "message.wrong_caller");
     let branch = Branch {
         name: "hires/7".into(),
+        from: None,
     };
     assert_eq!(
         error_code(call_as(&host, &agent(), &branch).await),
@@ -705,12 +728,16 @@ async fn a_branch_is_made_at_main_and_found_by_its_repeat() {
     let host = made(&dir).await;
     let branch = Branch {
         name: "hires/7".into(),
+        from: None,
     };
     call_as(&host, &realm(), &branch).await.unwrap();
     assert_eq!(tip(&dir, "hires/7"), Some(main_tip(&dir)));
     call_as(&host, &realm(), &branch).await.unwrap();
     for name in ["trunk", "hires/07", "hires/"] {
-        let bad = Branch { name: name.into() };
+        let bad = Branch {
+            name: name.into(),
+            from: None,
+        };
         call_as(&host, &realm(), &bad).await.unwrap_err();
     }
     let branches = repository(&dir, 1).branches().unwrap();
@@ -725,6 +752,7 @@ async fn a_hire_is_told_once_main_moved_under_it() {
     let host = made(&dir).await;
     let branch = Branch {
         name: "hires/7".into(),
+        from: None,
     };
     call_as(&host, &realm(), &branch).await.unwrap();
     host.shutdown().await.unwrap();

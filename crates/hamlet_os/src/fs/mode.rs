@@ -11,6 +11,8 @@ impl Mode {
     pub const PRIVATE: Self = Self(0o600);
     /// A file anyone on the machine may read.
     pub const SHARED: Self = Self(0o644);
+    /// A file only the server reads, and runs.
+    pub const PROGRAM: Self = Self(0o700);
     /// A file no one may write.
     pub(crate) const READ_ONLY: Self = Self(0o444);
 
@@ -21,6 +23,11 @@ impl Mode {
 
     pub fn bits(self) -> u32 {
         self.0
+    }
+
+    /// Whether the owner may run a file of this mode.
+    pub fn is_executable(self) -> bool {
+        self.0 & 0o100 != 0
     }
 
     /// What this mode reads back as once set on a `kind` here. Unix

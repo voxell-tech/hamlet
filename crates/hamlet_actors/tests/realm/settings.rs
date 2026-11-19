@@ -121,7 +121,6 @@ async fn read_copies_gives_only_moved_parts() {
     let first = read_copies(&realm, &ReadCopies::default()).await;
     let held = ReadCopies {
         charter: first.charter.as_ref().map(|part| part.version),
-        character: first.character.as_ref().map(|part| part.version),
         model: first.model.as_ref().map(|part| part.version),
         settings: first.settings.as_ref().map(|part| part.version),
     };
@@ -130,13 +129,6 @@ async fn read_copies_gives_only_moved_parts() {
     chief(&realm, settings(Setting::ReflectEvery { turns: 4 })).await;
     let after = read_copies(&realm, &held).await;
 
-    assert!(
-        first
-            .character
-            .unwrap()
-            .value
-            .starts_with("You are a scholar")
-    );
     assert_eq!(first.model.unwrap().value.model, FAUX);
     assert_eq!(same, Copies::default());
     let moved = after.settings.clone().expect("the settings moved");
@@ -395,7 +387,6 @@ async fn versions(realm: &Realm) -> ReadCopies {
     let copies = read_copies(realm, &ReadCopies::default()).await;
     ReadCopies {
         charter: copies.charter.map(|part| part.version),
-        character: copies.character.map(|part| part.version),
         model: copies.model.map(|part| part.version),
         settings: copies.settings.map(|part| part.version),
     }
@@ -442,10 +433,11 @@ async fn read_copies_gives_a_part_whose_version_differs() {
     let realm = realm_with_hand().await;
     let ahead = ReadCopies {
         charter: Some(CopyVersion(99)),
-        character: Some(CopyVersion(99)),
         model: Some(CopyVersion(99)),
         settings: Some(CopyVersion(99)),
     };
+    chief(&realm, settings(Setting::Model { model: FAUX.into() }))
+        .await;
     chief(&realm, charter("Be brief.")).await;
 
     let read = read_copies(&realm, &ahead).await;
@@ -454,7 +446,7 @@ async fn read_copies_gives_a_part_whose_version_differs() {
         read.charter.map(|part| part.value),
         Some("Be brief.".to_owned())
     );
-    assert!(read.character.is_some() && read.settings.is_some());
+    assert!(read.model.is_some() && read.settings.is_some());
     realm.host.shutdown().await.unwrap();
 }
 

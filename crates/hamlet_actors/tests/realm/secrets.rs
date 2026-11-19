@@ -627,3 +627,42 @@ async fn a_realm_whose_credentials_are_damaged_says_why_it_did_not_start()
     assert!(!shown.contains(key), "{shown}");
     host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_credential_an_agent_keeps_is_in_the_realms_list_of_secrets()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    keep(&realm, "openai", key("sk-made-up-kept")).await;
+    keep(
+        &realm,
+        "chatgpt",
+        Kept::Oauth {
+            login: login("made-up-first"),
+        },
+    )
+    .await;
+    let refreshed = KeepCredential {
+        provider: "chatgpt".to_owned(),
+        value: Kept::Oauth {
+            login: login("made-up-second"),
+        },
+    };
+    realm.tool(MAYOR, &refreshed).await.unwrap();
+
+    let list: SecretList =
+        realm.call_as_workspace(&Secrets).await.unwrap();
+
+    for value in [
+        "sk-made-up-kept",
+        "made-up-first",
+        "made-up-first-refresh",
+        "made-up-second",
+        "made-up-second-refresh",
+    ] {
+        assert!(
+            list.values.iter().any(|held| held == value),
+            "{value}"
+        );
+    }
+    realm.host.shutdown().await.unwrap();
+}

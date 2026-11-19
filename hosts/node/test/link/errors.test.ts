@@ -13,37 +13,11 @@ import {
 
 const SKIP = { skip: process.platform !== "linux" };
 
-/**
- * What agent 1 reads when the realm refuses it `action` as its wrong caller:
- * the stored `error/wrong_caller.run.realm`, the workspace's refusal of the
- * realm's `run`, with only the action and the caller renamed in its message
- * and metadata. No stored fixture has an agent as its caller.
- */
-function wrongCallerOfRealm(action: string): unknown {
-    const renamed: Record<string, string> = {
-        run: action,
-        realm: "agent",
-        local: "1",
-    };
-    const rename = (value: unknown): unknown => {
-        if (typeof value === "string") {
-            return value.replace(
-                /\b(run|realm|local)\b/g,
-                (word) => renamed[word] ?? word,
-            );
-        }
-        if (value !== null && typeof value === "object") {
-            return Object.fromEntries(
-                Object.entries(value).map(([key, inner]) => [
-                    key,
-                    rename(inner),
-                ]),
-            );
-        }
-        return value;
-    };
-    return { error: rename(fixture("error/wrong_caller.run.realm.answer")) };
-}
+/** Agent 1's answer when the realm refuses its `tell` as a wrong caller. */
+const REFUSED_TELL = fixture("error/wrong_caller.tell.agent.answer") as {
+    readonly message: string;
+    readonly metadata: Record<string, unknown>;
+};
 
 /** How long a Node host may outlive its demo host. */
 const GONE_WAIT_MS = 2_000;
@@ -110,7 +84,13 @@ test(
                 "agent/1/ask",
             );
             await stopped(demo, await nodePid(demo, 1));
-            assert.deepEqual(read, wrongCallerOfRealm("heard"));
+            assert.deepEqual(read, {
+                error: {
+                    ...REFUSED_TELL,
+                    message: REFUSED_TELL.message.replace("'tell'", "'heard'"),
+                    metadata: { ...REFUSED_TELL.metadata, action: "heard" },
+                },
+            });
         });
     },
 );
@@ -131,7 +111,7 @@ test(
             );
             const notes = await demo.ask("tell 2 count");
             await stopped(demo, await nodePid(demo, 1));
-            assert.deepEqual(read, wrongCallerOfRealm("tell"));
+            assert.deepEqual(read, { error: REFUSED_TELL });
             assert.equal(notes, "agent/2/count 0");
         });
     },

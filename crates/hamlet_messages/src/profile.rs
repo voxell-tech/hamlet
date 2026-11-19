@@ -7,68 +7,15 @@
 //! Neither names a branch: an agent's branch is the one the profile
 //! keeps for the agent the host's stamp names.
 
-use std::fmt;
-
 use hamlet_protocol::client::RequestId;
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Repeat;
 use crate::address::{Agent, Profile, Realm};
 use crate::bytes::Base64;
+pub use crate::bytes::Sha1;
 use crate::realm::{Done, ProfileId};
 use crate::workspace::{AgentNumber, CallId};
-
-/// A SHA-1, written as 40 lowercase hex characters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Sha1(pub [u8; 20]);
-
-impl Sha1 {
-    /// Reads 40 lowercase hex characters.
-    pub fn from_hex(text: &str) -> Option<Self> {
-        let nibble = |digit: u8| match digit {
-            b'0'..=b'9' => Some(digit - b'0'),
-            b'a'..=b'f' => Some(digit - b'a' + 10),
-            _ => None,
-        };
-        if text.len() != 40 {
-            return None;
-        }
-        let mut hash = [0; 20];
-        for (byte, pair) in
-            hash.iter_mut().zip(text.as_bytes().chunks(2))
-        {
-            *byte = nibble(pair[0])? << 4 | nibble(pair[1])?;
-        }
-        Some(Self(hash))
-    }
-}
-
-impl fmt::Display for Sha1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.iter().try_for_each(|byte| write!(f, "{byte:02x}"))
-    }
-}
-
-impl Serialize for Sha1 {
-    fn serialize<S: Serializer>(
-        &self,
-        to: S,
-    ) -> Result<S::Ok, S::Error> {
-        to.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha1 {
-    fn deserialize<D: Deserializer<'de>>(
-        from: D,
-    ) -> Result<Self, D::Error> {
-        let text = String::deserialize(from)?;
-        Self::from_hex(&text).ok_or_else(|| {
-            D::Error::custom("a SHA-1 is 40 lowercase hex characters")
-        })
-    }
-}
 
 /// A commit of a profile's repository.
 #[derive(
@@ -88,8 +35,15 @@ pub struct VersionName(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Revision {
-    Version { version: VersionName },
-    Commit { commit: CommitId },
+    /// `main`'s tip.
+    Main,
+    /// A version, or a branch by its name.
+    Version {
+        version: VersionName,
+    },
+    Commit {
+        commit: CommitId,
+    },
 }
 
 /// The realm's id of a dream.
@@ -197,7 +151,9 @@ family!(BadCommit {
 
 family!(
     /// A commit an agent names that the profile no longer has, as
-    /// after a purge. The agent fills again from nothing.
+    /// after a purge. The agent fills again from the branch's tip. After
+    /// a refused save it keeps the files it changed, but for those the
+    /// purge asked it to remove, and saves them on the new tip.
     Gone {
         #[error("the commit `{}` is gone", commit.0)]
         CommitGone { commit: CommitId },
@@ -224,13 +180,18 @@ union!(SaveRefusal {
     Gone(Gone),
 });
 
-/// Makes the branch `name` when the profile does not have it. A
-/// repeat finds the branch and answers the same.
+/// Makes the branch `name` when the profile does not have it, at the
+/// version `from`, or at `main` when absent. A repeat finds the
+/// branch and answers the same.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Branch {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<VersionName>,
 }
-message!(Branch, "branch", Realm => Profile, (), |_| Repeat::Finds);
+message!(Branch, "branch", Realm => Profile, Done<Missing>, |_| {
+    Repeat::Finds
+});
 
 /// Tags a commit as a version: `at`, or `main`'s tip when absent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,7 +217,7 @@ family!(TagRefusal {
     NoSuchCommit { profile: ProfileId, commit: CommitId },
 });
 
-answer!(TagAnswer<TagRefusal> {
+answer!(TagAnswer<W = TagRefusal> {
     Tagged { version: VersionName, commit: CommitId },
 });
 message!(Tag, "tag", Realm => Profile, TagAnswer, |tag| {
@@ -292,7 +253,7 @@ pub struct Revert {
     pub by: By,
 }
 
-answer!(RevertAnswer<RevertRefusal> {
+answer!(RevertAnswer<W = RevertRefusal> {
     /// `clashes` changed again since and kept their later lines.
     Reverted { commit: CommitId, clashes: Vec<Path> },
     /// `main` holds nothing of it any more.
@@ -311,7 +272,7 @@ pub struct Purge {
     pub by: By,
 }
 
-answer!(PurgeAnswer<PurgeRefusal> {
+answer!(PurgeAnswer<W = PurgeRefusal> {
     /// `still_hold` are the hires whose agents remove the path once
     /// idle, or did not answer.
     Purged { branches: u32, still_hold: Vec<AgentNumber> },
@@ -394,6 +355,17 @@ message!(EndDream, "end_dream", Realm => Profile, DreamEnd, |_| {
     Repeat::Finds
 });
 
+/// Drops the parts kept of `agent`'s save whose last part has not
+/// come, once the agent has ended. A repeat finds none and answers
+/// the same.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropSaveParts {
+    pub agent: AgentNumber,
+}
+message!(DropSaveParts, "drop_save_parts", Realm => Profile, (), |_| {
+    Repeat::Finds
+});
+
 /// Reads the profile's versions and the latest commits of `main`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Versions;
@@ -445,6 +417,32 @@ pub struct Paper {
     pub description: String,
 }
 message!(Papers, "papers", Realm => Profile, PaperList);
+
+/// Lists the files of `main`, or of the commit `at` names, or reads
+/// the file `path` there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Read {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<Revision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// The most bytes of a file a [`Read`] gives.
+pub const MOST_READ: u32 = 50 * 1024;
+
+union!(ReadFileRefusal {
+    Missing(Missing),
+    Commit(BadCommit),
+    Path(BadPath),
+});
+
+answer!(ReadAnswer<W = ReadFileRefusal> {
+    Listed { paths: Vec<Path> },
+    /// The file's text, cut after [`MOST_READ`] bytes when `cut`.
+    Text { text: String, cut: bool },
+});
+message!(Read, "read", Realm => Profile, ReadAnswer);
 
 /// Removes the repository. The actor ends after it answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -14,10 +14,10 @@ use hamlet_messages::realm::{
     TakeUpRoad,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision, Paid, ToolAct};
+use super::act::{Act, Called, Decided, Decision, Paid, ToolAct};
 use super::callers::Lead;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, At, Rows, Writer, number};
@@ -522,10 +522,13 @@ impl Act<Agent> for Paid<RequestRoad> {
     }
 }
 
-impl ToolAct for RequestRoad {
+impl ToolAct<Agent> for RequestRoad {
     type Run = Paid<RequestRoad>;
 
-    fn run(self, task: Option<RealmTask>) -> Paid<RequestRoad> {
-        Paid { task, act: self }
+    fn run(self, called: &Called) -> Paid<RequestRoad> {
+        Paid {
+            task: called.task.clone(),
+            act: self,
+        }
     }
 }

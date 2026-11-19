@@ -157,17 +157,15 @@ fn a_demo_host_with_no_kind_runs_the_counter_and_every_named_kind() {
 }
 
 #[test]
-fn a_profile_or_library_command_runs_both_beside_the_kinds_it_names()
-{
-    let home = Scratch::new("demo-profile-kinds");
-    let got = once(&home, &["--kind", "x", "profile"]);
-    assert!(!got.status.success());
-    let stderr = String::from_utf8_lossy(&got.stderr);
-    assert!(stderr.contains("usage: demo profile"), "{stderr}");
-    assert_eq!(
-        names_in(&home.join("actors")),
-        ["agent", "library", "profile", "realm", "x"]
-    );
+fn a_profile_or_library_command_needs_the_realm_actor() {
+    for verb in ["profile", "library"] {
+        let home = Scratch::new("demo-profile-kinds");
+        let got = once(&home, &["--kind", "x", verb]);
+        assert!(!got.status.success());
+        let stderr = String::from_utf8_lossy(&got.stderr);
+        assert!(stderr.contains("--realm-actor"), "{stderr}");
+        assert!(!home.join("actors").exists());
+    }
 }
 
 /// A `tell`'s arguments and its answer cross as base64 text, a third

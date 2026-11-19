@@ -17,9 +17,9 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
-    Branch, CommitId, Edit, EndDream, Erase, Files, Papers, Pin,
-    PrepareDream, ProfileInput, Purge, Revert, Save, Sha1, Tag,
-    TooLong, Versions,
+    Branch, CommitId, DropSaveParts, Edit, EndDream, Erase, Files,
+    Papers, Pin, PrepareDream, ProfileInput, Purge, Read, Revert,
+    Save, Sha1, Tag, TooLong, Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -68,6 +68,7 @@ impl Actor for Profile {
     type Input = Option<ProfileInput>;
     type Actions = (
         Branch,
+        DropSaveParts,
         Edit,
         EndDream,
         Erase,
@@ -76,6 +77,7 @@ impl Actor for Profile {
         Pin,
         PrepareDream,
         Purge,
+        Read,
         Revert,
         Save,
         Tag,
@@ -246,6 +248,10 @@ mod tests {
         vec![
             args(&Branch {
                 name: "hires/7".into(),
+                from: None,
+            }),
+            args(&DropSaveParts {
+                agent: AgentNumber(7),
             }),
             args(&Tag {
                 id: RequestId::new(),
@@ -293,6 +299,10 @@ mod tests {
                 by: By::Chief { chief: 3 },
             }),
             args(&Papers),
+            args(&Read {
+                at: None,
+                path: None,
+            }),
             args(&Erase {
                 id: RequestId::new(),
             }),

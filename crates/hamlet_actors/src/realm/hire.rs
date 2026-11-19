@@ -4,18 +4,20 @@ use anyhow::Result;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::agent::{AgentInput, Fill};
 use hamlet_messages::profile::Branch;
+use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::change::Change;
-use super::peer::When;
+use super::peer::{self, When};
 use super::steps::{Cx, Kind, StepId, Steps};
-use super::{documents, place, tasks, tree, versions};
+use super::{documents, place, profiles, tasks, tree};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
-    /// The profile's actor is made, or was there.
+    /// The profile's actor is made from its character, or started.
     Profile,
-    /// The profile has the branch `hires/<n>`.
+    /// The profile has the branch `hires/<n>`, at the hire's version
+    /// when it has one.
     Branch,
     /// `agent/<n>` is made with its place and its task.
     Create,
@@ -67,15 +69,25 @@ pub(super) async fn run(
     let rows = cx.rows()?;
     match step {
         Step::Profile => {
-            let profile = tree::profile_of(&rows, agent).await?;
-            cx.peers().get_or_start(&Profile(profile)).await?;
+            profiles::start(
+                cx,
+                tree::profile_of(&rows, agent).await?,
+            )
+            .await?;
         }
         Step::Branch => {
             let profile = tree::profile_of(&rows, agent).await?;
-            let named = Branch { name: branch(n) };
-            cx.peers()
+            let named = Branch {
+                name: branch(n),
+                from: tree::version_of(&rows, agent).await?,
+            };
+            let branched = cx
+                .peers()
                 .call(&Profile(profile), &named, When::AfterAnswer)
                 .await?;
+            if let Done::Refused { why } = branched {
+                return Err(peer::refusal(why));
+            }
         }
         Step::Create => {
             let input = AgentInput {
@@ -92,17 +104,13 @@ pub(super) async fn run(
         Step::Fill => {
             let fill = Fill {
                 profile: tree::profile_of(&rows, agent).await?,
-                branch: branch(n),
             };
             cx.peers()
                 .call(&Agent(agent), &fill, When::AfterAnswer)
                 .await?;
         }
         Step::Reach => {
-            cx.commit(vec![
-                versions::Change::WantReach(agent).into(),
-            ])
-            .await?;
+            cx.want_reach(agent).await?;
         }
         Step::Live => {
             return Ok(vec![tree::Change::Live { agent }.into()]);

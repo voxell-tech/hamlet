@@ -8,7 +8,12 @@ import {
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { FileError, ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
-import type { AgentInput, Copies, ReadAnswer } from "../src/agent/messages.ts";
+import type {
+    AgentInput,
+    Character,
+    Copies,
+    ReadAnswer,
+} from "../src/agent/messages.ts";
 import { renderPrompt } from "../src/agent/prompt.ts";
 import {
     FAKE_ROOT,
@@ -103,6 +108,38 @@ async function sendCopies(agent: Woken, copies: Copies): Promise<void> {
     await agent.actions.copies(agent.by(from.realm), copies);
 }
 
+const TIP = "ab".repeat(20);
+
+/**
+ * A profile with no files, which gives the agent the character last given
+ * to `keep`: by the fill the first time, by a move after.
+ */
+function profileWithCharacter() {
+    let character: Character | undefined;
+    return {
+        files: () => ({
+            type: "part" as const,
+            tip: TIP,
+            files: [],
+            removed: [],
+            ...(character === undefined ? {} : { character }),
+        }),
+        save: () => ({ type: "saved" as const, tip: TIP }),
+        keep: async (agent: Woken, version: number, text: string) => {
+            const first = character === undefined;
+            character = { version, text };
+            if (first) {
+                await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+            } else {
+                await agent.actions.moved(agent.by(from.profile(2)), {
+                    tip: TIP,
+                    character,
+                });
+            }
+        },
+    };
+}
+
 async function say(agent: Woken, text: string): Promise<void> {
     await agent.actions.submit(agent.by(from.realm), {
         id: `line-${text}`,
@@ -143,15 +180,17 @@ test("the prompt cuts each part at its limit", async (t) => {
     const character = `${"c".repeat(3999)}😀tail`;
     const memory = "m".repeat(9000);
     const project = `${"p".repeat(7999)}😀tail`;
+    const profile = profileWithCharacter();
     const { calls } = fakeCalls({
         workspace: workspaceFiles({ "/work/AGENTS.md": project }),
+        profile,
     });
     const agent = await wakeAgent(t, {
         calls,
         input: HIRE,
         files: listedFiles({ "memory/long.md": memory }),
     });
-    await sendCopies(agent, { character: { version: 1, value: character } });
+    await profile.keep(agent, 1, character);
 
     const text = await readPrompt(agent);
 
@@ -197,9 +236,7 @@ test("the prompt cuts each part at its limit", async (t) => {
         ),
     );
 
-    await sendCopies(agent, {
-        character: { version: 2, value: "c".repeat(4000) },
-    });
+    await profile.keep(agent, 2, "c".repeat(4000));
     assert.ok(
         (await readPrompt(agent)).includes(
             `# Your character\n${"c".repeat(4000)}\n\n# Your memory`,
@@ -245,8 +282,10 @@ test("refreshed keeps what read_copies answers", async (t) => {
 });
 
 test("read_prompt answers what the next request sends", async (t) => {
+    const profile = profileWithCharacter();
     const { calls } = fakeCalls({
         workspace: workspaceFiles({ "/work/AGENTS.md": "Use tabs." }),
+        profile,
     });
     const record = recorder();
     const agent = await wakeAgent(t, {
@@ -261,10 +300,8 @@ test("read_prompt answers what the next request sends", async (t) => {
         }),
         responses: [record.step(fauxAssistantMessage("Hello."))],
     });
-    await sendCopies(agent, {
-        charter: { version: 1, value: "Be brief." },
-        character: { version: 1, value: "Calm." },
-    });
+    await sendCopies(agent, { charter: { version: 1, value: "Be brief." } });
+    await profile.keep(agent, 1, "Calm.");
 
     const text = await readPrompt(agent);
     await say(agent, "Hi");
@@ -363,14 +400,12 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
 
 const NAMED_NOT_OFFERED = [
     "object",
-    "create_scholar",
     "start_worker",
     "merge_hires",
     "set_model",
     "set_allowance",
     "nickname",
     "read_record",
-    "read_scholar",
 ];
 
 test("every tool the prompt names is one the agent offers", {

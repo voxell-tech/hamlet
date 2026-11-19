@@ -203,11 +203,18 @@ export interface FolderEntry {
     /** `file`, `directory` or `symlink`. */
     kind: string;
     size: number;
+    /**
+     * Whether it is a file that runs. Never on Windows, which keeps
+     * no such mode.
+     */
+    executable: boolean;
 }
 /** A regular file, by its path from the agent's filesystem. */
 export interface FolderFile {
     path: string;
     size: number;
+    /** As [`FolderEntry::executable`]. */
+    executable: boolean;
 }
 export interface FolderFiles {
     files: Array<FolderFile>;
@@ -525,9 +532,22 @@ export declare class AgentFolder {
     read(path: string): Promise<Buffer>;
     /**
      * Writes the file whole, and answers whether nothing was there
-     * before.
+     * before. With `executable`, the file runs or does not; without
+     * it, the file keeps the mode of the file it replaces. Windows
+     * keeps no mode that runs, so there `executable` changes
+     * nothing.
      */
-    write(path: string, bytes: Buffer): Promise<boolean>;
+    write(
+        path: string,
+        bytes: Buffer,
+        executable?: boolean | undefined | null,
+    ): Promise<boolean>;
+    /**
+     * Removes the file at `path`, a link itself, or the folder there
+     * with all it holds, and the folders on its way it leaves empty.
+     * A folder `open` made is made again.
+     */
+    remove(path: string): Promise<void>;
     /**
      * The names in the folder at `path`, sorted. Names that are
      * neither a file, a folder nor a link are left out.

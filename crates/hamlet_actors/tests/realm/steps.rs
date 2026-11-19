@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
-    made_until, seen_submits, submits_to, tell, to, tool, until,
-    words,
+    made_until, seen_submits, submits_to, tell, to, told_of_failed,
+    tool, until, words,
 };
 
 const BLANK: ProfileId = ProfileId(2);
@@ -113,12 +113,12 @@ async fn a_hire_goes_live_through_its_steps() {
         })
         .await;
 
-    let branch = "hires/2".to_owned();
     assert_eq!(
         seen,
         HireSeen {
             branches: vec![Branch {
-                name: branch.clone()
+                name: "hires/2".into(),
+                from: None,
             }],
             made: vec![AgentInput {
                 kind: AgentKind::Hire,
@@ -134,10 +134,7 @@ async fn a_hire_goes_live_through_its_steps() {
                 brief: None,
                 copies,
             }],
-            fills: vec![Fill {
-                profile: BLANK,
-                branch,
-            }],
+            fills: vec![Fill { profile: BLANK }],
             reaches: vec![SetReach {
                 agent: MAYOR,
                 version: ReachVersion(1),
@@ -265,7 +262,7 @@ async fn a_step_done_again_leaves_one_hire() {
 }
 
 /// The agent rows that are still hiring, and how `agent` ended.
-async fn hiring_and_how(
+pub(super) async fn hiring_and_how(
     realm: &Realm,
     agent: AgentNumber,
 ) -> (i64, Option<String>) {
@@ -305,7 +302,47 @@ async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
     let (hiring, how) = hiring_and_how(&realm, THREE).await;
     assert_eq!(hiring, 0);
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
+    let told = told_of_failed(&realm, MAYOR, THREE).await;
+    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
+    assert!(told.ends_with("An internal error occurred"), "{told}");
     realm.host.shutdown().await.unwrap();
+}
+
+const HIRE_3_FAILED: &str = "`hire#3` has left: its task failed: ";
+
+async fn told_of_a_hire_failing_at(callee: Callee) -> String {
+    let (realm, _) = hamlet_with(0).await;
+    realm.seen.fail_for_good(callee, THREE);
+    hires(&realm, MAYOR, "h1").await;
+
+    let told = told_of_failed(&realm, MAYOR, THREE).await;
+
+    let (hiring, how) = hiring_and_how(&realm, THREE).await;
+    assert_eq!(hiring, 0);
+    assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
+    realm.host.shutdown().await.unwrap();
+    told
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_files_cannot_be_filled_ends_and_its_lead_hears_why()
+ {
+    let told = told_of_a_hire_failing_at(Callee::Fill).await;
+    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
+    assert!(
+        told.ends_with("the stand-in refuses Fill of 3"),
+        "{told}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_reach_is_refused_ends_and_its_lead_hears_why() {
+    let told = told_of_a_hire_failing_at(Callee::SetReach).await;
+    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
+    assert!(
+        told.ends_with("the stand-in refuses SetReach of 3"),
+        "{told}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

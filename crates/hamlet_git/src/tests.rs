@@ -214,6 +214,29 @@ fn versions_name_commits_and_resolve() {
 }
 
 #[test]
+fn a_kept_commit_is_told_from_a_missing_one_and_a_failed_read() {
+    let dir = Scratch::new("git-has-commit");
+    let repo = repository(&dir);
+    let first = repo
+        .commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
+        .unwrap();
+    assert!(repo.has_commit(first).unwrap());
+    let blob = repo.write_blob(b"a file").unwrap();
+    let blob = blob.to_string().parse().unwrap();
+    assert!(!repo.has_commit(blob).unwrap());
+    let missing = "ab".repeat(20).parse().unwrap();
+    assert!(!repo.has_commit(missing).unwrap());
+
+    let damaged: CommitId = "cd".repeat(20).parse().unwrap();
+    let hex = damaged.to_string();
+    let folder = dir.join("scholar.git/objects").join(&hex[..2]);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(&hex[2..]), b"not a git object")
+        .unwrap();
+    assert!(repo.has_commit(damaged).is_err());
+}
+
+#[test]
 fn a_folder_is_checked_out_and_committed_by_its_listing() {
     let dir = Scratch::new("git-lodge");
     let repo = repository(&dir);

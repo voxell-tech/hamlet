@@ -721,7 +721,6 @@ fn the_documents(fixtures: &mut Fixtures) {
         "realm/read_copies",
         &ReadCopies {
             charter: Some(CopyVersion(3)),
-            character: Some(CopyVersion(2)),
             model: Some(CopyVersion(5)),
             settings: Some(CopyVersion(1)),
         },

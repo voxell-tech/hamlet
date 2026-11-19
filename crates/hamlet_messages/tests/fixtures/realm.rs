@@ -8,7 +8,7 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, Input,
     InputId, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::profile::Branch;
+use hamlet_messages::profile::{Branch, Missing, VersionName};
 use hamlet_messages::realm::budget::{
     Budget, BudgetLimit, Charge, MaySpend, Payer, Period,
     ResetBudget, SpendRefusal,
@@ -49,6 +49,7 @@ use super::cases::{Cases, Union, family, named, tagged, union};
 use super::{AGENT, Fixtures, call, task};
 
 mod parcels;
+mod profiles;
 mod society;
 
 const HIRE: AgentNumber = AgentNumber(12);
@@ -99,6 +100,7 @@ pub fn enums() -> Vec<Cases> {
     .into_iter()
     .chain(society::enums())
     .chain(parcels::enums())
+    .chain(profiles::enums())
     .collect()
 }
 
@@ -121,6 +123,7 @@ pub fn unions() -> Vec<Union> {
     .into_iter()
     .chain(society::unions())
     .chain(parcels::unions())
+    .chain(profiles::unions())
     .collect()
 }
 
@@ -151,6 +154,7 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     the_calls_to_agents_and_profiles(fixtures);
     society::the_oversight_and_the_settings(fixtures);
     parcels::the_parcels(fixtures);
+    profiles::the_profiles_through_the_realm(fixtures);
 }
 
 fn answers<A>(
@@ -353,6 +357,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             hamlet: Some(hamlet()),
             under: Some(Named::MayorOf { hamlet: hamlet() }),
             profile: Some(ProfileId(2)),
+            version: None,
             purpose: Some("Write the tests".into()),
             name: None,
         }),
@@ -363,6 +368,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             hamlet: None,
             under: None,
             profile: None,
+            version: None,
             purpose: None,
             name: None,
         }),
@@ -373,6 +379,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             hamlet: Some(hamlet()),
             under: None,
             profile: None,
+            version: None,
             purpose: Some("Write the tests".into()),
             name: Some("ada".into()),
         }),
@@ -383,6 +390,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             hamlet: None,
             under: Some(hire()),
             profile: None,
+            version: None,
             purpose: Some("Check the links".into()),
             name: None,
         }),
@@ -396,6 +404,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 hamlet: None,
                 under: None,
                 profile: None,
+                version: None,
                 purpose: Some("Check the links".into()),
                 name: None,
             })
@@ -436,6 +445,19 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 "no_such_profile",
                 HireRefusal::NoSuchProfile {
                     profile: ProfileId(9),
+                },
+            ),
+            (
+                "apart",
+                HireRefusal::Apart {
+                    label: profiles::label(),
+                },
+            ),
+            (
+                "no_version",
+                HireRefusal::NoVersion {
+                    label: profiles::label(),
+                    version: VersionName("v9".to_owned()),
                 },
             ),
         ]
@@ -664,6 +686,13 @@ fn the_society_tools_named_in_a_gate(fixtures: &mut Fixtures) {
             SocietyTool::SetNickname,
             SocietyTool::SetModel,
             SocietyTool::ReadRecord,
+            SocietyTool::CreateProfile,
+            SocietyTool::ReadProfile,
+            SocietyTool::EditProfile,
+            SocietyTool::Tag,
+            SocietyTool::Revert,
+            SocietyTool::AskLibrarian,
+            SocietyTool::SubmitSkill,
         ],
     );
 }
@@ -1538,17 +1567,34 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         "agent/fill",
         &Fill {
             profile: ProfileId(2),
-            branch: "hire-12".into(),
         },
     );
     fixtures.answer("agent/fill", &());
     fixtures.args(
         "profile/branch",
         &Branch {
-            name: "hire-12".into(),
+            name: "hires/12".into(),
+            from: None,
         },
     );
-    fixtures.answer("profile/branch", &());
+    fixtures.args(
+        "profile/branch.from",
+        &Branch {
+            name: "hires/12".into(),
+            from: Some(VersionName("v1".into())),
+        },
+    );
+    done(
+        fixtures,
+        "profile/branch",
+        vec![(
+            "no_version",
+            Missing::NoVersion {
+                profile: ProfileId(2),
+                version: VersionName("v1".into()),
+            },
+        )],
+    );
     fixtures.answer(
         "address/profile",
         &Profile(ProfileId(2)).address().unwrap(),

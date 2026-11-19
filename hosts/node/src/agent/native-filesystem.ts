@@ -80,9 +80,9 @@ export function openAgentFilesystem(
                 context,
                 async () => new Uint8Array(await folder.read(path)),
             ),
-        write: (path, content, context) =>
+        write: (path, content, context, executable) =>
             call(path, context, async () => {
-                await folder.write(path, Buffer.from(content));
+                await folder.write(path, Buffer.from(content), executable);
             }),
         edit: (path, edits, context) =>
             call(path, context, async () => {
@@ -139,6 +139,19 @@ export function openAgentFilesystem(
                     walked.capped,
                 );
             }),
+        walk: (path, context) =>
+            call(path, context, async () => {
+                const walked = await folder.files(path, LOOKED);
+                return {
+                    files: walked.files.map((file) => file.path),
+                    capped: walked.capped,
+                    executable: walked.files
+                        .filter((file) => file.executable)
+                        .map((file) => file.path),
+                };
+            }),
+        remove: (path, context) =>
+            call(path, context, () => folder.remove(path)),
         copy: (from, to, context) =>
             call(from, context, async () => {
                 await folder.write(to, await folder.read(from));

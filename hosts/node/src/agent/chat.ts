@@ -19,7 +19,7 @@ import {
 } from "./commands.ts";
 import { type ClientActions, readClient } from "./messages.ts";
 import { agentKeys, checkModel, modelList, secretsLoaded } from "./models.ts";
-import { promptSources, renderPrompt } from "./prompt.ts";
+import { renderPrompt } from "./prompt.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
 declare const asked: unique symbol;
@@ -73,10 +73,7 @@ export function chatActions(config: AgentConfig): ChatHandlers {
         read_chat: askedBy("read_chat", readChat),
         read_history: askedBy("read_history", readHistory),
         read_prompt: askedBy("read_prompt", async (c) => {
-            const { copies, peers } = generationOf(c);
-            return {
-                text: await renderPrompt(promptSources(c, copies, peers)),
-            };
+            return { text: await renderPrompt(generationOf(c).prompt) };
         }),
         reflect: askedBy("reflect", reflectNow),
         login: askedBy("login", async (c, login) => {

@@ -30,8 +30,7 @@ use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, Origin, TaskId};
 use super::{
-    Realm, chiefs, documents, oversight, place, record, tree,
-    versions, waits,
+    Realm, chiefs, documents, oversight, place, record, tree, waits,
 };
 
 #[derive(Debug, PartialEq)]
@@ -310,10 +309,7 @@ pub(super) async fn run(
     }
     match step {
         Step::Reach => {
-            cx.commit(vec![
-                versions::Change::WantReach(agent).into(),
-            ])
-            .await?;
+            cx.want_reach(agent).await?;
         }
         Step::Create => {
             let worker = row_of(&rows, agent).await?;

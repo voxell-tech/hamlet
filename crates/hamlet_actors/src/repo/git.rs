@@ -51,6 +51,10 @@ impl Reads {
         self.0.versions()
     }
 
+    pub fn branches(&self) -> Result<Vec<(String, CommitId)>> {
+        self.0.branches()
+    }
+
     pub fn read(
         &self,
         at: CommitId,
@@ -121,7 +125,7 @@ impl Reads {
     }
 
     pub fn has(&self, at: CommitId) -> Result<bool> {
-        Ok(self.0.resolve(&at.to_string())? == Some(at))
+        self.0.has_commit(at)
     }
 }
 

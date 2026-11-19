@@ -1,29 +1,36 @@
 //! A lead's acts on the tree: hire, end and seat (H40, H5, H18).
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
-use hamlet_messages::agent::AgentKind;
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use hamlet_messages::Message;
+use hamlet_messages::address::Profile;
+use hamlet_messages::agent::{AgentKind, Input, InputId, Submit};
+use hamlet_messages::profile::{VersionName, Versions};
 use hamlet_messages::realm::oversight::Permission;
+use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
-    Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    HowEnded, Named, OnlyAHire, ProfileId, Refusable, Seat,
+    Asked, Done, End, EndRefusal, HamletId, Hire, HireAnswer,
+    HireRefusal, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
+    Refusable, Seat, Tool, ToolCall,
 };
-use hamlet_messages::sender::Hand;
+use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::super::act::{Act, Decided, Decision};
-use super::super::callers::{Lead, RealmWide};
+use super::super::act::{self, Act, Decided, Decision};
+use super::super::callers::{self, Lead, RealmWide};
 use super::super::calls::{Calls, Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
+use super::super::peer::When;
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, laid, oversight, record, roads, steps, tasks,
-    waits, workers,
+    Realm, chiefs, drop_parts, hire, laid, marker, oversight,
+    profiles, record, roads, steps, tasks, waits, workers,
 };
-use super::{Change, Lineage, Member, Of, Status};
+use super::{Change, Lineage, Node, Of, Status};
 
 enum Joining {
     Hamlet(HamletId),
@@ -44,19 +51,111 @@ pub(in crate::realm) struct Hiring {
     hamlet: Joining,
     under: Option<Lineage>,
     living: u32,
-    of: Result<Of, ProfileId>,
+    of: Result<Of, HireRefusal>,
     agent: AgentNumber,
 }
 
-impl<By: Lead> Act<By> for Hire {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(in crate::realm) struct Pinned {
+    pub hire: Hire,
+    pub lacked: Option<VersionName>,
+}
+
+impl Pinned {
+    pub(in crate::realm) async fn asked(
+        realm: &Realm,
+        ctx: &Ctx<Realm>,
+        hire: Hire,
+    ) -> Result<Self> {
+        let mut lacked = None;
+        if let (Some(version), Some(named)) =
+            (&hire.version, hire.profile)
+            && let Ok(profile) =
+                profiles::shared(&Rows::outside(ctx)?, named).await?
+        {
+            let held = realm
+                .peers
+                .call(
+                    &Profile(profile),
+                    &Versions,
+                    When::BeforeAnswer,
+                )
+                .await?;
+            if !held
+                .versions
+                .iter()
+                .any(|seen| seen.version == *version)
+            {
+                lacked = Some(version.clone());
+            }
+        }
+        Ok(Self { hire, lacked })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(in crate::realm) struct Pinning<M>(pub M);
+
+impl<M: Message> Action for Pinning<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Pinning<M> {
+    type To = M::To;
+    type From = M::From;
+}
+
+impl Handler<Pinning<Asked<Hire>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(asked): Pinning<Asked<Hire>>,
+    ) -> Result<HireAnswer<HireRefusal>> {
+        let name = <Asked<Hire> as Action>::NAME;
+        let by = sender(&ctx, &asked)?;
+        let id = marker::Id::Request(asked.id);
+        let key = marker::Key::of(&by, id, name, &asked.act)?;
+        let pinned = Pinned::asked(&self, &ctx, asked.act).await?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, pinned).await
+    }
+}
+
+impl Handler<Pinning<Tool<Hire>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(tool): Pinning<Tool<Hire>>,
+    ) -> Result<HireAnswer<LeadRefusal<HireRefusal>>> {
+        let name = <Tool<Hire> as Action>::NAME;
+        let by = sender(&ctx, &tool)?;
+        let (key, called, hire) = act::called(&by, name, tool)?;
+        let pinned = Pinned::asked(&self, &ctx, hire).await?;
+        let ran = act::run_called(
+            &self,
+            &ctx,
+            by,
+            (key, called),
+            name,
+            Hire::TOOL,
+            pinned,
+        )
+        .await?;
+        Ok(callers::to_tool(ran))
+    }
+}
+
+impl<By: Lead> Act<By> for Pinned {
     type Output = HireAnswer<By::Why<HireRefusal>>;
     type Loaded = Hiring;
     type Done = AgentNumber;
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Hiring> {
+        let hire = &self.hire;
         let caller = super::caller(by);
         let own = super::own_hamlet(rows, caller).await?;
-        let hamlet = match (&own, &self.hamlet) {
+        let hamlet = match (&own, &hire.hamlet) {
             (Some(own), _) => Joining::Hamlet(own.clone()),
             (None, Some(named)) => {
                 chiefs::hamlet(rows, named).await?.map_or_else(
@@ -66,7 +165,7 @@ impl<By: Lead> Act<By> for Hire {
             }
             (None, None) => Joining::Unnamed,
         };
-        let under = match (&self.under, caller, own) {
+        let under = match (&hire.under, caller, own) {
             (None, Some(caller), Some(_)) => {
                 super::lineage(rows, caller).await?
             }
@@ -82,11 +181,29 @@ impl<By: Lead> Act<By> for Hire {
             Some(hamlet) => super::living(rows, &hamlet.id).await?,
             None => 0,
         };
+        let made =
+            super::made_of(rows, hire.profile, hire.name.clone())
+                .await?;
+        let of = match (made, &self.lacked) {
+            (Ok(Of::Profile(profile)), Some(version)) => {
+                Err(HireRefusal::NoVersion {
+                    label: profiles::label_of(rows, profile).await?,
+                    version: version.clone(),
+                })
+            }
+            (Ok(of), _) => Ok(of),
+            (Err(ProfileRefusal::NoSuchProfile { profile }), _) => {
+                Err(HireRefusal::NoSuchProfile { profile })
+            }
+            (Err(ProfileRefusal::Apart { label }), _) => {
+                Err(HireRefusal::Apart { label })
+            }
+        };
         Ok(Hiring {
             hamlet,
             under,
             living,
-            of: super::made_of(rows, self.profile).await?,
+            of,
             agent: super::fresh(rows).await?,
         })
     }
@@ -106,7 +223,8 @@ impl<By: Lead> Act<By> for Hire {
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,
         };
-        let lead_named = self.under.as_ref().unwrap_or(&Named::Mayor);
+        let hire = &self.hire;
+        let lead_named = hire.under.as_ref().unwrap_or(&Named::Mayor);
         let no_such = || HireRefusal::NoSuchAgent {
             address: lead_named.to_string(),
         };
@@ -130,7 +248,7 @@ impl<By: Lead> Act<By> for Hire {
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
-        let purpose = super::given_purpose(self.purpose.as_deref());
+        let purpose = super::given_purpose(hire.purpose.as_deref());
         if purpose.is_none() && super::caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
         }
@@ -151,11 +269,7 @@ impl<By: Lead> Act<By> for Hire {
         }
         let of = match hiring.of {
             Ok(of) => of,
-            Err(profile) => {
-                return refuse(HireRefusal::NoSuchProfile {
-                    profile,
-                });
-            }
+            Err(why) => return refuse(why),
         };
         let agent = hiring.agent;
         Decision::Change(
@@ -165,6 +279,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
+                    version: hire.version.clone(),
                     purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
@@ -374,21 +489,49 @@ fn hire_ending(
     .collect()
 }
 
-/// The changes that end `hire`, whose steps failed for good. None
-/// for the Hand, a mayor or a hire that ended: an end refuses them.
+/// The changes that end `hire`, whose step failed for good, and its
+/// lead's notice of it. None for the Hand, a mayor or a hire that
+/// ended: an end refuses them.
 pub(in crate::realm) async fn failed(
     rows: &Rows<'_>,
     hire: AgentNumber,
-) -> Result<Vec<change::Change>> {
+    why: String,
+) -> Result<(Vec<change::Change>, Calls)> {
     let lineage = super::lineage_of(rows, hire).await?;
     if lineage.agent.kind == AgentKind::Hand
         || lineage.is_mayor()
         || matches!(lineage.agent.status, Status::Ended(_))
     {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Calls::none()));
     }
+    let left = Left {
+        how: HowEnded::Failed,
+        why: Some(why),
+    };
+    let calls = match lineage.agent.lead {
+        Some(lead) if super::left(rows, lead).await?.is_none() => {
+            let text = EndRefusal::Left {
+                hire,
+                left: left.clone(),
+            }
+            .to_string();
+            Calls::after_answer(Delivery::Line {
+                to: lead,
+                submit: Submit {
+                    id: InputId(format!("hire/{}", hire.0)),
+                    task: None,
+                    input: Input::Notice {
+                        text,
+                        conversation: None,
+                    },
+                },
+            })
+        }
+        _ => Calls::none(),
+    };
     let workers = workers::end_with(rows, hire).await?;
-    Ok(hire_ending(hire, HowEnded::Failed, None, workers))
+    let changes = hire_ending(hire, left.how, left.why, workers);
+    Ok((changes, calls))
 }
 
 fn how_of(by: record::By) -> HowEnded {
@@ -422,6 +565,13 @@ pub(in crate::realm) async fn end(
     for hire in moved {
         set_lead(writer, hire, lead).await?;
     }
+    let left = steps::apply(
+        writer,
+        steps::Change::Begin {
+            row: drop_parts::row(agent),
+        },
+    )
+    .await?;
     let revoked = oversight::apply(
         writer,
         oversight::Change::Revoke {
@@ -433,6 +583,7 @@ pub(in crate::realm) async fn end(
     Ok(Affected {
         places,
         reaches: revoked.reaches.into_iter().chain([agent]).collect(),
+        begun: left.begun,
         ..Affected::seen(
             [Part::Agents, Part::Reaches]
                 .into_iter()
@@ -441,11 +592,11 @@ pub(in crate::realm) async fn end(
     })
 }
 
-fn living_agents(members: &[Member]) -> Vec<AgentNumber> {
-    members
+fn living_agents(nodes: &[Node]) -> Vec<AgentNumber> {
+    nodes
         .iter()
-        .filter(|member| !matches!(member.status, Status::Ended(_)))
-        .map(|member| member.agent)
+        .filter(|node| !matches!(node.status, Status::Ended(_)))
+        .map(|node| node.agent)
         .collect()
 }
 
@@ -493,7 +644,9 @@ pub(in crate::realm) async fn seat(
 #[cfg(test)]
 mod tests {
     use hamlet_messages::address::Agent;
-    use hamlet_messages::realm::{LeadRefusal, Left, Rank, Tier};
+    use hamlet_messages::realm::{
+        LeadRefusal, Left, ProfileId, Rank, Tier,
+    };
     use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::reach::Mode;
 
@@ -505,7 +658,7 @@ mod tests {
     /// The lineage of hire 5 in one hamlet: the mayor 2, hire 3 under
     /// it, and 5 under 3.
     fn lineage_of_5() -> Lineage {
-        let member = |agent, lead: Option<u32>, status| Member {
+        let node = |agent, lead: Option<u32>, status| Node {
             agent: AgentNumber(agent),
             kind: AgentKind::Hire,
             status,
@@ -513,10 +666,10 @@ mod tests {
             has_purpose: false,
         };
         Lineage {
-            agent: member(5, Some(3), Status::Hiring),
+            agent: node(5, Some(3), Status::Hiring),
             leads: vec![
-                member(3, Some(2), Status::Live),
-                member(2, None, Status::Live),
+                node(3, Some(2), Status::Live),
+                node(2, None, Status::Live),
             ],
             hires: Vec::new(),
             hamlet: Some(chiefs::Hamlet {
@@ -532,7 +685,7 @@ mod tests {
 
     fn hand() -> Lineage {
         Lineage {
-            agent: Member {
+            agent: Node {
                 agent: Hand::NUMBER,
                 kind: AgentKind::Hand,
                 status: Status::Live,
@@ -605,7 +758,9 @@ mod tests {
             ..under_5("h")
         };
         let missing = Hiring {
-            of: Err(ProfileId(9)),
+            of: Err(HireRefusal::NoSuchProfile {
+                profile: ProfileId(9),
+            }),
             ..under_5("h")
         };
 
@@ -636,18 +791,25 @@ mod tests {
             hamlet: Joining::Hamlet(HamletId(hamlet.to_owned())),
             under: Some(lineage_of_5()),
             living: 3,
-            of: Ok(Of::Blank(ProfileId(6))),
+            of: Ok(Of::Blank {
+                profile: ProfileId(6),
+                name: None,
+            }),
             agent: AgentNumber(6),
         }
     }
 
-    fn hire_for(purpose: Option<&str>) -> Hire {
-        Hire {
-            hamlet: None,
-            under: None,
-            profile: None,
-            purpose: purpose.map(str::to_owned),
-            name: None,
+    fn hire_for(purpose: Option<&str>) -> Pinned {
+        Pinned {
+            hire: Hire {
+                hamlet: None,
+                under: None,
+                profile: None,
+                version: None,
+                purpose: purpose.map(str::to_owned),
+                name: None,
+            },
+            lacked: None,
         }
     }
 

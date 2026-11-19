@@ -26,7 +26,7 @@ const CHARACTER: &str = "You are a scholar new to this realm. You \
                          are given, and keep what is worth keeping \
                          in your memory so that it lasts.";
 
-const CHARACTER_MOST: usize = 4000;
+pub(super) const CHARACTER_MOST: usize = 4000;
 
 /// The realm's settings, as a chief last set them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,7 +69,6 @@ impl Settings {
     /// The parts of the copies that differ from `before`'s.
     fn moved(&self, before: &Self) -> BTreeSet<Part> {
         [
-            (Part::Character, self.character != before.character),
             (
                 Part::Model,
                 (&self.model, self.effort)

@@ -42,7 +42,7 @@ import {
     u32,
 } from "./messages.ts";
 import { scrub, secretsLoaded, withheld } from "./models.ts";
-import { conversationOfChat, current } from "./sessions.ts";
+import { chiefSession, conversationOfChat, current } from "./sessions.ts";
 import { type Kept, NOTE_BREAK } from "./turn.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */
@@ -106,6 +106,11 @@ export function watching(c: AgentContext, follow: Following): void {
     WATCHES.set(follow, watch);
     // `wake` begins to open the harness before it first waits.
     queueMicrotask(() => void attached(c, follow, watch)?.catch(warn(c)));
+}
+
+export function holdFollowers(c: AgentCall, answered: Promise<void>): void {
+    const watch = WATCHES.get(generationOf(c).following);
+    if (watch !== undefined) watch.queue = watch.queue.then(() => answered);
 }
 
 /** Attaches once per open, so a harness reopened after a failure is followed too. */
@@ -384,7 +389,13 @@ const PAGE = 100;
 export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
     const { chat, before } = message;
     const follow = generationOf(c).following;
-    const conversation = await conversationOfChat(c, chat);
+    // As today's watch (`crates/hamlet_server/src/talk/chats.rs`
+    // `current`), the chief's chat with no session begins session 1.
+    const conversation =
+        (await conversationOfChat(c, chat)) ??
+        (chat.from === undefined && chat.past === undefined
+            ? await chiefSession(c)
+            : undefined);
     if (conversation === undefined) {
         // As `crates/hamlet_server/src/society/refusal.rs` words them.
         if (chat.from !== undefined) {
@@ -392,20 +403,7 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
                 `no agent has the address \`${chat.from}'s ${chat.kind ?? "letters"} to ${chat.with}\``,
             );
         }
-        if (chat.past !== undefined) {
-            throw refused(`there is no past session ${chat.past} here`);
-        }
-        await withHarness(c, generationOf(c).options, () =>
-            followed(c, follow),
-        );
-        return {
-            epoch: follow.epoch,
-            number: follow.now(),
-            items: [],
-            working: false,
-            pending: 0,
-            usage: usageOf(undefined, 0),
-        };
+        throw refused(`there is no past session ${chat.past} here`);
     }
     const row = await rowOf(c, conversation);
     const { live, number, kept } = await withHarness(

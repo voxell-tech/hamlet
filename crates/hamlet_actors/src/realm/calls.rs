@@ -6,7 +6,7 @@ use anyhow::Result;
 use futures::future::BoxFuture;
 use hamlet_actor::{Ctx, KeepAwakeRegion};
 use hamlet_messages::address::Agent;
-use hamlet_messages::agent::Submit;
+use hamlet_messages::agent::{Input, Submit};
 use hamlet_messages::realm::LetterId;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::workspace::AgentNumber;
@@ -52,10 +52,21 @@ pub(super) enum Delivery {
 
 impl Delivery {
     /// Whether the realm makes it again after a failure in passing:
-    /// the chief was told its line was taken, or the sender its
-    /// parcel was sent, so no repeat of theirs carries it.
+    /// the chief was told its line was taken, the sender its parcel
+    /// was sent, the chief its wait was closed, or the caller its
+    /// call was answered before its notice, so no repeat of theirs
+    /// carries it. A wait's notice made again makes the allowed act
+    /// again, under the id its first run asked with.
     fn owed(&self) -> bool {
-        matches!(self, Self::Kept(_) | Self::ParcelRefused { .. })
+        match self {
+            Self::Kept(_)
+            | Self::ParcelRefused { .. }
+            | Self::Notice(_) => true,
+            Self::Line { submit, .. } => {
+                matches!(submit.input, Input::Notice { .. })
+            }
+            _ => false,
+        }
     }
 }
 
@@ -275,13 +286,13 @@ pub(super) async fn push_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     pushes: Vec<Push>,
-) -> usize {
-    let mut failed = 0;
+) -> Vec<anyhow::Error> {
+    let mut failed = Vec::new();
     for made in pushes {
         let shown = format!("{made:?}");
         if let Err(error) = push(realm, ctx, made).await {
             tracing::warn!(push = shown, "a push failed: {error:#}");
-            failed += 1;
+            failed.push(error);
         }
     }
     failed

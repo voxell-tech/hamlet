@@ -82,7 +82,7 @@ export function tellingFailed(
     };
 }
 
-async function couldNotAnswer(
+export async function couldNotAnswer(
     peers: Peers,
     question: LetterId,
     words: string,
@@ -167,6 +167,9 @@ export function emptyAnswer(tell: TellFailed) {
     });
 }
 
+/** A callback run once a turn ends, answered or not. It never rejects. */
+export type TurnEnded = (conversation: ConversationId) => Promise<void>;
+
 export interface FailedTurns {
     readonly extension: Extension;
     /** Follows every run of `harness` that fails from now on. */
@@ -195,6 +198,7 @@ export function failedTurns(
     peers: Peers,
     withHarness: WithHarness,
     tell: TellFailed,
+    ended: TurnEnded,
 ): FailedTurns {
     // Each request's task's last answer, until its run ends: the
     // error item an error leaves already shows its words.
@@ -243,7 +247,10 @@ export function failedTurns(
             advance: ({ changes }) => {
                 for (const run of failedIn(changes)) {
                     // An observer may not call the harness.
-                    queueMicrotask(() => void followed(run));
+                    queueMicrotask(() => {
+                        void followed(run);
+                        void ended(run.conversation);
+                    });
                 }
             },
             end: () => {},

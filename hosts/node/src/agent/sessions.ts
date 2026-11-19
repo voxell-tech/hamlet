@@ -6,9 +6,9 @@
  */
 import type { Context } from "@earendil-works/chord/context";
 import type {
-    Conversation,
     ConversationCreateOptions,
     ConversationId,
+    EntryDraft,
     Harness,
 } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
@@ -125,7 +125,20 @@ export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const to = await withHarness(
         c,
         generationOf(c).options,
-        async (harness, context) => (await created(c, harness, context)).id,
+        async (harness, context) =>
+            (
+                await created(c, harness, context, (options) =>
+                    harness.commit(async (tx) => {
+                        const made = await tx.createConversation(options);
+                        // As `crates/hamlet_server/src/talk/chats.rs` writes it.
+                        await tx.appendEntry(
+                            made.id,
+                            noticeEntry("Started a new session."),
+                        );
+                        return made;
+                    }, context),
+                )
+            ).id,
     );
     return c.db.transaction(async (tx) => {
         const raced = await begunBy(tx, id);
@@ -176,26 +189,25 @@ export function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
 }
 
+/** The entry of a notice (C30), which the model never reads. */
+export function noticeEntry(text: string): EntryDraft {
+    return { kind: "hamlet.notice", data: { text, at: nowSeconds() } };
+}
+
 interface Begun {
     readonly number: number;
-    readonly to: ConversationId;
     readonly left: ConversationId | undefined;
 }
 
 async function begunBy(db: Rows, id: RequestId): Promise<Begun | undefined> {
     const row = await db.get<{
         session: number;
-        conversation: ConversationId;
         followed: ConversationId | null;
-    }>(
-        "SELECT session, conversation, followed FROM chat WHERE begun_by = ?",
-        id,
-    );
+    }>("SELECT session, followed FROM chat WHERE begun_by = ?", id);
     return row === undefined
         ? undefined
         : {
               number: row.session,
-              to: row.conversation,
               left: row.followed ?? undefined,
           };
 }
@@ -229,10 +241,9 @@ export async function created(
     c: AgentCall,
     harness: Harness,
     context: Context,
-    make: (options: ConversationCreateOptions) => Promise<Conversation> = (
-        options,
-    ) => harness.createConversation(options, context),
-): Promise<Conversation> {
+    make: (options: ConversationCreateOptions) => Promise<Made> = (options) =>
+        harness.createConversation(options, context),
+): Promise<Made> {
     const conversation = await make({ ownership: { kind: "ownerless" } });
     await onCopiedModel(
         harness,
@@ -243,11 +254,13 @@ export async function created(
     return conversation;
 }
 
+type Made = { readonly id: ConversationId };
+
 /** A chat a concurrent input kept first wins, and its conversation is answered. */
 async function made(
     c: AgentCall,
     key: readonly [kind: string, peer: number, session: number],
-    make: () => Promise<{ readonly id: ConversationId }>,
+    make: () => Promise<Made>,
     isCurrent: 0 | 1 = 0,
 ): Promise<ConversationId> {
     const { id } = await make();
