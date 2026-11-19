@@ -5,10 +5,10 @@ use hamlet_messages::MOST_PART;
 use hamlet_messages::address::{Library, Party};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::library::{
-    BadOffer, BadSkill, DropCopy, NoSkill, Offer, OfferAnswer,
-    OfferId, OfferRefusal, OnTheShelves, ReadShelves, ShelfList,
-    Shelves, ShelvesChanged, Skill, Unshelve, Verdict,
-    VerdictRefusal,
+    BadOffer, BadSkill, DropCopy, NoOffer, NoSkill, Offer,
+    OfferAnswer, OfferId, OfferRead, OfferRefusal, OnTheShelves,
+    ReadOffer, ReadShelves, ShelfList, Shelves, ShelvesChanged,
+    Skill, Unshelve, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{By, Piece, TooLarge};
 use hamlet_messages::realm::{Done, Refusable};
@@ -21,6 +21,8 @@ use super::{Fixtures, call};
 pub fn enums() -> Vec<Cases> {
     vec![
         tagged::<OfferAnswer>(),
+        tagged::<OfferRead>(),
+        tagged::<NoOffer>(),
         tagged::<BadOffer>(),
         tagged::<BadSkill>(),
         tagged::<OnTheShelves>(),
@@ -137,6 +139,29 @@ pub fn the_librarys_messages(fixtures: &mut Fixtures) {
         ),
     ] {
         fixtures.kept(&format!("library/offer.{arm}"), &answer);
+    }
+    fixtures
+        .args("library/read_offer", &ReadOffer { offer: OfferId(9) });
+    for (arm, answer) in [
+        (
+            "offered",
+            OfferRead::Offered {
+                agent: AgentNumber(7),
+                skill: skill(),
+                reason: "Every hire writes fixtures".into(),
+                paths: vec!["SKILL.md".into(), "write.py".into()],
+                skill_md: "---\nname: fixtures\n---\n".into(),
+            },
+        ),
+        (
+            "refused.no_such_offer",
+            OfferRead::refused(NoOffer::NoSuchOffer {
+                offer: OfferId(9),
+            }),
+        ),
+    ] {
+        fixtures
+            .answer(&format!("library/read_offer.{arm}"), &answer);
     }
     fixtures.args(
         "library/verdict",

@@ -21,7 +21,8 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::library::{
-    ReadShelves, ShelfList, Skill, Verdict, VerdictRefusal,
+    NoOffer, OfferRead, ReadOffer, ReadShelves, ShelfList, Skill,
+    Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
     BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
@@ -512,6 +513,16 @@ const NOT_A_PATH: &str = "../out";
 /// An offer the stand-in library does not hold.
 const NO_OFFER: u32 = 404;
 
+/// An offer of agent 9's in the stand-in library.
+const OTHERS_OFFER: u32 = 405;
+
+/// An offer whose verdict the stand-in library refuses as judged.
+const JUDGED_OFFER: u32 = 406;
+
+/// The text of every `SKILL.md` the stand-in library holds.
+const SKILL_MD: &str =
+    "---\nname: well\ndescription: Digs a well.\n---\n";
+
 impl Handler<Edit> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -652,7 +663,7 @@ struct LibraryStandIn {
 #[async_trait::async_trait]
 impl Actor for LibraryStandIn {
     type Input = ();
-    type Actions = (ReadShelves, Verdict);
+    type Actions = (ReadShelves, ReadOffer, Verdict);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -684,6 +695,31 @@ impl Handler<ReadShelves> for LibraryStandIn {
     }
 }
 
+impl Handler<ReadOffer> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        ReadOffer { offer }: ReadOffer,
+    ) -> anyhow::Result<OfferRead> {
+        let agent = match offer.0 {
+            NO_OFFER => {
+                return Ok(OfferRead::Refused {
+                    why: NoOffer::NoSuchOffer { offer },
+                });
+            }
+            OTHERS_OFFER => AgentNumber(9),
+            _ => THREE,
+        };
+        Ok(OfferRead::Offered {
+            agent,
+            skill: "well".to_owned(),
+            reason: "for digging".to_owned(),
+            paths: vec!["SKILL.md".to_owned(), "dig.sh".to_owned()],
+            skill_md: SKILL_MD.to_owned(),
+        })
+    }
+}
+
 impl Handler<Verdict> for LibraryStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -695,8 +731,8 @@ impl Handler<Verdict> for LibraryStandIn {
         self.seen
             .called(Callee::Verdict, AgentNumber(offer.0))
             .await?;
-        Ok(if offer.0 == NO_OFFER {
-            Done::refused(VerdictRefusal::NoSuchOffer { offer })
+        Ok(if offer.0 == JUDGED_OFFER {
+            Done::refused(VerdictRefusal::Judged { offer })
         } else {
             Done::Done
         })

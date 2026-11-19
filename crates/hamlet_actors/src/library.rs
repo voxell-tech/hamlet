@@ -21,8 +21,8 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Agent, Party, Realm};
 use hamlet_messages::library::{
-    NoSkill, Offer, ReadShelves, ShelfList, Shelves, ShelvesChanged,
-    Skill, Unshelve, Verdict,
+    NoSkill, Offer, ReadOffer, ReadShelves, ShelfList, Shelves,
+    ShelvesChanged, Skill, Unshelve, Verdict,
 };
 use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::AgentNumber;
@@ -106,7 +106,8 @@ pub(crate) struct Library {
 #[async_trait::async_trait]
 impl Actor for Library {
     type Input = ();
-    type Actions = (Shelves, ReadShelves, Offer, Verdict, Unshelve);
+    type Actions =
+        (Shelves, ReadShelves, Offer, ReadOffer, Verdict, Unshelve);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -441,6 +442,9 @@ mod tests {
                 part: 0,
                 last: false,
                 files: Vec::new(),
+            }),
+            args(&ReadOffer {
+                offer: hamlet_messages::library::OfferId(1),
             }),
             args(&Verdict {
                 id: RequestId::new(),

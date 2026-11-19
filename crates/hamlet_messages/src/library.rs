@@ -2,8 +2,8 @@
 //! calls it makes on an agent.
 //!
 //! The library keeps the skills every agent may use. An agent offers
-//! one in parts ([`Offer`]), and the realm brings the verdict on it
-//! ([`Verdict`]).
+//! one in parts ([`Offer`]), and the realm reads it ([`ReadOffer`])
+//! and brings the verdict on it ([`Verdict`]).
 
 use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use crate::address::{Agent, Library, Realm};
 use crate::bytes::Sha256;
 use crate::profile::{By, Piece, TooLarge};
 use crate::realm::Done;
-use crate::workspace::CallId;
+use crate::workspace::{AgentNumber, CallId};
 
 /// The library's id of an offer.
 #[derive(
@@ -129,6 +129,30 @@ answer!(OfferAnswer<OfferRefusal> {
 message!(Offer, "offer", Agent => Library, OfferAnswer, |offer| {
     Repeat::Part { id: &offer.call.0, part: offer.part }
 });
+
+/// Reads an offer whose last part came, for the librarian to judge.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadOffer {
+    pub offer: OfferId,
+}
+
+family!(NoOffer {
+    #[error("there is no offer {}", offer.0)]
+    NoSuchOffer { offer: OfferId },
+});
+
+answer!(OfferRead<NoOffer> {
+    /// The offer of `agent`: the paths of its files in order, and the
+    /// text of its `SKILL.md`.
+    Offered {
+        agent: AgentNumber,
+        skill: String,
+        reason: String,
+        paths: Vec<String>,
+        skill_md: String,
+    },
+});
+message!(ReadOffer, "read_offer", Realm => Library, OfferRead);
 
 /// The librarian's verdict on an offer. Accepted, the library shelves
 /// the skill, tells every listener and asks the offerer to drop its

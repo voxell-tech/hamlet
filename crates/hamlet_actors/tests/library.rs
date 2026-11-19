@@ -15,10 +15,10 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::library::{
-    BadOffer, BadSkill, DropCopy, NoSkill, Offer, OfferAnswer,
-    OfferId, OfferRefusal, OnTheShelves, ReadShelves, ShelfList,
-    Shelves, ShelvesChanged, Skill, Unshelve, Verdict,
-    VerdictRefusal,
+    BadOffer, BadSkill, DropCopy, NoOffer, NoSkill, Offer,
+    OfferAnswer, OfferId, OfferRead, OfferRefusal, OnTheShelves,
+    ReadOffer, ReadShelves, ShelfList, Shelves, ShelvesChanged,
+    Skill, Unshelve, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{By, Piece, TooLarge};
 use hamlet_messages::realm::Done;
@@ -802,6 +802,48 @@ async fn a_skill_of_many_empty_files_counts_their_paths_toward_its_size()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_offer_is_read_once_its_last_part_came() {
+    let dir = Scratch::new("library-read-offer");
+    let host = open(&dir, Arc::default()).await;
+    let kept = offered(&host, 7, &tidy("c1")).await;
+    let started = offer(
+        "c2",
+        "sweep",
+        0,
+        false,
+        vec![piece("SKILL.md", 0, PAPER.as_bytes(), true)],
+    );
+    assert_eq!(
+        call_as(&host, &agent(8), &started).await.unwrap(),
+        OfferAnswer::More
+    );
+    let read = async |offer| {
+        call_as(&host, &realm(), &ReadOffer { offer })
+            .await
+            .unwrap()
+    };
+
+    assert_eq!(
+        read(kept).await,
+        OfferRead::Offered {
+            agent: AgentNumber(7),
+            skill: "tidy".into(),
+            reason: "folders get messy".into(),
+            paths: vec!["SKILL.md".into(), "tidy.py".into()],
+            skill_md: PAPER.into(),
+        }
+    );
+    let unfinished = OfferId(kept.0 + 1);
+    assert_eq!(
+        read(unfinished).await,
+        OfferRead::Refused {
+            why: NoOffer::NoSuchOffer { offer: unfinished }
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn each_action_refuses_a_caller_of_the_other_kind() {
     let dir = Scratch::new("library-caller");
     let host = open(&dir, Arc::default()).await;
@@ -816,6 +858,9 @@ async fn each_action_refuses_a_caller_of_the_other_kind() {
     );
     for asked in [
         call_as(&host, &agent(7), &ReadShelves).await.map(drop),
+        call_as(&host, &agent(7), &ReadOffer { offer: OfferId(1) })
+            .await
+            .map(drop),
         call_as(&host, &agent(7), &verdict(OfferId(1), true))
             .await
             .map(drop),

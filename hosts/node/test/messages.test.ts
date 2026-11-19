@@ -1882,7 +1882,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an item with both an author and a rewind, which no item of the agent's has: a chief's line names no author",
     ],
     [
-        /^library\/(read_shelves|verdict|unshelve)\./,
+        /^library\/(read_shelves|read_offer|verdict|unshelve)\./,
         "the realm's call of the library",
     ],
     [

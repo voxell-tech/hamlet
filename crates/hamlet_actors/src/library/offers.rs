@@ -10,11 +10,12 @@ use hamlet_messages::MOST_PART;
 use hamlet_messages::address::Agent;
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::library::{
-    BadOffer, BadSkill, DropCopy, Offer, OfferAnswer, OfferId,
-    OfferRefusal, OnTheShelves, Verdict, VerdictRefusal,
+    BadOffer, BadSkill, DropCopy, NoOffer, Offer, OfferAnswer,
+    OfferId, OfferRead, OfferRefusal, OnTheShelves, ReadOffer,
+    Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{Piece, TooLarge};
-use hamlet_messages::realm::Done;
+use hamlet_messages::realm::{Done, Refusable as _};
 use hamlet_messages::workspace::AgentNumber;
 use sha2::Digest as _;
 
@@ -25,7 +26,7 @@ use super::{
 use crate::repo::git::{By, Reads};
 use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows, Writes};
-use crate::repo::{Before, Call, Ended, Reply, Takes};
+use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
 
 /// The most bytes the files of one skill hold.
 const MOST_SKILL: usize = 4 << 20;
@@ -397,6 +398,55 @@ fn digest(files: &[(hamlet_git::Entry, Vec<u8>)]) -> Sha256 {
         }
     }
     Sha256(digest.finalize().into())
+}
+
+impl Takes<ReadOffer> for Library {
+    async fn take(
+        call: Call<Self, ReadOffer>,
+    ) -> Result<Reply<ReadOffer>> {
+        call.read(read_offer).await
+    }
+}
+
+/// The offer whose last part came, with its files' paths and the
+/// text of its `SKILL.md`.
+fn read_offer(
+    look: &Look<'_, Library, ReadOffer>,
+) -> Result<OfferRead> {
+    let offer = look.message().offer;
+    let found = first(
+        &look.rows(Offers(())),
+        "WHERE id = ?1 AND commit_id IS NOT NULL",
+        vec![BindParam::Integer(i64::from(offer.0))],
+    )?;
+    let Some(Row {
+        agent,
+        skill,
+        reason,
+        commit: Some(commit),
+        ..
+    }) = found
+    else {
+        return Ok(OfferRead::refused(NoOffer::NoSuchOffer {
+            offer,
+        }));
+    };
+    let files = offered(look.git()?, commit)?;
+    let skill_md = files
+        .iter()
+        .find(|(entry, _)| entry.path == SKILL_FILE)
+        .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default();
+    Ok(OfferRead::Offered {
+        agent,
+        skill,
+        reason,
+        paths: files
+            .into_iter()
+            .map(|(entry, _)| entry.path)
+            .collect(),
+        skill_md,
+    })
 }
 
 impl Takes<Verdict> for Library {

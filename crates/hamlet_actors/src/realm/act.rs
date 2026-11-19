@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{Gate, Tool, ToolCall};
+use hamlet_messages::realm::{Gate, SocietyTool, Tool, ToolCall};
 use hamlet_messages::workspace::{CallId, ConversationId, RealmTask};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -163,6 +163,21 @@ pub(super) async fn run_tool<T: ToolAct<Agent>>(
     tool: Tool<T>,
 ) -> Result<Result<<T::Run as Act<Agent>>::Output, Stood>> {
     let (key, called, act) = keyed(&by, name, tool)?;
+    run_called(realm, ctx, by, (key, called), name, T::TOOL, act)
+        .await
+}
+
+/// Runs `act`, which a call of the society tool `tool` carried under
+/// `key`, as [`run_tool`] does.
+pub(super) async fn run_called<A: Act<Agent> + Serialize>(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    by: Agent,
+    (key, called): (marker::Key, Called),
+    name: &'static str,
+    tool: SocietyTool,
+    act: A,
+) -> Result<Result<A::Output, Stood>> {
     exec(
         realm,
         ctx,
@@ -170,13 +185,13 @@ pub(super) async fn run_tool<T: ToolAct<Agent>>(
         Some(key),
         name,
         act,
-        async move |by: &Agent, rows: &Rows<'_>, act: &T::Run| {
+        async move |by: &Agent, rows: &Rows<'_>, act: &A| {
             if let Some(stood) = callers::standing(rows, by.0).await?
             {
                 return Ok(Some(Barred::Stood(stood)));
             }
             let kept =
-                reserved::reserve(rows, T::TOOL, by.0, &called, act)
+                reserved::reserve(rows, tool, by.0, &called, act)
                     .await?;
             Ok(kept.map(|kept| match kept {
                 Kept::Waits(kept) => Barred::Reserved(kept),
@@ -223,6 +238,18 @@ pub(super) fn keyed<By: Witness, T: ToolAct<By>>(
     name: &'static str,
     tool: Tool<T>,
 ) -> Result<(marker::Key, Called, T::Run)> {
+    let (key, called, act) = called(by, name, tool)?;
+    let act = act.run(&called);
+    Ok((key, called, act))
+}
+
+/// The marker key of `tool`, the call that carried it, and its act as
+/// it came.
+pub(super) fn called<By: Witness, T: Serialize>(
+    by: &By,
+    name: &'static str,
+    tool: Tool<T>,
+) -> Result<(marker::Key, Called, T)> {
     let key = marker::Key::of(
         by,
         marker::Id::Call(tool.call.clone()),
@@ -240,7 +267,6 @@ pub(super) fn keyed<By: Witness, T: ToolAct<By>>(
         task,
         conversation,
     };
-    let act = act.run(&called);
     Ok((key, called, act))
 }
 
