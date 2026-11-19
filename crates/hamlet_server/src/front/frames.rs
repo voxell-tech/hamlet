@@ -18,6 +18,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::view::Own;
+use super::words;
 use crate::clients::check::reply;
 use crate::society::refusal::Refusal;
 
@@ -102,7 +103,7 @@ pub(crate) fn began(
     _: &Own,
 ) -> Result<ServerMessage> {
     worded(id, answer, |Began { number }| {
-        Ok(notice(id, format!("Session {number} began.")))
+        Ok(notice(id, words::began(number)))
     })
 }
 
@@ -113,7 +114,7 @@ pub(crate) fn back(
 ) -> Result<ServerMessage> {
     worded(id, answer, |back| match back {
         ResumeAnswer::Back { number } => {
-            Ok(notice(id, format!("Back in session {number}.")))
+            Ok(notice(id, words::back(number)))
         }
         _ => bail!("a resume that is no refusal is back"),
     })
@@ -125,7 +126,7 @@ pub(crate) fn carrying_on(
     _: &Own,
 ) -> Result<ServerMessage> {
     worded(id, answer, |serde::de::IgnoredAny| {
-        Ok(notice(id, "Carrying on.".to_owned()))
+        Ok(notice(id, words::CARRYING_ON.to_owned()))
     })
 }
 
