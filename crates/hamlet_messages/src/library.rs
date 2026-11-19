@@ -193,6 +193,16 @@ message!(Unshelve, "unshelve", Realm => Library, Done<NoSkill>, |unshelve| {
     Repeat::Id(unshelve.id.as_str())
 });
 
+/// Drops `agent`'s offers whose last part has not come, once the
+/// agent has ended. A repeat finds none and answers the same.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropOfferParts {
+    pub agent: AgentNumber,
+}
+message!(DropOfferParts, "drop_offer_parts", Realm => Library, (), |_| {
+    Repeat::Finds
+});
+
 /// Gives the agent the shelves after they changed. The agent keeps
 /// the list when its version is newer than the one it holds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

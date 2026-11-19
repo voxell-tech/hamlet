@@ -21,8 +21,8 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Agent, Party, Realm};
 use hamlet_messages::library::{
-    NoSkill, Offer, ReadOffer, ReadShelves, ShelfList, Shelves,
-    ShelvesChanged, Skill, Unshelve, Verdict,
+    DropOfferParts, NoSkill, Offer, ReadOffer, ReadShelves,
+    ShelfList, Shelves, ShelvesChanged, Skill, Unshelve, Verdict,
 };
 use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::AgentNumber;
@@ -106,8 +106,15 @@ pub(crate) struct Library {
 #[async_trait::async_trait]
 impl Actor for Library {
     type Input = ();
-    type Actions =
-        (Shelves, ReadShelves, Offer, ReadOffer, Verdict, Unshelve);
+    type Actions = (
+        Shelves,
+        ReadShelves,
+        Offer,
+        ReadOffer,
+        Verdict,
+        Unshelve,
+        DropOfferParts,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -457,6 +464,9 @@ mod tests {
                 skill: "weather".into(),
                 reason: None,
                 by: Who::Chief { chief: 3 },
+            }),
+            args(&DropOfferParts {
+                agent: AgentNumber(7),
             }),
         ]
     }

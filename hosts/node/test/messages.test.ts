@@ -1882,7 +1882,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an item with both an author and a rewind, which no item of the agent's has: a chief's line names no author",
     ],
     [
-        /^library\/(read_shelves|read_offer|verdict|unshelve)\./,
+        /^library\/(read_shelves|read_offer|verdict|unshelve|drop_offer_parts)\./,
         "the realm's call of the library",
     ],
     [
@@ -1890,7 +1890,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the library's call of an agent, an action this agent does not take",
     ],
     [
-        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase)\./,
+        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase|drop_save_parts)\./,
         "the realm's call of a profile",
     ],
     [

@@ -21,14 +21,14 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::library::{
-    NoOffer, OfferRead, ReadOffer, ReadShelves, ShelfList, Skill,
-    Verdict, VerdictRefusal,
+    DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
+    ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
-    Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
-    Purge, PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1,
-    Tag, TagAnswer, TagRefusal,
+    BadPath, Branch, CommitId, DreamEnd, DropSaveParts, Edit,
+    EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
+    Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
+    Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -81,6 +81,8 @@ mod found;
 mod laid;
 #[path = "realm/lead.rs"]
 mod lead;
+#[path = "realm/leftovers.rs"]
+mod leftovers;
 #[path = "realm/letters.rs"]
 mod letters;
 #[path = "realm/librarian.rs"]
@@ -137,6 +139,12 @@ const FOUR: AgentNumber = AgentNumber(4);
 enum Callee {
     Branch,
     Create,
+    /// The library's drop of an agent's offers under way, by the
+    /// agent's number.
+    DropOfferParts,
+    /// A profile's drop of an agent's save under way, by the agent's
+    /// number.
+    DropSaveParts,
     /// A profile's end of a dream, by the profile's number.
     EndDream,
     Fill,
@@ -173,6 +181,8 @@ struct Seen {
     /// when it came.
     prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
     dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    save_drops: Mutex<Vec<(ProfileId, DropSaveParts)>>,
+    offer_drops: Mutex<Vec<DropOfferParts>>,
     /// Each verdict the library was called with, failed calls too.
     verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
@@ -411,6 +421,7 @@ impl Actor for ProfileStandIn {
         Purge,
         PrepareDream,
         EndDream,
+        DropSaveParts,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -663,7 +674,7 @@ struct LibraryStandIn {
 #[async_trait::async_trait]
 impl Actor for LibraryStandIn {
     type Input = ();
-    type Actions = (ReadShelves, ReadOffer, Verdict);
+    type Actions = (ReadShelves, ReadOffer, Verdict, DropOfferParts);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -717,6 +728,38 @@ impl Handler<ReadOffer> for LibraryStandIn {
             paths: vec!["SKILL.md".to_owned(), "dig.sh".to_owned()],
             skill_md: SKILL_MD.to_owned(),
         })
+    }
+}
+
+impl Handler<DropOfferParts> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropOfferParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropOfferParts, dropped.agent)
+            .await?;
+        self.seen.offer_drops.lock().unwrap().push(dropped);
+        Ok(())
+    }
+}
+
+impl Handler<DropSaveParts> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropSaveParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropSaveParts, dropped.agent)
+            .await?;
+        self.seen
+            .save_drops
+            .lock()
+            .unwrap()
+            .push((self.profile, dropped));
+        Ok(())
     }
 }
 

@@ -5,10 +5,10 @@ use hamlet_messages::MOST_PART;
 use hamlet_messages::address::{Library, Party};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::library::{
-    BadOffer, BadSkill, DropCopy, NoOffer, NoSkill, Offer,
-    OfferAnswer, OfferId, OfferRead, OfferRefusal, OnTheShelves,
-    ReadOffer, ReadShelves, ShelfList, Shelves, ShelvesChanged,
-    Skill, Unshelve, Verdict, VerdictRefusal,
+    BadOffer, BadSkill, DropCopy, DropOfferParts, NoOffer, NoSkill,
+    Offer, OfferAnswer, OfferId, OfferRead, OfferRefusal,
+    OnTheShelves, ReadOffer, ReadShelves, ShelfList, Shelves,
+    ShelvesChanged, Skill, Unshelve, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{By, Piece, TooLarge};
 use hamlet_messages::realm::{Done, Refusable};
@@ -209,6 +209,13 @@ pub fn the_librarys_messages(fixtures: &mut Fixtures) {
     ] {
         fixtures.kept(&format!("library/unshelve.{arm}"), &answer);
     }
+    fixtures.args(
+        "library/drop_offer_parts",
+        &DropOfferParts {
+            agent: AgentNumber(7),
+        },
+    );
+    fixtures.answer("library/drop_offer_parts", &());
     fixtures.args(
         "library/shelves_changed",
         &ShelvesChanged { list: shelves() },

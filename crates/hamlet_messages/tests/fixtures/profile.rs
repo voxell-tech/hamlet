@@ -5,15 +5,15 @@ use hamlet_messages::MOST_PART;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadCommit, BadPath, By, Character, CommitId, CommitSeen, Cursor,
-    DreamEnd, DreamId, DreamOf, DreamOpen, Edit, EditRefusal,
-    EndDream, Erase, FileChange, Files, FilesAnswer, Gone, Missing,
-    Moved, NotAHire, Paper, PaperList, Papers, Path, Piece, Pin,
-    PinAnswer, PinRefusal, PrepareDream, Prepared, ProfileInput,
-    Protected, Purge, PurgeAnswer, PurgeRefusal, Read, ReadAnswer,
-    ReadFileRefusal, Removal, RemovePath, Revert, RevertAnswer,
-    RevertRefusal, Revision, Save, SaveAnswer, SaveRefusal, Sha1,
-    Tag, TagAnswer, TagRefusal, TooLarge, TooLong, VersionList,
-    VersionName, VersionSeen, Versions,
+    DreamEnd, DreamId, DreamOf, DreamOpen, DropSaveParts, Edit,
+    EditRefusal, EndDream, Erase, FileChange, Files, FilesAnswer,
+    Gone, Missing, Moved, NotAHire, Paper, PaperList, Papers, Path,
+    Piece, Pin, PinAnswer, PinRefusal, PrepareDream, Prepared,
+    ProfileInput, Protected, Purge, PurgeAnswer, PurgeRefusal, Read,
+    ReadAnswer, ReadFileRefusal, Removal, RemovePath, Revert,
+    RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
+    SaveRefusal, Sha1, Tag, TagAnswer, TagRefusal, TooLarge, TooLong,
+    VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
 use hamlet_messages::workspace::AgentNumber;
@@ -469,6 +469,11 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
     ] {
         fixtures.kept(&format!("profile/erase.{arm}"), &answer);
     }
+    fixtures.args(
+        "profile/drop_save_parts",
+        &DropSaveParts { agent: AGENT },
+    );
+    fixtures.answer("profile/drop_save_parts", &());
     fixtures.args("profile/papers", &Papers);
     fixtures.answer(
         "profile/papers",

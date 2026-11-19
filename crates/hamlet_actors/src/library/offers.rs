@@ -6,17 +6,17 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{Change, MAIN};
-use hamlet_messages::MOST_PART;
 use hamlet_messages::address::Agent;
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::library::{
-    BadOffer, BadSkill, DropCopy, NoOffer, Offer, OfferAnswer,
-    OfferId, OfferRead, OfferRefusal, OnTheShelves, ReadOffer,
-    Verdict, VerdictRefusal,
+    BadOffer, BadSkill, DropCopy, DropOfferParts, NoOffer, Offer,
+    OfferAnswer, OfferId, OfferRead, OfferRefusal, OnTheShelves,
+    ReadOffer, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{Piece, TooLarge};
 use hamlet_messages::realm::{Done, Refusable as _};
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::{MOST_PART, Message};
 use sha2::Digest as _;
 
 use super::{
@@ -26,7 +26,9 @@ use super::{
 use crate::repo::git::{By, Reads};
 use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows, Writes};
-use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
+use crate::repo::{
+    Admits, Before, Call, Ended, Look, Reply, Takes, Writer,
+};
 
 /// The most bytes the files of one skill hold.
 const MOST_SKILL: usize = 4 << 20;
@@ -256,19 +258,7 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let id = match row {
         Some(row) => row.id,
         None => {
-            let unfinished = "agent = ?1 AND commit_id IS NULL";
-            let params = vec![BindParam::Integer(i64::from(agent.0))];
-            w.table(Pieces(())).execute(
-                &format!(
-                    "DELETE FROM offer_piece WHERE offer IN (SELECT \
-                     id FROM offer WHERE {unfinished})"
-                ),
-                params.clone(),
-            )?;
-            offers.execute(
-                &format!("DELETE FROM offer WHERE {unfinished}"),
-                params,
-            )?;
+            drop_unfinished(&w, agent)?;
             offers.execute(
                 "INSERT INTO offer (agent, call, skill, reason, \
                  next_part) VALUES (?1, ?2, ?3, ?4, 0)",
@@ -321,6 +311,45 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
         vec![BindParam::Integer(i64::from(id))],
     )?;
     w.kept(OfferAnswer::Kept { offer: OfferId(id) })
+}
+
+/// Drops `agent`'s offers whose last part has not come.
+fn drop_unfinished<M>(
+    w: &Writer<'_, Library, M>,
+    agent: AgentNumber,
+) -> Result<()>
+where
+    M: Message,
+    Library: Admits<M::From>,
+{
+    let unfinished = "agent = ?1 AND commit_id IS NULL";
+    let params = vec![BindParam::Integer(i64::from(agent.0))];
+    w.table(Pieces(())).execute(
+        &format!(
+            "DELETE FROM offer_piece WHERE offer IN (SELECT id FROM \
+             offer WHERE {unfinished})"
+        ),
+        params.clone(),
+    )?;
+    w.table(Offers(())).execute(
+        &format!("DELETE FROM offer WHERE {unfinished}"),
+        params,
+    )?;
+    Ok(())
+}
+
+impl Takes<DropOfferParts> for Library {
+    async fn take(
+        call: Call<Self, DropOfferParts>,
+    ) -> Result<Reply<DropOfferParts>> {
+        call.once(|unit| {
+            let agent = unit.message().agent;
+            let w = unit.write();
+            drop_unfinished(&w, agent)?;
+            w.kept(())
+        })
+        .await
+    }
 }
 
 fn keep_pieces(

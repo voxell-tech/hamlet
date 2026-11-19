@@ -352,6 +352,17 @@ message!(EndDream, "end_dream", Realm => Profile, DreamEnd, |_| {
     Repeat::Finds
 });
 
+/// Drops the parts kept of `agent`'s save whose last part has not
+/// come, once the agent has ended. A repeat finds none and answers
+/// the same.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropSaveParts {
+    pub agent: AgentNumber,
+}
+message!(DropSaveParts, "drop_save_parts", Realm => Profile, (), |_| {
+    Repeat::Finds
+});
+
 /// Reads the profile's versions and the latest commits of `main`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Versions;

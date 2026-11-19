@@ -11,8 +11,9 @@ use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{BlobId, Entry};
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
-    BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Path,
-    Piece, Protected, Save, SaveAnswer, SaveRefusal, TooLarge,
+    BadPath, Cursor, DropSaveParts, FileChange, Files, FilesAnswer,
+    Gone, Path, Piece, Protected, Save, SaveAnswer, SaveRefusal,
+    TooLarge,
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_messages::{MOST_PART, Message, PIECE_FRAME};
@@ -353,22 +354,45 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     })
 }
 
-/// Drops the parts of every save under way: a purge's path may be in
-/// them. Their agents save again under a new call.
+/// Drops the parts of `agent`'s save under way, or of every save
+/// under way for none: a purge's path may be in them. Their agents
+/// save again under a new call.
 pub(super) fn drop_saves<M>(
     writer: &Writer<'_, Profile, M>,
+    agent: Option<AgentNumber>,
 ) -> Result<()>
 where
     M: Message,
     Profile: Admits<M::From>,
 {
+    let (of, params) = match agent {
+        Some(agent) => (
+            " WHERE agent = ?1",
+            vec![BindParam::Integer(i64::from(agent.0))],
+        ),
+        None => ("", Vec::new()),
+    };
     writer
         .table(Table(()))
-        .execute("DELETE FROM save", Vec::new())?;
+        .execute(&format!("DELETE FROM save{of}"), params.clone())?;
     writer
         .table(Calls(()))
-        .execute("DELETE FROM save_call", Vec::new())?;
+        .execute(&format!("DELETE FROM save_call{of}"), params)?;
     Ok(())
+}
+
+impl Takes<DropSaveParts> for Profile {
+    async fn take(
+        call: Call<Self, DropSaveParts>,
+    ) -> Result<Reply<DropSaveParts>> {
+        call.once(|unit| {
+            let agent = unit.message().agent;
+            let writer = unit.write();
+            drop_saves(&writer, Some(agent))?;
+            writer.kept(())
+        })
+        .await
+    }
 }
 
 fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
