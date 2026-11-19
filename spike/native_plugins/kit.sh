@@ -14,8 +14,10 @@ cargo build --release -p hamlet_sdk --message-format=json 2>/dev/null |
         | select(endswith(".rmeta") or (contains("/out/lib") and endswith(".dylib")))' |
     grep -v '/libhamlet_sdk\.' |
     while read -r file; do cp -p "$file" "$kit/"; done
-# The crate a plugin's code and Bevy's derives name as `bevy`.
+# The crates the SDK's macros name by their own names: `bevy` for Bevy's
+# derives, `fynix` for `#[element]`. One `name=file` line each.
 cargo build --release -p hamlet_sdk --message-format=json 2>/dev/null |
-    jq -r 'select(.reason == "compiler-artifact" and .target.name == "bevy")
-        | .filenames[] | select(endswith(".rmeta"))' |
-    xargs basename > "$kit/bevy"
+    jq -r 'select(.reason == "compiler-artifact"
+            and (.target.name == "bevy" or .target.name == "fynix"))
+        | .target.name + "=" + (.filenames[] | select(endswith(".rmeta"))
+            | split("/") | last)' > "$kit/externs"
