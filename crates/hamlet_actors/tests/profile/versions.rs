@@ -2,9 +2,10 @@
 //! purges, reads of its papers, and its erase.
 
 use hamlet_messages::profile::{
-    BadCommit, BadPath, Edit, EditRefusal, Erase, Missing, Paper,
-    PaperList, Papers, Pin, Protected, Purge, PurgeAnswer, Revert,
-    RevertAnswer, RevertRefusal, Revision, TooLong,
+    BadCommit, BadPath, Edit, EditRefusal, Erase, MOST_READ, Missing,
+    Paper, PaperList, Papers, Pin, Protected, Purge, PurgeAnswer,
+    Read, ReadAnswer, Revert, RevertAnswer, RevertRefusal, Revision,
+    TooLong,
 };
 use hamlet_messages::realm::Done;
 
@@ -504,6 +505,188 @@ async fn papers_are_the_character_memory_and_skills_at_main() {
             }],
         }
     );
+    host.shutdown().await.unwrap();
+}
+
+fn read(at: Option<Revision>, path: Option<&str>) -> Read {
+    Read {
+        at,
+        path: path.map(str::to_owned),
+    }
+}
+
+fn listed(paths: &[&str]) -> ReadAnswer {
+    ReadAnswer::Listed {
+        paths: paths
+            .iter()
+            .map(|path| hamlet_messages::profile::Path {
+                path: (*path).to_owned(),
+            })
+            .collect(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_lists_the_files_of_a_revision_or_gives_one_file() {
+    let dir = Scratch::new("profile-read");
+    let host = made(&dir).await;
+    let first = main_tip(&dir);
+    commit_main(&dir, &[write("memory/b.md", "b")]);
+    let tagged =
+        call_as(&host, &realm(), &tag(&RequestId::new(), "v1", ""))
+            .await
+            .unwrap();
+    assert!(matches!(tagged, TagAnswer::Tagged { .. }));
+    commit_main(
+        &dir,
+        &[
+            write("inbox/a.md", "a"),
+            write("memory/a.md", "the notes"),
+        ],
+    );
+
+    let at_main = call_as(&host, &realm(), &read(None, None)).await;
+    assert_eq!(
+        at_main.unwrap(),
+        listed(&[
+            "CHARACTER.md",
+            "inbox/a.md",
+            "memory/a.md",
+            "memory/b.md"
+        ])
+    );
+    let v1 = Revision::Version {
+        version: VersionName("v1".into()),
+    };
+    let at_v1 = call_as(&host, &realm(), &read(Some(v1), None)).await;
+    assert_eq!(
+        at_v1.unwrap(),
+        listed(&["CHARACTER.md", "memory/b.md"])
+    );
+    let at_first =
+        call_as(&host, &realm(), &read(Some(of_commit(first)), None))
+            .await;
+    assert_eq!(at_first.unwrap(), listed(&["CHARACTER.md"]));
+    let notes =
+        call_as(&host, &realm(), &read(None, Some("memory/a.md")))
+            .await;
+    assert_eq!(
+        notes.unwrap(),
+        ReadAnswer::Text {
+            text: "the notes".into(),
+            cut: false
+        }
+    );
+    let v1 = Revision::Version {
+        version: VersionName("v1".into()),
+    };
+    let gone = read(Some(v1), Some("memory/a.md"));
+    assert_eq!(
+        call_as(&host, &realm(), &gone).await.unwrap(),
+        ReadAnswer::Refused {
+            why: BadPath::NotAPath {
+                path: "memory/a.md".into()
+            }
+            .into()
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_cuts_a_long_file_at_a_character_boundary() {
+    let dir = Scratch::new("profile-read-cut");
+    let host = made(&dir).await;
+    let most = MOST_READ as usize;
+    let whole = "a".repeat(most);
+    let long = format!("{}é", "a".repeat(most - 1));
+    commit_main(
+        &dir,
+        &[
+            write("memory/whole.md", whole.clone()),
+            write("memory/long.md", long),
+        ],
+    );
+    let answer = call_as(
+        &host,
+        &realm(),
+        &read(None, Some("memory/whole.md")),
+    )
+    .await;
+    assert_eq!(
+        answer.unwrap(),
+        ReadAnswer::Text {
+            text: whole,
+            cut: false
+        }
+    );
+    let answer =
+        call_as(&host, &realm(), &read(None, Some("memory/long.md")))
+            .await;
+    assert_eq!(
+        answer.unwrap(),
+        ReadAnswer::Text {
+            text: "a".repeat(most - 1),
+            cut: true
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_is_refused_a_revision_or_a_path_the_profile_lacks() {
+    let dir = Scratch::new("profile-read-refused");
+    let host = made(&dir).await;
+    commit_main(&dir, &[write("memory/deep/a.md", "a")]);
+    let v9 = Revision::Version {
+        version: VersionName("v9".into()),
+    };
+    let missing =
+        call_as(&host, &realm(), &read(Some(v9), None)).await;
+    assert_eq!(
+        missing.unwrap(),
+        ReadAnswer::Refused {
+            why: Missing::NoVersion {
+                profile: ProfileId(1),
+                version: VersionName("v9".into())
+            }
+            .into()
+        }
+    );
+    let unknown = CommitId(Sha1([0xab; 20]));
+    let commit = Revision::Commit { commit: unknown };
+    let missing =
+        call_as(&host, &realm(), &read(Some(commit), None)).await;
+    assert_eq!(
+        missing.unwrap(),
+        ReadAnswer::Refused {
+            why: BadCommit::NoCommit {
+                profile: ProfileId(1),
+                commit: unknown
+            }
+            .into()
+        }
+    );
+    for path in [
+        "nothing.md",
+        "",
+        "memory",
+        "memory/",
+        "../a.md",
+        "/CHARACTER.md",
+    ] {
+        let answer =
+            call_as(&host, &realm(), &read(None, Some(path))).await;
+        assert_eq!(
+            answer.unwrap(),
+            ReadAnswer::Refused {
+                why: BadPath::NotAPath { path: path.into() }.into()
+            },
+            "{path:?}"
+        );
+    }
+    let read = call_as(&host, &agent(), &read(None, None)).await;
+    assert_eq!(error_code(read), "message.wrong_caller");
     host.shutdown().await.unwrap();
 }
 
