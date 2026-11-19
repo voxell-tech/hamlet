@@ -21,6 +21,7 @@ mod parcels;
 mod peer;
 mod place;
 mod profiles;
+mod prompt;
 mod reach;
 mod record;
 mod reviews;
@@ -69,6 +70,7 @@ use hamlet_messages::realm::profiles::{
     AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
     TagProfile,
 };
+use hamlet_messages::realm::prompt::ReadPlace;
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
@@ -259,6 +261,7 @@ impl Actor for Realm {
         Asked<Dream>,
         Unreserved<Tool<AskLibrarian>>,
         librarian::Submitting,
+        ReadPlace,
     );
     type Events = ();
     type ConnParams = Option<Caller>;

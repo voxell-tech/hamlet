@@ -144,6 +144,11 @@ impl Held {
         self.held().stored.version
     }
 
+    /// Every secret the realm holds, longest first.
+    pub fn secrets(&self) -> Vec<String> {
+        self.list().values
+    }
+
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may
     /// only replace its provider's OAuth login with another, and is
     /// refused as a wrong caller otherwise.

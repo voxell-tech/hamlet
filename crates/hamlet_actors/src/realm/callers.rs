@@ -8,6 +8,7 @@ use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
+use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, DoneTo, Gate, LeadRefusal, ProfileId,
     Rank, Refusable, RoadDone, SecretList, Secrets, Standing, Tool,
@@ -16,7 +17,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
 };
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, Numbered};
 use serde::{Deserialize, Serialize};
 
 use super::act::{self, Act, Look, ToolAct};
@@ -24,7 +25,7 @@ use super::change::Rows;
 use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
-use super::{Realm, marker, record};
+use super::{Realm, marker, prompt, record};
 
 /// A sender the realm takes calls from.
 pub(super) trait Witness:
@@ -463,6 +464,25 @@ impl Handler<Say> for Realm {
         let by = sender(&ctx, &say)?;
         let id = marker::Id::Request(say.0.id.clone());
         act::run(&self, &ctx, by, Some(id), Say::NAME, say).await
+    }
+}
+
+impl Handler<ReadPlace> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        read: ReadPlace,
+    ) -> Result<PlaceText> {
+        let by = sender(&ctx, &read)?;
+        if let Numbered::Errand(_) = by.0.numbered() {
+            return refuse(ReadPlace::NAME, by);
+        }
+        let reading = prompt::Reading {
+            read,
+            secrets: self.secrets.secrets(),
+        };
+        act::run(&self, &ctx, by, None, ReadPlace::NAME, reading)
+            .await
     }
 }
 

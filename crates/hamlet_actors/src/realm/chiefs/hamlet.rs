@@ -80,11 +80,7 @@ pub(in crate::realm) async fn apply(
             if let Some(folder) = folder {
                 remember(writer, &hamlet, folder).await?;
             }
-            let reached = reached(&writer.rows(), &hamlet).await?;
-            Ok(Affected {
-                places: reached.reaches.clone(),
-                ..reached
-            })
+            reached(&writer.rows(), &hamlet).await
         }
     }
 }
@@ -140,14 +136,16 @@ async fn remember(
     Ok(())
 }
 
-/// The reaches a change of the hamlet's footing moves: those of its
-/// agents.
+/// The reaches and places a change of the hamlet's footing moves:
+/// those of its agents.
 async fn reached(
     rows: &Rows<'_>,
     hamlet: &HamletId,
 ) -> Result<Affected> {
+    let agents = agents_of(rows, hamlet).await?;
     Ok(Affected {
-        reaches: agents_of(rows, hamlet).await?,
+        places: agents.clone(),
+        reaches: agents,
         ..Affected::seen([Part::Hamlets, Part::Reaches])
     })
 }

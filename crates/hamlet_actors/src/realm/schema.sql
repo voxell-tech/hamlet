@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS task (
 	origin TEXT NOT NULL,
 	agent INTEGER,
 	payer TEXT NOT NULL,
+	text TEXT,
 	at INTEGER NOT NULL) STRICT;
 
 -- letters.rs
