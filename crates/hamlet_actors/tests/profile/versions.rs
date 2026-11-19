@@ -674,6 +674,7 @@ async fn a_read_is_refused_a_revision_or_a_path_the_profile_lacks() {
         "memory/",
         "../a.md",
         "/CHARACTER.md",
+        "CHARACTER.md/x",
     ] {
         let answer =
             call_as(&host, &realm(), &read(None, Some(path))).await;

@@ -212,8 +212,8 @@ fn branch(
     writer.kept(Done::Done)
 }
 
-/// The commit a hire made or pinned at `version` starts from, or
-/// `main`'s tip when `None`.
+/// The commit `version` names, or `main`'s tip when `None`, or the
+/// refusal of a version the profile does not have.
 fn start(
     git: &Reads,
     version: Option<&VersionName>,
