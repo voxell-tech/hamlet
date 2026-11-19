@@ -10,7 +10,8 @@ drawn offscreen into a texture the window paints like any other panel,
 so the dock clips it and a Toast covers it. It is built on our fork of
 `bevy_cef`, `voxell-tech/bevy_cef`, pinned to a commit on its `hamlet`
 branch. It is macOS first, behind `hamlet_app`'s `web` feature, so the
-Linux and Windows builds do not carry CEF.
+Linux and Windows builds do not carry CEF. The research behind this is
+in [`docs/proposals/research/embedding-a-web-engine.md`](../proposals/research/embedding-a-web-engine.md).
 
 ## Considered options
 
