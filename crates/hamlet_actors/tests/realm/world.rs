@@ -329,8 +329,9 @@ async fn an_answered_wait_leaves_the_world() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wait_that_does_not_read_stops_the_realms_start() {
+async fn a_wait_that_does_not_read_is_left_out_of_the_world() {
     let (realm, _) = hamlet_with(1).await;
+    realm.call_as_workspace(&needs(THREE, "c1")).await.unwrap();
     let started = super::stopped_open(
         &realm.host,
         &realm.scratch,
@@ -339,12 +340,21 @@ async fn a_wait_that_does_not_read_stops_the_realms_start() {
         |db| {
             db.execute_batch(
                 "INSERT INTO wait (agent, kind, task, conversation, \
-                 at) VALUES (3, 'question', 1, 'c', 1)",
+                 at) VALUES (3, 'question', 1, 'c', 1); INSERT INTO \
+                 wait (agent, kind, call, subject, needs, \
+                 reach_version, at) VALUES (3, 'tool', 'c2', 'ls', \
+                 '[]', 1, 1)",
             )
         },
     )
     .await;
-    assert!(started.is_err(), "the realm started past the wait");
+    let seen = realm.ask(&ReadWorld).await.unwrap();
+
+    assert!(started.is_ok(), "{started:?}");
+    assert_eq!(
+        seen.waits.iter().map(|wait| wait.wait).collect::<Vec<_>>(),
+        [WaitId(1)]
+    );
     realm.host.shutdown().await.unwrap();
 }
 

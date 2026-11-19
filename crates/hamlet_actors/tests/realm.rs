@@ -102,6 +102,8 @@ mod places;
 mod profiles;
 #[path = "realm/record.rs"]
 mod record;
+#[path = "realm/refusals.rs"]
+mod refusals;
 #[path = "realm/repeats.rs"]
 mod repeats;
 #[path = "realm/reserved.rs"]

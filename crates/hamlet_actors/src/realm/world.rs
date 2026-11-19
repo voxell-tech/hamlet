@@ -271,19 +271,28 @@ type WaitRow = (
     Option<Vec<u8>>,
 );
 
+/// The open waits, each that reads.
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
-    rows.rows::<WaitRow>(
-        "SELECT id, agent, kind, call, subject, needs, detail FROM \
-         wait WHERE closed_at IS NULL ORDER BY id",
-        Vec::new(),
-    )
-    .await?
-    .into_iter()
-    .map(|row| {
-        let wait = row.0;
-        wait_seen(row).with_context(|| format!("wait {wait}"))
-    })
-    .collect()
+    Ok(rows
+        .rows::<WaitRow>(
+            "SELECT id, agent, kind, call, subject, needs, detail \
+             FROM wait WHERE closed_at IS NULL ORDER BY id",
+            Vec::new(),
+        )
+        .await?
+        .into_iter()
+        .filter_map(|row| {
+            let wait = row.0;
+            wait_seen(row)
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        wait,
+                        "a wait is left out: {error:#}"
+                    );
+                })
+                .ok()
+        })
+        .collect())
 }
 
 fn wait_seen(

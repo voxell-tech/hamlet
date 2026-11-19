@@ -706,6 +706,11 @@ impl Act<Workspace> for NeedsChief {
         _by: &Workspace,
         rows: &Rows<'_>,
     ) -> Result<Asker> {
+        anyhow::ensure!(
+            !self.needs.is_empty(),
+            "a tool call of agent {} needs nothing of a chief",
+            self.agent.0
+        );
         if tree::life(rows, self.agent).await? != tree::Life::Living {
             return Ok(Asker::Ended);
         }
