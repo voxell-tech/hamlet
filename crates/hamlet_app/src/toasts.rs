@@ -262,6 +262,13 @@ impl Toasts {
         }
     }
 
+    /// Takes away every update offered, as when another channel is
+    /// followed.
+    pub(crate) fn withdraw_offers(&mut self) {
+        self.shown
+            .retain(|toast| !matches!(toast.what, What::Update(_)));
+    }
+
     /// The [`Place`] of toast `id` in the stack.
     fn place(&self, id: u64) -> Place {
         let Some(at) =

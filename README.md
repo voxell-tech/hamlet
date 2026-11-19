@@ -48,8 +48,8 @@ closing it stops no agent.
 
 Download the file for your system from the
 [latest release](https://github.com/voxell-tech/hamlet/releases/latest).
-Each includes everything Hamlet needs, Node too. A build of every
-change is on the
+Each includes everything Hamlet needs, Node too. A build of the newest
+changes is on the
 [nightly release](https://github.com/voxell-tech/hamlet/releases/tag/nightly),
 and **Settings > Updates** moves a copy between the Stable, Beta and
 Nightly [channels](docs/releases.md#updates).

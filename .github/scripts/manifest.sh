@@ -6,7 +6,7 @@
 #
 # Usage: manifest.sh <version> <repository> [release]
 # `version` is the one package.sh was given, as v0.2.0 or
-# v0.2.0-nightly.202611190930. `release` is the GitHub release that
+# v0.2.0-nightly.20261119.412. `release` is the GitHub release that
 # holds the files, the tag named `version` unless given.
 # HAMLET_UPDATE_SIGNING_KEY: the Ed25519 private key, in PEM, whose
 # public half release builds are given as HAMLET_UPDATE_KEY.
