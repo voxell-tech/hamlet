@@ -220,8 +220,6 @@ impl Cx<'_> {
         .await)
     }
 
-    /// Commits `changes`, then makes the pushes they decided, and
-    /// gives the errors of those that failed.
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
@@ -231,8 +229,6 @@ impl Cx<'_> {
         Ok(calls::push_all(self.realm, self.ctx, pushes).await)
     }
 
-    /// Commits the reach `agent` wants and carries it to the
-    /// workspace, which may refuse it.
     pub async fn want_reach(&self, agent: AgentNumber) -> Result<()> {
         let failed = self
             .commit(vec![versions::Change::WantReach(agent).into()])
@@ -270,7 +266,6 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
 /// Runs `attempt`, after `wait` when one is given, and again after
 /// each failure in passing, waiting [`FIRST_RETRY`] doubled after
 /// each up to [`LAST_RETRY`], until it is done or the realm stops.
-/// Returns the callee's words when it refused it, which ends it.
 pub(super) async fn retried<F>(
     ctx: &Ctx<Realm>,
     mut wait: Option<Duration>,

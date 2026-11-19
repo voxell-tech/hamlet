@@ -55,13 +55,9 @@ pub(in crate::realm) struct Hiring {
     agent: AgentNumber,
 }
 
-/// A hire, with what the profile it is of answered of the version
-/// it names before the hire is decided.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(in crate::realm) struct Pinned {
     pub hire: Hire,
-    /// The version it names, when a profile a hire may be made of
-    /// lacks it.
     pub lacked: Option<VersionName>,
 }
 
@@ -97,8 +93,6 @@ impl Pinned {
     }
 }
 
-/// A chief's or an agent's hire, run once the profile it is of has
-/// answered whether it has the version the hire names.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(in crate::realm) struct Pinning<M>(pub M);
@@ -495,10 +489,9 @@ fn hire_ending(
     .collect()
 }
 
-/// The changes that end `hire`, whose step failed for good as its
-/// callee said `why`, and its lead's notice of it in the words an
-/// end of it is refused with. None for the Hand, a mayor or a hire
-/// that ended: an end refuses them.
+/// The changes that end `hire`, whose step failed for good, and its
+/// lead's notice of it. None for the Hand, a mayor or a hire that
+/// ended: an end refuses them.
 pub(in crate::realm) async fn failed(
     rows: &Rows<'_>,
     hire: AgentNumber,

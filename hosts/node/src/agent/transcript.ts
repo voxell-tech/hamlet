@@ -108,11 +108,7 @@ export function watching(c: AgentContext, follow: Following): void {
     queueMicrotask(() => void attached(c, follow, watch)?.catch(warn(c)));
 }
 
-/**
- * Sends the agent's followers nothing more until `answered` resolves, so a
- * client has a command's answer before the events of what it wrote.
- */
-export function sentAfter(c: AgentCall, answered: Promise<void>): void {
+export function holdFollowers(c: AgentCall, answered: Promise<void>): void {
     const watch = WATCHES.get(generationOf(c).following);
     if (watch !== undefined) watch.queue = watch.queue.then(() => answered);
 }

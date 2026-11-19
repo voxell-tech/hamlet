@@ -705,7 +705,6 @@ impl ProfileChange for RevertProfile {
     }
 }
 
-/// A change a model makes is asked of its profile.
 macro_rules! asked_of_the_profile {
     ($($change:ty),+) => {$(
         impl ToolAct<Hand> for $change {

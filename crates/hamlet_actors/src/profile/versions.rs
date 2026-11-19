@@ -242,10 +242,13 @@ fn commit_of<W: From<Missing> + From<BadCommit>>(
         Revision::Main => {
             Ok(git.tip(MAIN)?.context("a profile has a main")?)
         }
-        // A name git refuses as a branch's is no branch.
         Revision::Version { version } => {
-            match git.tip(&version.0).unwrap_or_default() {
-                Some(tip) => Ok(tip),
+            let branch = git
+                .branches()?
+                .into_iter()
+                .find(|(name, _)| *name == version.0);
+            match branch {
+                Some((_, tip)) => Ok(tip),
                 None => hires::version_at(git, version)?.ok_or_else(
                     || {
                         let version = version.clone();

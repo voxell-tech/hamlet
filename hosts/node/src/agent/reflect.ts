@@ -96,22 +96,22 @@ export function reflection(
 
 /**
  * Asks the reflection a session owes as a chief leaves it, by `/new` or
- * `/resume`, whatever `reflect_every` is, and gives its task: `already` when
- * one is owed or running, none when the session owes none. A turn still
- * running then asks its own when it answers.
+ * `/resume`, whatever `reflect_every` is, and gives the task it asked, if
+ * it asked one. A turn still running then asks its own when it answers.
  */
 export async function reflectOnLeaving(
     c: AgentCall,
     conversation: ConversationId,
-): Promise<TaskId<null> | "already" | undefined> {
+): Promise<TaskId<null> | undefined> {
     const { peers, options } = generationOf(c);
     const { answered } = await owedOf((use) => withHarness(c, options, use))(
         conversation,
     );
     if (answered < 1) return undefined;
-    return withHarness(c, options, (harness, context) =>
+    const task = await withHarness(c, options, (harness, context) =>
         ask(harness, peers, conversation, context),
     );
+    return task === "already" ? undefined : task;
 }
 
 /**
@@ -124,7 +124,7 @@ export async function reflectBeforeLeaving(
     conversation: ConversationId,
 ): Promise<void> {
     const task = await reflectOnLeaving(c, conversation);
-    if (task === undefined || task === "already") return;
+    if (task === undefined) return;
     await withHarness(c, generationOf(c).options, async (harness, context) => {
         if (!(await isBusy(harness, conversation, context))) {
             await harness.waitForTask(task, context);

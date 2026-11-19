@@ -1296,8 +1296,6 @@ async fn seen_submits(
     submits_to(realm, agent)
 }
 
-/// What `lead` is told of its hire `hire`, which ended as it was
-/// hired.
 async fn told_of_failed(
     realm: &Realm,
     lead: AgentNumber,

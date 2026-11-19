@@ -76,7 +76,6 @@ function said(all: Map<ConversationId, Shown[]>, id: ConversationId): string[] {
         .map((entry) => entry.text);
 }
 
-/** Waits for the session left to have answered its reflection with `words`. */
 async function reflected(agent: Woken, words: string): Promise<void> {
     await until(async () => {
         const { root, all } = await chats(agent);

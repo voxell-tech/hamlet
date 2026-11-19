@@ -148,8 +148,7 @@ function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
 /**
  * A version or a commit as today's `version_of` names one
  * (`crates/hamlet_server/src/calls/society/scholars.rs:55-71`): `main`, a
- * commit's 40 hex digits, or a branch's or a version's name, which the
- * profile looks up in that order.
+ * commit's 40 hex digits, or a branch's or a version's name.
  */
 function revisionOf(text: string): Revision {
     if (text === "main") return { type: "main" };

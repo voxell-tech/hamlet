@@ -46,7 +46,7 @@ import {
     session,
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
-import { refused, sentAfter, textOf } from "./transcript.ts";
+import { holdFollowers, refused, textOf } from "./transcript.ts";
 import {
     callOf,
     conversationsOf,
@@ -130,17 +130,15 @@ export async function newSession(
     message: NewSession,
 ): Answer<"new_session"> {
     const generation = generationOf(c);
-    // As today (`crates/hamlet_server/src/commands.rs`), a client has the
-    // answer before it is told the session began, and the new chat's row
-    // is kept by then, so its first commit is sent.
+    // Followers hear of the new session after its answer, once its chat's
+    // row is kept: a commit folded before that is never sent.
     const answered = Promise.withResolvers<void>();
-    sentAfter(c, answered.promise);
+    holdFollowers(c, answered.promise);
     try {
         const { number, left } = await generation.inTurn(() =>
             begin(c, message.id),
         );
-        // As today, the session left keeps what it waits for. A repeat asks
-        // its reflection again: a stop may have cut the first off.
+        // As today, the session left keeps what it waits for.
         if (left !== undefined) {
             void reflectOnLeaving(c, left).catch((error: unknown) =>
                 generation.peers.report(
@@ -151,7 +149,7 @@ export async function newSession(
         }
         return { number };
     } finally {
-        // The answer leaves once this returns.
+        // The answer is handed to the runtime before the next turn of the loop.
         setImmediate(answered.resolve);
     }
 }

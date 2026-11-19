@@ -520,10 +520,7 @@ test("a client following the chief's chat reads again after /new", async (t) => 
 });
 
 // As today's `/new` (`crates/hamlet_server/src/commands.rs`): the chief is
-// answered once the new session has begun, and a client following the
-// current chat is told to read again after that answer. The notice is kept
-// with the new session, so it is there while the session left still waits
-// to reflect, and a stop then cannot lose it.
+// answered once the new session has begun.
 test("/new begins its session with its notice, and a follower hears of it after the answer", async (t) => {
     const asked = Promise.withResolvers<void>();
     const opened = Promise.withResolvers<void>();
