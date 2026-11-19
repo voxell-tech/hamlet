@@ -30,7 +30,11 @@ import {
     type RewindAnswer,
     u32,
 } from "./messages.ts";
-import { reflectIn, reflectOnLeaving } from "./reflect.ts";
+import {
+    reflectBeforeLeaving,
+    reflectIn,
+    reflectOnLeaving,
+} from "./reflect.ts";
 import {
     begin,
     chiefSession,
@@ -38,11 +42,11 @@ import {
     current,
     makeCurrent,
     moveTo,
-    nowSeconds,
+    noticeEntry,
     session,
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
-import { refused, textOf } from "./transcript.ts";
+import { refused, sentAfter, textOf } from "./transcript.ts";
 import {
     callOf,
     conversationsOf,
@@ -126,26 +130,30 @@ export async function newSession(
     message: NewSession,
 ): Answer<"new_session"> {
     const generation = generationOf(c);
-    const { number, to, left } = await generation.inTurn(() =>
-        begin(c, message.id),
-    );
-    // As today (`crates/hamlet_server/src/commands.rs`), the chief is
-    // answered once the session has begun; then the session left reflects
-    // and the new one tells it began, in that order (`talk/chats.rs`).
-    // Each is admitted once, so a repeat asks both again. As today, the
-    // session left keeps what it waits for.
-    void generation
-        .inTurn(async () => {
-            if (left !== undefined) await reflectOnLeaving(c, left);
-            await noticed(c, to, `new:${message.id}`, "Started a new session.");
-        })
-        .catch((error: unknown) =>
-            generation.peers.report(
-                "a new session's notice was not written",
-                error,
-            ),
+    // As today (`crates/hamlet_server/src/commands.rs`), a client has the
+    // answer before it is told the session began, and the new chat's row
+    // is kept by then, so its first commit is sent.
+    const answered = Promise.withResolvers<void>();
+    sentAfter(c, answered.promise);
+    try {
+        const { number, left } = await generation.inTurn(() =>
+            begin(c, message.id),
         );
-    return { number };
+        // As today, the session left keeps what it waits for. A repeat asks
+        // its reflection again: a stop may have cut the first off.
+        if (left !== undefined) {
+            void reflectOnLeaving(c, left).catch((error: unknown) =>
+                generation.peers.report(
+                    "the session left was not asked to reflect",
+                    error,
+                ),
+            );
+        }
+        return { number };
+    } finally {
+        // The answer leaves once this returns.
+        setImmediate(answered.resolve);
+    }
 }
 
 export async function resume(
@@ -173,7 +181,7 @@ export async function resume(
     await generationOf(c).inTurn(async () => {
         const left = await current(c.db);
         if (left !== undefined && left !== to) {
-            await reflectOnLeaving(c, left);
+            await reflectBeforeLeaving(c, left);
         }
         await makeCurrent(c, to);
         await noticed(
@@ -191,14 +199,7 @@ export async function resume(
  * appends it at once, even mid-run. `requestId` admits it once.
  */
 export function notice(requestId: string, text: string): SubmissionDraft {
-    return {
-        type: "write",
-        requestId,
-        entry: {
-            kind: "hamlet.notice",
-            data: { text, at: nowSeconds() },
-        },
-    };
+    return { type: "write", requestId, entry: noticeEntry(text) };
 }
 
 function noticed(

@@ -96,26 +96,37 @@ export function reflection(
 
 /**
  * Asks the reflection a session owes as a chief leaves it, by `/new` or
- * `/resume`, whatever `reflect_every` is. A turn still running then asks
- * its own when it answers. An idle session takes its reflection before
- * this ends, so what the chief's move writes next comes after it, as
- * today keeps the reflection first; a busy one takes it when its run ends.
+ * `/resume`, whatever `reflect_every` is, and gives its task: `already` when
+ * one is owed or running, none when the session owes none. A turn still
+ * running then asks its own when it answers.
  */
 export async function reflectOnLeaving(
     c: AgentCall,
     conversation: ConversationId,
-): Promise<void> {
+): Promise<TaskId<null> | "already" | undefined> {
     const { peers, options } = generationOf(c);
     const { answered } = await owedOf((use) => withHarness(c, options, use))(
         conversation,
     );
-    if (answered < 1) return;
-    await withHarness(c, options, async (harness, context) => {
-        const task = await ask(harness, peers, conversation, context);
-        if (
-            task !== "already" &&
-            !(await isBusy(harness, conversation, context))
-        ) {
+    if (answered < 1) return undefined;
+    return withHarness(c, options, (harness, context) =>
+        ask(harness, peers, conversation, context),
+    );
+}
+
+/**
+ * As `reflectOnLeaving`, and an idle session takes its reflection before
+ * this ends, so what the chief's move writes next comes after it, as today
+ * keeps the reflection first; a busy one takes it when its run ends.
+ */
+export async function reflectBeforeLeaving(
+    c: AgentCall,
+    conversation: ConversationId,
+): Promise<void> {
+    const task = await reflectOnLeaving(c, conversation);
+    if (task === undefined || task === "already") return;
+    await withHarness(c, generationOf(c).options, async (harness, context) => {
+        if (!(await isBusy(harness, conversation, context))) {
             await harness.waitForTask(task, context);
         }
     });

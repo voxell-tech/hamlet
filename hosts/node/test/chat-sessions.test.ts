@@ -76,6 +76,14 @@ function said(all: Map<ConversationId, Shown[]>, id: ConversationId): string[] {
         .map((entry) => entry.text);
 }
 
+/** Waits for the session left to have answered its reflection with `words`. */
+async function reflected(agent: Woken, words: string): Promise<void> {
+    await until(async () => {
+        const { root, all } = await chats(agent);
+        return said(all, root).at(-1) === words;
+    });
+}
+
 async function wake(
     t: TestContext,
     calls: Calls,
@@ -122,7 +130,7 @@ test("a repeated /new answers the same number", async (t) => {
         { number: 2 },
     );
     // The session left reflects first, so the faux answers come in order.
-    await agent.idle();
+    await reflected(agent, "Kept it.");
     await send(line("b"));
 
     const { root, all } = await chats(agent);
@@ -161,7 +169,7 @@ test("A2: sessions are numbered and come back", async (t) => {
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
-    await agent.idle();
+    await reflected(agent, "Kept it.");
     await send(line("b"));
 
     const { sessions } = await agent.actions.read_history(client);

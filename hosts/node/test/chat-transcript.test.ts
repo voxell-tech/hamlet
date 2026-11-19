@@ -493,11 +493,14 @@ test("a client following the chief's chat reads again after /new", async (t) => 
         to: 7,
     });
     await send(line("b"));
+    const after = () =>
+        chatEvents(agent).filter((event) => event.number > page.number);
+    await until(() =>
+        after().some((event) => event.ops.some((op) => op.type === "reset")),
+    );
 
     const followed = new Followed(CHIEF, page);
-    const events = chatEvents(agent).filter(
-        (event) => event.number > page.number,
-    );
+    const events = after();
     const stopped = events.findIndex((event) => !followed.take(event));
     assert.notEqual(stopped, -1, "the client was told to read again");
     const again = await read(agent, CHIEF);
@@ -516,11 +519,12 @@ test("a client following the chief's chat reads again after /new", async (t) => 
     ]);
 });
 
-// As today's `/new` (`crates/hamlet_server/src/commands.rs`), whose
-// watch of the current chat names session 1 from its first page: the chief
-// is answered once the new session has begun, and the reflection of the
-// session left is written before the new session's notice.
-test("/new answers before the session left reflects, and its notice comes after the reflection", async (t) => {
+// As today's `/new` (`crates/hamlet_server/src/commands.rs`): the chief is
+// answered once the new session has begun, and a client following the
+// current chat is told to read again after that answer. The notice is kept
+// with the new session, so it is there while the session left still waits
+// to reflect, and a stop then cannot lose it.
+test("/new begins its session with its notice, and a follower hears of it after the answer", async (t) => {
     const asked = Promise.withResolvers<void>();
     const opened = Promise.withResolvers<void>();
     const agent = await wakeAgent(t, {
@@ -541,6 +545,20 @@ test("/new answers before the session left reflects, and its notice comes after 
     t.after(() => agent.stop());
     assert.equal((await read(agent, CHIEF)).session, 1);
     await sender(agent)(line("a"));
+    await until(async () =>
+        chatEvents(agent).some((event) =>
+            event.ops.some((op) => op.type === "status" && !op.working),
+        ),
+    );
+    const before = chatEvents(agent).length;
+    const ofCurrent = () =>
+        chatEvents(agent)
+            .slice(before)
+            .filter(
+                (event) =>
+                    event.chat.past === undefined &&
+                    event.chat.from === undefined,
+            );
 
     assert.deepEqual(
         await agent.actions.new_session(agent.by(from.client), {
@@ -549,23 +567,18 @@ test("/new answers before the session left reflects, and its notice comes after 
         }),
         { number: 2 },
     );
-    await asked.promise;
-    assert.deepEqual(shown((await read(agent, CHIEF)).items), []);
-    opened.resolve();
+    assert.deepEqual(ofCurrent(), [], "the answer comes first");
     await until(async () =>
-        shown((await read(agent, CHIEF)).items).includes(
-            "notice: Started a new session.",
+        ofCurrent().some((event) =>
+            event.ops.some((op) => op.type === "reset"),
         ),
     );
+    await asked.promise;
+    const page = await read(agent, CHIEF);
+    assert.equal(page.session, 2);
+    assert.deepEqual(shown(page.items), ["notice: Started a new session."]);
+    opened.resolve();
     await agent.idle();
-
-    const [notice] = (await read(agent, CHIEF)).items;
-    const reflection = (await read(agent, { with: 7, past: 1 })).items.find(
-        (item) => item.text === "reflection",
-    );
-    const entry = (item: ChatItem | undefined) =>
-        Number(item?.id.split(":")[0]);
-    assert.ok(entry(reflection) < entry(notice), "the reflection comes first");
 });
 
 test("a page read after the wake could not open the harness is followed", async (t) => {
