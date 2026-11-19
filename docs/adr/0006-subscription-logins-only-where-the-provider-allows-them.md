@@ -1,5 +1,5 @@
 ---
-status: accepted, amended by [0014](0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md) for Claude
+status: accepted, amended by [0014](0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md) for Claude and [0019](0019-chatgpt-signs-in-through-codexs-login.md) for ChatGPT
 ---
 
 # Subscription logins only where the provider allows them

@@ -552,7 +552,8 @@ async fn reads_a_providers_limits_and_lays_what_a_turn_learns_over_them()
     assert_eq!(reply.text, "Limits checked.");
     assert_eq!(faux_limits(&s.chief).unwrap().checked, read.checked);
 
-    // A turn lays the window it learnt about over the read.
+    // A turn lays the window it learnt about over the read, keeping
+    // the reset it leaves out.
     let hand = s.hand();
     let now = chat(hand);
     s.chief.open(&now).await;
@@ -569,7 +570,7 @@ async fn reads_a_providers_limits_and_lays_what_a_turn_learns_over_them()
     assert_eq!(
         windows(&learnt),
         [
-            ("five_hour".into(), Some(91.0), None, Some(300)),
+            ("five_hour".into(), Some(91.0), Some(resets), Some(300)),
             ("seven_day".into(), Some(10.0), None, Some(10_080)),
         ]
     );

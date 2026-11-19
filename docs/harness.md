@@ -64,12 +64,13 @@ the server keeps each once.
 
 A `provider_request` with the action `limits` asks how much of a
 provider's plan or key is used; its `provider_result` carries `limits`.
-pi asks Claude's own program, through the Agent SDK's usage call, and
-OpenRouter's documented `GET /key`; OpenAI tells nothing of a Sign in
-with ChatGPT plan, so its limits are `unknown`. As a turn runs, pi sends
-`limits` with what it learnt: a Claude `rate_limit_event`'s window and
-state, a ChatGPT refusal for the plan's limit, and the next answer after
-one. The server lays them over what it last read, and a new refusal reads
+pi asks Claude's own program, through the Agent SDK's usage call,
+OpenRouter's documented `GET /key`, and for a ChatGPT plan the address
+Codex reads, `chatgpt.com/backend-api/wham/usage`, with the token of
+Codex's login (ADR 0019). As a turn runs, pi sends `limits` with what it
+learnt: a Claude `rate_limit_event`'s window and state, a ChatGPT
+answer's `x-codex-*` windows, a ChatGPT refusal for the plan's limit, and
+the next answer after one. The server lays them over what it last read, and a new refusal reads
 the provider again where it tells its limits.
 
 ### Signing out

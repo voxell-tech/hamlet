@@ -16,7 +16,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, Tipped, action, bad_action, bare, beside, close,
     description, good_action, group, link_row, list, note,
-    note_rules, pill, radio, section, small_rules, text_input,
+    note_rules, radio, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -58,42 +58,74 @@ fn remove(world: &mut World, name: &str) {
     });
 }
 
-fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
-    let gone = endpoint.name.clone();
-    close((
-        beside((
-            row((label(endpoint.name.clone()).bold(true),))
-                .fills_width(),
-            note(if endpoint.key { "Key set" } else { "No key" }),
-            bad_action(Glyph::Gone, "Remove", move |world| {
-                remove(world, &gone);
-            }),
-        )),
-        note(endpoint.base_url.clone()),
-    ))
-    .boxed()
+/// What a Remove takes away: an endpoint the chief added, or a
+/// provider's sign-in or key.
+#[derive(Clone)]
+enum Gone {
+    Endpoint(String),
+    Provider(String),
 }
 
-/// A provider the server holds a sign-in or key for, over its plan's
-/// limits once it told them, with Remove, which asks first: a sign-in
-/// is not given back by a click.
-fn configured(id: &str, name: &str) -> AnyView {
-    let (armed, gone) = (id.to_string(), id.to_string());
-    let asked = id.to_string();
+impl Gone {
+    /// The key `Shelf::removing` holds while its confirm is open.
+    fn key(&self) -> String {
+        match self {
+            Self::Endpoint(name) => format!("endpoint:{name}"),
+            Self::Provider(id) => id.clone(),
+        }
+    }
+
+    fn take(&self, world: &mut World) {
+        match self {
+            Self::Endpoint(name) => {
+                remove(world, name);
+                world.resource_mut::<Shelf>().removing = None;
+            }
+            Self::Provider(id) => super::forget(world, id.clone()),
+        }
+    }
+}
+
+/// One endpoint or provider: its mark and name, a line under them,
+/// Remove, which asks first, and `below`.
+fn source(
+    mark_of: &str,
+    name: &str,
+    under: Option<String>,
+    gone: Gone,
+    below: AnyView,
+) -> AnyView {
+    let (armed, asked) = (gone.key(), gone.key());
     let named = name.to_string();
+    let (warning, plan) = match &gone {
+        Gone::Endpoint(_) => (
+            "Hamlet forgets its address and key.",
+            views::frame().boxed(),
+        ),
+        Gone::Provider(id) => (
+            "Hamlet forgets its sign-in or key.",
+            crate::plans::plan_name(id.clone()),
+        ),
+    };
     close((
         beside((
-            row((mark(id, ICON), label(name.to_string()).bold(true)))
-                .gap(8.0)
-                .align(AlignItems::Center)
-                .fills_width(),
-            pill("Configured"),
-            // Quiet until confirmed: the red is on the confirm.
-            action(Glyph::Gone, "Remove", move |world| {
+            row((
+                mark(mark_of, ICON),
+                label(name.to_string()).bold(true),
+                plan,
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .fills_width(),
+            bad_action(Glyph::Gone, "Remove", move |world| {
                 world.resource_mut::<Shelf>().removing =
                     Some(armed.clone());
             }),
         )),
+        under.map_or_else(
+            || views::frame().boxed(),
+            |under| note(under).boxed(),
+        ),
         keyed(
             resource::<Shelf, _>(move |shelf| {
                 shelf.removing.as_deref() == Some(&*asked)
@@ -105,17 +137,14 @@ fn configured(id: &str, name: &str) -> AnyView {
                 let gone = gone.clone();
                 close((
                     note(format!(
-                        "Remove {named}? Hamlet forgets its sign-in \
-                         or key. Agents on its models stop until \
-                         you add it again."
+                        "Remove {named}? {warning} Agents on its \
+                         models stop until you add it again."
                     )),
                     hamlet_ui::styles::buttons(vec![
                         bad_action(
                             Glyph::Gone,
                             "Yes, remove",
-                            move |world| {
-                                super::forget(world, gone.clone());
-                            },
+                            move |world| gone.take(world),
                         )
                         .boxed(),
                         action(Glyph::Back, "Keep", |world| {
@@ -129,50 +158,72 @@ fn configured(id: &str, name: &str) -> AnyView {
             },
         )
         .within(bare()),
-        crate::plans::of_provider(id.to_string()),
+        below,
     ))
     .boxed()
 }
 
+/// An endpoint the chief added, such as a model server on this
+/// machine, drawn as every provider is.
+fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
+    let key = if endpoint.key { "key set" } else { "no key" };
+    source(
+        &endpoint.name,
+        &endpoint.name,
+        Some(format!("{} · {key}", endpoint.base_url)),
+        Gone::Endpoint(endpoint.name.clone()),
+        views::frame().boxed(),
+    )
+}
+
+/// A provider the server holds a sign-in or key for, over its plan's
+/// limits once it told them.
+fn configured(id: &str, name: &str) -> AnyView {
+    source(
+        id,
+        name,
+        None,
+        Gone::Provider(id.to_string()),
+        crate::plans::of_provider(id.to_string()),
+    )
+}
+
 /// The server's endpoints, configured providers and login entry.
 pub fn endpoints() -> impl View {
-    let known = keyed(
-        resource::<Settings, _>(|settings| {
-            settings.0.endpoints.clone()
-        }),
-        |endpoints| {
-            list(endpoints.iter().map(endpoint).collect::<Vec<_>>())
-                .boxed()
-        },
-    )
-    .within(bare());
-    let providers = keyed(
-        resource::<Providers, _>(|providers| {
-            providers
+    let sources = derived(|world: &World| {
+        (
+            world.resource::<Settings>().0.endpoints.clone(),
+            world
+                .resource::<Providers>()
                 .0
                 .iter()
                 .filter(|provider| provider.configured)
                 .map(|provider| {
                     (provider.id.clone(), provider.name.clone())
                 })
-                .collect::<Vec<_>>()
-        }),
-        |providers| {
-            list(
-                providers
-                    .iter()
-                    .map(|(id, name)| configured(id, name))
-                    .collect::<Vec<_>>(),
-            )
-            .boxed()
-        },
-    )
+                .collect::<Vec<_>>(),
+        )
+    })
+    .when(either(moved::<Settings>(), moved::<Providers>()));
+    let sources = keyed(sources, |(endpoints, providers)| {
+        list(
+            endpoints
+                .iter()
+                .map(endpoint)
+                .chain(
+                    providers
+                        .iter()
+                        .map(|(id, name)| configured(id, name)),
+                )
+                .collect::<Vec<_>>(),
+        )
+        .boxed()
+    })
     .within(bare());
     group((
         description("Credentials stay on the server."),
-        known,
         super::problem(),
-        providers,
+        sources,
         row((good_action(
             Glyph::Plus,
             "Add Provider",

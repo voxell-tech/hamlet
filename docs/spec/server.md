@@ -88,10 +88,8 @@ conversation (C32), or in a sandbox. The chief's own credentials on the
 machine are covered by S16.
 
 **S8.** A chief can reach any model provider pi-ai supports with an API key,
-and can sign in with a subscription where the provider offers that to
-open-source apps: "Sign in with ChatGPT". Hamlet signs in as itself, under
-its own name and an installation ID of its own, and the server refreshes the
-login on its own.
+and can sign in with a ChatGPT subscription through Codex's own login (ADR
+0019), and the server refreshes the login on its own.
 
 ## Where tools run
 

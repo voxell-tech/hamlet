@@ -88,6 +88,9 @@ struct Pending {
     login: Option<String>,
     settles: Settles,
     expires: Option<Instant>,
+    /// A read of limits made with a sign-in since changed or
+    /// removed: what it tells is not the provider's now.
+    forgotten: bool,
 }
 
 /// The answer a request's client gets at its end.
@@ -158,6 +161,18 @@ impl Providers {
         self.pending.clear();
         self.logins.clear();
         self.outgoing.clear();
+    }
+
+    /// Forgets what `provider` told of its limits, and what the reads
+    /// of them under way tell, as when its sign-in changes.
+    fn forget_limits(&mut self, provider: &str) {
+        self.limits.forget(provider);
+        for pending in self.pending.values_mut().filter(|p| {
+            p.provider == provider
+                && p.action == ProviderRequestAction::Limits
+        }) {
+            pending.forgotten = true;
+        }
     }
 
     /// The soonest a request times out.
@@ -351,6 +366,7 @@ impl Core<'_, '_> {
                 login,
                 settles,
                 expires,
+                forgotten: false,
             },
         );
         let models = self
@@ -547,10 +563,7 @@ impl Core<'_, '_> {
         let provider = seen.provider;
         let refused =
             self.providers.limits.seen(&provider, seen.limits);
-        if refused
-            && provider != "chatgpt"
-            && !self.asking_limits(&provider)
-        {
+        if refused && !self.asking_limits(&provider) {
             self.send_provider_request(
                 None,
                 &provider,
@@ -778,8 +791,38 @@ impl Core<'_, '_> {
                 ),
             );
         }
+        // A sign-in under way would keep its credential once it ends.
+        let ended = self
+            .providers
+            .pending
+            .iter()
+            .filter(|(_, p)| p.provider == provider)
+            .filter_map(|(scope, p)| {
+                Some((scope.clone(), p.login.clone()?))
+            })
+            .collect::<Vec<_>>();
+        for (scope, login) in ended {
+            self.providers.pending.remove(&scope);
+            self.providers.controls.push(control(&scope, None, None));
+            if let Some(signin) = self.providers.logins.remove(&login)
+            {
+                self.answer(
+                    signin.client,
+                    login_step(
+                        &signin.id,
+                        &login,
+                        LoginStep::Failed {
+                            failed: format!(
+                                "Sign-in stopped: {name} was \
+                                 removed."
+                            ),
+                        },
+                    ),
+                )?;
+            }
+        }
         self.credentials.save_model(provider, None)?;
-        self.providers.limits.forget(provider);
+        self.providers.forget_limits(provider);
         self.publish();
         if provider == "claude" {
             self.send_provider_request(
@@ -865,7 +908,7 @@ impl Core<'_, '_> {
                 self.credentials
                     .save_model(&pending.provider, Some(value))?;
                 // Another sign-in may be another plan.
-                self.providers.limits.forget(&pending.provider);
+                self.providers.forget_limits(&pending.provider);
             }
             let step = match result.error {
                 None => LoginStep::Done {
@@ -901,11 +944,19 @@ impl Core<'_, '_> {
         }
         if pending.action == ProviderRequestAction::Limits {
             // A provider that could not be read keeps what it told
-            // before.
-            if result.error.is_none()
-                && let Some(limits) = result.limits
-            {
-                self.providers.limits.read(&pending.provider, limits);
+            // before; one that told nothing yet reads as unknown, so
+            // the chief sees that it was tried.
+            match (&result.error, result.limits) {
+                _ if pending.forgotten => {}
+                (None, Some(limits)) => {
+                    self.providers
+                        .limits
+                        .read(&pending.provider, limits);
+                }
+                (Some(_), _) => {
+                    self.providers.limits.failed(&pending.provider);
+                }
+                (None, None) => {}
             }
             let more = self.providers.pending.values().any(|p| {
                 pending.from.is_some() && p.from == pending.from

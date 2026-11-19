@@ -723,7 +723,7 @@ fn rail() -> impl View {
                     let warns = plans
                         .and_then(|plans| plans.of(&id))
                         .and_then(|plan| {
-                            crate::plans::status_of(plan.reading.mood)
+                            crate::plans::alert_of(plan.reading.mood)
                                 .map(|kind| {
                                     (
                                         kind,

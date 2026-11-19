@@ -17,9 +17,13 @@ pub(crate) const READ: [&str; 3] =
 /// milliseconds.
 pub(crate) const FRESH: i64 = 60_000;
 
-/// What each provider last told of its limits.
+/// What each provider last told of its limits, and when each was last
+/// read.
 #[derive(Default)]
-pub(crate) struct Told(BTreeMap<String, Limits>);
+pub(crate) struct Told(
+    BTreeMap<String, Limits>,
+    BTreeMap<String, i64>,
+);
 
 impl Told {
     /// What `provider` last told, for a client.
@@ -27,33 +31,57 @@ impl Told {
         self.0.get(provider).map(view)
     }
 
-    /// Whether `provider` told its limits within [`FRESH`] of `now`.
+    /// Whether `provider`'s limits were read within [`FRESH`] of
+    /// `now`. What a turn saw is no read: it tells only part of them.
     pub fn fresh(&self, provider: &str, now: i64) -> bool {
-        self.0
-            .get(provider)
-            .is_some_and(|l| now - millis(l.checked) < FRESH)
+        self.1.get(provider).is_some_and(|&at| now - at < FRESH)
     }
 
-    /// Takes a read of `provider`'s limits. A read that tells nothing
-    /// keeps a refusal a turn saw, since a provider that tells
-    /// nothing of its limits cannot say the refusal lifted.
+    /// Takes a read of `provider`'s limits. A refusal a turn saw
+    /// stands against a read that tells nothing, since a provider
+    /// that tells nothing of its limits cannot say the refusal
+    /// lifted, and against a read made before it; such a read adds
+    /// only the plan and the windows the refusal leaves out.
     pub fn read(&mut self, provider: &str, read: Limits) {
-        let keep = read.state == runtime::LimitsState::Unknown
-            && read.windows.is_empty()
-            && self.0.get(provider).is_some_and(|prior| {
-                prior.state == runtime::LimitsState::Refused
-            });
+        self.1.insert(provider.into(), millis(read.checked));
+        let keep = self.0.get(provider).is_some_and(|prior| {
+            prior.state == runtime::LimitsState::Refused
+                && ((read.state == runtime::LimitsState::Unknown
+                    && read.windows.is_empty())
+                    || prior.checked > read.checked)
+        });
         if keep {
             if let Some(prior) = self.0.get_mut(provider) {
                 prior.plan = read.plan.or(prior.plan.take());
+                for window in read.windows {
+                    if !prior
+                        .windows
+                        .iter()
+                        .any(|w| w.id == window.id)
+                    {
+                        prior.windows.push(window);
+                    }
+                }
             }
             return;
         }
         self.0.insert(provider.into(), read);
     }
 
+    /// Notes a read of `provider` that failed: it keeps what it told
+    /// before, and is unknown if it told nothing yet.
+    pub fn failed(&mut self, provider: &str) {
+        self.0.entry(provider.into()).or_insert(Limits {
+            checked: crate::app::clock::now() as f64,
+            plan: None,
+            state: runtime::LimitsState::Unknown,
+            windows: Vec::new(),
+        });
+    }
+
     /// Lays what a turn learnt of `provider`'s limits over what it
-    /// last told: its windows replace those of the same id, and its
+    /// last told: its windows replace those of the same id, keeping
+    /// what is known of the same window that they leave out, and its
     /// state is the provider's now. Returns whether the provider
     /// refused where it did not before.
     pub fn seen(&mut self, provider: &str, seen: Limits) -> bool {
@@ -68,7 +96,24 @@ impl Told {
         for window in seen.windows {
             match prior.windows.iter_mut().find(|w| w.id == window.id)
             {
-                Some(known) => *known = window,
+                Some(known) => {
+                    // A turn may name a window without its use; the
+                    // use known of it stands until the window resets.
+                    // Its reset is not compared: a turn tells it in
+                    // whole seconds, a read to the millisecond.
+                    let reset = known
+                        .resets
+                        .is_some_and(|at| at <= seen.checked);
+                    let kept = known.clone();
+                    *known = window;
+                    if !reset {
+                        known.used = known.used.or(kept.used);
+                        known.resets = known.resets.or(kept.resets);
+                        known.length = known.length.or(kept.length);
+                        known.money =
+                            known.money.take().or(kept.money);
+                    }
+                }
                 None => prior.windows.push(window),
             }
         }
@@ -83,6 +128,7 @@ impl Told {
     /// Forgets `provider`'s limits, as when its sign-in changes.
     pub fn forget(&mut self, provider: &str) {
         self.0.remove(provider);
+        self.1.remove(provider);
     }
 }
 
@@ -188,6 +234,41 @@ mod tests {
             used,
             [("five_hour", Some(91.0)), ("week", Some(10.0))]
         );
+
+        // A turn that names the window without its use keeps the use
+        // known, and is no read.
+        told.seen(
+            "claude",
+            limits(
+                1_600.0,
+                Ok,
+                vec![runtime::LimitWindow {
+                    used: None,
+                    resets: Some(2_001.0),
+                    ..window("five_hour", 0.0)
+                }],
+            ),
+        );
+        let view = told.view("claude").unwrap();
+        assert_eq!(view.windows[0].used, Some(91.0));
+        assert!(!told.fresh("claude", 1_000 + FRESH));
+
+        // Once the window resets, what was used of it is gone.
+        told.seen(
+            "claude",
+            limits(
+                2_500.0,
+                Ok,
+                vec![runtime::LimitWindow {
+                    used: None,
+                    ..window("five_hour", 0.0)
+                }],
+            ),
+        );
+        assert_eq!(
+            told.view("claude").unwrap().windows[0].used,
+            None
+        );
     }
 
     #[test]
@@ -199,6 +280,16 @@ mod tests {
         );
         assert!(
             !told.seen("chatgpt", limits(1_200.0, Refused, vec![]))
+        );
+        // A read made before the refusal, ending after it, keeps it.
+        told.read(
+            "chatgpt",
+            limits(1_100.0, Ok, vec![window("primary", 40.0)]),
+        );
+        let view = told.view("chatgpt").unwrap();
+        assert_eq!(
+            (view.state, view.checked, view.windows.len()),
+            (LimitsState::Refused, 1_200, 1)
         );
         told.read("chatgpt", limits(5_000.0, Unknown, vec![]));
         let view = told.view("chatgpt").unwrap();
@@ -225,5 +316,9 @@ mod tests {
         told.read("claude", limits(10_000.0, Ok, vec![]));
         assert!(told.fresh("claude", 10_000 + FRESH - 1));
         assert!(!told.fresh("claude", 10_000 + FRESH));
+
+        // Another sign-in is read at once.
+        told.forget("claude");
+        assert!(!told.fresh("claude", 10_001));
     }
 }

@@ -10,12 +10,10 @@ use std::collections::HashSet;
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::common_conditions::{
-    resource_changed, resource_exists_and_changed,
-};
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Res, ResMut};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{
@@ -35,7 +33,7 @@ use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bare, close, icon_button, note,
+    ICON, action, bare, close, icon_button, note, pill,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -72,16 +70,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             (
-                ask.run_if(
-                    resource_changed::<Connection>
-                        .or_eager(
-                            resource_exists_and_changed::<Showing>,
-                        )
-                        .or_eager(
-                            resource_exists_and_changed::<Pane>,
-                        ),
-                )
-                .in_set(PanelSystems::Follow),
+                ask.in_set(PanelSystems::Follow),
                 (follow, warn).chain().in_set(PanelSystems::Bind),
             ),
         );
@@ -114,15 +103,24 @@ impl Plans {
 #[derive(Resource, Default)]
 struct Asking(Option<RequestId>);
 
-/// Asks the server for the limits when a page that shows them opens:
-/// the Hub's realm page, or Settings' endpoints. The server reads a
-/// provider at most once a minute however often it is asked.
-fn ask(world: &mut World) {
-    let shown = world.get_resource::<Showing>()
-        == Some(&Showing::Realm)
-        || world.get_resource::<Pane>() == Some(&Pane::Endpoints);
-    if shown {
-        check(world);
+/// Asks the server for the limits when a page that shows them opens,
+/// or the connection comes back while one is open: a Hub's realm
+/// page, or Settings' endpoints. The server reads a provider at most
+/// once a minute however often it is asked.
+fn ask(
+    turned: Query<(), Changed<Showing>>,
+    hubs: Query<&Showing>,
+    pane: Option<Res<Pane>>,
+    connection: Res<Connection>,
+    mut commands: Commands,
+) {
+    let moved = connection.is_changed()
+        || !turned.is_empty()
+        || pane.as_ref().is_some_and(DetectChanges::is_changed);
+    let shown = hubs.iter().any(|showing| *showing == Showing::Realm)
+        || pane.is_some_and(|pane| *pane == Pane::Endpoints);
+    if moved && shown {
+        commands.queue(check);
     }
 }
 
@@ -146,11 +144,14 @@ fn answered(response: On<Response>, mut asking: ResMut<Asking>) {
 }
 
 /// Reads each provider's limits again when they change, and as the
-/// minutes pass, since a reset's words count down.
+/// minutes pass, since a reset's words count down. A window that
+/// reset since its limits were told asks the server for them again,
+/// so that a used up one does not stay so.
 fn follow(
     providers: Option<Res<Providers>>,
     mut plans: ResMut<Plans>,
     mut minute: Local<i64>,
+    mut commands: Commands,
 ) {
     let now = Timestamp::now().as_millisecond();
     let changed =
@@ -179,6 +180,9 @@ fn follow(
             })
         })
         .collect::<Vec<_>>();
+    if read.iter().any(|plan| plan.reading.due) {
+        commands.queue(check);
+    }
     plans.set_if_neq(Plans(read));
 }
 
@@ -201,27 +205,34 @@ fn warn(
         let reading = &plan.reading;
         let near =
             reading.nearest.and_then(|at| reading.rows.get(at));
-        let (kind, head, key) = match reading.mood {
-            Mood::Refused => (
+        let key = near.map_or((String::new(), 0), |row| {
+            (row.id.clone(), row.resets.unwrap_or(0))
+        });
+        let (kind, head) = match reading.mood {
+            Mood::Out => (
                 StatusKind::Danger,
-                format!("{} refused", plan.title),
-                near.map_or((String::new(), 0), |row| {
-                    (row.id.clone(), row.resets.unwrap_or(0))
-                }),
+                format!("{}: limit reached", plan.title),
             ),
-            Mood::Short => {
-                match near.filter(|row| row.runs_out.is_some()) {
-                    Some(row) => (
-                        StatusKind::Warning,
-                        format!("{} may run out", plan.title),
-                        (row.id.clone(), row.resets.unwrap_or(0)),
-                    ),
-                    None => continue,
-                }
+            Mood::Low
+                if near.is_some_and(|r| r.runs_out.is_some()) =>
+            {
+                (
+                    StatusKind::Attention,
+                    format!("{}: may run out", plan.title),
+                )
             }
-            Mood::Fine | Mood::Unknown => continue,
+            Mood::Low => (
+                StatusKind::Attention,
+                format!("{}: running low", plan.title),
+            ),
+            Mood::Unknown | Mood::Plenty | Mood::Fair => continue,
         };
-        let key = (plan.provider.clone(), key.0, key.1);
+        // Running low and then used up are each told once.
+        let key = (
+            format!("{}/{:?}", plan.provider, reading.mood),
+            key.0,
+            key.1,
+        );
         if told.insert(key) && *primed {
             toasts.note(kind, head, reading.sentence.clone(), now);
         }
@@ -235,32 +246,35 @@ pub(crate) fn open(world: &mut World) {
     crate::dock::show_tab(world, "settings");
 }
 
-/// The status of `mood`: none while it is fine, amber when it runs
-/// short, red at a refusal.
+/// The colour of `mood`: green with plenty left, yellow with some,
+/// orange when low, red when used up, and none while unknown.
 pub(crate) fn status_of(mood: Mood) -> Option<StatusKind> {
     match mood {
-        Mood::Fine | Mood::Unknown => None,
-        Mood::Short => Some(StatusKind::Warning),
-        Mood::Refused => Some(StatusKind::Danger),
+        Mood::Unknown => None,
+        Mood::Plenty => Some(StatusKind::Success),
+        Mood::Fair => Some(StatusKind::Warning),
+        Mood::Low => Some(StatusKind::Attention),
+        Mood::Out => Some(StatusKind::Danger),
     }
 }
 
-/// How much of a window is used, as a bar that fills with it, and a
-/// thin mark where even use would stand now.
+/// The status of a plan that needs the chief: low or used up.
+pub(crate) fn alert_of(mood: Mood) -> Option<StatusKind> {
+    status_of(mood).filter(|_| mood >= Mood::Low)
+}
+
+/// How much of a window is left, as a bar in its colour that empties
+/// as it is used, and a thin mark where it would end at an even pace.
 fn bar(row_: &Row) -> AnyView {
-    let (used, pace, mood) = (row_.used, row_.pace, row_.mood);
+    let (left, pace, mood) = (row_.left, row_.pace, row_.mood);
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
-        // Quiet while it lasts; the lamp's orange when it runs short,
-        // red at a refusal.
-        let fill = match mood {
-            Mood::Fine | Mood::Unknown => palette.grey_1,
-            Mood::Short => palette.status.attention.mark,
-            Mood::Refused => palette.status.danger.mark,
-        };
+        let fill = status_of(mood).map_or(palette.text_dim, |kind| {
+            palette.status.get(kind).mark
+        });
         let mut parts = vec![
             frame()
-                .width(percent(used.unwrap_or(0.0) * 100.0))
+                .width(percent(left.unwrap_or(0.0) * 100.0))
                 .height(percent(100.0))
                 .radius(BAR / 2.0)
                 .fill(fill)
@@ -271,7 +285,7 @@ fn bar(row_: &Row) -> AnyView {
                 frame()
                     .width(px(2.0))
                     .height(px(BAR + 2.0 * OVERHANG))
-                    .fill(palette.gold_1)
+                    .fill(palette.text)
                     .position(PositionType::Absolute)
                     .inset(UiRect::new(
                         percent(pace * 100.0),
@@ -281,9 +295,10 @@ fn bar(row_: &Row) -> AnyView {
                     ))
                     .tooltip(|| {
                         note(
-                            "Where even use would stand now: past \
-                             it, this limit is used faster than it \
-                             lasts",
+                            "Even pace: with use spread evenly \
+                             until the reset, the bar would end \
+                             here. Short of it, this limit is used \
+                             faster than it lasts.",
                         )
                     })
                     .boxed(),
@@ -294,36 +309,32 @@ fn bar(row_: &Row) -> AnyView {
             .grow(1.0)
             .min_width(px(48.0))
             .radius(BAR / 2.0)
-            .fill(palette.gold_6)
+            .fill(palette.hairline)
     })
     .boxed()
 }
 
-/// One window in Settings: its name, its bar and what is used, in
+/// One window in Settings: its name, its bar and what is left, in
 /// columns that line up from row to row, and under the bar when it
-/// resets, what is left of a cap, and when it runs out at this pace
-/// unless the sentence above already says so.
+/// resets and where its pace takes it, unless the sentence above
+/// already says so.
 fn window(row_: &Row, said: bool) -> AnyView {
-    let tone =
-        status_of(row_.mood).map_or(Tone::Body, StatusKind::words);
-    let mut under: Vec<String> =
-        row_.reset.iter().chain(&row_.left).cloned().collect();
-    if let Some(at) = row_.runs_out.filter(|_| !said) {
-        under.push(format!(
-            "runs out around {} at this pace",
-            at_clock(at)
-        ));
-    }
+    let under = row_
+        .reset
+        .iter()
+        .chain(row_.forecast.iter().filter(|_| !said))
+        .cloned()
+        .collect::<Vec<_>>();
     let top = row((
         row((label(row_.name.clone()).wrap(false),))
             .width(px(NAME))
             .shrink(0.0),
-        if row_.used.is_some() {
+        if row_.left.is_some() {
             bar(row_)
         } else {
             frame().grow(1.0).boxed()
         },
-        amount(row_, tone),
+        amount(row_),
     ))
     .gap(GAP)
     .align(AlignItems::Center);
@@ -338,14 +349,25 @@ fn window(row_: &Row, said: bool) -> AnyView {
     .boxed()
 }
 
-/// What a window has used, right-aligned in a column of its own so
-/// every bar ends at the same place.
-fn amount(row_: &Row, tone: Tone) -> AnyView {
-    row((label(row_.amount.clone()).tone(tone).wrap(false),))
-        .width(px(AMOUNT))
-        .shrink(0.0)
-        .justify(JustifyContent::FlexEnd)
-        .boxed()
+/// What a window has left, right-aligned in a column of its own so
+/// every bar ends at the same place, and what it used on hover.
+fn amount(row_: &Row) -> AnyView {
+    let tone = match row_.mood {
+        Mood::Unknown => Tone::Dim,
+        Mood::Out => Tone::Critical,
+        _ => Tone::Body,
+    };
+    let shown =
+        row((label(row_.amount.clone()).tone(tone).wrap(false),))
+            .width(px(AMOUNT))
+            .shrink(0.0)
+            .justify(JustifyContent::FlexEnd);
+    match row_.used.clone() {
+        Some(used) => {
+            shown.tooltip(move || note(used.clone())).boxed()
+        }
+        None => shown.boxed(),
+    }
 }
 
 /// `at` as a clock time from now, in the system's zone.
@@ -357,10 +379,10 @@ fn at_clock(at: i64) -> String {
     )
 }
 
-/// The plan's sentence, led by a mark of its status when it runs
-/// short or refuses, since amber words would not read as amber.
+/// The plan's sentence, led by a mark of its status when it runs low
+/// or is used up, since orange words would not read as orange.
 fn said(reading: &Reading) -> AnyView {
-    let status = status_of(reading.mood);
+    let status = alert_of(reading.mood);
     let words = label(reading.sentence.clone())
         .tone(status.map_or(Tone::Body, StatusKind::words));
     match status {
@@ -381,36 +403,42 @@ fn said(reading: &Reading) -> AnyView {
 fn detail(plan: &Plan) -> AnyView {
     let reading = &plan.reading;
     let nearest = reading.nearest;
-    let mut parts = vec![said(reading)];
+    let mut parts = Vec::new();
+    if !reading.sentence.is_empty() {
+        parts.push(said(reading));
+    }
     parts.extend(reading.rows.iter().enumerate().map(
         |(at, row_)| {
             // The sentence speaks of the nearest window's run-out.
             window(
                 row_,
-                Some(at) == nearest && reading.mood == Mood::Short,
+                Some(at) == nearest
+                    && reading.mood == Mood::Low
+                    && row_.runs_out.is_some(),
             )
         },
     ));
     let mut foot: Vec<AnyView> = Vec::new();
-    if plan.provider == "chatgpt" {
+    let unknown =
+        reading.mood == Mood::Unknown && reading.rows.is_empty();
+    // A ChatGPT plan whose use could not be read is still shown on
+    // ChatGPT's own page.
+    if plan.provider == "chatgpt" && unknown {
         foot.push(
-            action(Glyph::Into, "Open ChatGPT usage", |_| {
+            action(Glyph::Into, "Open ChatGPT Usage", |_| {
                 hamlet_desktop::open::browse(CHATGPT_USAGE);
             })
             .boxed(),
         );
     }
     foot.push(frame().grow(1.0).boxed());
-    // A provider that tells nothing has nothing to check again.
-    if reading.mood != Mood::Unknown {
-        let when = match &plan.name {
-            Some(name) => format!("{name} plan · {}", reading.when),
-            None => reading.when.clone(),
-        };
+    // A provider that tells nothing has nothing to check again; a
+    // ChatGPT read that failed may succeed next time.
+    if !unknown || plan.provider == "chatgpt" {
         let when = if reading.stale {
-            format!("{when}, may have changed")
+            format!("{} · may be out of date", reading.when)
         } else {
-            when
+            reading.when.clone()
         };
         foot.push(note(when).boxed());
         foot.push(
@@ -445,21 +473,33 @@ pub(crate) fn of_provider(provider: String) -> AnyView {
     .boxed()
 }
 
+/// The name of `provider`'s plan beside the provider's name in
+/// Settings, once it told it.
+pub(crate) fn plan_name(provider: String) -> AnyView {
+    keyed(
+        resource::<Plans, _>(move |plans| {
+            plans.of(&provider).and_then(|plan| plan.name.clone())
+        }),
+        |name| match name {
+            Some(name) => pill(name.clone()).boxed(),
+            None => frame().boxed(),
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
 /// A plan at a glance, for a narrow column: its mark and name with
-/// what its nearest window has used, that window's bar across the
+/// what its nearest window has left, that window's bar across the
 /// whole line, and under it the window's name and when it resets or
 /// runs out. Where it has no window, a few words. It opens the
 /// plan's limits in Settings.
 fn line(plan: &Plan) -> AnyView {
     let reading = &plan.reading;
-    let near = reading
-        .nearest
-        .and_then(|at| reading.rows.get(at))
-        .filter(|row_| {
-            reading.mood != Mood::Refused || row_.used.is_some()
-        });
-    let tone =
-        status_of(reading.mood).map_or(Tone::Body, StatusKind::words);
+    let near =
+        reading.nearest.and_then(|at| reading.rows.get(at)).filter(
+            |row_| reading.mood != Mood::Out || row_.left.is_some(),
+        );
     let provider = plan.provider.clone();
     let mut head: Vec<AnyView> = vec![
         mark(&provider, ICON).boxed(),
@@ -469,33 +509,31 @@ fn line(plan: &Plan) -> AnyView {
     let mut body: Vec<AnyView> = Vec::new();
     match near {
         Some(row_) => {
-            head.push(
-                label(row_.amount.clone())
-                    .tone(tone)
-                    .wrap(false)
-                    .boxed(),
-            );
-            if row_.used.is_some() {
+            head.push(amount(row_));
+            if row_.left.is_some() {
                 body.push(bar(row_));
             }
             let when = match (row_.runs_out, row_.resets) {
                 (Some(out), Some(resets)) => format!(
-                    "may run out {}, resets {}",
+                    "runs out around {} at this pace, resets {}",
                     at_clock(out),
                     at_clock(resets)
                 ),
                 (Some(out), None) => {
-                    format!("may run out {}", at_clock(out))
+                    format!(
+                        "runs out around {} at this pace",
+                        at_clock(out)
+                    )
                 }
-                (None, Some(resets))
-                    if row_.mood == Mood::Refused =>
-                {
-                    format!("used up until {}", at_clock(resets))
+                (None, Some(resets)) if row_.mood == Mood::Out => {
+                    format!("reached, resets {}", at_clock(resets))
                 }
                 (None, _) => row_
                     .reset
-                    .clone()
-                    .or_else(|| row_.left.clone())
+                    .as_deref()
+                    .map(|reset| {
+                        reset.replacen("Resets", "resets", 1)
+                    })
                     .unwrap_or_default(),
             };
             let words = if when.is_empty() {
@@ -505,27 +543,9 @@ fn line(plan: &Plan) -> AnyView {
             };
             body.push(label(words).tone(Tone::Dim).boxed());
         }
-        // ChatGPT's refusal says all it can in a few words here; its
-        // sentence is in Settings.
-        None if plan.provider == "chatgpt"
-            && reading.mood == Mood::Refused =>
-        {
-            body.push(
-                label(format!(
-                    "Refused at {}. OpenAI does not say until when.",
-                    reading.when.trim_start_matches("refused at ")
-                ))
-                .tone(tone)
-                .boxed(),
-            );
-        }
-        None if plan.provider == "chatgpt" => {
-            body.push(
-                note("OpenAI does not share how much is used.")
-                    .boxed(),
-            );
-        }
         None => {
+            let tone = alert_of(reading.mood)
+                .map_or(Tone::Body, StatusKind::words);
             body.push(
                 label(reading.sentence.clone()).tone(tone).boxed(),
             );
@@ -603,15 +623,13 @@ pub(crate) fn part() -> AnyView {
 }
 
 /// The plans worth a glance: those with a window to show or a
-/// refusal to tell, and ChatGPT, whose use is told nowhere else.
+/// refusal to tell.
 fn glanced(plans: &Plans) -> Vec<Plan> {
     plans
         .0
         .iter()
         .filter(|p| {
-            !p.reading.rows.is_empty()
-                || p.reading.mood == Mood::Refused
-                || p.provider == "chatgpt"
+            !p.reading.rows.is_empty() || p.reading.mood == Mood::Out
         })
         .cloned()
         .collect()
@@ -627,25 +645,36 @@ pub(crate) fn refusal(
 ) -> Option<String> {
     let provider = crate::models::provider_of(model);
     let plan = world.get_resource::<Plans>()?.of(provider)?;
+    // Only the failure's own words tell it was the plan's limit: a
+    // plan out of use later says nothing of a reply that failed for
+    // another reason, and a context window is no plan's limit.
     let lower = error.to_lowercase();
-    let says_limit = ["limit", "quota", "402", "usage"]
+    let says_limit = [
+        "usage limit",
+        "usage_limit",
+        "limit reached",
+        "hit your limit",
+        "rate limit",
+        "rate_limit",
+        "quota",
+        "402",
+        "credits",
+        "key limit",
+        "spending limit",
+        "extra usage",
+    ]
+    .iter()
+    .any(|words| lower.contains(words));
+    let says_context = ["context", "too long", "too many tokens"]
         .iter()
-        .any(|word| lower.contains(word));
-    if plan.reading.mood != Mood::Refused && !says_limit {
+        .any(|words| lower.contains(words));
+    if !says_limit || says_context {
         return None;
     }
-    Some(match provider {
-        "chatgpt" => "OpenAI refused this: your ChatGPT plan, or \
-                      the share of it you allow Hamlet, is used up. \
-                      OpenAI does not say which, or when it lifts."
-            .into(),
-        _ if plan.reading.mood == Mood::Refused => {
-            format!(
-                "{} refused this. {}",
-                plan.title, plan.reading.sentence
-            )
-        }
-        _ => format!("{} refused this for a limit.", plan.title),
+    Some(if plan.reading.mood == Mood::Out {
+        format!("{} stopped: {}", plan.title, plan.reading.sentence)
+    } else {
+        format!("{} stopped at a usage limit.", plan.title)
     })
 }
 
@@ -662,9 +691,8 @@ mod tests {
     /// `claude` signed in.
     fn realm_page() -> App {
         let mut app = panel_app();
-        app.init_resource::<Toasts>()
-            .insert_resource(Showing::Realm)
-            .add_plugins(plugin);
+        app.init_resource::<Toasts>().add_plugins(plugin);
+        app.world_mut().spawn(Showing::Realm);
         app.world_mut().resource_mut::<Connection>().state =
             Contact::Connected;
         app.world_mut().resource_mut::<Providers>().0 =
@@ -715,7 +743,7 @@ mod tests {
                    "windows": [window(46.0)]}),
         );
         let shown = all_words(&mut app);
-        for text in ["Plans", "Claude · Max", "Session", "46% used"]
+        for text in ["Plans", "Claude · Max", "Session", "54% left"]
         {
             assert!(shown.contains(text), "{shown}");
         }
@@ -732,6 +760,6 @@ mod tests {
             "state": "refused", "windows": [window(100.0)]}),
         );
         assert_eq!(toasted(&app), 1);
-        assert!(all_words(&mut app).contains("100% used"));
+        assert!(all_words(&mut app).contains("0% left"));
     }
 }
