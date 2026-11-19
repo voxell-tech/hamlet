@@ -23,12 +23,22 @@ import {
     type Author,
     type CallId,
     type ConversationRef,
+    type Files,
+    type FilesAnswer,
     type LetterId,
+    LIBRARY,
+    type Offer,
+    type OfferAnswer,
+    type ProfileId,
+    profileAt,
     REALM,
     type ReadAnswer,
     type ReadFile,
     type RealmActions,
     type RealmTask,
+    type Save,
+    type SaveAnswer,
+    type ShelfList,
     type SocietyActs,
     type SocietyTool,
     type ToolList,
@@ -335,6 +345,8 @@ export function conversationOf(ref: string): ConversationId | undefined {
 const DEADLINE_MS: Readonly<Record<string, number>> = {
     [WORKSPACE.kind]: 15_000,
     [REALM.kind]: 10_000,
+    [LIBRARY.kind]: 10_000,
+    profile: 10_000,
 };
 
 type Reach = <A, N extends ActionName<A>>(
@@ -397,6 +409,13 @@ const OWN_CONVERSATION: {
     take_up_road: false,
     request_road: false,
     set_tools: false,
+    create_profile: false,
+    read_profile: false,
+    edit_profile: false,
+    tag: false,
+    revert: false,
+    ask_librarian: false,
+    submit_skill: false,
 };
 
 type WorkspaceTool = Exclude<keyof WorkspaceActions, "list_tools" | "cancel">;
@@ -504,6 +523,36 @@ async function stamped(
                 : message,
         },
         changes: true,
+    };
+}
+
+/** The calls the agent makes on the profile it was filled from. */
+export function profileCalls(
+    peers: Peers,
+    profile: ProfileId,
+): {
+    readonly files: (message: Files) => Promise<FilesAnswer>;
+    readonly save: (message: Save) => Promise<SaveAnswer>;
+} {
+    const reach = reaching(peers[CALLS]);
+    const to = profileAt(profile);
+    return {
+        files: (message) => reach(to, "files", [message]),
+        save: (message) => reach(to, "save", [message]),
+    };
+}
+
+export function libraryCalls(peers: Peers): {
+    readonly shelves: (version_seen?: number) => Promise<ShelfList>;
+    readonly offer: (message: Offer) => Promise<OfferAnswer>;
+} {
+    const reach = reaching(peers[CALLS]);
+    return {
+        shelves: (version_seen) =>
+            reach(LIBRARY, "shelves", [
+                version_seen === undefined ? {} : { version_seen },
+            ]),
+        offer: (message) => reach(LIBRARY, "offer", [message]),
     };
 }
 

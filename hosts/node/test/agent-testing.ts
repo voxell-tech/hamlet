@@ -34,6 +34,9 @@ import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import {
     type AgentInput,
     type Kept,
+    LIBRARY,
+    type LibraryActions,
+    type ProfileActions,
     REALM,
     type RealmActions,
     WORKSPACE,
@@ -60,6 +63,9 @@ type Answers<A> = {
 export function fakeCalls(answers: {
     workspace?: Answers<WorkspaceActions>;
     realm?: Answers<RealmActions>;
+    library?: Answers<LibraryActions>;
+    /** Every profile's. */
+    profile?: Answers<ProfileActions>;
 }): { readonly calls: Calls; readonly sent: Sent[] } {
     const sent: Sent[] = [];
     const takers: Record<
@@ -80,6 +86,11 @@ export function fakeCalls(answers: {
             turn_failed: () => null,
             ...answers.realm,
         },
+        [LIBRARY.kind]: {
+            shelves: () => ({ version: 0, skills: [] }),
+            ...answers.library,
+        },
+        profile: { ...answers.profile },
     };
     const calls: Calls = {
         call: async (to, name, args, options) => {
@@ -163,6 +174,21 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
         search: async () => ok({ found: [], more: false, capped: false }),
         find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),
+        walk: async (path) =>
+            ok({
+                files: Object.keys(files).filter(
+                    (name) => path === "" || name.startsWith(`${path}/`),
+                ),
+                capped: false,
+            }),
+        remove: async (path) => {
+            for (const name of Object.keys(files)) {
+                if (name === path || name.startsWith(`${path}/`)) {
+                    delete files[name];
+                }
+            }
+            return ok(undefined);
+        },
     };
 }
 
@@ -213,6 +239,10 @@ const HAND: AgentInput = {
 export const from = {
     realm: { actor: REALM } as Caller,
     workspace: { actor: WORKSPACE } as Caller,
+    library: { actor: LIBRARY } as Caller,
+    profile: (n: number): Caller => ({
+        actor: Address.of("profile", String(n)),
+    }),
     client: "client" as Caller,
     alarm: null,
     agent: (n: number): Caller => ({ actor: Address.of("agent", String(n)) }),
@@ -258,7 +288,7 @@ export async function wakeAgent(
         input?: AgentInput;
         models?: (models: Models) => Models;
         settings?: HarnessSettings;
-        fill?: AgentConfig["fill"];
+        library?: string;
         key?: string;
     },
 ): Promise<Woken> {
@@ -270,7 +300,7 @@ export async function wakeAgent(
         models: given.models === undefined ? models : given.models(models),
         model,
         files: () => files,
-        ...(given.fill === undefined ? {} : { fill: given.fill }),
+        ...(given.library === undefined ? {} : { library: given.library }),
         ...(given.settings === undefined ? {} : { settings: given.settings }),
     };
     // The config is untyped once `actor()` has it, as the host sees it.
@@ -458,6 +488,14 @@ export function within<T>(
             setTimeout(() => resolve(words), ms).unref(),
         ),
     ]);
+}
+
+/** A model call that fails with `words`. */
+export function modelFailed(words: string): AssistantMessage {
+    return fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: words,
+    });
 }
 
 export function toolCall(

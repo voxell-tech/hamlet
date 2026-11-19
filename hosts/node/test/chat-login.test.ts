@@ -27,6 +27,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import { fixture } from "./testing.ts";
 
 /**
  * A made-up secret named for the test, so no test passes on a secret an
@@ -203,7 +204,7 @@ test("a key sign-in leaves the key only in credentials.json", async (t) => {
     await agent.stop();
 });
 
-test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-ins or without", async (t) => {
+test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-ins or without, in agent/login.not_the_hand.answer", async (t) => {
     const { calls, sent } = credentialsFile();
     const agent = await wakeAgent(t, {
         calls,
@@ -228,7 +229,7 @@ test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-i
     ]) {
         assert.deepEqual(
             await chatActions(config).login(agent.by(from.client), message),
-            { type: "not_the_hand" },
+            fixture("agent/login.not_the_hand.answer"),
         );
     }
     assert.deepEqual(named(sent, "keep_credential"), []);

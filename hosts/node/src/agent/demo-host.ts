@@ -479,6 +479,7 @@ const { config } = agentActor({
     model: `${provider}/${id}`,
     listed: () => models.getModels(),
     files: (n) => dyingIn(openAgentFilesystem(home, n)),
+    library: join(home, "library"),
     signIns: signIns(models),
 });
 

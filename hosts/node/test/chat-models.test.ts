@@ -37,7 +37,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context } from "./testing.ts";
+import { context, fixture } from "./testing.ts";
 
 /** Made up; no provider has ever issued it. */
 const KEY = "sk-made-up-7c0ffee-4u7";
@@ -1129,5 +1129,102 @@ test("a hire's first line runs on the model and charter its create input holds, 
     assert.deepEqual(names, ["loopback::large"]);
     assert.match(prompts[0] ?? "", /^Keep the docs whole\./);
     read.resolve({});
+    await agent.stop();
+});
+
+/**
+ * A provider of faux `models` whose requests answer `answer`, each model
+ * without a cost unless it is given one.
+ */
+function served(
+    id: string,
+    models: NonNullable<Parameters<typeof createFauxCore>[0]["models"]>,
+    answer: AssistantMessage,
+) {
+    const core = createFauxCore({ provider: id, models });
+    core.setResponses([answer]);
+    return createProvider({
+        id,
+        models: core.models.map((model, index) =>
+            models[index]?.cost === undefined
+                ? ({ ...model, cost: undefined } as unknown as Model<Api>)
+                : model,
+        ),
+        api: { stream: core.stream, streamSimple: core.streamSimple },
+        auth: {
+            apiKey: {
+                name: `${id} key`,
+                resolve: async ({ credential }) =>
+                    credential?.key === undefined
+                        ? undefined
+                        : { auth: { apiKey: credential.key } },
+            },
+        },
+    });
+}
+
+test("a client's read_models and check answer as their fixtures hold", async (t) => {
+    const listed = createModels();
+    listed.setProvider(
+        served(
+            "anthropic",
+            [
+                {
+                    id: "claude-sonnet-4-5",
+                    name: "Claude Sonnet 4.5",
+                    contextWindow: 200_000,
+                    cost: {
+                        input: 3,
+                        output: 15,
+                        cacheRead: 0.3,
+                        cacheWrite: 3.75,
+                    },
+                },
+            ],
+            fauxAssistantMessage("Hello."),
+        ),
+    );
+    listed.setProvider(
+        served(
+            "local",
+            [{ id: "small", name: "Small", contextWindow: 8192 }],
+            fauxAssistantMessage("", {
+                stopReason: "error",
+                errorMessage: "the provider answered 401",
+            }),
+        ),
+    );
+    const agent = await wakeAgent(t, {
+        calls: signedIn().calls,
+        models: () => listed,
+    });
+    const client = agent.by(from.client);
+    const [check] = fixture("agent/check.args") as [{ model: string }];
+
+    assert.deepStrictEqual(
+        await agent.actions.read_models(client),
+        fixture("agent/read_models.answer"),
+    );
+    assert.deepStrictEqual(
+        await agent.actions.check(client, check),
+        fixture("agent/check.answered.answer"),
+    );
+    // Their fixtures' words are not words the agent writes, so only their
+    // fields and the type of each are compared.
+    const formOf = (answer: object) =>
+        Object.entries(answer).map(([key, value]) => [
+            key,
+            key === "type" ? value : typeof value,
+        ]);
+    for (const [model, name] of [
+        ["local::small", "agent/check.failed.answer"],
+        ["anthropic::nope", "agent/check.refused.answer"],
+    ] as const) {
+        assert.deepStrictEqual(
+            formOf(await agent.actions.check(client, { model })),
+            formOf(fixture(name) as object),
+            name,
+        );
+    }
     await agent.stop();
 });

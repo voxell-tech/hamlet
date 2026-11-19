@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -15,7 +15,6 @@ import {
     type Calls,
 } from "../../src/actor/actor/mod.ts";
 import type { JsonCompatValue } from "../../src/actor/common/encoding.ts";
-import { decodeCborCompat } from "../../src/actor/serde.ts";
 import { agentActor } from "../../src/agent/actor.ts";
 import type {
     AgentActions,
@@ -24,7 +23,7 @@ import type {
     Submit,
 } from "../../src/agent/messages.ts";
 import { fakeFiles } from "../agent-testing.ts";
-import { fauxModels } from "../testing.ts";
+import { FIXTURES, fauxModels, fixture } from "../testing.ts";
 import { eventually, inFolder, startLocalHost } from "./support.ts";
 
 const CALL: CallOptions = { deadlineMs: 10_000 };
@@ -79,6 +78,18 @@ const workspace = actor({
     },
 });
 
+/** A profile with no files, at one commit. */
+const profile = actor({
+    actions: {
+        files: () => ({
+            type: "part",
+            tip: "ab".repeat(20),
+            files: [],
+            removed: [],
+        }),
+    },
+});
+
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
@@ -103,7 +114,7 @@ function kindsAnswering(responses: FauxResponseStep[]) {
             return fakeFiles({});
         },
     });
-    return { files, kinds: { agent, realm, workspace } };
+    return { files, kinds: { agent, realm, workspace, profile } };
 }
 
 async function startWithAgent(
@@ -162,6 +173,7 @@ test("every agent action answers null to its caller across the host", async () =
         const host = await startWithAgent(dir, kinds);
         const r = host.at("realm", "local");
         const w = host.at("workspace", "local");
+        await host.create(host.at("profile", "3"));
 
         const answers = {
             submit: await host.call(
@@ -176,12 +188,7 @@ test("every agent action answers null to its caller across the host", async () =
                 [1, "place", { ...HAND.place, version: 2 }],
                 CALL,
             ),
-            fill: await host.call(
-                r,
-                "send",
-                [1, "fill", { profile: 3, branch: "main" }],
-                CALL,
-            ),
+            fill: await host.call(r, "send", [1, "fill", { profile: 3 }], CALL),
             finished: await host.call(w, "send", [1, "finished", ENDED], CALL),
         };
         const alarm = await host.call(
@@ -251,15 +258,10 @@ test("a wrong caller across the host gets message.wrong_caller, and nothing is a
     });
 });
 
-const AGENT_FIXTURES = new URL(
-    "../../../../crates/hamlet_messages/fixtures/agent/",
-    import.meta.url,
-);
+const AGENT_FIXTURES = new URL("agent/", FIXTURES);
 
 function argsOf(name: string): unknown {
-    const [message] = decodeCborCompat<unknown[]>(
-        readFileSync(new URL(`${name}.args.cbor`, AGENT_FIXTURES)),
-    );
+    const [message] = fixture(`agent/${name}.args`) as unknown[];
     return message;
 }
 

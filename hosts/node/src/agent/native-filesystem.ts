@@ -139,6 +139,23 @@ export function openAgentFilesystem(
                     walked.capped,
                 );
             }),
+        walk: (path, context) =>
+            call(path, context, async () => {
+                const walked = await folder.files(path, LOOKED);
+                return {
+                    files: walked.files.map((file) => file.path),
+                    capped: walked.capped,
+                };
+            }),
+        // `AgentFolder` has no removal that keeps the folder's guarantees.
+        remove: async (path) =>
+            err(
+                new FileError(
+                    "permission_denied",
+                    `the agent's filesystem cannot remove a file: ${path}`,
+                    path,
+                ),
+            ),
         copy: (from, to, context) =>
             call(from, context, async () => {
                 await folder.write(to, await folder.read(from));
