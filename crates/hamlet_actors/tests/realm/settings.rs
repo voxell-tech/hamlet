@@ -436,6 +436,8 @@ async fn read_copies_gives_a_part_whose_version_differs() {
         model: Some(CopyVersion(99)),
         settings: Some(CopyVersion(99)),
     };
+    chief(&realm, settings(Setting::Model { model: FAUX.into() }))
+        .await;
     chief(&realm, charter("Be brief.")).await;
 
     let read = read_copies(&realm, &ahead).await;
