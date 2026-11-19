@@ -63,15 +63,19 @@ fn row(dream: DreamId) -> StepId {
     }
 }
 
-/// Whether a dream's steps are not done.
-async fn is_open(rows: &Rows<'_>) -> Result<bool> {
+/// The dream whose steps are not done, with its profile.
+pub(super) async fn open(
+    rows: &Rows<'_>,
+) -> Result<Option<(DreamId, ProfileId)>> {
     Ok(rows
-        .value::<i64>(
-            "SELECT 1 FROM step WHERE kind = 'dream' AND closed = 0",
+        .row::<(u32, u32)>(
+            "SELECT dream.id, dream.profile FROM dream JOIN step ON \
+             step.kind = 'dream' AND step.n = dream.id WHERE \
+             step.closed = 0",
             Vec::new(),
         )
         .await?
-        .is_some())
+        .map(|(dream, profile)| (DreamId(dream), ProfileId(profile))))
 }
 
 /// The profile whose learning `dreamer` is, with the hire for a
@@ -109,7 +113,7 @@ impl Act<Client> for Dream {
         _by: &Client,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        if is_open(rows).await? {
+        if open(rows).await?.is_some() {
             return Ok(Err(DreamRefusal::Running.into()));
         }
         let dream =
@@ -177,7 +181,7 @@ pub(super) async fn run(
         )
         .await?
         .with_context(|| format!("dream {n} has no row"))?;
-    let profile = Profile(ProfileId(profile));
+    let profile = ProfileId(profile);
     match step {
         Step::Prepare => {
             let of = match hire {
@@ -186,10 +190,11 @@ pub(super) async fn run(
                 },
                 None => DreamOf::Profile,
             };
-            let _alone = cx.realm.purging.write().await;
+            let _alone =
+                cx.realm.purging(profile).write_owned().await;
             cx.peers()
                 .call(
-                    &profile,
+                    &Profile(profile),
                     &PrepareDream { dream, of },
                     When::AfterAnswer,
                 )
@@ -202,7 +207,7 @@ pub(super) async fn run(
                 summary: String::new(),
             };
             cx.peers()
-                .call(&profile, &end, When::AfterAnswer)
+                .call(&Profile(profile), &end, When::AfterAnswer)
                 .await?;
         }
     }

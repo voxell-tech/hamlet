@@ -36,7 +36,8 @@ mod waits;
 mod workers;
 mod world;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -72,8 +73,8 @@ use hamlet_messages::realm::workers::{
 };
 use hamlet_messages::realm::{
     AgreeRoad, Ask, Asked, End, Found, Hire, LayRoad, NeedsChief,
-    Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
-    TakeUpRoad, Tell, Tool,
+    ProfileId, Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier,
+    SetTools, TakeUpRoad, Tell, Tool,
 };
 use serde::Serialize;
 
@@ -163,9 +164,23 @@ struct Realm {
     drives: steps::Drives,
     lanes: lanes::Lanes,
     hiring_wait: Duration,
-    /// Held shared by each purge in flight, and alone while a
-    /// dream's folders are checked out.
-    purging: tokio::sync::RwLock<()>,
+    /// Per profile, held shared by each purge of it in flight, and
+    /// alone while a dream's folders are checked out of it.
+    purging: Mutex<HashMap<ProfileId, Arc<tokio::sync::RwLock<()>>>>,
+}
+
+impl Realm {
+    /// What keeps `profile`'s purges and its dream's checkout apart.
+    fn purging(
+        &self,
+        profile: ProfileId,
+    ) -> Arc<tokio::sync::RwLock<()>> {
+        let mut purging = self
+            .purging
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(purging.entry(profile).or_default())
+    }
 }
 
 #[async_trait::async_trait]
@@ -269,7 +284,7 @@ impl Actor for Realm {
                 world: world::Held::load(ctx).await?,
                 drives: steps::Drives::default(),
                 lanes: lanes::Lanes::default(),
-                purging: tokio::sync::RwLock::new(()),
+                purging: Mutex::default(),
             })
         }
         .await

@@ -36,8 +36,8 @@ use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, SetLimits, Tell, Tier,
-    Tool,
+    HireRefusal, Named, NeedsChief, ProfileId, Refusable as _,
+    SetLimits, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -509,6 +509,9 @@ const COMMIT: CommitId = CommitId(Sha1([7; 20]));
 /// A path a stand-in profile refuses to write.
 const NOT_A_PATH: &str = "../out";
 
+/// An offer the stand-in library does not hold.
+const NO_OFFER: u32 = 404;
+
 impl Handler<Edit> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -692,7 +695,11 @@ impl Handler<Verdict> for LibraryStandIn {
         self.seen
             .called(Callee::Verdict, AgentNumber(offer.0))
             .await?;
-        Ok(Done::Done)
+        Ok(if offer.0 == NO_OFFER {
+            Done::refused(VerdictRefusal::NoSuchOffer { offer })
+        } else {
+            Done::Done
+        })
     }
 }
 

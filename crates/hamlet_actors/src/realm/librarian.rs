@@ -3,11 +3,15 @@
 //! such errand answers, and the step that brings a verdict to the
 //! library.
 
+use std::fmt::Display;
+
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::{Agent, Library};
 use hamlet_messages::agent::{Input, InputId, Submit};
-use hamlet_messages::library::{OfferId, ReadShelves, Verdict};
+use hamlet_messages::library::{
+    OfferId, ReadShelves, Verdict, VerdictRefusal,
+};
 use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
 use hamlet_messages::realm::workers::Ended;
 use hamlet_messages::realm::{Done, Standing};
@@ -19,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use super::act::{Act, Called, Decided, Decision, ToolAct};
 use super::calls::{self, Delivery};
 use super::change::{self, Affected, Rows, Writer, integer, number};
-use super::peer::{self, When};
+use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, TaskId};
 use super::workers::errands::{self, ErrandInput, Purpose};
@@ -61,9 +65,12 @@ pub(super) enum Change {
     /// Errand `errand` ended as `ended`: its asker is told, or its
     /// verdict is brought to the library first.
     Ended { errand: ErrandNumber, ended: Ended },
-    /// The library took the verdict of errand `errand`: its offerer
-    /// is told.
-    Judged { errand: ErrandNumber },
+    /// The library took the verdict of errand `errand`, or refused
+    /// it for `refused`: its offerer is told.
+    Judged {
+        errand: ErrandNumber,
+        refused: Option<VerdictRefusal>,
+    },
 }
 
 pub(super) async fn apply(
@@ -107,18 +114,23 @@ pub(super) async fn apply(
         Change::Ended { errand, ended } => {
             end(writer, errand, &ended).await
         }
-        Change::Judged { errand } => {
-            let words = writer
+        Change::Judged { errand, refused } => {
+            let (skill, words) = writer
                 .rows()
-                .value::<String>(
-                    "SELECT words FROM librarian WHERE errand = ?1",
+                .row::<(String, String)>(
+                    "SELECT skill, words FROM librarian WHERE \
+                     errand = ?1",
                     vec![integer(errand.get())?],
                 )
                 .await?
                 .with_context(|| {
                     format!("errand {} judged nothing", errand.get())
                 })?;
-            notice(&writer.rows(), errand, words).await
+            let text = match refused {
+                None => words,
+                Some(why) => unjudged(&skill, &why),
+            };
+            notice(&writer.rows(), errand, text).await
         }
     }
 }
@@ -174,12 +186,7 @@ fn verdict(skill: &str, ended: &Ended) -> (bool, String) {
     let answer = match ended {
         Ended::Answered { text } => text,
         Ended::Failed { why } => {
-            return (
-                false,
-                format!(
-                    "The librarian could not judge `{skill}`: {why}"
-                ),
-            );
+            return (false, unjudged(skill, why));
         }
     };
     let accepted =
@@ -200,6 +207,11 @@ fn verdict(skill: &str, ended: &Ended) -> (bool, String) {
         )
     };
     (accepted, words)
+}
+
+/// The words that tell an offerer its skill was not judged.
+fn unjudged(skill: &str, why: &dyn Display) -> String {
+    format!("The librarian could not judge `{skill}`: {why}")
 }
 
 /// The notice that gives errand `errand`'s asker `text`, when it has
@@ -329,14 +341,15 @@ pub(super) async fn run(
         accepted,
         words,
     };
-    match cx
+    let refused = match cx
         .peers()
         .call(&Library, &verdict, When::AfterAnswer)
         .await?
     {
-        Done::Done => Ok(vec![Change::Judged { errand }.into()]),
-        Done::Refused { why } => Err(peer::refusal(why)),
-    }
+        Done::Done => None,
+        Done::Refused { why } => Some(why),
+    };
+    Ok(vec![Change::Judged { errand, refused }.into()])
 }
 
 /// An agent's call of the librarian.

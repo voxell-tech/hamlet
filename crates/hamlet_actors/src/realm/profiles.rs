@@ -9,8 +9,8 @@ use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::profile::{
-    By, Edit, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
-    Revert, RevertAnswer, Tag, TagAnswer,
+    By, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer, Read,
+    ReadAnswer, Revert, RevertAnswer, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
@@ -36,7 +36,7 @@ use super::chiefs::hamlet;
 use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::steps::Cx;
-use super::{Realm, calls, settings};
+use super::{Realm, calls, dreams, settings};
 
 /// The character the Hand's profile starts from.
 const HAND_CHARACTER: &str =
@@ -410,17 +410,27 @@ impl Relay<Client> for Asked<PurgeProfile> {
         _by: &Client,
         rows: &Rows<'_>,
     ) -> Result<Result<(ProfileId, Purge), Self::Output>> {
-        Ok(match shared(rows, self.act.profile).await? {
-            Ok(profile) => Ok((
-                profile,
-                Purge {
-                    id: self.id.clone(),
-                    path: self.act.path.clone(),
-                    by: By::Chief { chief: CHIEF },
-                },
-            )),
-            Err(why) => Err(PurgeAnswer::refused(why.into())),
-        })
+        let profile = match shared(rows, self.act.profile).await? {
+            Ok(profile) => profile,
+            Err(why) => {
+                return Ok(Err(PurgeAnswer::refused(why.into())));
+            }
+        };
+        if let Some((dream, _)) = dreams::open(rows)
+            .await?
+            .filter(|&(_, over)| over == profile)
+        {
+            let why = DreamOpen::Dreaming { dream };
+            return Ok(Err(PurgeAnswer::refused(why.into())));
+        }
+        Ok(Ok((
+            profile,
+            Purge {
+                id: self.id.clone(),
+                path: self.act.path.clone(),
+                by: By::Chief { chief: CHIEF },
+            },
+        )))
     }
 
     fn answer(answer: PurgeAnswer) -> Self::Output {
@@ -440,8 +450,9 @@ impl Relay<Client> for Asked<PurgeProfile> {
 }
 
 /// A chief's purge, answered from the profile's answer once it has
-/// asked every hire to remove the path. No dream's folders are
-/// checked out while it is in flight.
+/// asked every hire to remove the path. It is refused while a dream
+/// of the profile is open, and no dream's folders are checked out of
+/// the profile while it is in flight.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(super) struct Purging(pub Asked<PurgeProfile>);
@@ -463,7 +474,10 @@ impl Handler<Purging> for Realm {
         Purging(asked): Purging,
     ) -> Result<<Purging as Action>::Output> {
         let by = sender(&ctx, &asked)?;
-        let _purging = self.purging.read().await;
+        // Fails only while a dream's folders are checked out of the
+        // profile, a dream `ask` refuses as open.
+        let _purging =
+            self.purging(asked.act.profile).try_read_owned().ok();
         callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
             .await
     }

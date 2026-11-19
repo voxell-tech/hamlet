@@ -1,14 +1,14 @@
 use std::time::Duration;
 
 use hamlet_messages::profile::{
-    BadPath, By, DreamId, DreamOf, EndDream, PrepareDream, Purge,
-    PurgeAnswer,
+    BadPath, By, DreamId, DreamOf, DreamOpen, EndDream, PrepareDream,
+    Purge, PurgeAnswer,
 };
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, ProfileRefusal,
     PurgeProfile, PurgeProfileRefusal,
 };
-use hamlet_messages::realm::{Done, ProfileId};
+use hamlet_messages::realm::{Done, ProfileId, Refusable as _};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
@@ -36,8 +36,8 @@ const PROFILE_ASKS_WITHIN: Duration = Duration::from_secs(4);
 
 /// The stand-in profile answers half a second past the time the
 /// profile gives its hires, as a purge with one silent hire does. The
-/// realm waits 8 s, so the answer has 3.5 s to spare, many times what
-/// a relay takes on a busy machine.
+/// realm waits 8 s, so the answer has 3.5 s to spare, over 10× the
+/// tenth of a second the rest of this test takes.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chiefs_purge_is_answered_from_the_profile_past_its_asks() {
     let (realm, _) = hamlet_with(0).await;
@@ -265,6 +265,43 @@ async fn no_dream_is_prepared_while_a_purge_is_in_flight() {
         .await;
     let held = prepares(&realm).iter().any(|&(_, _, held)| held);
     assert!(!held, "a dream was prepared during the purge");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The dream's folders stay checked out until the test ends: a purge
+/// that waited on them would not be answered at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_purge_does_not_wait_on_a_dreams_preparation() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    create(&realm, Hand::NUMBER, "c2", "Smith", None).await;
+    realm.seen.hold(Callee::PrepareDream);
+    assert_eq!(chief(&realm, of_profile(3)).await, Done::Done);
+    until("the dream's folders are being checked out", || {
+        realm.seen.is_waiting(Callee::PrepareDream, AgentNumber(3))
+    })
+    .await;
+
+    let dreamt =
+        asked(&realm, &RequestId::new(), purge(3, "a.md")).await;
+    let other =
+        asked(&realm, &RequestId::new(), purge(4, "a.md")).await;
+
+    assert_eq!(
+        dreamt,
+        PurgeAnswer::refused(
+            DreamOpen::Dreaming { dream: DreamId(1) }.into()
+        )
+    );
+    assert!(matches!(other, PurgeAnswer::Purged { .. }));
+    let purged = purges(&realm);
+    assert_eq!(
+        purged
+            .iter()
+            .map(|(profile, _)| *profile)
+            .collect::<Vec<_>>(),
+        [ProfileId(4)]
+    );
     realm.host.shutdown().await.unwrap();
 }
 

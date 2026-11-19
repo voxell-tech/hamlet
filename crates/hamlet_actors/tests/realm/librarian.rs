@@ -8,8 +8,8 @@ use hamlet_messages::workspace::{
 };
 
 use super::{
-    Callee, Realm, THREE, hamlet_with, made_until, seen_submits,
-    standing, until,
+    Callee, NO_OFFER, Realm, THREE, hamlet_with, made_until,
+    seen_submits, standing, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -259,6 +259,34 @@ async fn a_refused_or_failed_judging_is_told_in_todays_words() {
     assert_ne!(
         called[0].id, called[1].id,
         "each call has its own id"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verdict_the_library_refuses_is_told_to_the_offerer() {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    realm
+        .tool(THREE, &in_conversation("s1", submit(NO_OFFER, "well")))
+        .await
+        .unwrap();
+    made_until(&realm, errand(0)).await;
+
+    ended(
+        &realm,
+        0,
+        Ended::Answered {
+            text: "ACCEPT Clear and useful.".to_owned(),
+        },
+    )
+    .await;
+
+    let unjudged =
+        "The librarian could not judge `well`: there is no offer 404";
+    assert_eq!(
+        seen_submits(&realm, THREE, 1).await,
+        [notice(0, unjudged, &task)]
     );
     realm.host.shutdown().await.unwrap();
 }
