@@ -182,6 +182,12 @@ impl Core<'_, '_> {
                         CallOutcome::Later
                     }
                 },
+                None if let Some(web) =
+                    crate::web::Tool::named(call.tool) =>
+                {
+                    self.run_web(call, reply.clone(), web, net)?;
+                    CallOutcome::Later
+                }
                 None => {
                     let request = call.request.clone();
                     match self.run_tool(
@@ -369,6 +375,43 @@ impl Core<'_, '_> {
                 .images(db, &model)?
                 .map(|takes| Limits::of(&takes)),
         })
+    }
+
+    /// Runs the web tool `tool` of `call`, its page let onto other
+    /// machines with `net`, after marking it begun when it may not
+    /// run again.
+    fn run_web(
+        &mut self,
+        call: &Call<'_>,
+        reply: Reply,
+        tool: crate::web::Tool,
+        net: bool,
+    ) -> Result<()> {
+        if self.is_once_only(call.tool) {
+            marker::begin(
+                self.realm.store().connection(),
+                call.call.identity(),
+                &call.request,
+                crate::app::clock::now(),
+            )?;
+        }
+        let work = crate::web::call(
+            self,
+            call.conversation.agent,
+            tool,
+            call.arguments,
+            net,
+        )?;
+        let running = tool_run(
+            &self.inputs,
+            call.call.clone(),
+            call.conversation.id,
+            reply,
+            call.request.clone(),
+            work,
+        );
+        self.commands.spawn(running);
+        Ok(())
     }
 
     /// Tells whether `tool` may not run twice: what writes, runs or

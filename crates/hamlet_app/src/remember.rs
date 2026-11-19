@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use crate::appearance::{Appearance, Pick, Zoom};
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
-use crate::screens::terminal;
+use crate::screens::{terminal, web};
 use crate::updates::UpdateChannel;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -166,6 +166,13 @@ pub struct View {
         deserialize_with = "kept_or_designed"
     )]
     update_channel: Option<Channel>,
+    /// The address each Web panel showed, by panel id.
+    #[serde(default)]
+    web_addresses: BTreeMap<String, String>,
+    /// The Web panels that were agents' tabs, with their agents'
+    /// ids.
+    #[serde(default)]
+    web_agents: BTreeMap<String, u64>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -375,6 +382,8 @@ pub fn restore(world: &mut World) {
     world.insert_resource(terminal::Folds(view.terminal_folds));
     world.insert_resource(terminal::Pins(view.terminal_pins));
     world.insert_resource(hub::CollapsedRails(view.collapsed_rails));
+    world.insert_resource(web::Addresses(view.web_addresses));
+    world.insert_resource(web::AgentTabs(view.web_agents));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -417,7 +426,18 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side, terminals, folds, pins): (
+    (
+        pending,
+        kept,
+        north,
+        favorites,
+        side,
+        terminals,
+        folds,
+        pins,
+        addresses,
+        agents,
+    ): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
@@ -426,6 +446,8 @@ pub fn keep(
         Res<terminal::Shown>,
         Res<terminal::Folds>,
         Res<terminal::Pins>,
+        Res<web::Addresses>,
+        Res<web::AgentTabs>,
     ),
     (fog, far, wind, appearance, zoom, rails, channel): (
         Res<VolumetricFogSettings>,
@@ -459,6 +481,8 @@ pub fn keep(
         || pins.is_changed()
         || rails.is_changed()
         || channel.is_changed()
+        || addresses.is_changed()
+        || agents.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -492,6 +516,8 @@ pub fn keep(
         terminal_pins: pins.0.clone(),
         collapsed_rails: rails.0.clone(),
         update_channel: channel.0,
+        web_addresses: addresses.0.clone(),
+        web_agents: agents.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -568,6 +594,11 @@ mod tests {
             terminal_pins: BTreeSet::from(["agent#2".into()]),
             collapsed_rails: BTreeSet::from(["hub".into()]),
             update_channel: Some(Channel::Nightly),
+            web_addresses: BTreeMap::from([(
+                "web-2".into(),
+                "http://localhost:5173/".into(),
+            )]),
+            web_agents: BTreeMap::from([("web-3".into(), 7)]),
         }
     }
 

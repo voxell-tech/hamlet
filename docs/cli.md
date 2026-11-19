@@ -37,7 +37,7 @@ server. An installed app opens `hamlet_launch`, which does the same
 | `hamlet status` | Reports whether it runs |
 | `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a realm; a faux script answers offline for tests and demos |
 | `hamlet chat [--to <hand\|agent#<id>\|lead@<hamlet>>] [--attach <path>]...` | Chats in the terminal; each `--attach` goes with the first line |
-| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm and opens its window; `--hot` reloads saved shaders and tuning files |
+| `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot] [--web]` | Serves a scratch realm and opens its window; `--hot` reloads saved shaders and tuning files; `--web` builds one with Web panels |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet import [--file <export>] [--all] [--sessions]` | Lists projects other programs worked on; `--file` reads a ChatGPT or Claude export |
 | `hamlet import [--file <export>] [--all] --suggested \| <project or conversation id>...` | Brings in projects, each as a hamlet with an agent per conversation, or one conversation by id (C35) |

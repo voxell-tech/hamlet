@@ -9,6 +9,7 @@ pub mod settings;
 pub mod terminal;
 pub mod viewer;
 pub mod wait;
+pub mod web;
 
 use bevy::app::App;
 
@@ -23,5 +24,6 @@ pub fn plugin(app: &mut App) {
         terminal::plugin,
         viewer::plugin,
         wait::plugin,
+        web::plugin,
     ));
 }

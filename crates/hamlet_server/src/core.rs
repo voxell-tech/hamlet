@@ -95,6 +95,7 @@ impl Catalogue {
     pub fn of(shells: &Shells, added: &[Manifest]) -> Vec<ToolSpec> {
         let mut catalogue = crate::tools::builtin::specs(shells);
         catalogue.extend(crate::calls::specs::specs());
+        catalogue.extend(crate::web::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
         );
