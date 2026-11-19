@@ -1,5 +1,5 @@
 //! The Web panels: each shows a web page under a bar of its address
-//! (ADR 0014). The addresses are kept with the view in every build;
+//! (ADR 0016). The addresses are kept with the view in every build;
 //! the panels are only in a macOS build with the `web` feature.
 
 #[cfg(all(feature = "web", target_os = "macos"))]

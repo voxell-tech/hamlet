@@ -1,5 +1,5 @@
 //! The agents' pages: each agent's own Web tab, which the server asks
-//! this window to act on for the agent's web tools (ADR 0015).
+//! this window to act on for the agent's web tools (ADR 0017).
 
 use std::collections::BTreeMap;
 use std::time::Duration;

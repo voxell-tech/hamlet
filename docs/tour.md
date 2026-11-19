@@ -175,8 +175,8 @@ Search the module names above first. The ones that are not obvious:
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | The Hubs and desks | `hamlet_app/src/screens/hub.rs`, `desk.rs` |
-| Web panels | `hamlet_app/src/screens/web.rs`, `screens/web/`, `web_helper.rs`; [ADR 0014](adr/0014-web-panels-draw-chromium-through-cef-in-the-scene.md) |
-| Agents' web tools | `hamlet_server/src/web.rs`, `hamlet_protocol/src/client/web.rs`, `hamlet_app/src/screens/web/agents.rs`, `bridge.rs`; [ADR 0015](adr/0015-agents-use-the-web-through-their-own-web-tab.md) |
+| Web panels | `hamlet_app/src/screens/web.rs`, `screens/web/`, `web_helper.rs`; [ADR 0016](adr/0016-web-panels-draw-chromium-through-cef-in-the-scene.md) |
+| Agents' web tools | `hamlet_server/src/web.rs`, `hamlet_protocol/src/client/web.rs`, `hamlet_app/src/screens/web/agents.rs`, `bridge.rs`; [ADR 0017](adr/0017-agents-use-the-web-through-their-own-web-tab.md) |
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |
