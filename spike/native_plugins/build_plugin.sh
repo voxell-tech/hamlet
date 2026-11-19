@@ -25,5 +25,6 @@ sed -e '/^\[workspace\]$/d' \
     -e 's#^hamlet_sdk = .*#hamlet_sdk = { path = "../../hamlet_sdk" }#' \
     "$plugin/Cargo.toml" > "$build/plugins/$name/Cargo.toml"
 
+[ -z "${PREPARE_ONLY:-}" ] || exit 0
 cd "$build"
 env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo build --release -p "$name"

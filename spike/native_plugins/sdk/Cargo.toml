@@ -2,7 +2,7 @@
 # plugins. A workspace of its own, apart from Hamlet's.
 [workspace]
 resolver = "3"
-members = ["hamlet_sdk", "app"]
+members = ["hamlet_sdk", "app", "app_static"]
 
 [workspace.package]
 version = "0.1.0"
