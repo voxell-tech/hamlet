@@ -80,7 +80,7 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor and the real agent in a Node child, with a stand-in profile, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor, the profile and the library with the real agent in a Node child, and its `profile` and `library` lines; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
 | `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `realm`, which keeps the hamlets, the tree of hires, roads, letters, budgets and waits; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
@@ -340,9 +340,8 @@ the host from the command line, under a host name and with the kinds of
 its options (`examples/demo/kinds.rs`: a host registers only those, or
 by default the counter, the workspace, the profile, the library and
 both stand-ins, or with `--link` the stand-in realm alone; whatever the
-kinds, `examples/demo.rs` also registers the workspace and the library
-with `--realm-actor`, and the profile and the library for `demo profile`
-and `demo library`), each counter
+kinds, `examples/demo.rs` also registers the workspace, the profile and
+the library with `--realm-actor`), each counter
 line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also
@@ -362,8 +361,8 @@ other and a client call either.
 
 With `--realm-actor` before the command, the demo runs the real realm
 and the real agent together. The Rust host runs the
-[realm actor](#the-realm-actor), the workspace, the library and
-`StandInProfile`, a stand-in profile that answers each branch done
+[realm actor](#the-realm-actor), the workspace, the
+[profile and the library](#the-profile-and-library-actors)
 (`examples/demo/realm_actor.rs`). Its Node child runs the
 [agent actor](#the-agent-actor) (`examples/demo/agent_host.rs`). The
 Rust host starts the workspace and the realm, and waits until the
@@ -404,11 +403,12 @@ exits before a hire's steps finish.
 The `faults` feature of `hamlet_actors` makes a realm action panic when
 `HAMLET_REALM_PANIC` names it. `realm/act.rs` holds the fault points
 `called/<action>`, as an act begins, and `committed/<action>`, after
-its commit. `demo profile` and `demo library`, in
-`examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
-[profile and the library](#the-profile-and-library-actors) through
-stand-ins for the realm and the agents, which call as themselves and
-print what they are told. `tests/demo.rs` starts the demo as its
+its commit. The `profile` and `library` lines of
+`demo --realm-actor`, in `examples/demo/profile.rs` and
+`examples/demo/library.rs`, reach the real profile and library through
+the realm: as the chief (`tag`, `revert`, `edit`, `purge`, `dream`), as
+an agent's `create_scholar` (`profile make`), or as a hire's own agent
+through `forward` (`fill`, `save`, `shelves`, `offer`). `tests/demo.rs` starts the demo as its
 lanes do, and `hosts/node/test/link/` drives the linked demo and
 `demo --realm-actor`.
 `tests/local.rs` tests the host,
@@ -647,7 +647,8 @@ An agent, the actor `agent/<n>` keyed by its `AgentNumber`, runs in the
 Node host, in `hosts/node/src/agent/`. It is pi-durable's actor wrapper,
 ported to `hosts/node/src/pi/`, composed in `actor.ts` with actions of
 its own: the realm's `submit`, `place`, `fill` and `copies`, the
-workspace's `finished`, and `pi.wake`, the alarm of its timers. Each action checks
+workspace's `finished`, the profile's `moved` and `remove_path`, the
+library's `shelves_changed`, and `pi.wake`, the alarm of its timers. Each action checks
 its sender, reads its message with the lenient readers of `messages.ts`,
 which types every message the agent takes or sends, and answers `null`.
 An input is taken once under its id.
@@ -678,6 +679,12 @@ workspace or the realm answers with what it kept.
   edit was interrupted and may have partially run.
 - `society.ts` sends the society tools to the realm, each a row of
   `TOOLS` that sends `Tool<Act>{call, act}`, and replies to a question.
+  `submit_skill` offers the skill's files to the library first.
+- `branch.ts` keeps the agent's filesystem and its branch of the
+  profile: a fill writes the files at the branch's tip, a save after a
+  turn sends what changed since, and a move or a removal from the
+  profile pulls what the branch holds now, never over a file the agent
+  changed.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
@@ -691,14 +698,15 @@ other agent answers `login` with `not_the_hand`.
   `/reflect`, with today's notices and refusals.
 - `transcript.ts` answers `read_chat` and `read_history` and sends the
   `chat` events a client follows, numbered within each wake.
-- `copies.ts` keeps the realm's copies of the charter, the character, the
-  model and the settings. The realm's create input carries the copies it
+- `copies.ts` keeps the realm's copies of the charter, the model and the
+  settings, and the character the profile's files carry. The realm's create input carries the copies it
   holds for the agent, and the create keeps them in the transaction that
   writes the agent's row, so a first turn runs on them. Each wake asks
   for newer ones with `read_copies` without waiting, and the realm sends
   a newer one with `copies`.
 - `prompt.ts` builds the system prompt before every model call from the
-  copies, memory and the list of skills, each cut to its limit.
+  copies, memory, the list of skills and the library's shelves, each cut
+  to its limit.
 - `compaction.ts` sizes compaction for the model that runs, and asks once
   more after an answer cut off with nothing in it. `reflect.ts` asks for a
   reflection every `reflect_every` chief turns and when a chief leaves a
@@ -803,9 +811,12 @@ agents, such as a task's held letters and answers (`Delivery::Held`),
 holds each of their lanes until it is done. A failed call is logged,
 and `Say` answers whether its line reached the agent; what was
 committed stays.
-Two deliveries are owed, because no repeat by their sender carries
-them: a line a review kept (`Delivery::Kept`) and a parcel's refusal
-notice (`Delivery::ParcelRefused`). After a failure in passing,
+Some deliveries are owed, because no repeat by their sender carries
+them: a line a review kept (`Delivery::Kept`), a parcel's refusal
+notice (`Delivery::ParcelRefused`), a wait's notice (`Delivery::Notice`,
+which also runs a reserved act a chief allowed, under the request id its
+first run asked with) and a line whose input is a notice, such as the
+librarian's answer or verdict. After a failure in passing,
 `calls.rs` makes an owed delivery again on the steps' schedule
 (`steps::retried`: 1 s, then doubled up to 60 s) until it is taken,
 its callee refuses it, its receiver has left or the realm stops, and
@@ -813,9 +824,14 @@ keeps the realm awake meanwhile.
 
 A hire is one transaction, then six steps in `hire.rs`, each recorded
 done by a transaction of its own (`steps.rs`). The first four call
-another actor: the profile's actor, its branch `hires/<n>`, the agent
-made with its place, its task and its copies, and the agent's
-filesystem filled.
+another actor: the profile's actor, created from the realm's character
+for a blank hire and started for a scholar's; its branch `hires/<n>`,
+at the version the hire names when it names one; the agent made with
+its place, its task and its copies; and the agent's filesystem filled,
+which the agent pages from its profile. A version the profile lacks
+fails the hire for good. A hire's end begins a row of its own
+(`drop_parts.rs`) that drops its unfinished save and offer parts in the
+profile and the library.
 `Reach` commits the hire's first reach as wanted, which the push after
 that commit sends to the workspace, and `Live` calls no actor: the
 transaction that records it makes the hire live and closes the row. A
@@ -850,7 +866,16 @@ objections to a chief, which hold its spending and letters on that
 task until a chief rules; `waits.rs` keeps the waits for a chief of
 every kind and their answers, and the refusals counted on a task;
 `documents.rs` and `settings.rs` keep the charter, the catalogue and
-the settings and push each agent its copies; `secrets.rs` holds
+the settings and push each agent its copies; `profiles.rs` keeps each
+profile's name and label, makes and reads profiles for
+`create_scholar` and `read_scholar`, keeps `edit_scholar`, `tag` and
+`revert` for a chief, and answers a chief's own change from the
+profile's answer; `dreams.rs` runs a chief's dream as a step row, one
+at a time in the realm and none while its profile is purged (no errand
+dreams in it yet: the workspace gives no reach inside the realm
+folder); `librarian.rs` runs `ask_librarian` and `submit_skill` as
+errands, reads an offer from the library before the librarian judges
+it, and brings the verdict to the library; `secrets.rs` holds
 `credentials.json`, written whole with mode 0600, and answers
 `Secrets`, the list a scrub reads, and an agent's `Credential`;
 `record.rs` keeps
@@ -859,7 +884,7 @@ the decisions. `world.rs` keeps the world a client reads with
 changes it, and `versions.rs` numbers those commits in the file.
 
 `tests/realm.rs` runs the realm on a host with stand-ins for the
-workspace, the agents and the profiles. They keep what they were sent,
+workspace, the agents, the profiles and the library. They keep what they were sent,
 and a test can hold a call, fail it once or fail it every time for one
 agent. A test calls the realm as a client, and as an agent or the
 workspace through that stand-in's `forward`. The files in
@@ -872,16 +897,18 @@ and `src/profile/` are the kind `profile`, one actor per profile keyed
 by its `ProfileId`: the only writer of the repository
 `scholars/<n>.git` and of the store beside it. `main` is what the
 profile knows, `hires/<agent>` each hire's branch, and annotated tags
-its versions. `versions.rs` tags, reverts, edits, purges and erases;
-`hires.rs` makes and pins a hire's branch and takes `main` into it;
-`files.rs` gives an agent the files of its branch in parts (`Files`)
-and takes its changes back (`Save`); `dreams.rs` checks
+its versions. `versions.rs` tags, reverts, edits, purges and erases,
+and reads the files of a revision (`Read`); `hires.rs` makes a hire's
+branch at the version it is hired at, pins it, and takes `main` into
+it; `files.rs` gives an agent the files of its branch in parts
+(`Files`), takes its changes back (`Save`) and drops an ended hire's
+unfinished parts; `dreams.rs` checks
 `main`, and a hire's branch, out for a dream and commits what the
 dream changed when it ends. `src/library.rs` and `src/library/` are
 the kind `library`, keyed `local`: the only writer of `library.git`
 and its checkout `library/`, which every agent reads. An agent offers
-a skill in parts, the librarian's verdict, sent by the realm,
-shelves it, and unshelving takes it off; each change moves the list's version and is told to the
+a skill in parts, the realm reads it (`ReadOffer`), the librarian's
+verdict, sent by the realm, shelves it, and unshelving takes it off; each change moves the list's version and is told to the
 agents.
 
 Both take every call through `src/repo.rs`, the one way to a
@@ -1059,7 +1086,8 @@ built-in ones.
 | The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
 | A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
 | A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
-| The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs` |
+| The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs`; the agent's side in `hosts/node/src/agent/branch.ts` |
+| The profile tools, a chief's profile changes, dreams and the librarian in the realm | `hamlet_actors/src/realm/profiles.rs`, `realm/oversight/reserved.rs`, `realm/dreams.rs`, `realm/librarian.rs` |
 | A dream's checkouts and its end | `hamlet_actors/src/profile/dreams.rs`, `repo/checkout.rs` |
 | Offering, shelving and unshelving a skill | `hamlet_actors/src/library.rs`, `library/offers.rs` |
 | An actor that keeps a repository: admitting a call, once per id, settling after a kill | `hamlet_actors/src/repo.rs` |

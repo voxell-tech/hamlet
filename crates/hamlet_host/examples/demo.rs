@@ -130,7 +130,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_messages::address::{
-    Agent, Library, Party, Realm, Workspace,
+    Agent, Library, Party, Profile, Realm, Workspace,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_sandbox::{Isolation, Sandbox};
@@ -216,20 +216,6 @@ async fn demo() -> Result<()> {
                 let began = demo.started().await?;
                 tokio::time::sleep(Duration::from_millis(ms)).await;
                 print_began(&demo, began).await
-            }
-            .await
-        }
-        Some("profile") => {
-            async {
-                demo.started().await?;
-                profile::run(&demo.host, &args[1..]).await
-            }
-            .await
-        }
-        Some("library") => {
-            async {
-                demo.started().await?;
-                library::run(&demo.host, &args[1..]).await
             }
             .await
         }
@@ -350,6 +336,16 @@ async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
             agent_host::run(demo, rest).await
         }
         Some((first, rest))
+            if demo.realm_actor && first == "profile" =>
+        {
+            profile::run(&demo.host, rest).await
+        }
+        Some((first, rest))
+            if demo.realm_actor && first == "library" =>
+        {
+            library::run(&demo.host, rest).await
+        }
+        Some((first, rest))
             if link::COMMANDS.contains(&first.as_str()) =>
         {
             link::run(demo, first, rest).await
@@ -399,7 +395,11 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
     }
     let mut needed = Vec::new();
     if realm_actor {
-        needed.extend([Workspace::KIND, Library::KIND]);
+        needed.extend([
+            Workspace::KIND,
+            Profile::KIND,
+            Library::KIND,
+        ]);
     }
     if let Some(verb @ ("profile" | "library")) =
         rest.first().map(String::as_str)
