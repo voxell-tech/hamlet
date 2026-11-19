@@ -1,4 +1,5 @@
-//! A plugin that spins a cube drawn with its own material and shader.
+//! A plugin that spins a cube drawn with its own material and shader,
+//! and shows a label in Hamlet's theme.
 
 use std::sync::atomic::Ordering;
 
@@ -7,6 +8,9 @@ use hamlet_sdk::bevy::prelude::*;
 use hamlet_sdk::bevy::render::render_resource::AsBindGroup;
 use hamlet_sdk::bevy::shader::ShaderRef;
 use hamlet_sdk::bevy::tasks::ComputeTaskPool;
+use hamlet_sdk::bevy_fynix::mount;
+use hamlet_sdk::bevy_fynix::views::{column, label};
+use hamlet_sdk::hamlet_ui::theme::HamletTheme;
 use hamlet_sdk::{LOADS, Probe, Probes};
 
 /// The plugin's entry, which the window calls once at start.
@@ -22,7 +26,7 @@ impl Plugin for PulsePlugin {
         embedded_asset!(app, "pulse.wesl");
         app.add_plugins(MaterialPlugin::<PulseMaterial>::default())
             .register_type::<Spin>()
-            .add_systems(Startup, (spawn, probe))
+            .add_systems(Startup, (spawn, probe, panel))
             .add_systems(Update, spin);
     }
 }
@@ -67,6 +71,17 @@ fn spin(
     for (spin, mut transform) in &mut spinning {
         transform.rotate_y(spin.0 * time.delta_secs());
     }
+}
+
+/// A label in Hamlet's theme, built by fynix against the theme the
+/// window's `hamlet_ui` set up.
+fn panel(world: &mut World) {
+    mount::<HamletTheme>(
+        world,
+        column((label(
+            "pulse: a label from the plugin, in hamlet_ui",
+        ),)),
+    );
 }
 
 fn probe(mut probes: ResMut<Probes>) {

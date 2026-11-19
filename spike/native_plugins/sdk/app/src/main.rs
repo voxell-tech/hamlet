@@ -18,7 +18,9 @@ use std::time::Instant;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::tasks::ComputeTaskPool;
-use hamlet_sdk::{ENTRY, Entry, LOADS, Probes};
+use hamlet_sdk::bevy_fynix::FynixPlugin;
+use hamlet_sdk::hamlet_ui::theme::HamletTheme;
+use hamlet_sdk::{ENTRY, Entry, LOADS, Probes, hamlet_ui};
 
 #[derive(Resource)]
 struct Started(Instant);
@@ -26,11 +28,17 @@ struct Started(Instant);
 fn main() {
     let started = Instant::now();
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins)
-        .init_resource::<Probes>()
-        .insert_resource(Started(started))
-        .add_systems(Startup, scene)
-        .add_systems(Update, (first_frame, report, finish));
+    app.add_plugins((
+        DefaultPlugins,
+        FynixPlugin::<HamletTheme>::default(),
+        hamlet_ui::plugin,
+    ))
+    .init_resource::<Probes>()
+    .insert_resource(Started(started))
+    .add_systems(Startup, scene)
+    .add_systems(Update, (first_frame, report, finish));
+    // Before any plugin mounts a view, as the window does.
+    hamlet_ui::theme::show(app.world_mut(), HamletTheme::designed());
     let built = started.elapsed();
     if let Some(folder) = std::env::var_os("HAMLET_SPIKE_PLUGINS") {
         for path in libraries(Path::new(&folder)) {
