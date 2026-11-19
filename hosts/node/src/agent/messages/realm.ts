@@ -477,6 +477,22 @@ export interface PlaceText {
     readonly scholars?: string;
 }
 
+/** Asks for part `part` of file `file` of a parcel sent to the agent. */
+export interface FetchPart {
+    readonly parcel: number;
+    readonly file: number;
+    readonly part: number;
+}
+
+export type Part =
+    | {
+          readonly type: "bytes";
+          /** Base64. */
+          readonly bytes: string;
+          readonly last: boolean;
+      }
+    | Refused;
+
 export type RealmActions = {
     readonly [N in SocietyTool]: (
         message: Tool<SocietyActs[N]["act"]>,
@@ -495,6 +511,7 @@ export type RealmActions = {
     worker_done(message: TurnEnded): null;
     errand_done(message: TurnEnded): null;
     read_place(message: ReadPlace): PlaceText;
+    fetch_part(message: FetchPart): Part;
 };
 
 export const REALM: Address<RealmActions> = Address.of("realm", "local");

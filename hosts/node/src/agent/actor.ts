@@ -78,6 +78,7 @@ import type { ToolName } from "./messages/realm.ts";
 import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
+import { received } from "./parcels.ts";
 import {
     type PromptSources,
     placingOf,
@@ -474,6 +475,8 @@ export interface Generation {
      * current session and then writes by it runs here.
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
+    /** Saves parcels one after another, so two never take one name. */
+    readonly receiving: <T>(work: () => Promise<T>) => Promise<T>;
     /**
      * Settles once the last retry sent, queued or under way, is admitted
      * or has failed. A stop waits for it, so it stops the retry's turn too.
@@ -592,6 +595,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         branch,
         following: follow,
         inTurn: oneAfterAnother(),
+        receiving: oneAfterAnother(),
         retrying: undefined,
         ...(builtIns === undefined ? {} : { builtIns }),
     };
@@ -695,7 +699,7 @@ const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
 
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
-    const { options, inTurn } = generationOf(c);
+    const { options, inTurn, receiving, peers } = generationOf(c);
     const admit = async () => {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
@@ -703,9 +707,23 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             if (conversation === undefined) {
                 throw new Error(`the agent has no conversation ${id}`);
             }
+            const { input } = message;
+            const files =
+                input.type === "letter" || input.type === "question"
+                    ? (input.files ?? [])
+                    : [];
+            // A repeat of a submit it took saves nothing again.
+            const captions =
+                files.length === 0 ||
+                (await harness.commit(
+                    (tx) => tx.submissionByRequest(id, message.id),
+                    context,
+                )) !== undefined
+                    ? ""
+                    : await receiving(() => received(peers, files, context));
             await conversation.submit(
                 draftOf(
-                    admissionOf(message),
+                    admissionOf(message, captions),
                     message.input.type === "line" ? "steer" : undefined,
                 ),
                 context,

@@ -184,7 +184,27 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             edits += 1;
             return ok({ before, after: text });
         },
-        list: async () => ok([]),
+        list: async (path) => {
+            const names = new Set(
+                Object.keys(files)
+                    .filter((name) => name.startsWith(`${path}/`))
+                    .map(
+                        (name) =>
+                            name.slice(path.length + 1).split("/")[0] ?? "",
+                    ),
+            );
+            return ok(
+                [...names].sort().map((name) => ({
+                    name,
+                    path: `${root}/${path}/${name}`,
+                    kind:
+                        files[`${path}/${name}`] === undefined
+                            ? ("directory" as const)
+                            : ("file" as const),
+                    size: 0,
+                })),
+            );
+        },
         search: async () => ok({ found: [], more: false, capped: false }),
         find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),

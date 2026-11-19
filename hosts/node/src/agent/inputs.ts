@@ -2,8 +2,11 @@
 import type { Author, Submit } from "./messages/agent.ts";
 import { type Admission, NOTE_BREAK } from "./turn.ts";
 
-export function admissionOf(message: Submit): Admission {
+/** `captions` say where a letter's or a question's files were saved. */
+export function admissionOf(message: Submit, captions = ""): Admission {
     const { input } = message;
+    const told = (text: string) =>
+        captions === "" ? text : `${text}\n\n${captions}`;
     const base = {
         id: message.id,
         ...(message.task === undefined ? {} : { task: message.task }),
@@ -37,7 +40,7 @@ export function admissionOf(message: Submit): Admission {
                 ...base,
                 kind: "letter",
                 from: input.from,
-                content: input.text,
+                content: told(input.text),
             };
         case "question":
             return {
@@ -45,7 +48,7 @@ export function admissionOf(message: Submit): Admission {
                 kind: "question",
                 from: input.from,
                 question: input.letter,
-                content: input.text,
+                content: told(input.text),
             };
         case "answer":
             return {

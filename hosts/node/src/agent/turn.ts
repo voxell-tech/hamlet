@@ -83,6 +83,7 @@ const BARE = [
     "worker_done",
     "errand_done",
     "read_place",
+    "fetch_part",
 ] as const;
 
 export type BareRealm = {

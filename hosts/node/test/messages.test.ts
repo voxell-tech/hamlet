@@ -30,6 +30,7 @@ import {
     type Done,
     type Kept,
     type OauthLogin,
+    type Part,
     type PlaceText,
     REALM,
     type SecretList,
@@ -1049,6 +1050,32 @@ const WRITTEN: readonly Written[] = [
         },
         own: ["call", "conversation"],
     },
+    {
+        fixture: "realm/fetch_part",
+        input: {
+            type: "letter",
+            from: { agent: 12, name: "Ada" },
+            text: "The report",
+            files: [
+                {
+                    parcel: 8,
+                    file: 1,
+                    path: "from-hire-12/report.md",
+                    size: 2048,
+                },
+            ],
+        },
+        answers: {
+            realm: {
+                fetch_part: ({ part }) =>
+                    answer(
+                        part < 3
+                            ? "realm/fetch_part.bytes"
+                            : "realm/fetch_part.bytes.last",
+                    ),
+            },
+        },
+    },
     { fixture: "realm/read_place" },
     {
         fixture: "realm/read_place.letters",
@@ -1411,13 +1438,21 @@ const TAKEN = [
     "agent/place.hand",
     "agent/submit.answer",
     "agent/submit.letter",
+    "agent/submit.letter.files",
     "agent/submit.line",
     "agent/submit.line.attached",
     "agent/submit.line.reviewed",
     "agent/submit.notice",
     "agent/submit.question",
+    "agent/submit.question.files",
     "agent/submit.worker_answer",
 ] as const;
+
+/** What a taken call reports: a file held whole is not fetched past 32 MiB. */
+const REPORTED: Partial<Record<(typeof TAKEN)[number], RegExp>> = {
+    "agent/submit.letter.files":
+        /^inbox\/from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 32\.0 MiB$/,
+};
 
 const CREATED = [
     "agent/errand",
@@ -1431,7 +1466,10 @@ for (const call of TAKEN) {
     test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
         const action = actionOf(name).action as keyof typeof TAKERS;
         const { calls, sent } = fakeCalls({
-            realm: { reply: () => answer("realm/reply.done") },
+            realm: {
+                reply: () => answer("realm/reply.done"),
+                fetch_part: () => answer("realm/fetch_part.bytes.last"),
+            },
             profile: { files: () => answer("profile/files.part.last") },
         });
         const agent = await wakeAgent(t, {
@@ -1458,7 +1496,13 @@ for (const call of TAKEN) {
             await until(() => named(sent, "files").length === 2);
         }
         await agent.idle();
-        assert.deepEqual(agent.reported, []);
+        const report = REPORTED[call];
+        if (report === undefined) {
+            assert.deepEqual(agent.reported, []);
+        } else {
+            assert.equal(agent.reported.length, 1);
+            assert.match(agent.reported[0] ?? "", report);
+        }
         const entries = await agent.entries();
         await agent.stop();
 
@@ -1836,6 +1880,57 @@ for (const name of answersTo("realm/read_place")) {
             (text) => text !== undefined,
         );
         assert.ok(prompt.endsWith(`\n\n${sections.join("\n\n")}`), prompt);
+    });
+}
+
+for (const name of answersTo("realm/fetch_part")) {
+    test(`${name} is read by the parcel's saving`, async (t) => {
+        const given = fixture(name) as Part;
+        const last = fixture("realm/fetch_part.bytes.last.answer") as Part;
+        const held: Record<string, string> = {};
+        const { calls } = fakeCalls({
+            realm: { fetch_part: ({ part }) => (part === 0 ? given : last) },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            files: fakeFiles(held),
+            responses: [fauxAssistantMessage(LAST_WORDS)],
+        });
+        await agent.actions.submit(agent.by(from.realm), {
+            id: "input-1",
+            input: {
+                type: "letter",
+                from: { agent: 12, name: "Ada" },
+                text: "The report",
+                files: [
+                    {
+                        parcel: 8,
+                        file: 0,
+                        path: "from-hire-12/report.md",
+                        size: 2048,
+                    },
+                ],
+            },
+        });
+        await agent.idle();
+        await agent.stop();
+
+        const text = (part: Part) =>
+            part.type === "bytes"
+                ? Buffer.from(part.bytes, "base64").toString()
+                : "";
+        if (given.type === "bytes") {
+            assert.equal(
+                held["inbox/from-hire-12/report.md"],
+                text(given) + (given.last ? "" : text(last)),
+            );
+            assert.deepEqual(agent.reported, []);
+        } else {
+            assert.deepEqual(held, {});
+            assert.deepEqual(agent.reported, [
+                `from-hire-12/report.md was not saved in the inbox: ${given.words}`,
+            ]);
+        }
     });
 }
 
@@ -2235,14 +2330,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         /^realm\/set_model\.args$/,
         "a model change with an effort and a speed, which today's set_model does not take",
     ],
-    [
-        /^realm\/fetch_part\./,
-        "a parcel's part, which this agent does not fetch: it drops a parcel",
-    ],
-    [
-        /^agent\/submit\.(letter|question)\.files\.args$/,
-        "a letter or a question with a parcel: the agent takes it and drops the parcel, so the model is never told of its files",
-    ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 
@@ -2283,6 +2370,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...answersTo("realm/may_spend"),
         ...answersTo("realm/reply"),
         ...answersTo("realm/read_place"),
+        ...answersTo("realm/fetch_part"),
         ...[
             "realm/credential",
             "realm/keep_credential",
