@@ -1,30 +1,35 @@
-//! The society tools the limits reserve for a chief: kept in a wait
-//! until one allows or denies them.
+//! The society tools reserved for a chief, by the limits or always:
+//! kept in a wait until one allows or denies them.
 
 use std::fmt::Display;
+use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
+use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::profile::Revision;
 use hamlet_messages::realm::client::Answer;
+use hamlet_messages::realm::profiles::{
+    EditProfile, RevertProfile, TagProfile,
+};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Done, End, Gate, Hire, HireAnswer, LayRoad, Named, SocietyTool,
     TakeUpRoad,
 };
-use hamlet_messages::workspace::{
-    AgentNumber, ConversationId, RealmTask,
-};
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::super::act::{Act, Decided, Decision};
+use super::super::act::{Act, Called, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
+use super::super::profiles::{self, Asking};
 use super::super::tasks::TaskId;
 use super::super::waits::{self, Kind, Raised, Ruling};
-use super::super::{record, tree};
+use super::super::{Realm, record, tree};
 
 /// A reservable act, as its wait's `detail` keeps it: written by
 /// [`Keeping`], whose `tool` names the case.
@@ -35,6 +40,9 @@ enum Held {
     End(End),
     LayRoad(LayRoad),
     TakeUpRoad(TakeUpRoad),
+    EditProfile(Asking<EditProfile>),
+    Tag(Asking<TagProfile>),
+    Revert(Asking<RevertProfile>),
 }
 
 impl Held {
@@ -54,12 +62,7 @@ impl Held {
                 );
                 arg("name", hire.name.clone());
                 arg("purpose", hire.purpose.clone());
-                arg(
-                    "scholar",
-                    hire.profile.map(|profile| {
-                        format!("scholar#{}", profile.0)
-                    }),
-                );
+                arg("scholar", hire.profile.map(profiles::address));
                 arg(
                     "under",
                     hire.under.as_ref().map(Named::to_string),
@@ -82,8 +85,40 @@ impl Held {
                     "take_up_road"
                 }
             }
+            Self::EditProfile(Asking { act, .. }) => {
+                arg("content", Some(act.text.clone()));
+                arg("message", act.message.clone());
+                arg("path", Some(act.path.clone()));
+                arg("scholar", Some(profiles::address(act.profile)));
+                "edit_scholar"
+            }
+            Self::Tag(Asking { act, .. }) => {
+                arg(
+                    "note",
+                    Some(act.note.clone())
+                        .filter(|note| !note.is_empty()),
+                );
+                arg("scholar", Some(profiles::address(act.profile)));
+                arg("tag", Some(act.version.0.clone()));
+                "tag"
+            }
+            Self::Revert(Asking { act, .. }) => {
+                arg("commit", Some(revision(&act.what)));
+                arg("reason", act.reason.clone());
+                arg("scholar", Some(profiles::address(act.profile)));
+                "revert"
+            }
         };
         format!("{tool} {}", Value::Object(args))
+    }
+}
+
+/// `what` as a model names a commit to `revert`.
+fn revision(what: &Revision) -> String {
+    match what {
+        Revision::Main => "main".to_owned(),
+        Revision::Version { version } => version.0.clone(),
+        Revision::Commit { commit } => commit.0.to_string(),
     }
 }
 
@@ -126,7 +161,7 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
     }
 }
 
-/// A call the limits reserve for a chief.
+/// A call reserved for a chief.
 pub(in crate::realm) enum Kept {
     /// The wait that keeps it, with the changes that open it.
     Waits(Decided<WaitId>),
@@ -134,16 +169,14 @@ pub(in crate::realm) enum Kept {
     Refused(Gate),
 }
 
-/// What becomes of `act`, called by `by` in a turn on `task` and in
-/// `conversation`, when the limits of `by`'s hamlet reserve `tool`
-/// for a chief. Only a hire has a hamlet: the Hand's and a worker's
-/// acts are never reserved.
+/// What becomes of `act`, called by `by` in `called`, when the limits
+/// of `by`'s hamlet reserve `tool` for a chief. Only a hire has a
+/// hamlet: the Hand's and a worker's acts are not reserved by them.
 pub(in crate::realm) async fn reserve(
     rows: &Rows<'_>,
     tool: SocietyTool,
     by: AgentNumber,
-    task: Option<&RealmTask>,
-    conversation: Option<&ConversationId>,
+    called: &Called,
     act: &impl Serialize,
 ) -> Result<Option<Kept>> {
     let Some(reserves) = limit(tool) else {
@@ -159,33 +192,62 @@ pub(in crate::realm) async fn reserve(
     {
         return Ok(None);
     }
+    keep(rows, tool, by, called, act).await.map(Some)
+}
+
+/// Keeps `act`, called by `by` in `called`, for a chief.
+pub(in crate::realm) async fn keep(
+    rows: &Rows<'_>,
+    tool: SocietyTool,
+    by: AgentNumber,
+    called: &Called,
+    act: &impl Serialize,
+) -> Result<Kept> {
     let mut detail = Vec::new();
     ciborium::into_writer(&Keeping { tool, act }, &mut detail)?;
     let subject =
         ciborium::from_reader::<Held, _>(detail.as_slice())?
             .subject();
-    let task = task.and_then(TaskId::of);
+    let task = called.task.as_ref().and_then(TaskId::of);
     if let Some(task) = task
         && let Some(why) =
             waits::refused_unasked(rows, by, task, &[], &subject)
                 .await?
     {
-        return Ok(Some(Kept::Refused(why)));
+        return Ok(Kept::Refused(why));
     }
     let wait = waits::next(rows).await?;
-    Ok(Some(Kept::Waits(Decided::new(wait).change(
+    Ok(Kept::Waits(Decided::new(wait).change(
         waits::Change::Raise {
             wait,
             raised: Raised {
                 agent: by,
                 kind: Kind::Reserved,
                 task,
-                conversation: conversation.cloned(),
+                conversation: called.conversation.clone(),
                 subject,
                 detail,
             },
         },
-    ))))
+    )))
+}
+
+/// The caller of the act wait `wait` keeps, and the act.
+async fn held(
+    rows: &Rows<'_>,
+    wait: WaitId,
+) -> Result<(Agent, Held)> {
+    let (agent, detail) = rows
+        .row::<(u32, Vec<u8>)>(
+            "SELECT agent, detail FROM wait WHERE id = ?1",
+            vec![change::integer(wait.0)?],
+        )
+        .await?
+        .with_context(|| format!("wait {} has no row", wait.0))?;
+    Ok((
+        Agent(AgentNumber(agent)),
+        ciborium::from_reader(detail.as_slice())?,
+    ))
 }
 
 /// What a reserved act's wait adds to the chief's `answer` on wait
@@ -199,25 +261,50 @@ pub(in crate::realm) async fn ruling(
     if answer.0.choice != Choice::Allow {
         return Ok(Ruling::default());
     }
-    let (agent, detail) = rows
-        .row::<(u32, Vec<u8>)>(
-            "SELECT agent, detail FROM wait WHERE id = ?1",
-            vec![change::integer(wait.0)?],
-        )
-        .await?
-        .with_context(|| format!("wait {} has no row", wait.0))?;
-    let by = Agent(AgentNumber(agent));
-    let mut ruling =
-        match ciborium::from_reader::<Held, _>(detail.as_slice())? {
-            Held::Hire(act) => replay(rows, &by, act).await?,
-            Held::End(act) => replay(rows, &by, act).await?,
-            Held::LayRoad(act) => replay(rows, &by, act).await?,
-            Held::TakeUpRoad(act) => replay(rows, &by, act).await?,
-        };
+    let (by, held) = held(rows, wait).await?;
+    let mut ruling = match held {
+        Held::Hire(act) => replay(rows, &by, act).await?,
+        Held::End(act) => replay(rows, &by, act).await?,
+        Held::LayRoad(act) => replay(rows, &by, act).await?,
+        Held::TakeUpRoad(act) => replay(rows, &by, act).await?,
+        Held::EditProfile(_) | Held::Tag(_) | Held::Revert(_) => {
+            return Ok(Ruling {
+                deferred: true,
+                ..Ruling::default()
+            });
+        }
+    };
     if ruling.told.is_none() {
         ruling.told = ran(rows, &ruling.entries).await?;
     }
     Ok(ruling)
+}
+
+/// Carries out the change to a profile that the allowed wait `wait`
+/// keeps, and gives the words its caller is told.
+pub(in crate::realm) async fn carry_out(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    wait: WaitId,
+) -> Result<String> {
+    let (by, held) = held(&Rows::outside(ctx)?, wait).await?;
+    match held {
+        Held::EditProfile(asking) => {
+            profiles::carry_out(realm, ctx, by, asking).await
+        }
+        Held::Tag(asking) => {
+            profiles::carry_out(realm, ctx, by, asking).await
+        }
+        Held::Revert(asking) => {
+            profiles::carry_out(realm, ctx, by, asking).await
+        }
+        Held::Hire(_)
+        | Held::End(_)
+        | Held::LayRoad(_)
+        | Held::TakeUpRoad(_) => {
+            bail!("wait {} keeps no change to a profile", wait.0)
+        }
+    }
 }
 
 /// What `act` decides now as `by`: its changes and decisions, or the

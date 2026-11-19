@@ -6,7 +6,8 @@ const WRITERS: &[(&str, &[&str])] = &[
     ("chiefs/hamlet.rs", &["hamlet", "hamlet_folder"]),
     ("chiefs/limits.rs", &["realm", "hamlet"]),
     ("chiefs/tier.rs", &["hamlet"]),
-    ("tree.rs", &["profile", "agent", "hire"]),
+    ("profiles.rs", &["profile"]),
+    ("tree.rs", &["agent", "hire"]),
     ("tree/choices.rs", &["nickname", "model_choice"]),
     ("tree/lead.rs", &["agent", "hire"]),
     ("tree/tools.rs", &["hire_tool_off"]),
@@ -38,6 +39,7 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "KeepCredential"),
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
+    ("profiles.rs", "Create"),
 ];
 
 #[test]

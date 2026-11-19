@@ -99,6 +99,11 @@ fn marked(error: anyhow::Error) -> anyhow::Error {
     }
 }
 
+/// The refusal `why` a callee answered, as an error of its own.
+pub(super) fn refusal(why: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::msg(why.to_string()).context(Refused)
+}
+
 /// Whether `error` is a callee's own answer to a call of the
 /// realm's.
 pub(super) fn refused(error: &anyhow::Error) -> bool {

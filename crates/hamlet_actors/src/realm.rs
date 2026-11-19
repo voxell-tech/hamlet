@@ -17,6 +17,7 @@ mod oversight;
 mod parcels;
 mod peer;
 mod place;
+mod profiles;
 mod reach;
 mod record;
 mod reviews;
@@ -60,6 +61,9 @@ use hamlet_messages::realm::oversight::{
     AskChief, Lapse, Object, Revoke,
 };
 use hamlet_messages::realm::parcels::FetchPart;
+use hamlet_messages::realm::profiles::{
+    EditProfile, ReadProfile, RevertProfile, TagProfile,
+};
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
@@ -70,7 +74,7 @@ use hamlet_messages::realm::{
 };
 use serde::Serialize;
 
-use self::callers::{Bare, ByHand, Living, Looks};
+use self::callers::{Bare, ByHand, Living, Looks, Relays};
 
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
@@ -214,6 +218,14 @@ impl Actor for Realm {
         Living<Looks<Credential>>,
         KeepCredential,
         FetchPart,
+        profiles::Create,
+        Relays<ByHand<Tool<ReadProfile>>>,
+        ByHand<Tool<EditProfile>>,
+        ByHand<Tool<TagProfile>>,
+        ByHand<Tool<RevertProfile>>,
+        Relays<Asked<EditProfile>>,
+        Relays<Asked<TagProfile>>,
+        Relays<Asked<RevertProfile>>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -400,6 +412,7 @@ mod testing {
                 hamlet: hamlet.clone(),
                 lead,
                 of: tree::Of::Profile(tree::HAND_PROFILE),
+                version: None,
                 purpose: None,
             })
             .await

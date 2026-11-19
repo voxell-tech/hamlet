@@ -524,6 +524,9 @@ pub(super) async fn notice(
             "the chief refused it: {}",
             ruling.as_deref().unwrap_or("no reason given")
         ),
+        (Kind::Reserved, Choice::Allow(_)) => {
+            reserved::carry_out(realm, ctx, wait).await?
+        }
         (kind, choice) => bail!(
             "wait {} of kind {kind:?} closed as {choice:?} has no \
              notice",
@@ -784,6 +787,9 @@ pub(super) struct Ruling {
     pub(super) told: Option<String>,
     /// The wait's agent is told nothing of the ruling.
     pub(super) unheard: bool,
+    /// The allowed act runs after the close is committed, and its
+    /// notice tells the agent what it did.
+    pub(super) deferred: bool,
 }
 
 /// The open wait a chief answers.
@@ -998,6 +1004,9 @@ impl Act<Client> for Answer {
         let mut decided = Decided::new(open.told(&choice));
         if ruling.unheard {
             decided.done.notice = None;
+        }
+        if ruling.deferred {
+            decided.done.notice = Some(open.wait);
         }
         decided.done.ran = ruling.told.map(|text| Ran {
             wait: open.wait,

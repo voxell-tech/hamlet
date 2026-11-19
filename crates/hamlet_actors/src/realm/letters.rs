@@ -16,7 +16,7 @@ use hamlet_messages::workspace::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision, Paid, ToolAct};
+use super::act::{Act, Called, Decided, Decision, Paid, ToolAct};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::oversight::asking;
@@ -497,11 +497,14 @@ impl Act<Agent> for Paid<Tell> {
     }
 }
 
-impl ToolAct for Tell {
+impl ToolAct<Agent> for Tell {
     type Run = Paid<Tell>;
 
-    fn run(self, task: Option<RealmTask>) -> Paid<Tell> {
-        Paid { task, act: self }
+    fn run(self, called: &Called) -> Paid<Tell> {
+        Paid {
+            task: called.task.clone(),
+            act: self,
+        }
     }
 }
 
@@ -548,11 +551,14 @@ impl Act<Agent> for Paid<Ask> {
     }
 }
 
-impl ToolAct for Ask {
+impl ToolAct<Agent> for Ask {
     type Run = Paid<Ask>;
 
-    fn run(self, task: Option<RealmTask>) -> Paid<Ask> {
-        Paid { task, act: self }
+    fn run(self, called: &Called) -> Paid<Ask> {
+        Paid {
+            task: called.task.clone(),
+            act: self,
+        }
     }
 }
 

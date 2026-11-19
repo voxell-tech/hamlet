@@ -6,9 +6,10 @@ use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::oversight::Permission;
+use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
     Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    HowEnded, Named, OnlyAHire, ProfileId, Refusable, Seat,
+    HowEnded, Named, OnlyAHire, Refusable, Seat,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -23,7 +24,7 @@ use super::super::{
     chiefs, hire, laid, oversight, record, roads, steps, tasks,
     waits, workers,
 };
-use super::{Change, Lineage, Member, Of, Status};
+use super::{Change, Lineage, Node, Of, Status};
 
 enum Joining {
     Hamlet(HamletId),
@@ -44,7 +45,7 @@ pub(in crate::realm) struct Hiring {
     hamlet: Joining,
     under: Option<Lineage>,
     living: u32,
-    of: Result<Of, ProfileId>,
+    of: Result<Of, ProfileRefusal>,
     agent: AgentNumber,
 }
 
@@ -86,7 +87,8 @@ impl<By: Lead> Act<By> for Hire {
             hamlet,
             under,
             living,
-            of: super::made_of(rows, self.profile).await?,
+            of: super::made_of(rows, self.profile, self.name.clone())
+                .await?,
             agent: super::fresh(rows).await?,
         })
     }
@@ -151,10 +153,13 @@ impl<By: Lead> Act<By> for Hire {
         }
         let of = match hiring.of {
             Ok(of) => of,
-            Err(profile) => {
+            Err(ProfileRefusal::NoSuchProfile { profile }) => {
                 return refuse(HireRefusal::NoSuchProfile {
                     profile,
                 });
+            }
+            Err(ProfileRefusal::Apart { label }) => {
+                return refuse(HireRefusal::Apart { label });
             }
         };
         let agent = hiring.agent;
@@ -165,6 +170,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
+                    version: self.version.clone(),
                     purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
@@ -441,11 +447,11 @@ pub(in crate::realm) async fn end(
     })
 }
 
-fn living_agents(members: &[Member]) -> Vec<AgentNumber> {
-    members
+fn living_agents(nodes: &[Node]) -> Vec<AgentNumber> {
+    nodes
         .iter()
-        .filter(|member| !matches!(member.status, Status::Ended(_)))
-        .map(|member| member.agent)
+        .filter(|node| !matches!(node.status, Status::Ended(_)))
+        .map(|node| node.agent)
         .collect()
 }
 
@@ -493,7 +499,9 @@ pub(in crate::realm) async fn seat(
 #[cfg(test)]
 mod tests {
     use hamlet_messages::address::Agent;
-    use hamlet_messages::realm::{LeadRefusal, Left, Rank, Tier};
+    use hamlet_messages::realm::{
+        LeadRefusal, Left, ProfileId, Rank, Tier,
+    };
     use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::reach::Mode;
 
@@ -505,7 +513,7 @@ mod tests {
     /// The lineage of hire 5 in one hamlet: the mayor 2, hire 3 under
     /// it, and 5 under 3.
     fn lineage_of_5() -> Lineage {
-        let member = |agent, lead: Option<u32>, status| Member {
+        let node = |agent, lead: Option<u32>, status| Node {
             agent: AgentNumber(agent),
             kind: AgentKind::Hire,
             status,
@@ -513,10 +521,10 @@ mod tests {
             has_purpose: false,
         };
         Lineage {
-            agent: member(5, Some(3), Status::Hiring),
+            agent: node(5, Some(3), Status::Hiring),
             leads: vec![
-                member(3, Some(2), Status::Live),
-                member(2, None, Status::Live),
+                node(3, Some(2), Status::Live),
+                node(2, None, Status::Live),
             ],
             hires: Vec::new(),
             hamlet: Some(chiefs::Hamlet {
@@ -532,7 +540,7 @@ mod tests {
 
     fn hand() -> Lineage {
         Lineage {
-            agent: Member {
+            agent: Node {
                 agent: Hand::NUMBER,
                 kind: AgentKind::Hand,
                 status: Status::Live,
@@ -605,7 +613,9 @@ mod tests {
             ..under_5("h")
         };
         let missing = Hiring {
-            of: Err(ProfileId(9)),
+            of: Err(ProfileRefusal::NoSuchProfile {
+                profile: ProfileId(9),
+            }),
             ..under_5("h")
         };
 
@@ -636,7 +646,10 @@ mod tests {
             hamlet: Joining::Hamlet(HamletId(hamlet.to_owned())),
             under: Some(lineage_of_5()),
             living: 3,
-            of: Ok(Of::Blank(ProfileId(6))),
+            of: Ok(Of::Blank {
+                profile: ProfileId(6),
+                name: None,
+            }),
             agent: AgentNumber(6),
         }
     }

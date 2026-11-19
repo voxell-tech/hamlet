@@ -7,7 +7,7 @@ use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Gate, Tool, ToolCall};
-use hamlet_messages::workspace::RealmTask;
+use hamlet_messages::workspace::{CallId, ConversationId, RealmTask};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -155,26 +155,14 @@ where
 
 /// Runs a society tool: refused by the caller's standing, then kept
 /// for a chief when the limits reserve it for one, then the act.
-pub(super) async fn run_tool<T: ToolAct>(
+pub(super) async fn run_tool<T: ToolAct<Agent>>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: Agent,
     name: &'static str,
     tool: Tool<T>,
 ) -> Result<Result<<T::Run as Act<Agent>>::Output, Stood>> {
-    let key = marker::Key::of(
-        &by,
-        marker::Id::Call(tool.call.clone()),
-        name,
-        &tool,
-    )?;
-    let Tool {
-        task,
-        conversation,
-        act,
-        ..
-    } = tool;
-    let act = act.run(task.clone());
+    let (key, called, act) = keyed(&by, name, tool)?;
     exec(
         realm,
         ctx,
@@ -187,15 +175,9 @@ pub(super) async fn run_tool<T: ToolAct>(
             {
                 return Ok(Some(Barred::Stood(stood)));
             }
-            let kept = reserved::reserve(
-                rows,
-                T::TOOL,
-                by.0,
-                task.as_ref(),
-                conversation.as_ref(),
-                act,
-            )
-            .await?;
+            let kept =
+                reserved::reserve(rows, T::TOOL, by.0, &called, act)
+                    .await?;
             Ok(kept.map(|kept| match kept {
                 Kept::Waits(kept) => Barred::Reserved(kept),
                 Kept::Refused(why) => Barred::Stood(Stood::Gate(why)),
@@ -206,23 +188,60 @@ pub(super) async fn run_tool<T: ToolAct>(
     .await
 }
 
-/// A society tool's act as the realm runs it, given the calling
-/// turn's task.
-pub(super) trait ToolAct: ToolCall {
-    type Run: Act<Agent, Output = Self::Answer> + Serialize;
-
-    fn run(self, task: Option<RealmTask>) -> Self::Run;
+/// The call that carried a society tool, with its turn's task and
+/// conversation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct Called {
+    pub call: CallId,
+    pub task: Option<RealmTask>,
+    pub conversation: Option<ConversationId>,
 }
 
-impl<T> ToolAct for T
+/// A society tool's act as the realm runs it for a caller of kind
+/// `By`, given the call that carried it.
+pub(super) trait ToolAct<By>: ToolCall {
+    type Run: Act<By, Output = Self::Answer> + Serialize;
+
+    fn run(self, called: &Called) -> Self::Run;
+}
+
+impl<By, T> ToolAct<By> for T
 where
-    T: ToolCall + Act<Agent, Output = T::Answer> + Serialize,
+    T: ToolCall + Act<By, Output = T::Answer> + Serialize,
 {
     type Run = T;
 
-    fn run(self, _task: Option<RealmTask>) -> T {
+    fn run(self, _called: &Called) -> T {
         self
     }
+}
+
+/// The marker key of `by`'s call of `tool`, the call, and the act it
+/// runs.
+pub(super) fn keyed<By: Witness, T: ToolAct<By>>(
+    by: &By,
+    name: &'static str,
+    tool: Tool<T>,
+) -> Result<(marker::Key, Called, T::Run)> {
+    let key = marker::Key::of(
+        by,
+        marker::Id::Call(tool.call.clone()),
+        name,
+        &tool,
+    )?;
+    let Tool {
+        call,
+        task,
+        conversation,
+        act,
+    } = tool;
+    let called = Called {
+        call,
+        task,
+        conversation,
+    };
+    let act = act.run(&called);
+    Ok((key, called, act))
 }
 
 /// An act that the calling turn's task pays for.

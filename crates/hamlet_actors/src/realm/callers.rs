@@ -4,12 +4,12 @@ use anyhow::Result;
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_host::Caller;
 use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Party, Workspace};
+use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
-    SecretList, Secrets, Standing, Tool, ToolCall,
+    Asked, ChiefRequest, Gate, LeadRefusal, ProfileId, Rank,
+    Refusable, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use super::act::{self, Act, Look, ToolAct};
 use super::change::Rows;
+use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
 use super::{Realm, marker, record};
@@ -220,6 +221,45 @@ impl<M: Message> Message for Looks<M> {
     type From = M::From;
 }
 
+/// The message `M`, answered from a profile's answer.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Relays<M>(pub M);
+
+impl<M: Message> Action for Relays<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Relays<M> {
+    type To = M::To;
+    type From = M::From;
+}
+
+/// A message the realm answers from the answer of the profile it
+/// names, changing nothing of its own.
+pub(super) trait Relay<By>:
+    Send + Sync + Sized + 'static
+{
+    type Call: Message<To = Profile>;
+    type Output: Send + 'static;
+
+    /// The profile and what it is asked, or the answer when the realm
+    /// refuses.
+    fn ask(
+        &self,
+        by: &By,
+        rows: &Rows<'_>,
+    ) -> impl Future<
+        Output = Result<
+            Result<(ProfileId, Self::Call), Self::Output>,
+        >,
+    > + Send;
+
+    fn answer(answer: <Self::Call as Action>::Output)
+    -> Self::Output;
+}
+
 /// The message `M`, answered only to a caller that is living.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
@@ -346,7 +386,7 @@ where
 
 impl<T> Handler<Tool<T>> for Realm
 where
-    T: ToolAct,
+    T: ToolAct<Agent>,
     <T::Answer as Refusable>::Why: From<Standing> + From<Gate>,
 {
     async fn handle(
@@ -363,7 +403,7 @@ where
 
 impl<T> Handler<ByHand<Tool<T>>> for Realm
 where
-    T: ToolCall + Act<Hand, Output = <T as ToolCall>::Answer>,
+    T: ToolAct<Hand>,
 {
     async fn handle(
         self: Arc<Self>,
@@ -372,11 +412,8 @@ where
     ) -> Result<<T as ToolCall>::Answer> {
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &hand)?;
-        let ByHand(tool) = hand;
-        let id = marker::Id::Call(tool.call.clone());
-        let key = marker::Key::of(&by, id, name, &tool)?;
-        act::run_keyed(&self, &ctx, by, Some(key), name, tool.act)
-            .await
+        let (key, _, act) = act::keyed(&by, name, hand.0)?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, act).await
     }
 }
 
@@ -406,6 +443,41 @@ where
         let Bare(message) = bare;
         act::run(&self, &ctx, by, None, M::NAME, message).await
     }
+}
+
+impl<M> Handler<Relays<M>> for Realm
+where
+    M: Message
+        + Relay<<M as Message>::From, Output = <M as Action>::Output>,
+    M::From: Witness,
+{
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        relays: Relays<M>,
+    ) -> Result<<M as Action>::Output> {
+        let by = sender(&ctx, &relays)?;
+        relay(&self, &ctx, &by, &relays.0, When::BeforeAnswer).await
+    }
+}
+
+/// Answers `relayed`, asked by `by`, from the answer of the profile
+/// it names.
+pub(super) async fn relay<By, M: Relay<By>>(
+    realm: &Realm,
+    ctx: &Ctx<Realm>,
+    by: &By,
+    relayed: &M,
+    when: When,
+) -> Result<M::Output> {
+    let (profile, call) =
+        match relayed.ask(by, &Rows::outside(ctx)?).await? {
+            Ok(asked) => asked,
+            Err(answer) => return Ok(answer),
+        };
+    let answered =
+        realm.peers.call(&Profile(profile), &call, when).await?;
+    Ok(M::answer(answered))
 }
 
 impl<M> Handler<Looks<M>> for Realm

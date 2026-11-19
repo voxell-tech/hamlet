@@ -262,7 +262,7 @@ async fn a_step_done_again_leaves_one_hire() {
 }
 
 /// The agent rows that are still hiring, and how `agent` ended.
-async fn hiring_and_how(
+pub(super) async fn hiring_and_how(
     realm: &Realm,
     agent: AgentNumber,
 ) -> (i64, Option<String>) {

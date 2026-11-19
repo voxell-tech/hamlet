@@ -1,5 +1,5 @@
-//! The tree of hires: the `profile`, `agent`, `hire` and
-//! `hire_tool_off` tables, and the lead's powers over them.
+//! The tree of hires: the `agent`, `hire` and `hire_tool_off`
+//! tables, and the lead's powers over them.
 
 pub(super) mod choices;
 mod lead;
@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::profile::VersionName;
+use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
     HamletId, HowEnded, Left, Named, ProfileId, ToolName,
 };
@@ -20,7 +22,7 @@ pub(super) use lead::failed;
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::world::Part;
-use super::{chiefs, record};
+use super::{chiefs, profiles, record};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Status {
@@ -51,7 +53,7 @@ impl Status {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Member {
+pub(super) struct Node {
     pub agent: AgentNumber,
     pub kind: AgentKind,
     pub status: Status,
@@ -64,15 +66,15 @@ pub(super) struct Member {
 /// the root of its hamlet, its own hires, and its hamlet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Lineage {
-    pub agent: Member,
+    pub agent: Node,
     /// Its lead first, the mayor last.
-    pub leads: Vec<Member>,
-    pub hires: Vec<Member>,
+    pub leads: Vec<Node>,
+    pub hires: Vec<Node>,
     /// `None` for the Hand.
     pub hamlet: Option<chiefs::Hamlet>,
 }
 
-impl Member {
+impl Node {
     pub fn can_take_purpose(&self) -> bool {
         self.kind == AgentKind::Hire && !self.has_purpose
     }
@@ -104,9 +106,9 @@ impl Lineage {
     /// the Hand (H41). An ended lead leads nothing.
     pub fn is_led_by(&self, lead: AgentNumber) -> bool {
         lead == Hand::NUMBER
-            || self.leads.iter().any(|member| {
-                member.agent == lead
-                    && !matches!(member.status, Status::Ended(_))
+            || self.leads.iter().any(|node| {
+                node.agent == lead
+                    && !matches!(node.status, Status::Ended(_))
             })
     }
 
@@ -121,13 +123,13 @@ pub(super) async fn lineage(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<Lineage>> {
-    let Some(own) = member(rows, agent).await? else {
+    let Some(own) = node(rows, agent).await? else {
         return Ok(None);
     };
     let mut leads = Vec::new();
     let mut next = own.lead;
     while let Some(lead) = next {
-        let lead = member(rows, lead).await?.with_context(|| {
+        let lead = node(rows, lead).await?.with_context(|| {
             format!("the lead {} of a hire", lead.0)
         })?;
         next = lead.lead;
@@ -142,7 +144,7 @@ pub(super) async fn lineage(
         .await?
     {
         hires.push(
-            member(rows, AgentNumber(hire))
+            node(rows, AgentNumber(hire))
                 .await?
                 .with_context(|| format!("the hire {hire}"))?,
         );
@@ -221,10 +223,10 @@ pub(super) async fn lineage_of(
         .with_context(|| format!("agent {} has no row", agent.0))
 }
 
-async fn member(
+async fn node(
     rows: &Rows<'_>,
     agent: AgentNumber,
-) -> Result<Option<Member>> {
+) -> Result<Option<Node>> {
     let Some((kind, status, how, why, lead, has_purpose)) = rows
         .row::<(
             String,
@@ -244,7 +246,7 @@ async fn member(
     else {
         return Ok(None);
     };
-    Ok(Some(Member {
+    Ok(Some(Node {
         agent,
         kind: change::from_case_name(kind)?,
         status: Status::of_row(agent, &status, how, why)?,
@@ -387,21 +389,28 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     Ok(AgentNumber(u32::try_from(rows.next_id("agent").await?)?))
 }
 
+/// A hire of the profile `named`, or of a blank one named `name`
+/// when none is named.
 pub(super) async fn made_of(
     rows: &Rows<'_>,
     named: Option<ProfileId>,
-) -> Result<Result<Of, ProfileId>> {
+    name: Option<String>,
+) -> Result<Result<Of, ProfileRefusal>> {
     let Some(named) = named else {
-        let blank = u32::try_from(rows.next_id("profile").await?)?;
-        return Ok(Ok(Of::Blank(ProfileId(blank))));
+        return Ok(Ok(blank(rows, name).await?));
     };
-    let found = rows
-        .value::<u32>(
-            "SELECT id FROM profile WHERE id = ?1",
-            vec![BindParam::Integer(i64::from(named.0))],
-        )
-        .await?;
-    Ok(found.map(|_| Of::Profile(named)).ok_or(named))
+    Ok(profiles::shared(rows, named).await?.map(Of::Profile))
+}
+
+/// A blank profile named `name`, made for one hire.
+pub(super) async fn blank(
+    rows: &Rows<'_>,
+    name: Option<String>,
+) -> Result<Of> {
+    Ok(Of::Blank {
+        profile: profiles::next(rows).await?,
+        name,
+    })
 }
 
 pub(super) async fn profile_of(
@@ -418,6 +427,22 @@ pub(super) async fn profile_of(
     .await?
     .map(ProfileId)
     .with_context(|| format!("agent {} has no hire row", agent.0))
+}
+
+/// The version of its profile a hire stays at; `None` follows
+/// `main`.
+pub(super) async fn version_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<VersionName>> {
+    Ok(rows
+        .value::<Option<String>>(
+            "SELECT version FROM hire WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .flatten()
+        .map(VersionName))
 }
 
 pub(super) async fn kind_of(
@@ -437,8 +462,13 @@ pub(super) async fn kind_of(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Of {
     Profile(ProfileId),
-    /// A new profile, made for this hire alone (H38).
-    Blank(ProfileId),
+    /// A new profile, made for this hire alone (H38), named `name`,
+    /// else `Mayor` for a mayor and `Hire <n>` for a hire whose
+    /// hamlet had `n` hires before it.
+    Blank {
+        profile: ProfileId,
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -451,6 +481,7 @@ pub(super) enum Change {
         hamlet: HamletId,
         lead: Option<AgentNumber>,
         of: Of,
+        version: Option<VersionName>,
         purpose: Option<String>,
     },
     /// The agent is live.
@@ -488,8 +519,12 @@ pub(super) async fn apply(
             hamlet,
             lead,
             of,
+            version,
             purpose,
-        } => hire(writer, agent, hamlet, lead, of, purpose).await,
+        } => {
+            hire(writer, agent, hamlet, lead, of, version, purpose)
+                .await
+        }
         Change::Live { agent } => live(writer, agent).await,
         Change::Purpose { hire, text } => {
             purpose(writer, hire, text).await
@@ -515,12 +550,13 @@ pub(super) async fn apply(
 pub(super) const HAND_PROFILE: ProfileId = ProfileId(1);
 
 async fn hand(writer: &Writer<'_>) -> Result<Affected> {
-    writer
-        .execute(
-            "INSERT INTO profile (id, kind) VALUES (?1, 'hand')",
-            vec![BindParam::Integer(i64::from(HAND_PROFILE.0))],
-        )
-        .await?;
+    profiles::insert(
+        writer,
+        HAND_PROFILE,
+        profiles::Kind::Hand,
+        "hand",
+    )
+    .await?;
     new_agent(writer, Hand::NUMBER, AgentKind::Hand, "hiring")
         .await?;
     places_showing(writer, Hand::NUMBER, None).await
@@ -532,18 +568,24 @@ async fn hire(
     hamlet: HamletId,
     lead: Option<AgentNumber>,
     of: Of,
+    version: Option<VersionName>,
     purpose: Option<String>,
 ) -> Result<Affected> {
     let profile = match of {
         Of::Profile(profile) => profile,
-        Of::Blank(profile) => {
-            writer
-                .execute(
-                    "INSERT INTO profile (id, kind) VALUES (?1, \
-                     'blank')",
-                    vec![BindParam::Integer(i64::from(profile.0))],
-                )
-                .await?;
+        Of::Blank { profile, name } => {
+            let name = match name.as_deref().map(str::trim) {
+                Some(given) if !given.is_empty() => given.to_owned(),
+                _ if lead.is_none() => "Mayor".to_owned(),
+                _ => format!("Hire {}", had(writer, &hamlet).await?),
+            };
+            profiles::insert(
+                writer,
+                profile,
+                profiles::Kind::Blank,
+                &name,
+            )
+            .await?;
             profile
         }
     };
@@ -551,17 +593,32 @@ async fn hire(
     writer
         .execute(
             "INSERT INTO hire (agent, hamlet, profile, lead, \
-             purpose) VALUES (?1, ?2, ?3, ?4, ?5)",
+             purpose, version) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             vec![
                 number(agent),
                 BindParam::Text(hamlet.0),
                 BindParam::Integer(i64::from(profile.0)),
                 lead.map_or(BindParam::Null, number),
                 purpose.map_or(BindParam::Null, BindParam::Text),
+                version.map_or(BindParam::Null, |version| {
+                    BindParam::Text(version.0)
+                }),
             ],
         )
         .await?;
     places_showing(writer, agent, lead).await
+}
+
+/// How many hires `hamlet` has had, the ended ones too.
+async fn had(writer: &Writer<'_>, hamlet: &HamletId) -> Result<u32> {
+    Ok(writer
+        .rows()
+        .value(
+            "SELECT COUNT(*) FROM hire WHERE hamlet = ?1",
+            vec![BindParam::Text(hamlet.0.clone())],
+        )
+        .await?
+        .unwrap_or(0))
 }
 
 async fn new_agent(
@@ -690,8 +747,8 @@ mod tests {
     use super::super::versions;
     use super::*;
 
-    fn agents(members: &[Member]) -> Vec<AgentNumber> {
-        members.iter().map(|member| member.agent).collect()
+    fn agents(nodes: &[Node]) -> Vec<AgentNumber> {
+        nodes.iter().map(|node| node.agent).collect()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -822,17 +879,25 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_hire_is_made_of_the_profile_named_else_a_blank_one() {
+    async fn a_hire_is_made_of_a_shared_profile_named_else_a_blank_one()
+     {
         let started = Started::new().await;
         let rows = started.rows();
-        let of = async |named| made_of(&rows, named).await.unwrap();
+        let of =
+            async |named| made_of(&rows, named, None).await.unwrap();
+        let no_such = |profile| ProfileRefusal::NoSuchProfile {
+            profile: ProfileId(profile),
+        };
 
-        assert_eq!(of(None).await, Ok(Of::Blank(ProfileId(2))));
         assert_eq!(
-            of(Some(HAND_PROFILE)).await,
-            Ok(Of::Profile(HAND_PROFILE))
+            of(None).await,
+            Ok(Of::Blank {
+                profile: ProfileId(2),
+                name: None,
+            })
         );
-        assert_eq!(of(Some(ProfileId(9))).await, Err(ProfileId(9)));
+        assert_eq!(of(Some(HAND_PROFILE)).await, Err(no_such(1)));
+        assert_eq!(of(Some(ProfileId(9))).await, Err(no_such(9)));
         started.stop().await;
     }
 
@@ -845,9 +910,9 @@ mod tests {
             .await
             .unwrap();
         let rows = started.rows();
-        let member = lineage(&rows, worker).await.unwrap().unwrap();
+        let node = lineage(&rows, worker).await.unwrap().unwrap();
         assert_eq!(
-            (member.agent.kind, member.agent.status, member.hamlet),
+            (node.agent.kind, node.agent.status, node.hamlet),
             (AgentKind::Worker, Status::Live, None)
         );
         assert_eq!(
@@ -897,10 +962,9 @@ mod tests {
         }
         let rows = started.rows();
 
-        let member =
-            lineage(&rows, hire).await.unwrap().unwrap().agent;
+        let node = lineage(&rows, hire).await.unwrap().unwrap().agent;
         assert_eq!(
-            (member.status, member.has_purpose),
+            (node.status, node.has_purpose),
             (Status::Live, true)
         );
         let purpose = rows
