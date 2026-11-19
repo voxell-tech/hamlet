@@ -33,7 +33,8 @@ use bevy::ui::{
 use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, row,
 };
 use bevy_fynix::{
     ScopedExt, Theme, ViewExt, derived, every_frame, keyed,
@@ -110,6 +111,10 @@ const TITLE: &str = "Terminal";
 
 /// The most letters of a terminal's name a tab shows.
 const TAB_LETTERS: usize = 20;
+
+/// The most letters of a terminal's last command its panel's heading
+/// shows.
+const PREVIEW_LETTERS: usize = 48;
 
 fn is_panel(id: &str) -> bool {
     id == PANEL || number(PANEL, id).is_some()
@@ -625,6 +630,18 @@ fn heading(panel: &PanelId) -> impl View + use<> {
                                 .overflow(Overflow::clip())
                                 .boxed(),
                         );
+                        if let Some(last) = &item.last {
+                            parts.push(
+                                label(list::elided(
+                                    last,
+                                    PREVIEW_LETTERS,
+                                ))
+                                .size(cx.theme().text.small)
+                                .tone(Tone::Dim)
+                                .wrap(false)
+                                .boxed(),
+                            );
+                        }
                         parts.push(frame().grow(1.0).boxed());
                         parts.push(
                             row(hints(item))
@@ -922,5 +939,26 @@ mod tests {
         forget_closed(app.world_mut());
         keep_watching(app.world_mut());
         assert_eq!(noted(&app), pairs(&[("terminal", "t1")]));
+    }
+
+    #[test]
+    fn a_tab_shows_only_its_terminal_s_name_cut_short() {
+        let item = |name: &str| list::Item {
+            terminal: Entity::PLACEHOLDER,
+            name: name.into(),
+            owner: "chief".into(),
+            exit: None,
+            commands: false,
+            key: None,
+            last: Some("cat notes/today.md".into()),
+            running: false,
+            crumbs: Vec::new(),
+        };
+        assert_eq!(tab_name(None), "Terminal");
+        assert_eq!(tab_name(Some(&item("zsh 3"))), "zsh 3");
+        assert_eq!(
+            tab_name(Some(&item("a-terminal-with-a-long-name"))),
+            "a-terminal-with-a..."
+        );
     }
 }
