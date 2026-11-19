@@ -55,8 +55,8 @@ use image::{ImageFormat, RgbaImage};
 
 use super::Addresses;
 use super::panel::PanelId;
-use crate::convo::Convo;
-use crate::dock::{HUB, show_tab};
+use crate::dock::show_tab;
+use crate::hub::{self, Hub, Showing};
 use crate::screens::chat;
 
 /// The least side of a box, in the interface's pixels: a shorter
@@ -585,19 +585,23 @@ fn take(world: &mut World) {
     }
 }
 
-/// Shows the chat, and puts `words` and `pictures` in its field.
+/// Shows the chat of the Hub the chief works in, and puts `words`
+/// and `pictures` in its field.
 pub(super) fn add(
     world: &mut World,
     words: &str,
     pictures: Vec<Vec<u8>>,
 ) {
-    show_tab(world, HUB);
-    if let Some(agent) =
-        world.get_resource::<Convo>().map(|convo| convo.agent)
-    {
-        crate::convo::talk_to(world, agent);
+    let Some(hub) =
+        hub::active(world).or_else(|| hub::bring_following(world))
+    else {
+        return;
+    };
+    if let Some(id) = world.get::<Hub>(hub).map(|hub| hub.0.clone()) {
+        show_tab(world, &id);
     }
-    chat::add_to_field(world, words, pictures);
+    hub::show(world, hub, Showing::Thread);
+    chat::add_to_field(world, hub, words, pictures);
 }
 
 /// `note` on a line of its own, when there is one.
