@@ -178,7 +178,11 @@ fn crop_page(
 /// Where `part` of a page `view` big, in the page's own pixels, is in
 /// `page`, the rect the page is drawn in: the page draws at its own
 /// zoom, so its pixels are not the panels'.
-fn on_the_page(page: Rect, part: Rect, view: Vec2) -> Option<Rect> {
+pub(super) fn on_the_page(
+    page: Rect,
+    part: Rect,
+    view: Vec2,
+) -> Option<Rect> {
     if view.x <= 0.0 || view.y <= 0.0 {
         return None;
     }

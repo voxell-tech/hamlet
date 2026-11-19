@@ -16,8 +16,12 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::math::{Rect, Rot2};
-use bevy::ui::{AlignItems, UiRect, UiTransform, px};
+use bevy::math::{Rect, Vec2};
+use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui_widgets::popover::{
+    PopoverAlign, PopoverPlacement, PopoverSide,
+};
+use bevy_cef::prelude::{HostEmitEvent, Receive};
 use bevy_fynix::dock::{DockTree, DockWindowKind};
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
@@ -40,6 +44,8 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use super::panel::{self, PanelId};
 use super::{Addresses, FILES, page};
@@ -53,20 +59,24 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Browsing>()
         .init_resource::<Asked>()
         .init_resource::<Picking>()
+        .init_resource::<Told>()
         .add_plugins(context::plugin)
         .add_observer(answered)
+        .add_observer(heard)
         .add_systems(
             Update,
-            (follow_chat, forget_on_reconnect, ask)
-                .chain()
-                .before(page::Opening),
+            (
+                (follow_chat, forget_on_reconnect, ask)
+                    .chain()
+                    .before(page::Opening),
+                tell_heading,
+            ),
         );
 }
 
 fn window() -> DockWindowKind<HamletTheme> {
     DockWindowKind::new("FILES", || flush_panel(contents()))
         .icon(Glyph::Folder.image(ICON))
-        .subtitle(|| subtitle().boxed())
         .actions(|| actions().boxed())
 }
 
@@ -100,39 +110,6 @@ fn id() -> PanelId {
     PanelId(FILES.to_owned())
 }
 
-/// What the tab says after "FILES": the hamlet shown, whom the panel
-/// follows, and the chevron that lists the others.
-fn subtitle() -> impl View {
-    keyed(derived(heading).when(every_frame()), |heading| {
-        let Some((name, following)) = heading.clone() else {
-            return row(()).boxed();
-        };
-        let mut parts =
-            vec![label(name).wrap(false).tagged(DisplayText).boxed()];
-        if let Some(agent) = following {
-            parts.push(note(format!("following {agent}")).boxed());
-        }
-        // The chevron points up as drawn; the list opens below.
-        parts.push(
-            row((glyph(Glyph::Chevron, ICON).tone(Tone::Accent),))
-                .tagged(UiTransform {
-                    rotation: Rot2::degrees(180.0),
-                    ..UiTransform::IDENTITY
-                })
-                .boxed(),
-        );
-        button(row(parts).gap(6.0).align(AlignItems::Center))
-            .padding(UiRect::axes(px(6.0), px(2.0)))
-            .margin(UiRect::left(px(4.0)))
-            .on_activate_with(|world, node| {
-                let anchor = rect_of(world, node).unwrap_or_default();
-                world.resource_mut::<Picking>().0 = Some(anchor);
-            })
-            .tooltip(|| note("Show another hamlet's folder"))
-            .boxed()
-    })
-}
-
 /// The name of the hamlet shown, and the agent whose chat it follows
 /// while it follows one.
 fn heading(world: &World) -> Option<(String, Option<String>)> {
@@ -145,6 +122,99 @@ fn heading(world: &World) -> Option<(String, Option<String>)> {
             .and_then(|convo| convo.with.clone()),
     };
     Some((name, following))
+}
+
+/// What the web IDE's page asks of the window, beside a context.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Asks {
+    /// The heading again, as the page has just started.
+    HamletHeading {},
+    /// The list of hamlets, under the press of the hamlet's name that
+    /// is at this box, in the page's pixels.
+    HamletPick {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(rename = "viewWidth")]
+        view_width: f32,
+        #[serde(rename = "viewHeight")]
+        view_height: f32,
+    },
+}
+
+/// Opens the list of hamlets where the page's press of the hamlet's
+/// name is, or tells the page the heading again.
+fn heard(emitted: On<Receive<Value>>, mut commands: Commands) {
+    let Ok(asks) =
+        serde_json::from_value::<Asks>(emitted.payload.clone())
+    else {
+        return;
+    };
+    let webview = emitted.webview;
+    commands.queue(move |world: &mut World| {
+        if world
+            .get::<page::Page>(webview)
+            .is_none_or(|p| p.0 != id())
+        {
+            return;
+        }
+        match asks {
+            Asks::HamletHeading {} => {
+                world.resource_mut::<Told>().0 = None;
+            }
+            Asks::HamletPick {
+                x,
+                y,
+                width,
+                height,
+                view_width,
+                view_height,
+            } => {
+                // The list hangs in the panel, whose corner the
+                // page's is.
+                let Some(on_page) =
+                    rect_of(world, webview).map(|page| {
+                        Rect::from_corners(Vec2::ZERO, page.size())
+                    })
+                else {
+                    return;
+                };
+                let part = Rect::new(x, y, x + width, y + height);
+                let view = Vec2::new(view_width, view_height);
+                if let Some(anchor) =
+                    context::on_the_page(on_page, part, view)
+                {
+                    world.resource_mut::<Picking>().0 = Some(anchor);
+                }
+            }
+        }
+    });
+}
+
+/// The heading the page was last told.
+#[derive(Resource, Default)]
+struct Told(Option<Option<(String, Option<String>)>>);
+
+/// Tells the web IDE's page the hamlet shown and whom the panel
+/// follows, once it changes, for the press of its name under the
+/// tree.
+fn tell_heading(world: &mut World) {
+    let heading = heading(world);
+    if world.resource::<Told>().0.as_ref() == Some(&heading) {
+        return;
+    }
+    let Some(page) = page::of(world, &id()) else {
+        return;
+    };
+    let (name, following) = heading.clone().unzip();
+    world.trigger(HostEmitEvent::new(
+        page,
+        "hamletHeading",
+        &json!({"name": name, "following": following.flatten()}),
+    ));
+    world.resource_mut::<Told>().0 = Some(heading);
 }
 
 /// The bar's end while the panel shows: opening the folder again.
@@ -196,7 +266,13 @@ fn picker() -> impl View {
         let Some(anchor) = *anchor else {
             return frame().boxed();
         };
+        // Over the hamlet's name at the foot of the tree.
         popup(anchor, (choices(),))
+            .placements(vec![PopoverPlacement {
+                side: PopoverSide::Top,
+                align: PopoverAlign::Start,
+                gap: 6.0,
+            }])
             .on_dismiss(|world, _| {
                 world.resource_mut::<Picking>().0 = None;
             })
