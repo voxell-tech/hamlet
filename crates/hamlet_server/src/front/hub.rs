@@ -63,15 +63,16 @@ struct Followed {
 struct Watch {
     client: u64,
     chat: protocol::ChatRef,
-    /// The last change its page holds; none until the page is sent.
+    /// The last change its page and the turns after it hold; none
+    /// until the page is sent. A turn that resets the chat holds no
+    /// page, so it leaves this where it was.
     seen: Option<Mark>,
 }
 
 impl Watch {
-    /// Whether it was sent a page of its chat, but not the one at
-    /// `mark`.
+    /// Whether it holds its chat from before the change at `mark`.
     fn is_behind(&self, mark: Mark) -> bool {
-        self.seen.is_some_and(|seen| seen != mark)
+        self.seen.is_some_and(|seen| mark.after(seen))
     }
 }
 
@@ -519,12 +520,15 @@ impl Shared {
         let Some(found) = followed.get_mut(&agent) else {
             return false;
         };
-        for watch in &found.watches {
+        for watch in &mut found.watches {
             if !watch.seen.is_some_and(|seen| mark.after(seen)) {
                 continue;
             }
             match frames::turn(event.clone(), &watch.chat) {
                 Ok(Some(turn)) => {
+                    if !reset {
+                        watch.seen = Some(mark);
+                    }
                     self.send(
                         watch.client,
                         ServerMessage::Turn(turn),

@@ -254,8 +254,10 @@ async fn a_new_session_is_shown_to_its_watcher_once() {
             })
             .count();
         assert_eq!(
-            shown, 1,
-            "session {number} was shown {shown} times"
+            shown,
+            1,
+            "session {number} was shown {shown} times: {:#?}",
+            &chief.messages()[asked..]
         );
     }
     chief.close().await;
