@@ -3,13 +3,13 @@
 //! `_actor_meta`, and the one run of the fork hook at the first start
 //! of each fork.
 //!
-//! The engine names the fork on every start of a forked actor. The
-//! copied database holds its source's `appliedForkId`, so the first
-//! start of the copy sees a fork it has not applied: the start runs
-//! the runtime's fork hook, appends the fork to the chain and records
-//! it as applied, all in the startup commit. A crash before that
-//! commit leaves the copy untouched, and the next start runs the hook
-//! again.
+//! The source makes the copy with [`ActorContext::copy_for_fork`],
+//! which writes into it the fork state the copy takes, under
+//! `fork_start` in `_actor_meta`. A start that finds that row removes
+//! the timers and the run wake copied from the source, runs the
+//! runtime's fork hook, and records the fork state and removes the
+//! row in one commit. A crash before that commit leaves the row, and
+//! the next start does it all again.
 //!
 //! The hook's state edits and the applied fork are one commit on
 //! every SQLite backend, as long as the hook leaves them to the
@@ -32,16 +32,81 @@ use anyhow::{Context, Result};
 use hamlet_actor_wire::persist::generated::fork_v1;
 use hamlet_actor_wire::persist::versioned as persist_versioned;
 
+use crate::ActorContext;
 use crate::actor::persist::{
     decode_latest_with_embedded_version,
     encode_latest_with_embedded_version,
 };
-use crate::types::ActorKey;
+use crate::sqlite::BindParam;
+use crate::types::{ActorKey, format_actor_key};
 
 /// The `_actor_meta` key of the actor's fork state.
 pub(crate) const FORK_STATE_META_KEY: &str = "fork_state";
 
+/// The `_actor_meta` key of the fork a copy applies at its next
+/// start: the fork state the copy takes once it is applied.
+pub(crate) const FORK_START_META_KEY: &str = "fork_start";
+
 const FORK_STATE_VERSION: u16 = 1;
+
+const COPY_SQL: &str = "VACUUM INTO ?";
+const ATTACH_COPY_SQL: &str = "ATTACH ? AS fork";
+const WRITE_COPY_FORK_START_SQL: &str =
+    "INSERT INTO fork._actor_meta (key, value) VALUES (?, ?) ON \
+     CONFLICT(key) DO UPDATE SET value = excluded.value";
+const DETACH_COPY_SQL: &str = "DETACH fork";
+
+impl ActorContext {
+    /// Copies this actor's database to `path`, a file that is absent
+    /// or empty, as the individual actor fork `fork_id` of this
+    /// actor, which the copy's next start applies. The caller syncs
+    /// the copy and puts it in place.
+    pub async fn copy_for_fork(
+        &self,
+        path: &str,
+        fork_id: Vec<u8>,
+    ) -> Result<()> {
+        let mut chain = self
+            .fork_chain()
+            .iter()
+            .map(stored_link)
+            .collect::<Vec<_>>();
+        chain.push(fork_v1::ForkLink {
+            actor_id: self.actor_id().to_owned().into(),
+            key: stored_key(self.key()),
+            forked_at: self.schedule_now_timestamp_ms(),
+        });
+        let start = encode_state(&fork_v1::ForkState {
+            applied_fork_id: Some(fork_id.into()),
+            chain,
+        })?;
+        let db = self.sql();
+        let path = || Some(vec![BindParam::Text(path.to_owned())]);
+        db.execute(COPY_SQL, path())
+            .await
+            .context("copy the actor's database")?;
+        db.execute(ATTACH_COPY_SQL, path())
+            .await
+            .context("open the copy")?;
+        let written = db
+            .execute(
+                WRITE_COPY_FORK_START_SQL,
+                Some(vec![
+                    BindParam::Text(FORK_START_META_KEY.to_owned()),
+                    BindParam::Blob(start),
+                ]),
+            )
+            .await
+            .context("write the fork into the copy");
+        // Detached whatever the write did, so the copy is not held
+        // open and the next copy can attach under the same name.
+        db.execute(DETACH_COPY_SQL, None)
+            .await
+            .context("close the copy")?;
+        written?;
+        Ok(())
+    }
+}
 
 /// One individual actor fork behind an actor: the source and when the
 /// fork was made.
@@ -59,17 +124,6 @@ pub struct ForkLink {
 pub struct ActorForkStart {
     pub link: ForkLink,
     pub input: Option<Vec<u8>>,
-}
-
-/// The fork a start command names, before startup knows whether its
-/// hook already ran.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct StartFork {
-    fork_id: Vec<u8>,
-    link: fork_v1::ForkLink,
-    /// The source's own chain as the engine recorded it, oldest
-    /// first, without this fork.
-    source_chain: Vec<fork_v1::ForkLink>,
 }
 
 /// The actor's fork state as stored, empty for an actor that was
@@ -100,61 +154,42 @@ pub(crate) fn encode_state(
     )
 }
 
-/// The fork `start` names when this database has not applied it, as
-/// the state to persist once its hook ran and the start the runtime
-/// receives. `None` when the start names no fork or the hook already
-/// ran for it.
+/// The fork a start applies, from the `fork_start` row it read, as
+/// the fork state to record once its hook ran and the start the
+/// runtime receives. `None` when the database holds no fork to apply.
 pub(crate) fn pending(
-    state: &fork_v1::ForkState,
-    start: Option<StartFork>,
+    fork_start: Option<Vec<u8>>,
     input: Option<Vec<u8>>,
-) -> Option<(fork_v1::ForkState, ActorForkStart)> {
-    let start = start?;
-    let applied =
-        state.applied_fork_id.as_ref().is_some_and(|applied| {
-            applied.as_ref() as &[u8] == start.fork_id.as_slice()
-        });
-    if applied {
-        return None;
-    }
-
-    let mut next = state.clone();
-    next.applied_fork_id = Some(start.fork_id.into());
-    next.chain = source_chain(&state.chain, start.source_chain);
-    next.chain.push(start.link.clone());
-    Some((
-        next,
-        ActorForkStart {
-            link: link_of(&start.link),
-            input,
-        },
-    ))
-}
-
-/// The source's chain that this fork extends. The copied chain is the
-/// source's when it ends with the same link as the engine's: the
-/// source committed its first start before it was copied.
-/// Otherwise the copy holds an older chain, or none, because the
-/// source was forked again before its startup commit landed or ran
-/// under an SDK that never recorded its chain, and the engine's chain
-/// replaces it. An empty engine chain, from a source whose record
-/// predates engine chains, keeps the copied one.
-fn source_chain(
-    copied: &[fork_v1::ForkLink],
-    engine: Vec<fork_v1::ForkLink>,
-) -> Vec<fork_v1::ForkLink> {
-    let Some(engine_last) = engine.last() else {
-        return copied.to_vec();
+) -> Result<Option<(fork_v1::ForkState, ActorForkStart)>> {
+    let Some(bytes) = fork_start else {
+        return Ok(None);
     };
-    if copied.last() == Some(engine_last) {
-        return copied.to_vec();
-    }
-    engine
+    let next =
+        decode_state(&bytes).context("decode the fork to apply")?;
+    let link = next
+        .chain
+        .last()
+        .map(link_of)
+        .context("the fork to apply has no link")?;
+    Ok(Some((next, ActorForkStart { link, input })))
 }
 
 /// The chain the runtime reads, oldest first.
 pub(crate) fn chain_of(state: &fork_v1::ForkState) -> Vec<ForkLink> {
     state.chain.iter().map(link_of).collect()
+}
+
+fn stored_link(link: &ForkLink) -> fork_v1::ForkLink {
+    fork_v1::ForkLink {
+        actor_id: link.actor_id.clone().into(),
+        key: stored_key(&link.key),
+        forked_at: link.forked_at,
+    }
+}
+
+/// A key in the slash form a fork link stores, none for an empty key.
+fn stored_key(key: &ActorKey) -> Option<vbare::Str> {
+    (!key.is_empty()).then(|| format_actor_key(key).into())
 }
 
 fn link_of(stored: &fork_v1::ForkLink) -> ForkLink {

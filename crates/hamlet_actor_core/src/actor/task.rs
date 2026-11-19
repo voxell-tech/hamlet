@@ -465,6 +465,8 @@ struct PersistedStartup {
     /// The individual actor forks behind the actor and the fork
     /// whose hook last ran.
     fork: hamlet_actor_wire::persist::generated::fork_v1::ForkState,
+    /// The encoded fork this start applies.
+    fork_start: Option<Vec<u8>>,
 }
 
 struct PendingLifecycleReply {
@@ -1807,7 +1809,7 @@ impl ActorTask {
         let load_state_result =
             self.load_persisted_startup(bootstrapped).await;
         let load_state_elapsed = load_state_started_at.elapsed();
-        let persisted = match load_state_result {
+        let mut persisted = match load_state_result {
             Ok(persisted) => persisted,
             Err(error) => {
                 self.ctx.metrics().observe_startup_phase(
@@ -1823,13 +1825,28 @@ impl ActorTask {
         let stored_inspector_token =
             persisted.inspector_token.clone();
         // The first start of an individual actor fork runs the
-        // runtime's fork hook. The start command's input is the fork
-        // input; the copied record keeps the source's.
+        // runtime's fork hook. The start's input is the fork input;
+        // the copied record keeps the source's.
         let pending_fork = crate::actor::fork::pending(
-            &persisted.fork,
-            self.ctx.take_start_fork(),
+            persisted.fork_start.take(),
             self.start_input.clone(),
-        );
+        )?;
+        // A fork's copy holds its source's timers and run wake. They
+        // go before anything arms them, and again at each start until
+        // the fork is recorded.
+        if pending_fork.is_some() {
+            self.ctx
+                .sql()
+                .execute_batch(
+                    internal_storage::fork_copy_reset_statements()
+                        .into(),
+                )
+                .await
+                .context(
+                    "remove the timers copied from the source",
+                )?;
+            persisted.run_wake_at = None;
+        }
         let fork_chain = match &pending_fork {
             Some((next, _)) => crate::actor::fork::chain_of(next),
             None => crate::actor::fork::chain_of(&persisted.fork),
@@ -1999,8 +2016,8 @@ impl ActorTask {
             if let Some(fork_state) = &fork_state {
                 let encoded =
                     crate::actor::fork::encode_state(fork_state)?;
-                unwritten_fork.push(
-                    internal_storage::fork_state_statement(encoded),
+                unwritten_fork.extend(
+                    internal_storage::fork_record_statements(encoded),
                 );
                 self.save_fork_hook_state(
                     &mut unwritten_fork,
@@ -2356,11 +2373,13 @@ impl ActorTask {
                 run_wake_at: snapshot.run_wake_at,
                 inspector_token: read.inspector_token,
                 fork,
+                fork_start: read.fork_start,
             });
         }
         let mut fresh = self.fresh_startup();
         fresh.inspector_token = read.inspector_token;
         fresh.fork = fork;
+        fresh.fork_start = read.fork_start;
         Ok(fresh)
     }
 
@@ -2375,6 +2394,7 @@ impl ActorTask {
             run_wake_at: None,
             inspector_token: None,
             fork: crate::actor::fork::empty_state(),
+            fork_start: None,
         }
     }
 

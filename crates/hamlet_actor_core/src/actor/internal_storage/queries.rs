@@ -8,15 +8,17 @@
 /// Everything a start of an existing actor reads before user code, in
 /// one statement that always returns one row: the legacy import
 /// marker (first parameter), the actor snapshot (NULL columns when it
-/// has none), the last pushed alarm, the inspector token and the run
-/// wake deadline (second parameter).
+/// has none), the last pushed alarm, the inspector token, the run
+/// wake deadline (second parameter), the fork state (third) and the
+/// fork the start applies (fourth).
 pub(crate) const LOAD_ACTOR_STARTUP_SQL: &str =
     "SELECT (SELECT value FROM _actor_meta WHERE key = ?), \
      snap.has_initialized, snap.input, snap.state, (SELECT \
      last_pushed_alarm FROM _actor_runtime WHERE id = 1), (SELECT \
      inspector_token FROM _actor_runtime WHERE id = 1), (SELECT \
      value FROM _actor_meta WHERE key = ?), (SELECT value FROM \
-     _actor_meta WHERE key = ?) FROM (SELECT 1) LEFT JOIN (SELECT \
+     _actor_meta WHERE key = ?), (SELECT value FROM _actor_meta \
+     WHERE key = ?) FROM (SELECT 1) LEFT JOIN (SELECT \
      a.has_initialized, a.input, s.state FROM _actor_actor a JOIN \
      _actor_actor_state s ON s.id = a.id WHERE a.id = 1) snap ON 1";
 pub(crate) const UPSERT_ACTOR_SQL: &str =
@@ -49,7 +51,7 @@ pub(crate) const DELETE_CONN_STATE_SQL: &str =
 pub(crate) const DELETE_CONN_SQL: &str =
     "DELETE FROM _actor_conns WHERE conn_id = ?";
 
-pub(crate) const RESET_SCHEDULES_FOR_LEGACY_IMPORT_SQL: &str =
+pub(crate) const RESET_SCHEDULES_SQL: &str =
     "DELETE FROM _actor_schedule_events";
 pub(crate) const INSERT_SCHEDULE_EVENT_SQL: &str =
     "INSERT INTO _actor_schedule_events (event_id, trigger_at, \
@@ -194,6 +196,8 @@ pub(crate) const REARM_SET_ASIDE_SQL: &str =
      _actor_schedule_set_aside WHERE event_id = ?";
 pub(crate) const DELETE_SET_ASIDE_SQL: &str =
     "DELETE FROM _actor_schedule_set_aside WHERE event_id = ?";
+pub(crate) const RESET_SET_ASIDE_SQL: &str =
+    "DELETE FROM _actor_schedule_set_aside";
 
 pub(crate) const LOAD_QUEUE_NEXT_ID_SQL: &str =
     "SELECT queue_next_id FROM _actor_runtime WHERE id = 1";
@@ -277,6 +281,8 @@ pub(crate) const LOAD_META_TEXT_SQL: &str =
 pub(crate) const UPSERT_META_TEXT_SQL: &str =
     "INSERT INTO _actor_meta (key, value) VALUES (?, ?) ON \
      CONFLICT(key) DO UPDATE SET value = excluded.value";
+pub(crate) const DELETE_META_SQL: &str =
+    "DELETE FROM _actor_meta WHERE key = ?";
 
 pub(crate) fn user_kv_batch_get_sql(key_count: usize) -> String {
     let placeholders = std::iter::repeat_n("?", key_count)

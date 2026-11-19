@@ -35,7 +35,7 @@ use crate::actor::connection::{
     PendingHibernationChanges, hibernatable_id_from_slice,
 };
 use crate::actor::diagnostics::ActorDiagnostics;
-use crate::actor::fork::{ForkLink, StartFork};
+use crate::actor::fork::ForkLink;
 use crate::actor::internal_storage;
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::lifecycle_hooks::Reply;
@@ -124,11 +124,6 @@ pub(crate) struct ActorContextInner {
     // Forced-sync: set once before the actor task starts and taken
     // by its startup.
     start_received_at: Mutex<Option<Instant>>,
-    /// The individual actor fork the start command named. Startup
-    /// consumes it once.
-    // Forced-sync: set once before the actor task starts and taken
-    // by its startup.
-    start_fork: Mutex<Option<StartFork>>,
     /// The individual actor forks behind this actor, oldest first,
     /// loaded at startup. A start that runs a fork hook appends that
     /// fork before the hook runs.
@@ -566,7 +561,6 @@ impl ActorContext {
             sql,
             new_actor_storage: AtomicBool::new(false),
             start_received_at: Mutex::new(None),
-            start_fork: Mutex::new(None),
             fork_chain: RwLock::new(Vec::new()),
             current_state: RwLock::new(Vec::new()),
             persisted: RwLock::new(PersistedActor::default()),
@@ -771,21 +765,6 @@ impl ActorContext {
     /// Records when the runtime received this generation's start.
     pub(crate) fn set_start_received_at(&self, received_at: Instant) {
         *self.0.start_received_at.lock() = Some(received_at);
-    }
-
-    /// Records the individual actor fork this generation's start
-    /// command named.
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
-    pub(crate) fn set_start_fork(&self, fork: Option<StartFork>) {
-        *self.0.start_fork.lock() = fork;
-    }
-
-    /// The fork this generation's start command named, at most once.
-    pub(crate) fn take_start_fork(&self) -> Option<StartFork> {
-        self.0.start_fork.lock().take()
     }
 
     /// The individual actor forks behind this actor, oldest first;

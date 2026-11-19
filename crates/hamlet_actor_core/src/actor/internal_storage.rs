@@ -108,6 +108,9 @@ pub(crate) struct ActorStartupRead {
     /// The encoded fork state in `_actor_meta`, absent for an actor
     /// that was never forked.
     pub fork_state: Option<Vec<u8>>,
+    /// The encoded fork this start applies, present in a copy made
+    /// for a fork until its start records the fork.
+    pub fork_start: Option<Vec<u8>>,
 }
 
 /// Reads an existing actor's startup data in one statement.
@@ -122,6 +125,10 @@ pub(crate) async fn load_actor_startup(
                 BindParam::Text(RUN_WAKE_AT_META_KEY.to_owned()),
                 BindParam::Text(
                     crate::actor::fork::FORK_STATE_META_KEY
+                        .to_owned(),
+                ),
+                BindParam::Text(
+                    crate::actor::fork::FORK_START_META_KEY
                         .to_owned(),
                 ),
             ]),
@@ -144,6 +151,7 @@ pub(crate) async fn load_actor_startup(
     let inspector_token =
         read_optional_text(row, 5, "inspector_token")?;
     let fork_state = read_optional_blob(row, 7, "fork state")?;
+    let fork_start = read_optional_blob(row, 8, "fork start")?;
     let snapshot = match row.get(1) {
         Some(ColumnValue::Null) | None => None,
         Some(_) => {
@@ -179,24 +187,55 @@ pub(crate) async fn load_actor_startup(
         snapshot,
         inspector_token,
         fork_state,
+        fork_start,
     })
 }
 
-/// The statement that stores the actor's fork state in `_actor_meta`.
-/// A start that ran a fork hook writes it in the same batch as the
-/// hook's state, so the hook's edits and the fork's record commit
-/// together.
-pub(crate) fn fork_state_statement(
+/// The statements that record an applied fork: its fork state in
+/// `_actor_meta`, and the fork the start applied removed. A start
+/// that ran a fork hook writes them in the same batch as the hook's
+/// state, so the hook's edits and the fork's record commit together.
+pub(crate) fn fork_record_statements(
     encoded: Vec<u8>,
-) -> SqliteBatchStatement {
+) -> [SqliteBatchStatement; 2] {
+    [
+        SqliteBatchStatement {
+            sql: UPSERT_META_TEXT_SQL.to_owned(),
+            params: Some(vec![
+                BindParam::Text(
+                    crate::actor::fork::FORK_STATE_META_KEY
+                        .to_owned(),
+                ),
+                BindParam::Blob(encoded),
+            ]),
+        },
+        delete_meta_statement(
+            crate::actor::fork::FORK_START_META_KEY,
+        ),
+    ]
+}
+
+/// The statements that remove the timers and the run wake a fork's
+/// copy holds from its source.
+pub(crate) fn fork_copy_reset_statements() -> [SqliteBatchStatement; 3]
+{
+    [
+        SqliteBatchStatement {
+            sql: RESET_SCHEDULES_SQL.to_owned(),
+            params: None,
+        },
+        SqliteBatchStatement {
+            sql: RESET_SET_ASIDE_SQL.to_owned(),
+            params: None,
+        },
+        delete_meta_statement(RUN_WAKE_AT_META_KEY),
+    ]
+}
+
+fn delete_meta_statement(key: &str) -> SqliteBatchStatement {
     SqliteBatchStatement {
-        sql: UPSERT_META_TEXT_SQL.to_owned(),
-        params: Some(vec![
-            BindParam::Text(
-                crate::actor::fork::FORK_STATE_META_KEY.to_owned(),
-            ),
-            BindParam::Blob(encoded),
-        ]),
+        sql: DELETE_META_SQL.to_owned(),
+        params: Some(vec![BindParam::Text(key.to_owned())]),
     }
 }
 
@@ -265,7 +304,7 @@ pub(crate) async fn import_legacy_actor_snapshot(
             )]),
         },
         SqliteBatchStatement {
-            sql: RESET_SCHEDULES_FOR_LEGACY_IMPORT_SQL.to_owned(),
+            sql: RESET_SCHEDULES_SQL.to_owned(),
             params: None,
         },
     ];
