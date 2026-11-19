@@ -414,8 +414,8 @@ fn answer(name: &str, rest: &str) -> Act {
 fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     let (mayor, from) = match words.first() {
         Some(&BLANK) => (None, 1),
-        Some(scholar) if scholar.starts_with("scholar#") => {
-            (Some(profile(scholar)?), 1)
+        Some(first) if first.starts_with("scholar#") => {
+            (Some(profile(first)?), 1)
         }
         _ => (None, 0),
     };
@@ -448,12 +448,12 @@ fn hire(
     words: &[&str],
     here: Option<HamletId>,
 ) -> Result<Act, Refusal> {
-    let Some(scholar) = words.first() else {
+    let Some(first) = words.first() else {
         return Err(usage(name));
     };
-    let profile = match *scholar {
+    let profile = match *first {
         BLANK => None,
-        scholar => Some(profile(scholar)?),
+        given => Some(profile(given)?),
     };
     let mut rest = &words[1..];
     let mut hamlet = here;
@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_scholar_is_named()
+    fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_profile_is_named()
      {
         assert_eq!(
             parse("/create-hamlet Docs", None),
@@ -696,6 +696,66 @@ mod tests {
             parse("/hire scholar#2", None).unwrap_err().to_string(),
             words::NO_HAMLET
         );
+    }
+
+    #[test]
+    fn every_command_served_is_parsed_into_its_act() {
+        for name in [
+            "hand",
+            "hamlet",
+            "agent",
+            "new",
+            "resume",
+            "retry",
+            "stop",
+            "to",
+            "reflect",
+            "worker",
+            "queue",
+            "allow",
+            "always",
+            "deny",
+            "go",
+            "withdraw",
+            "reply",
+            "dismiss",
+            "grants",
+            "revoke",
+            "hamlets",
+            "create-hamlet",
+            "name-hamlet",
+            "move-hamlet",
+            "tier",
+            "mayor",
+            "hire",
+            "end",
+            "model",
+            "effort",
+            "fast",
+            "nickname",
+            "tools",
+            "allowance",
+            "road",
+            "unroad",
+            "folder",
+            "mode",
+            "budget",
+            "reset-budget",
+        ] {
+            let parsed = parse(&format!("/{name}"), Some(&docs()));
+            assert_ne!(
+                parsed,
+                Ok(Act::Unsupported(format!("`/{name}`"))),
+                "/{name}"
+            );
+            if let Err(refusal) = parsed {
+                assert_ne!(
+                    refusal.to_string(),
+                    words::no_command(name),
+                    "/{name}"
+                );
+            }
+        }
     }
 
     #[test]

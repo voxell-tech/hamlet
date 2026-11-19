@@ -511,6 +511,22 @@ async fn stop(
     Ok(calls.call(&Agent(agent), &Stop(stop)).await?.turns)
 }
 
+/// Of the open waits, each a number and the agent that asked it, the
+/// oldest `speaker` asked, else the oldest of all.
+fn oldest_wait(
+    open: impl IntoIterator<Item = (u64, AgentNumber)> + Clone,
+    speaker: AgentNumber,
+) -> Option<u64> {
+    let oldest = |of: Option<AgentNumber>| {
+        open.clone()
+            .into_iter()
+            .filter(|(_, agent)| of.is_none_or(|of| *agent == of))
+            .map(|(wait, _)| wait)
+            .min()
+    };
+    oldest(Some(speaker)).or_else(|| oldest(None))
+}
+
 /// Answers a wait with `choice`: the one `wait` names, else the
 /// oldest of the agent spoken to, else the oldest of all.
 async fn answer_wait(
@@ -523,20 +539,13 @@ async fn answer_wait(
     text: Option<String>,
 ) -> Result<Result<String, Refusal>> {
     let waits = &view.world.waits;
-    let oldest = |of: Option<AgentNumber>| {
-        waits
-            .iter()
-            .filter(|seen| of.is_none_or(|agent| seen.agent == agent))
-            .min_by_key(|seen| seen.wait.0)
-    };
+    let open = waits.iter().map(|seen| (seen.wait.0, seen.agent));
     let picked = match wait {
         Some(named) => named,
-        None => {
-            match oldest(Some(speaker)).or_else(|| oldest(None)) {
-                Some(seen) => seen.wait.0.to_string(),
-                None => return Ok(Ok(words::NOTHING_WAITS.into())),
-            }
-        }
+        None => match oldest_wait(open, speaker) {
+            Some(oldest) => oldest.to_string(),
+            None => return Ok(Ok(words::NOTHING_WAITS.into())),
+        },
     };
     let line = waits
         .iter()
@@ -609,5 +618,15 @@ mod tests {
         let id = RequestId::new();
         assert_eq!(line_id(&id), line_id(&id));
         assert_ne!(line_id(&id), id);
+    }
+
+    #[test]
+    fn the_speakers_oldest_wait_comes_before_an_older_one_of_another()
+    {
+        let (one, two) = (AgentNumber(1), AgentNumber(2));
+        let open = [(5, two), (3, one), (7, two)];
+        assert_eq!(oldest_wait(open, two), Some(5));
+        assert_eq!(oldest_wait(open, AgentNumber(9)), Some(3));
+        assert_eq!(oldest_wait([], one), None);
     }
 }
