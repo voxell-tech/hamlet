@@ -103,23 +103,21 @@ impl Held {
                 "tag"
             }
             Self::Revert(Asking { act, .. }) => {
-                arg(
-                    "commit",
-                    Some(match &act.what {
-                        Revision::Version { version } => {
-                            version.0.clone()
-                        }
-                        Revision::Commit { commit } => {
-                            commit.0.to_string()
-                        }
-                    }),
-                );
+                arg("commit", Some(revision(&act.what)));
                 arg("reason", act.reason.clone());
                 arg("scholar", Some(profiles::address(act.profile)));
                 "revert"
             }
         };
         format!("{tool} {}", Value::Object(args))
+    }
+}
+
+/// `what` as a model names a commit to `revert`.
+fn revision(what: &Revision) -> String {
+    match what {
+        Revision::Version { version } => version.0.clone(),
+        Revision::Commit { commit } => commit.0.to_string(),
     }
 }
 
