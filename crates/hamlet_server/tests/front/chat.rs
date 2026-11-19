@@ -1,53 +1,20 @@
-//! `hamlet_server --actors` served to a client: the realm and the
-//! agents run as actors, the agent in a Node child, behind today's
-//! client protocol. Every server here starts that Node host, so the
-//! target needs Node and the `node-host` feature.
-//!
-//! Each wait waits for the thing itself. Their backstops are the
-//! fixtures': 30 s for a server to publish its address, 20 s for an
-//! answer or a chat's item, and 10 s for a server to stop. Each step
-//! takes well under a second here.
-
-#![cfg(unix)]
+//! A chief's chat through the door: lines, their replies and the
+//! frames of the chat a client follows.
 
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
     ClientMessage, Open, RequestId, Say, ServerMessage,
 };
-use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
-/// The `hamlet_server` these tests are built with.
-const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
+use super::serve;
 
 /// What the faux model answers the first line it is given.
 const REPLY: &str = "The door carried this reply.";
 
-/// A server started with `--actors` on a new realm, its model
-/// answering the first line with [`REPLY`], and the folders it uses.
-async fn serve() -> (Server, Scratch, Scratch) {
-    let home = Scratch::new("front-home");
-    let side = Scratch::new("front-side");
-    let script = side.join("faux.json");
-    std::fs::write(
-        &script,
-        json!({ "responses": [REPLY] }).to_string(),
-    )
-    .unwrap();
-    let server = Server::start(
-        &[SERVER.to_owned(), "--actors".to_owned()],
-        &home,
-        Models::Faux(&script),
-        &[],
-    )
-    .await
-    .unwrap_or_else(|failure| panic!("{failure}"));
-    (server, home, side)
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_following_an_agents_chat_gets_its_reply() {
-    let (mut server, _home, _side) = serve().await;
+    let (mut server, _home, _side) = serve(json!([REPLY])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
     let chat = chat(hand);
@@ -83,7 +50,7 @@ async fn a_client_following_an_agents_chat_gets_its_reply() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_that_breaks_the_schema_is_refused_alone() {
-    let (mut server, _home, _side) = serve().await;
+    let (mut server, _home, _side) = serve(json!([REPLY])).await;
     let mut chief = Client::join(&server).await;
     let broken = RequestId::new();
     chief

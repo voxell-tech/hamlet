@@ -4,6 +4,8 @@
 //! messages become calls of the realm and the agents, and an agent's
 //! chat events become the frames of the clients that watch it.
 
+mod call;
+mod commands;
 mod frames;
 mod host;
 mod view;
@@ -30,6 +32,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::{AbortHandle, JoinSet};
 use tracing_subscriber::EnvFilter;
 
+use self::call::Calls;
 use crate::claim::Claim;
 use crate::clients::check::{Protocol, fault, reply};
 use crate::clients::connection::{self, Client, Event, GRACE};
@@ -122,9 +125,10 @@ fn log_host() {
 /// The connections and what each watches.
 struct Door {
     host: Host,
+    calls: Calls,
     protocol: Protocol,
     credentials: Arc<Credentials>,
-    own: view::Own,
+    own: Arc<view::Own>,
     clients: BTreeMap<u64, Client>,
     next: u64,
     watches: Vec<Watch>,
@@ -144,6 +148,21 @@ struct Watch {
     task: AbortHandle,
 }
 
+/// A chief's command or edit, answered by `commands`.
+enum Asked {
+    Command(protocol::Say),
+    Edit(protocol::RequestId, protocol::Edit),
+}
+
+impl Asked {
+    fn id(&self) -> &protocol::RequestId {
+        match self {
+            Self::Command(say) => &say.id,
+            Self::Edit(id, _) => id,
+        }
+    }
+}
+
 impl Door {
     /// Serves the connections `listener` accepts until a signal
     /// comes, then closes them.
@@ -158,10 +177,11 @@ impl Door {
         let (frames, mut frame) = mpsc::unbounded_channel();
         let (shutdown, closing) = watch::channel(false);
         let mut door = Self {
+            calls: Calls::new(host.clone()),
             host,
             protocol: Protocol::new()?,
             credentials,
-            own,
+            own: Arc::new(own),
             clients: BTreeMap::new(),
             next: 0,
             watches: Vec::new(),
@@ -286,12 +306,8 @@ impl Door {
                     return connection::refuse(found, &words, 4002);
                 }
                 found.welcomed = true;
-                let state = view::state(&self.own);
-                connection::send(
-                    found,
-                    &self.credentials,
-                    ServerMessage::State(state),
-                )
+                self.show(client);
+                Ok(())
             }
             _ if !welcomed => connection::refuse(
                 found,
@@ -307,6 +323,7 @@ impl Door {
         client: u64,
         message: ClientMessage,
     ) -> Result<()> {
+        let id = message.id().cloned();
         match message {
             ClientMessage::Hello(_) => self.send(
                 client,
@@ -322,25 +339,24 @@ impl Door {
                 });
                 Ok(())
             }
-            ClientMessage::Say(say)
-                if !say.text.trim().starts_with('/') =>
-            {
-                self.say(client, say);
+            ClientMessage::Say(say) => {
+                if say.text.trim().starts_with('/') {
+                    self.command(client, Asked::Command(say));
+                } else {
+                    self.say(client, say);
+                }
+                Ok(())
+            }
+            ClientMessage::Edit(edit) => {
+                let id = id.context("an edit has an id")?;
+                self.command(client, Asked::Edit(id, edit));
                 Ok(())
             }
             message => {
-                let what = match &message {
-                    ClientMessage::Say(say) => say
-                        .text
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned(),
-                    _ => serde_json::to_value(&message)?["type"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned(),
-                };
+                let what = serde_json::to_value(&message)?["type"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
                 let refusal = Refusal::Unsupported {
                     what: format!("`{what}`"),
                 };
@@ -403,6 +419,47 @@ impl Door {
                     reply(&id, Err(Refusal::Usage { words }))
                 }
                 Err(error) => failed(Some(&id), &error),
+            };
+            let _ = frames.send((client, message));
+        });
+    }
+
+    /// Sends `client` the realm as it is now.
+    fn show(&mut self, client: u64) {
+        let calls = self.calls.clone();
+        let own = self.own.clone();
+        let frames = self.frames.clone();
+        self.work.spawn(async move {
+            let message = match view::read(&calls, &own).await {
+                Ok(view) => ServerMessage::State(view::state(&view)),
+                Err(error) => failed(None, &error),
+            };
+            let _ = frames.send((client, message));
+        });
+    }
+
+    /// Runs a chief's command or edit with the realm as it is now,
+    /// and sends its reply.
+    fn command(&mut self, client: u64, asked: Asked) {
+        let calls = self.calls.clone();
+        let own = self.own.clone();
+        let frames = self.frames.clone();
+        self.work.spawn(async move {
+            let ran = async {
+                let view = view::read(&calls, &own).await?;
+                match &asked {
+                    Asked::Command(say) => {
+                        commands::run(&calls, &view, say).await
+                    }
+                    Asked::Edit(_, edit) => {
+                        commands::edit(&calls, &view, edit).await
+                    }
+                }
+            };
+            let id = asked.id();
+            let message = match ran.await {
+                Ok(outcome) => reply(id, outcome.reply),
+                Err(error) => failed(Some(id), &error),
             };
             let _ = frames.send((client, message));
         });

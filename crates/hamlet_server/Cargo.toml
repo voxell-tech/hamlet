@@ -79,4 +79,5 @@ required-features = ["harness"]
 
 [[test]]
 name = "front"
+path = "tests/front/main.rs"
 required-features = ["node-host"]

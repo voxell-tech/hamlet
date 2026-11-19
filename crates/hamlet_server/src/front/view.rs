@@ -1,11 +1,18 @@
 //! The realm a client is shown.
 
+use std::sync::Arc;
+
+use anyhow::Result;
+use hamlet_messages::address::Realm;
+use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::world::Seen;
 use hamlet_protocol::client::{
     self as protocol, AgentId, Confinement, LimitsBudget, Link,
     LinkState, Newcomers, Period, RealmLimits, SettingsView,
     SettingsViewWorkspace,
 };
 
+use super::call::Calls;
 use super::host::HAND;
 
 /// What the server knows of itself, shown in every `State`.
@@ -18,9 +25,31 @@ pub(crate) struct Own {
     pub(crate) epoch: i64,
 }
 
+/// The realm as the door last read it, with the server's own fields.
+pub(crate) struct View {
+    pub(crate) own: Arc<Own>,
+    #[expect(
+        dead_code,
+        reason = "the commands and the state read it"
+    )]
+    pub(crate) world: Seen,
+}
+
+/// Reads the realm's world now.
+pub(crate) async fn read(
+    calls: &Calls,
+    own: &Arc<Own>,
+) -> Result<View> {
+    Ok(View {
+        own: own.clone(),
+        world: calls.call(&Realm, &ReadWorld).await?,
+    })
+}
+
 /// The realm as a client is shown it: the server's own fields and
 /// the Hand, with no agent, hamlet or setting read from the actors.
-pub(crate) fn state(own: &Own) -> protocol::State {
+pub(crate) fn state(view: &View) -> protocol::State {
+    let own = &view.own;
     protocol::State {
         agents: Vec::new(),
         chief: own.chief.clone(),
