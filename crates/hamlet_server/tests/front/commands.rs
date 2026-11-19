@@ -275,6 +275,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
         "Here.",
         "Here.",
         "Here.",
+        "Here.",
     ]))
     .await;
     let mut chief = Client::join(&server).await;
@@ -292,7 +293,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
     found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
 
-    for hire in ["blank", "scholar#2@v1"] {
+    for hire in ["blank", "scholar#2", "scholar#2@v1"] {
         let hired = chief
             .command(hand, &format!("/hire {hire} in {docs}"))
             .await;
