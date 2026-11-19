@@ -1,72 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type {
-    FilesAnswer,
-    FilesPart,
-    Save,
-    Skill,
-} from "../src/agent/messages.ts";
+import type { FilesAnswer, Skill } from "../src/agent/messages.ts";
 import {
     fakeCalls,
     fakeFiles,
     from,
     modelFailed,
     named,
-    type Sent,
     toolCall,
     until,
-    type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import {
+    A,
+    B,
+    bytes,
+    filled,
+    part,
+    profileAnswering,
+    readPrompt,
+    saves,
+    say,
+} from "./branch-testing.ts";
 import { fixture } from "./testing.ts";
-
-const A = "ab".repeat(20);
-const B = "cd".repeat(20);
-
-function bytes(text: string): string {
-    return Buffer.from(text).toString("base64");
-}
-
-function part(given: Partial<FilesPart> & Pick<FilesPart, "tip">): FilesPart {
-    return { type: "part", files: [], removed: [], ...given };
-}
-
-/** A profile that answers each `Files` with the next of `answers`. */
-function profileAnswering(...answers: FilesAnswer[]) {
-    return {
-        files: () => {
-            const next = answers.shift();
-            assert.ok(next, "the profile was asked for more files");
-            return next;
-        },
-        save: (): { type: "saved"; tip: string } => ({ type: "saved", tip: B }),
-    };
-}
-
-async function filled(agent: Woken): Promise<string | null | undefined> {
-    return (
-        await agent.c.db.get<{ filled: string | null }>(
-            "SELECT filled FROM agent",
-        )
-    )?.filled;
-}
-
-async function say(agent: Woken, text: string): Promise<void> {
-    await agent.actions.submit(agent.by(from.realm), {
-        id: `line-${text}`,
-        input: { type: "line", text },
-    });
-    await agent.idle();
-}
-
-async function readPrompt(agent: Woken): Promise<string> {
-    return (await agent.actions.read_prompt(agent.by(from.client))).text;
-}
-
-function saves(sent: readonly Sent[]): Save[] {
-    return named(sent, "save").map((call) => call.message as Save);
-}
 
 test("a fill writes every file at the profile's tip, from every part, keeps its character, and holds the tip; the same fill again sends nothing", async (t) => {
     const { calls, sent } = fakeCalls({

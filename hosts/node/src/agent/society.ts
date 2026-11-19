@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { inParts } from "./branch.ts";
 import { hasWordsOrCall } from "./compaction.ts";
+import { LOOKED } from "./filesystem.ts";
 import {
     type Named,
     type OfferAnswer,
@@ -168,10 +169,18 @@ async function offered(
     { peers, api }: Calling,
     skill: string,
     reason: string,
-): Promise<OfferAnswer | undefined> {
+): Promise<OfferAnswer | { invalid: string }> {
     const folder = `skills/${skill}`;
     const walked = await peers.files.walk(folder, BACKGROUND_CONTEXT);
-    if (!walked.ok || walked.value.files.length === 0) return undefined;
+    // As `skill_files` (`crates/hamlet_server/src/calls/society/library.rs:252-257`).
+    if (!walked.ok || walked.value.files.length === 0) {
+        return { invalid: `no skill is named \`${skill}\`` };
+    }
+    if (walked.value.capped) {
+        return {
+            invalid: `\`${skill}\` holds more files than the agent can list, ${LOOKED}, so it was not offered.`,
+        };
+    }
     const files = [];
     for (const path of walked.value.files.sort()) {
         const read = await peers.files.read(path, BACKGROUND_CONTEXT);
@@ -439,10 +448,7 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 return { invalid: NOT_A_SKILL };
             const reason = present(args.reason);
             const answer = await offered(calling, skill, reason ?? "");
-            // As `skill_files` (`crates/hamlet_server/src/calls/society/library.rs:252-257`).
-            if (answer === undefined) {
-                return { invalid: `no skill is named \`${skill}\`` };
-            }
+            if ("invalid" in answer) return answer;
             if (answer.type === "refused") return { invalid: answer.words };
             if (answer.type === "more") {
                 throw new Error(

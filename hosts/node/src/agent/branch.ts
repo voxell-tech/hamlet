@@ -15,7 +15,7 @@ import type { ConversationId } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
 import { keep } from "./copies.ts";
-import type { AgentFilesystem } from "./filesystem.ts";
+import { type AgentFilesystem, LOOKED } from "./filesystem.ts";
 import {
     type CallId,
     type CommitId,
@@ -239,6 +239,14 @@ export function branchOf(
     const changed = async (): Promise<Change[]> => {
         const walked = await files.walk("", context);
         if (!walked.ok) throw walked.error;
+        if (walked.value.capped) {
+            peers.report(
+                "the filesystem was saved in part",
+                new Error(
+                    `the walk stopped after ${LOOKED} names, so files past them were not saved`,
+                ),
+            );
+        }
         const kept = new Map(
             (
                 await c.db.all<{ path: string; digest: string }>(

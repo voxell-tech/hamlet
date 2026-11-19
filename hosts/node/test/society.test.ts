@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
 import {
+    cappedFiles,
     fakeCalls,
     fakeFiles,
     from,
@@ -1479,6 +1480,34 @@ test("submit_skill offers its folder's files to the library under the tool's cal
         "`skill` is its folder under skills/, in letters, digits, hyphens and underscores.",
         "no skill is named `missing`",
         "a skill named `taken` is on the shelves already",
+    ]);
+    await agent.stop();
+});
+
+test("submit_skill of a folder whose walk stops at its cap is refused, and nothing is offered", async (t) => {
+    const { calls, sent } = fakeCalls({
+        library: { offer: () => ({ type: "kept", offer: 9 }) },
+        realm: { submit_skill: () => ({ type: "done" }) },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: cappedFiles({
+            "skills/fixtures/SKILL.md": "---\nname: fixtures\n---\n",
+        }),
+        responses: [
+            toolCall("submit_skill", { skill: "fixtures" }, "c1"),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Share it."),
+    );
+    await agent.idle();
+
+    assert.deepEqual(named(sent, "offer"), []);
+    assert.deepEqual(await resultTexts(agent), [
+        "`fixtures` holds more files than the agent can list, 20000, so it was not offered.",
     ]);
     await agent.stop();
 });
