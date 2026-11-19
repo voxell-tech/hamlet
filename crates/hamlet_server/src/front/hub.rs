@@ -28,9 +28,8 @@ use tokio::task::AbortHandle;
 
 use super::call::{Calls, failed, refused_words, server_failed};
 use super::route::number;
-use super::{Frames, To, frames};
+use super::{Frames, Keys, To, frames};
 use crate::clients::check::{fault, reply};
-use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets};
 use crate::society::refusal::Refusal;
 
@@ -44,7 +43,7 @@ pub(crate) struct Hub {
 struct Shared {
     calls: Calls,
     frames: Frames,
-    credentials: Arc<Credentials>,
+    credentials: Keys,
     followed: Mutex<BTreeMap<AgentNumber, Followed>>,
 }
 
@@ -122,7 +121,7 @@ impl Hub {
     pub(crate) fn new(
         calls: Calls,
         frames: Frames,
-        credentials: Arc<Credentials>,
+        credentials: Keys,
     ) -> Self {
         Self {
             shared: Arc::new(Shared {
@@ -326,7 +325,10 @@ impl Shared {
     }
 
     fn tell(&self, words: String) {
-        diagnostic::tell(Secrets::Of(&self.credentials), words);
+        diagnostic::tell(
+            Secrets::Of(&self.credentials.read()),
+            words,
+        );
     }
 
     /// Answers `owed` with today's empty notice.

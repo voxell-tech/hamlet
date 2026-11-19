@@ -1,46 +1,15 @@
 //! A chief's slash commands through the door.
 
-use std::time::{Duration, Instant};
-
 use hamlet_acceptance::Client;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{
-    AgentId, AttachedImage, ClientMessage, Edit, ReplyKind, State,
+    AgentId, AttachedImage, Choice, ClientMessage, Edit, ReplyKind,
+    RequestId, Say, ServerMessage, State,
 };
 use hamlet_testing::Server;
 use serde_json::json;
 
-use super::serve;
-
-/// How long a test waits for the realm to show a change; each
-/// change takes well under a second here.
-const PATIENCE: Duration = Duration::from_secs(20);
-
-/// The realm as a client that says hello now is shown it.
-async fn look(server: &Server) -> State {
-    let client = Client::join(server).await;
-    let realm = client.realm();
-    client.close().await;
-    realm
-}
-
-/// The realm once a hello shows it as `holds` says, read again until
-/// then.
-async fn until(
-    server: &Server,
-    what: &str,
-    holds: impl Fn(&State) -> bool,
-) -> State {
-    let began = Instant::now();
-    loop {
-        let realm = look(server).await;
-        if holds(&realm) {
-            return realm;
-        }
-        assert!(began.elapsed() < PATIENCE, "waited for {what}");
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
+use super::{look, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
 async fn found(
@@ -194,4 +163,95 @@ async fn the_charter_edit_is_saved() {
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_names_the_wait_it_answered() {
+    let (mut server, _home, _side) = serve(json!([
+        {
+            "calls": [
+                {
+                    "name": "bash",
+                    "arguments": { "command": "curl https://one.example" },
+                },
+                {
+                    "name": "bash",
+                    "arguments": { "command": "curl https://two.example" },
+                },
+            ],
+        },
+        "Both pages are fetched.",
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.tell(hand, "Fetch both pages.").await;
+    let first = oldest(
+        &until(&server, "a wait", |realm| !realm.waits.is_empty())
+            .await,
+    )
+    .unwrap();
+    let answered = chief.choose(&first, Choice::Deny, None).await;
+    let second = oldest(
+        &until(&server, "the next wait", |realm| {
+            realm.waits.iter().all(|wait| wait.id != first)
+                && !realm.waits.is_empty()
+        })
+        .await,
+    )
+    .unwrap();
+    let commanded =
+        chief.command(hand, &format!("/deny #{second}")).await;
+    let mut said = [answered.text, commanded];
+    said.sort();
+    assert_eq!(
+        said,
+        [
+            "Answered /deny: hand wants to run `curl https://one.example`",
+            "Answered /deny: hand wants to run `curl https://two.example`",
+        ]
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// A piped `hamlet chat` sends its lines without waiting for each
+/// reply: they are applied in the order sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_connections_commands_apply_in_order() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    found(&server, &mut chief, "Docs").await;
+    let hamlet = look(&server).await.hamlets[0].id.clone();
+    let mut sent = Vec::new();
+    for n in 0..20 {
+        let line = Say {
+            id: RequestId::new(),
+            to: hand,
+            text: format!("/name-hamlet {hamlet} n{n}"),
+            files: Vec::new(),
+            images: Vec::new(),
+        };
+        sent.push(line.id.clone());
+        chief.send(ClientMessage::Say(line)).await;
+    }
+    for id in &sent {
+        chief.reply(id).await;
+    }
+    let order = chief
+        .messages()
+        .iter()
+        .filter_map(|message| match message {
+            ServerMessage::Reply(reply) => {
+                sent.iter().position(|id| *id == reply.to)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    chief.close().await;
+    let named = look(&server).await.hamlets[0].name.clone();
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    assert_eq!(order, (0..20).collect::<Vec<_>>());
+    assert_eq!(named, "n19");
 }

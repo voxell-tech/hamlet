@@ -36,24 +36,24 @@ pub(crate) enum Route {
     /// it ends.
     Line(protocol::Say, AgentNumber),
     Call(Call),
-    /// A chief's answer to a wait.
-    Answer(protocol::Answer),
-    /// Stops every living agent the chief reaches.
-    StopAll(RequestId),
     SignIn(protocol::Login),
 }
 
-/// A chief's command or edit, answered by `commands`.
+/// A chief's command, edit, answer to a wait or stop of every
+/// agent, answered by `commands`.
 pub(crate) enum Asked {
     Command(protocol::Say),
     Edit(RequestId, protocol::Edit),
+    Answer(protocol::Answer),
+    StopAll(RequestId),
 }
 
 impl Asked {
     pub(crate) fn id(&self) -> &RequestId {
         match self {
             Self::Command(say) => &say.id,
-            Self::Edit(id, _) => id,
+            Self::Edit(id, _) | Self::StopAll(id) => id,
+            Self::Answer(answer) => &answer.id,
         }
     }
 }
@@ -108,9 +108,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
         )),
         ClientMessage::Open(open) => Route::Open(open),
         ClientMessage::Close(close) => Route::Close(close.chat),
-        ClientMessage::Answer(answer) => Route::Answer(answer),
+        ClientMessage::Answer(answer) => {
+            Route::Command(Asked::Answer(answer))
+        }
         ClientMessage::Stop(protocol::Stop { agent: None, id }) => {
-            Route::StopAll(id)
+            Route::Command(Asked::StopAll(id))
         }
         ClientMessage::Stop(stop) => {
             let to = stop.agent.context("checked above")?;
@@ -321,7 +323,10 @@ mod tests {
             id: id.clone(),
         }))
         .unwrap();
-        assert!(matches!(routed, Route::StopAll(to) if to == id));
+        assert!(matches!(
+            routed,
+            Route::Command(Asked::StopAll(to)) if to == id
+        ));
         let routed = route(ClientMessage::Stop(protocol::Stop {
             agent: Some(AgentId(3)),
             id,

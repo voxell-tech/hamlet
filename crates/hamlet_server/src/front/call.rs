@@ -4,18 +4,21 @@
 use std::future::Future;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
 use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host, Subscription};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::client::{ReadWorld, Say, SayAnswer};
 use hamlet_messages::realm::world::{Seen, Status};
-use hamlet_protocol::client::{RequestId, ServerMessage};
+use hamlet_protocol::client::{
+    self as protocol, RequestId, ServerMessage,
+};
 use tokio::time::Instant;
 
+use super::frames;
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -24,7 +27,8 @@ use crate::society::refusal::Refusal;
 /// a sign-in waits for its provider, at most 25 s.
 const WITHIN: Duration = Duration::from_secs(60);
 
-/// The time between tries of a call to an agent being made.
+/// The time between tries of a call to an agent being made, and of
+/// a line the realm did not take.
 const AGAIN: Duration = Duration::from_millis(50);
 
 /// Calls the actors as a client of the program.
@@ -55,6 +59,37 @@ impl Calls {
         ciborium::from_reader(answer.as_slice()).with_context(|| {
             format!("decode the answer to {}", M::NAME)
         })
+    }
+
+    /// Gives the realm the chief's line `say`, sent again with its
+    /// request id until the call's deadline while the realm does not
+    /// take it, as when the agent is cut off. A refusal is its words.
+    pub(crate) async fn say(
+        &self,
+        say: protocol::Say,
+    ) -> Result<Result<SayAnswer, String>> {
+        let realm = address::Realm.address()?;
+        let args = encode_positional(&Say(say))?;
+        let end = Instant::now() + WITHIN;
+        loop {
+            let answer =
+                self.send(&realm, Say::NAME, args.clone()).await?;
+            if let Some(words) = frames::refusal_words(&answer)? {
+                return Ok(Err(words));
+            }
+            let taken: SayAnswer =
+                ciborium::from_reader(answer.as_slice())?;
+            if !matches!(taken, SayAnswer::NotTaken { .. }) {
+                return Ok(Ok(taken));
+            }
+            if Instant::now() >= end {
+                bail!(
+                    "the realm did not take the line within {} s",
+                    WITHIN.as_secs()
+                );
+            }
+            tokio::time::sleep(AGAIN).await;
+        }
     }
 
     /// Calls the action `name` of the actor at `to` with `args`. An

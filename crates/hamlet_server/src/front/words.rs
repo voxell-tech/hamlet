@@ -123,6 +123,16 @@ pub(crate) fn stopped(turns: u32) -> String {
     format!("Stopped {turns} running turns.")
 }
 
+/// The answer to a stop a client asks for, which says when nothing
+/// was running.
+pub(crate) fn stopped_or_nothing(turns: u32) -> String {
+    if turns == 0 {
+        "Nothing was running.".to_owned()
+    } else {
+        stopped(turns)
+    }
+}
+
 pub(crate) fn told(name: &str) -> String {
     format!("Told {name}.")
 }

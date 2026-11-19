@@ -14,6 +14,10 @@ mod chat;
 mod commands;
 mod view;
 
+use std::time::{Duration, Instant};
+
+use hamlet_acceptance::Client;
+use hamlet_protocol::client::State;
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
@@ -50,4 +54,34 @@ async fn serve_with(
     .await
     .unwrap_or_else(|failure| panic!("{failure}"));
     (server, home, side)
+}
+
+/// How long a test waits for the realm to show a change; each
+/// change takes well under a second here.
+const PATIENCE: Duration = Duration::from_secs(20);
+
+/// The realm as a client that says hello now is shown it.
+async fn look(server: &Server) -> State {
+    let client = Client::join(server).await;
+    let realm = client.realm();
+    client.close().await;
+    realm
+}
+
+/// The realm once a hello shows it as `holds` says, read again until
+/// then.
+async fn until(
+    server: &Server,
+    what: &str,
+    holds: impl Fn(&State) -> bool,
+) -> State {
+    let began = Instant::now();
+    loop {
+        let realm = look(server).await;
+        if holds(&realm) {
+            return realm;
+        }
+        assert!(began.elapsed() < PATIENCE, "waited for {what}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }

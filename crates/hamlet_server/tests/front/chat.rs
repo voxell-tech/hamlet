@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    Check, Choice, ClientMessage, ItemKind, Login, LoginMethod,
+    Check, Choice, ClientMessage, Edit, ItemKind, Login, LoginMethod,
     LoginReply, LoginStart, LoginStep, New, Open, Read, ReadResult,
     ReplyKind, RequestId, Resume, Retry, Say, ServerMessage, Stop,
 };
@@ -413,7 +413,7 @@ async fn a_sign_in_answer_from_another_connection_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_line_holding_a_key_given_in_a_sign_in_reaches_no_client() {
+async fn a_key_given_in_a_sign_in_reaches_no_client() {
     let (mut server, _home, _side) = serve_signing_in().await;
     let mut chief = Client::join(&server).await;
     let start = start_sign_in(&mut chief).await;
@@ -422,6 +422,23 @@ async fn a_line_holding_a_key_given_in_a_sign_in_reaches_no_client() {
     chief.open(&chat(hand)).await;
     let said = chief.say(hand, &format!("my key is {KEY}")).await;
     assert_eq!(said.kind, ReplyKind::Notice, "{}", said.text);
+    let saved = chief
+        .request(|id| {
+            ClientMessage::Edit(Edit::Charter {
+                id,
+                text: Some(format!("Our key is {KEY}.")),
+            })
+        })
+        .await;
+    assert_eq!(saved.kind, ReplyKind::Notice, "{}", saved.text);
+    let read = chief.read(|id| Read::Charter { id }).await;
+    assert!(
+        matches!(
+            &read,
+            ServerMessage::Read(ReadResult::Charter { .. })
+        ),
+        "{read:?}"
+    );
     let frames = frames(&chief);
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

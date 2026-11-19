@@ -16,7 +16,7 @@ use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::client::{Answer, Say, SayAnswer};
+use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::documents::{
     CardSetting, EditCatalogue, EditCharter, ImageLimits,
 };
@@ -49,7 +49,7 @@ pub(crate) struct Outcome {
 }
 
 impl Outcome {
-    fn said(reply: Result<String, Refusal>) -> Self {
+    pub(crate) fn said(reply: Result<String, Refusal>) -> Self {
         Self {
             reply,
             reread: None,
@@ -83,7 +83,6 @@ pub(crate) async fn run(
 /// Makes the edit `edit` asks for.
 pub(crate) async fn edit(
     calls: &Calls,
-    _view: &View,
     edit: &protocol::Edit,
 ) -> Result<Outcome> {
     let reply = match edit {
@@ -274,13 +273,7 @@ async fn perform(
             }
         }
         Act::StopAll => {
-            let mut turns = 0;
-            for seen in &view.world.agents {
-                if !matches!(seen.status, Status::Ended { .. }) {
-                    turns += stop(calls, id, seen.agent).await?;
-                }
-            }
-            Ok(words::stopped(turns))
+            Ok(words::stopped(stop_all(calls, view, id).await?))
         }
         Act::To { to: target, text } => match number(view, &target) {
             Ok(agent) => {
@@ -291,10 +284,11 @@ async fn perform(
                     text,
                     to: view::wire(agent),
                 };
-                match calls.call(&Realm, &Say(line)).await? {
-                    SayAnswer::Refused { why } => Err(refused(why)),
-                    _ => Ok(words::told(&view.name(agent))),
-                }
+                calls
+                    .say(line)
+                    .await?
+                    .map(|_| words::told(&view.name(agent)))
+                    .map_err(|words| Refusal::Usage { words })
             }
             Err(refusal) => Err(refusal),
         },
@@ -537,8 +531,11 @@ async fn answer_wait(
     wait: Option<String>,
     text: Option<String>,
 ) -> Result<Result<String, Refusal>> {
-    let waits = &view.world.waits;
-    let open = waits.iter().map(|seen| (seen.wait.0, seen.agent));
+    let open = view
+        .world
+        .waits
+        .iter()
+        .map(|seen| (seen.wait.0, seen.agent));
     let picked = match wait {
         Some(named) => named,
         None => match oldest_wait(open, speaker) {
@@ -546,25 +543,55 @@ async fn answer_wait(
             None => return Ok(Ok(words::NOTHING_WAITS.into())),
         },
     };
-    let line = waits
+    let answer = protocol::Answer {
+        choice,
+        id: id.clone(),
+        picks: None,
+        text,
+        wait: picked,
+    };
+    self::answer(calls, view, answer).await
+}
+
+/// Gives the realm a chief's answer to a wait, worded with the wait
+/// as `view` shows it.
+pub(crate) async fn answer(
+    calls: &Calls,
+    view: &View,
+    answer: protocol::Answer,
+) -> Result<Result<String, Refusal>> {
+    let number = answer.wait.trim_start_matches('#');
+    let line = view
+        .world
+        .waits
         .iter()
-        .find(|seen| seen.wait.0.to_string() == picked)
+        .find(|seen| seen.wait.0.to_string() == number)
         .map(|seen| {
             words::wait_line(
                 &view::wait(view, seen),
                 &view.name(seen.agent),
             )
         });
-    let answer = protocol::Answer {
-        choice: choice.clone(),
-        id: id.clone(),
-        picks: None,
-        text,
-        wait: picked,
-    };
+    let choice = answer.choice.clone();
     Ok(done(calls.call(&Realm, &Answer(answer)).await?, || {
         words::answered(&choice, &line.unwrap_or_default())
     }))
+}
+
+/// Stops each living agent `view` shows, and gives the turns
+/// stopped. An agent still being hired has no turn to stop.
+pub(crate) async fn stop_all(
+    calls: &Calls,
+    view: &View,
+    id: &RequestId,
+) -> Result<u32> {
+    let mut turns = 0;
+    for seen in &view.world.agents {
+        if matches!(seen.status, Status::Live) {
+            turns += stop(calls, id, seen.agent).await?;
+        }
+    }
+    Ok(turns)
 }
 
 /// Sets one part of an agent's model, the other two as the realm

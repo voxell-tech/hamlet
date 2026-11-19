@@ -19,6 +19,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::view::Own;
+use super::words;
 use crate::clients::check::reply;
 use crate::society::refusal::Refusal;
 
@@ -97,22 +98,14 @@ fn notice(id: &RequestId, words: String) -> ServerMessage {
     reply(id, Ok::<_, Refusal>(words))
 }
 
-/// The words of a stop that stopped `turns` running turns.
-pub(crate) fn stopped_words(turns: u32) -> String {
-    if turns == 0 {
-        "Nothing was running.".to_owned()
-    } else {
-        format!("Stopped {turns} running turns.")
-    }
-}
-
+/// The answer to a stop of one agent.
 pub(crate) fn stopped(
     id: &RequestId,
     answer: &[u8],
     _: &Own,
 ) -> Result<ServerMessage> {
     worded(id, answer, |Stopped { turns }| {
-        Ok(notice(id, stopped_words(turns)))
+        Ok(notice(id, words::stopped_or_nothing(turns)))
     })
 }
 
