@@ -214,8 +214,8 @@ fn scratch() -> PathBuf {
 }
 
 /// Claude, ChatGPT and OpenRouter signed in, each with what its
-/// provider told of its limits: a week used faster than it lasts,
-/// nothing, and a key's cap.
+/// provider told of its limits: a week used faster than it lasts, a
+/// plan used slowly, and a key with no cap of its own.
 fn plans(providers: &mut Vec<protocol::ProviderView>) {
     let now = jiff::Timestamp::now().as_millisecond();
     let (hour, minute) = (3_600_000, 60_000);
@@ -283,12 +283,26 @@ fn plans(providers: &mut Vec<protocol::ProviderView>) {
         match provider.id.as_str() {
             "chatgpt" => {
                 provider.configured = true;
-                // OpenAI tells nothing of a ChatGPT plan's use.
                 provider.limits = Some(protocol::ProviderLimits {
                     checked: now - minute,
-                    plan: None,
-                    state: protocol::LimitsState::Unknown,
-                    windows: Vec::new(),
+                    plan: Some("Plus".into()),
+                    state: protocol::LimitsState::Ok,
+                    windows: vec![
+                        window(
+                            "primary",
+                            "Session",
+                            300,
+                            18.0,
+                            3 * hour,
+                        ),
+                        window(
+                            "secondary",
+                            "Weekly",
+                            10_080,
+                            34.0,
+                            61 * hour,
+                        ),
+                    ],
                 });
             }
             "openrouter" => {

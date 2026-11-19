@@ -547,10 +547,7 @@ impl Core<'_, '_> {
         let provider = seen.provider;
         let refused =
             self.providers.limits.seen(&provider, seen.limits);
-        if refused
-            && provider != "chatgpt"
-            && !self.asking_limits(&provider)
-        {
+        if refused && !self.asking_limits(&provider) {
             self.send_provider_request(
                 None,
                 &provider,

@@ -1,4 +1,5 @@
 // The limits a provider keeps on a plan or key: read when the server asks, and seen as turns run.
+import { getPiUserAgent } from "@earendil-works/pi-ai/utils/pi-user-agent";
 import type { Limits, LimitWindow } from "./protocol.ts";
 
 /** Takes what a turn learnt of `provider`'s limits. */
@@ -21,11 +22,167 @@ export function seen(provider: string, limits: Limits): void {
 export const CHATGPT_REFUSAL = "subscription_sharing_usage_limit_exceeded";
 
 /**
- * What a ChatGPT refusal tells: that the plan refused. OpenAI says neither which limit nor when it lifts, and asks
- * apps not to infer either from the code.
+ * What a ChatGPT refusal tells: that the plan refused. The refusal says neither which limit nor when it lifts; the
+ * read of the usage that follows it does.
  */
 export function chatgptRefused(now = Date.now()): Limits {
     return { checked: now, state: "refused", windows: [] };
+}
+
+/** Where ChatGPT tells a plan's use, the address Codex reads it from. */
+export const CHATGPT_USAGE = "https://chatgpt.com/backend-api/wham/usage";
+
+/** A ChatGPT window as its usage answer gives it. */
+type ChatgptWindow = {
+    used_percent?: number | null;
+    limit_window_seconds?: number | null;
+    reset_after_seconds?: number | null;
+    /** Seconds since the epoch. */
+    reset_at?: number | null;
+} | null;
+
+type ChatgptRateLimit = {
+    allowed?: boolean;
+    limit_reached?: boolean;
+    primary_window?: ChatgptWindow;
+    secondary_window?: ChatgptWindow;
+} | null;
+
+/** The part of ChatGPT's usage answer the limits are read from. */
+export type ChatgptUsage = {
+    plan_type?: string | null;
+    rate_limit?: ChatgptRateLimit;
+    additional_rate_limits?:
+        | {
+              limit_name?: string | null;
+              metered_feature?: string | null;
+              rate_limit?: ChatgptRateLimit;
+          }[]
+        | null;
+};
+
+/** A ChatGPT plan's limits from its usage answer. */
+export function chatgptUsage(usage: ChatgptUsage, now = Date.now()): Limits {
+    const plan = planName(usage.plan_type);
+    const windows: LimitWindow[] = [];
+    let reached = false;
+    const add = (prefix: string, under: string, limit?: ChatgptRateLimit) => {
+        if (limit == null) return;
+        reached ||= limit.limit_reached === true || limit.allowed === false;
+        for (const [id, window] of [
+            ["primary", limit.primary_window],
+            ["secondary", limit.secondary_window],
+        ] as const)
+            if (window != null)
+                windows.push(
+                    chatgptWindow(`${prefix}${id}`, under, window, now),
+                );
+    };
+    add("", "", usage.rate_limit);
+    for (const extra of usage.additional_rate_limits ?? []) {
+        const name = extra.limit_name ?? extra.metered_feature;
+        if (name == null || name === "") continue;
+        add(
+            `${extra.metered_feature ?? name}:`,
+            ` · ${name}`,
+            extra.rate_limit,
+        );
+    }
+    return {
+        checked: now,
+        ...(plan === undefined ? {} : { plan }),
+        state:
+            reached || windows.some((w) => (w.used ?? 0) >= 100)
+                ? "refused"
+                : "ok",
+        windows,
+    };
+}
+
+function chatgptWindow(
+    id: string,
+    under: string,
+    window: NonNullable<ChatgptWindow>,
+    now: number,
+): LimitWindow {
+    const seconds = window.limit_window_seconds ?? undefined;
+    const length =
+        seconds === undefined || !(seconds > 0)
+            ? undefined
+            : Math.round(seconds / 60);
+    const resets =
+        window.reset_at != null
+            ? window.reset_at * 1000
+            : window.reset_after_seconds != null
+              ? now + window.reset_after_seconds * 1000
+              : undefined;
+    return {
+        id,
+        name: `${lengthName(length)}${under}`,
+        ...(length === undefined ? {} : { length }),
+        ...(window.used_percent == null
+            ? {}
+            : { used: percent(window.used_percent) }),
+        ...(resets !== undefined && resets > now ? { resets } : {}),
+    };
+}
+
+/** A window's name by its length in minutes, as Claude's are named. */
+function lengthName(length: number | undefined): string {
+    if (length === undefined) return "Limit";
+    if (length <= 300) return "Session";
+    if (length === 1_440) return "Daily";
+    if (length === 10_080) return "Weekly";
+    if (length >= 40_000 && length <= 45_000) return "Monthly";
+    return length % 1_440 === 0
+        ? `${length / 1_440}-day`
+        : `${Math.round(length / 60)}-hour`;
+}
+
+/** A plan's name as a provider tells it, "plus" as "Plus". */
+function planName(plan: string | null | undefined): string | undefined {
+    if (plan == null || plan === "") return undefined;
+    return plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
+/** The ChatGPT account a Sign in with ChatGPT access token is for. */
+function chatgptAccount(token: string): string | undefined {
+    const [, payload] = token.split(".");
+    if (payload === undefined) return undefined;
+    try {
+        const claims = JSON.parse(
+            Buffer.from(payload, "base64url").toString("utf8"),
+        ) as Record<string, { chatgpt_account_id?: unknown } | undefined>;
+        const account =
+            claims["https://api.openai.com/auth"]?.chatgpt_account_id;
+        return typeof account === "string" ? account : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** A ChatGPT plan's limits, read with its access token the way Codex reads them. */
+export async function chatgptLimits(
+    token: string,
+    signal: AbortSignal,
+    now = Date.now(),
+    address = CHATGPT_USAGE,
+): Promise<Limits> {
+    const account = chatgptAccount(token);
+    const response = await fetch(address, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+            ...(account === undefined ? {} : { "chatgpt-account-id": account }),
+            originator: "pi",
+            "User-Agent": getPiUserAgent(),
+        },
+        signal,
+    });
+    if (!response.ok)
+        throw new Error(
+            `HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`,
+        );
+    return chatgptUsage((await response.json()) as ChatgptUsage, now);
 }
 
 /** The limits of a provider that tells nothing of them. */
@@ -66,11 +223,7 @@ export type ClaudeUsage = {
 
 /** The Claude plan's limits from the Agent SDK's usage answer. */
 export function claudeUsage(usage: ClaudeUsage, now = Date.now()): Limits {
-    const plan =
-        usage.subscription_type === null || usage.subscription_type === ""
-            ? undefined
-            : usage.subscription_type.charAt(0).toUpperCase() +
-              usage.subscription_type.slice(1);
+    const plan = planName(usage.subscription_type);
     const limits = usage.rate_limits;
     if (!usage.rate_limits_available || limits === null)
         return { ...unknown(now), ...(plan === undefined ? {} : { plan }) };

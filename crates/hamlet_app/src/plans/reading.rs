@@ -226,18 +226,12 @@ fn sentence(
     let near = nearest.and_then(|i| rows.get(i));
     match mood {
         Mood::Unknown if provider == "chatgpt" => {
-            "OpenAI does not tell how much of a ChatGPT plan is \
-             used. ChatGPT's usage page shows it, and Hamlet's share."
+            "Hamlet could not read how much of this ChatGPT plan is \
+             used. ChatGPT's usage page shows it."
                 .into()
         }
         Mood::Unknown => {
             "This provider does not tell its limits.".into()
-        }
-        Mood::Refused if provider == "chatgpt" => {
-            "OpenAI refused the last reply: the plan, or the share \
-             of it you allow Hamlet, is used up. OpenAI does not say \
-             which, or when it lifts."
-                .into()
         }
         Mood::Refused => match near
             .filter(|row| row.mood == Mood::Refused)
@@ -251,6 +245,12 @@ fn sentence(
                     format!("The {} is used up.", limit(&row.name))
                 }
             },
+            // ChatGPT's refusal names no limit; the read after it
+            // does.
+            None if provider == "chatgpt" => format!(
+                "OpenAI refused at {checked}: the plan, or the \
+                 share of it you allow Hamlet, is used up."
+            ),
             None => format!("It refused at {checked} for a limit."),
         },
         Mood::Short => {

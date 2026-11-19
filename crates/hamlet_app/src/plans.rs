@@ -10,12 +10,10 @@ use std::collections::HashSet;
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::observer::On;
+use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::common_conditions::{
-    resource_changed, resource_exists_and_changed,
-};
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Res, ResMut};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{
@@ -72,16 +70,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             (
-                ask.run_if(
-                    resource_changed::<Connection>
-                        .or_eager(
-                            resource_exists_and_changed::<Showing>,
-                        )
-                        .or_eager(
-                            resource_exists_and_changed::<Pane>,
-                        ),
-                )
-                .in_set(PanelSystems::Follow),
+                ask.in_set(PanelSystems::Follow),
                 (follow, warn).chain().in_set(PanelSystems::Bind),
             ),
         );
@@ -114,15 +103,24 @@ impl Plans {
 #[derive(Resource, Default)]
 struct Asking(Option<RequestId>);
 
-/// Asks the server for the limits when a page that shows them opens:
-/// the Hub's realm page, or Settings' endpoints. The server reads a
-/// provider at most once a minute however often it is asked.
-fn ask(world: &mut World) {
-    let shown = world.get_resource::<Showing>()
-        == Some(&Showing::Realm)
-        || world.get_resource::<Pane>() == Some(&Pane::Endpoints);
-    if shown {
-        check(world);
+/// Asks the server for the limits when a page that shows them opens,
+/// or the connection comes back while one is open: a Hub's realm
+/// page, or Settings' endpoints. The server reads a provider at most
+/// once a minute however often it is asked.
+fn ask(
+    turned: Query<(), Changed<Showing>>,
+    hubs: Query<&Showing>,
+    pane: Option<Res<Pane>>,
+    connection: Res<Connection>,
+    mut commands: Commands,
+) {
+    let moved = connection.is_changed()
+        || !turned.is_empty()
+        || pane.as_ref().is_some_and(DetectChanges::is_changed);
+    let shown = hubs.iter().any(|showing| *showing == Showing::Realm)
+        || pane.is_some_and(|pane| *pane == Pane::Endpoints);
+    if moved && shown {
+        commands.queue(check);
     }
 }
 
@@ -392,7 +390,9 @@ fn detail(plan: &Plan) -> AnyView {
         },
     ));
     let mut foot: Vec<AnyView> = Vec::new();
-    if plan.provider == "chatgpt" {
+    // A ChatGPT plan whose use could not be read is still shown on
+    // ChatGPT's own page.
+    if plan.provider == "chatgpt" && reading.mood == Mood::Unknown {
         foot.push(
             action(Glyph::Into, "Open ChatGPT usage", |_| {
                 hamlet_desktop::open::browse(CHATGPT_USAGE);
@@ -505,26 +505,6 @@ fn line(plan: &Plan) -> AnyView {
             };
             body.push(label(words).tone(Tone::Dim).boxed());
         }
-        // ChatGPT's refusal says all it can in a few words here; its
-        // sentence is in Settings.
-        None if plan.provider == "chatgpt"
-            && reading.mood == Mood::Refused =>
-        {
-            body.push(
-                label(format!(
-                    "Refused at {}. OpenAI does not say until when.",
-                    reading.when.trim_start_matches("refused at ")
-                ))
-                .tone(tone)
-                .boxed(),
-            );
-        }
-        None if plan.provider == "chatgpt" => {
-            body.push(
-                note("OpenAI does not share how much is used.")
-                    .boxed(),
-            );
-        }
         None => {
             body.push(
                 label(reading.sentence.clone()).tone(tone).boxed(),
@@ -603,7 +583,7 @@ pub(crate) fn part() -> AnyView {
 }
 
 /// The plans worth a glance: those with a window to show or a
-/// refusal to tell, and ChatGPT, whose use is told nowhere else.
+/// refusal to tell.
 fn glanced(plans: &Plans) -> Vec<Plan> {
     plans
         .0
@@ -611,7 +591,6 @@ fn glanced(plans: &Plans) -> Vec<Plan> {
         .filter(|p| {
             !p.reading.rows.is_empty()
                 || p.reading.mood == Mood::Refused
-                || p.provider == "chatgpt"
         })
         .cloned()
         .collect()
@@ -635,10 +614,6 @@ pub(crate) fn refusal(
         return None;
     }
     Some(match provider {
-        "chatgpt" => "OpenAI refused this: your ChatGPT plan, or \
-                      the share of it you allow Hamlet, is used up. \
-                      OpenAI does not say which, or when it lifts."
-            .into(),
         _ if plan.reading.mood == Mood::Refused => {
             format!(
                 "{} refused this. {}",
@@ -662,9 +637,8 @@ mod tests {
     /// `claude` signed in.
     fn realm_page() -> App {
         let mut app = panel_app();
-        app.init_resource::<Toasts>()
-            .insert_resource(Showing::Realm)
-            .add_plugins(plugin);
+        app.init_resource::<Toasts>().add_plugins(plugin);
+        app.world_mut().spawn(Showing::Realm);
         app.world_mut().resource_mut::<Connection>().state =
             Contact::Connected;
         app.world_mut().resource_mut::<Providers>().0 =

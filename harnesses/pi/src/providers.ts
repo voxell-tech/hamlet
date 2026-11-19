@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-ai/models";
 import { programOf, signOut } from "./claude.ts";
 import { fauxLimits } from "./faux.ts";
-import { openrouterLimits, unknown } from "./limits.ts";
+import { chatgptLimits, openrouterLimits, unknown } from "./limits.ts";
 import { compatibleModel } from "./models.ts";
 import type { ProviderRequest, ProviderResult } from "./protocol.ts";
 import {
@@ -168,6 +168,11 @@ async function limitsOf(
     const claude = programOf(provider);
     if (claude !== undefined)
         return (await import("./claude-query.ts")).limits(claude, signal);
+    if (provider.id === "chatgpt") {
+        const token = (await models.getAuth(provider.id))?.auth.apiKey;
+        if (token === undefined) return unknown();
+        return chatgptLimits(token, signal);
+    }
     if (provider.id === "openrouter") {
         const [model] = provider.getModels();
         const auth = await models.getAuth(provider.id);

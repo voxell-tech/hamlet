@@ -636,8 +636,8 @@ fn failure(
 }
 
 /// Where to see the limits of the plan that refused a reply in
-/// `session`: ChatGPT's usage page for ChatGPT, else the plan's
-/// limits in Settings. Nothing when it was not a plan's limit.
+/// `session`: the plan's limits in Settings. Nothing when it was not
+/// a plan's limit.
 fn plan_action(session: Entity) -> AnyView {
     keyed(
         derived(move |world| {
@@ -654,15 +654,6 @@ fn plan_action(session: Entity) -> AnyView {
         })
         .when(crate::roll::moved::<crate::plans::Plans>()),
         |provider| match provider.as_deref() {
-            Some("chatgpt") => hamlet_ui::styles::action(
-                Glyph::Into,
-                "Open ChatGPT usage",
-                |_| {
-                    hamlet_desktop::open::browse(
-                        crate::plans::CHATGPT_USAGE,
-                    );
-                },
-            ),
             Some(_) => hamlet_ui::styles::action(
                 Glyph::Meter,
                 "Open limits",
