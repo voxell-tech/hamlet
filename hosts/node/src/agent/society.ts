@@ -58,7 +58,11 @@ interface Definition<N extends SocietyTool> {
         args: never,
         calling: Calling,
     ) => ActOf<N> | Invalid | Promise<ActOf<N> | Invalid>;
-    readonly said: (
+    /**
+     * Absent for an act the realm keeps for a chief: its answer is always
+     * a refusal, and what the chief rules arrives later as a notice.
+     */
+    readonly said?: (
         answer: Granted<SocietyActs[N]["answer"]>,
         args: never,
     ) => string;
@@ -352,8 +356,6 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(message === undefined ? {} : { message }),
             };
         },
-        said: (_answer, args: { scholar: string; path: string }) =>
-            `Wrote ${args.path.trim()} of ${args.scholar.trim()}.`,
     },
     tag: {
         name: "tag",
@@ -377,8 +379,6 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(note === undefined ? {} : { note }),
             };
         },
-        said: (answer, args: { scholar: string }) =>
-            `Tagged ${args.scholar.trim()}'s main as ${answer.version}.`,
     },
     revert: {
         name: "revert",
@@ -401,13 +401,6 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 what: revisionOf(present(args.commit) ?? "main"),
                 ...(why === undefined ? {} : { reason: why }),
             };
-        },
-        // As `revert_scholar` (`crates/hamlet_server/src/calls/society/scholars.rs:244-252`).
-        said: (answer, args: { scholar: string }) => {
-            const name = args.scholar.trim();
-            return answer.type === "reverted" && answer.clashes.length > 0
-                ? `Reverted the commit on ${name}'s main; these files changed again since and kept their later lines: ${answer.clashes.map(({ path }) => path).join(", ")}`
-                : `Reverted the commit on ${name}'s main.`;
         },
     },
     ask_librarian: {
@@ -635,8 +628,16 @@ function societyTool<N extends SocietyTool>(
                 // A name that stands for any act loses the row's pairing, so
                 // these casts restate what `TOOLS` already checked.
                 made as never,
-                (answer) =>
-                    words(definition.said(answer as never, args as never)),
+                (answer) => {
+                    if (definition.said === undefined) {
+                        throw new Error(
+                            `the realm granted ${definition.name}, which it keeps for a chief`,
+                        );
+                    }
+                    return words(
+                        definition.said(answer as never, args as never),
+                    );
+                },
                 definition.name,
             );
         },
