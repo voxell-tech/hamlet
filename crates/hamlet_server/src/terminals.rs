@@ -123,13 +123,17 @@ impl Feed {
             return Vec::new();
         }
         let mut screen = lock(&self.screen);
-        let answers = screen.take(bytes);
+        let bytes = screen.nested(bytes);
+        if bytes.is_empty() {
+            return Vec::new();
+        }
+        let answers = screen.take(&bytes);
         // Queued under the lock, so a watch taken under it sees each
         // output either in its redraw or after it, never both.
         self.report(Printed::Output {
             id: self.id.clone(),
             seq: screen.seq,
-            bytes: bytes.to_vec(),
+            bytes,
         });
         answers
     }
