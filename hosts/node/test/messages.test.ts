@@ -30,6 +30,8 @@ import {
     type Done,
     type Kept,
     type OauthLogin,
+    type Part,
+    type PlaceText,
     REALM,
     type SecretList,
     type TaskOpened,
@@ -44,7 +46,9 @@ import {
     named,
     priced,
     type Sent,
+    type ToolResult,
     toolCall,
+    toolResults,
     until,
     type Woken,
     wakeAgent,
@@ -70,6 +74,13 @@ type Answers = Parameters<typeof fakeCalls>[0];
 
 const HAND = fixture("agent/hand.input") as AgentInput;
 
+/** A hire with no project, so its prompt reads no file of the workspace. */
+const HIRE: AgentInput = (() => {
+    const hire = fixture("agent/hire.input") as AgentInput;
+    const { folder: _, ...place } = hire.place;
+    return { ...hire, place, copies: {} };
+})();
+
 const LAST_WORDS = "Two of them";
 
 /** What a field read from the wrong place looks like in the words the model is given. */
@@ -91,11 +102,12 @@ async function turn(
         models?: (models: Models) => Models;
         offered?: string;
         files?: Readonly<Record<string, string>>;
+        agent?: AgentInput;
     },
 ): Promise<Woken> {
     const agent = await wakeAgent(t, {
         calls,
-        input: HAND,
+        input: given.agent ?? HAND,
         ...(given.files === undefined
             ? {}
             : { files: fakeFiles({ ...given.files }) }),
@@ -130,6 +142,8 @@ interface Written {
     readonly files?: Readonly<Record<string, string>>;
     readonly offered?: string;
     readonly models?: (models: Models) => Models;
+    /** The agent woken; the Hand when left out. */
+    readonly agent?: AgentInput;
     /**
      * Fields of the first argument the agent makes itself, which the test
      * cannot steer. Each is checked for the agent's form and then taken from
@@ -495,8 +509,9 @@ const WRITTEN: readonly Written[] = [
     // Sent before each model request; a turn whose input names no task asks for the standing one.
     { fixture: "realm/may_spend" },
     {
-        fixture: "realm/charge",
-        models: (models) => priced(models, 0.00125),
+        fixture: "realm/charge.tokens",
+        models: (models) =>
+            priced(models, 0.0025, { input: 1200, output: 280 }),
         own: ["call", "took_ms"],
     },
     {
@@ -524,6 +539,34 @@ const WRITTEN: readonly Written[] = [
         own: ["call", "conversation"],
     },
     {
+        fixture: "realm/tell.paths",
+        task: "task-1",
+        tool: [
+            "tell",
+            {
+                to: "mayor",
+                text: "The report",
+                paths: ["/work/report.md", "/work/figures"],
+            },
+        ],
+        answers: { realm: { tell: () => answer("realm/tell.sent") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/ask.paths",
+        task: "task-1",
+        tool: [
+            "ask",
+            {
+                to: "hire#12",
+                question: "Is this plan right?",
+                paths: ["/work/plan.md"],
+            },
+        ],
+        answers: { realm: { ask: () => answer("realm/ask.waiting") } },
+        own: ["call", "conversation", "act.conversation"],
+    },
+    {
         fixture: "realm/ask",
         task: "task-1",
         tool: ["ask", { to: "hire#12", question: "Which tests fail?" }],
@@ -532,6 +575,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/request_road",
+        agent: HIRE,
         task: "task-1",
         tool: [
             "request_road",
@@ -544,6 +588,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/request_road.no_why",
+        agent: HIRE,
         tool: ["request_road", { to: "mayor" }],
         answers: {
             realm: { request_road: () => answer("realm/request_road.done") },
@@ -842,6 +887,229 @@ const WRITTEN: readonly Written[] = [
         },
         own: ["call", "conversation"],
     },
+    {
+        fixture: "realm/seat.why",
+        tool: [
+            "seat_mayor",
+            { hire: "hire#12", reason: "To keep the tests apart" },
+        ],
+        answers: { realm: { seat: () => answer("realm/seat.done") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/lay_road.why",
+        tool: [
+            "lay_road",
+            { a: "hire#12", b: "hire#13", reason: "To keep the tests apart" },
+        ],
+        answers: { realm: { lay_road: () => answer("realm/lay_road.done") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/take_up_road.why",
+        tool: [
+            "take_up_road",
+            { a: "hire#12", b: "mayor", reason: "To keep the tests apart" },
+        ],
+        answers: {
+            realm: { take_up_road: () => answer("realm/take_up_road.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/set_tools.why",
+        tool: [
+            "set_tools",
+            {
+                hire: "hire#12",
+                on: ["tell"],
+                reason: "To keep the tests apart",
+            },
+        ],
+        answers: {
+            realm: { set_tools: () => answer("realm/set_tools.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/ask_chief",
+        tool: [
+            "ask_chief",
+            {
+                message: "Before planting",
+                questions: [
+                    {
+                        question: "Which seed?",
+                        description: "The field is wet",
+                        options: [
+                            "Oats",
+                            { title: "Barley", description: "Slower" },
+                        ],
+                        text_input: false,
+                    },
+                    { question: "When?" },
+                ],
+            },
+        ],
+        answers: { realm: { ask_chief: () => answer("realm/ask_chief.done") } },
+        own: ["call", "conversation", "act.conversation"],
+    },
+    {
+        fixture: "realm/ask_chief.no_message",
+        tool: ["ask_chief", { questions: [{ question: "Go on?" }] }],
+        answers: { realm: { ask_chief: () => answer("realm/ask_chief.done") } },
+        own: ["call", "conversation", "act.conversation"],
+    },
+    {
+        fixture: "realm/object",
+        tool: ["object", { reason: "The field is better left alone" }],
+        answers: { realm: { object: () => answer("realm/object.done") } },
+        own: ["call", "conversation", "act.conversation"],
+    },
+    {
+        fixture: "realm/start_worker",
+        tool: [
+            "start_worker",
+            { task: "Check the links in the docs", tools: ["read"] },
+        ],
+        answers: {
+            realm: { start_worker: () => answer("realm/start_worker.started") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/set_allowance",
+        tool: [
+            "set_allowance",
+            {
+                hire: "hire#12",
+                dollars: 5000,
+                reason: "To keep the tests apart",
+            },
+        ],
+        answers: {
+            realm: { set_allowance: () => answer("realm/set_allowance.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/read_budget.own",
+        tool: ["read_budget", {}],
+        answers: {
+            realm: { read_budget: () => answer("realm/read_budget.budget") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/agree_road",
+        agent: HIRE,
+        tool: [
+            "agree_road",
+            {
+                mine: "hire#12",
+                theirs: "hire#31",
+                reason: "To keep the tests apart",
+            },
+        ],
+        answers: {
+            realm: { agree_road: () => answer("realm/agree_road.waiting") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/agree_road.mayor_of",
+        agent: HIRE,
+        tool: [
+            "agree_road",
+            {
+                mine: "hire#12",
+                theirs: "mayor@5f0d2c1b-7a3e-4d9f-8b6a-1c2d3e4f5a6b",
+            },
+        ],
+        answers: {
+            realm: { agree_road: () => answer("realm/agree_road.waiting") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/set_nickname",
+        tool: ["nickname", { hire: "hire#12", nickname: "Spade" }],
+        answers: {
+            realm: { set_nickname: () => answer("realm/set_nickname.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/read_record",
+        tool: [
+            "read_record",
+            { hamlet: "5f0d2c1b-7a3e-4d9f-8b6a-1c2d3e4f5a6b" },
+        ],
+        answers: {
+            realm: { read_record: () => answer("realm/read_record.read") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/fetch_part",
+        input: {
+            type: "letter",
+            from: { agent: 12, name: "Ada" },
+            text: "The report",
+            files: [
+                {
+                    parcel: 8,
+                    file: 1,
+                    path: "from-hire-12/report.md",
+                    size: 2048,
+                },
+            ],
+        },
+        answers: {
+            realm: {
+                fetch_part: ({ part }) =>
+                    answer(
+                        part < 3
+                            ? "realm/fetch_part.bytes"
+                            : "realm/fetch_part.bytes.last",
+                    ),
+            },
+        },
+    },
+    { fixture: "realm/read_place" },
+    {
+        fixture: "realm/read_place.letters",
+        input: {
+            type: "letter",
+            from: { agent: 12, name: "hire#12 (Ada)" },
+            text: "The tests pass",
+        },
+    },
+    {
+        fixture: "realm/read_place.questions",
+        task: "task-1",
+        input: {
+            type: "question",
+            letter: 5,
+            from: { agent: 12, name: "hire#12 (Ada)" },
+            text: "How many fail?",
+        },
+        answers: { realm: { reply: () => answer("realm/reply.done") } },
+    },
+    {
+        // A worker's brief is its one conversation, which is no chat.
+        fixture: "realm/read_place.other",
+        drive: async (t, calls, sent) => {
+            const agent = await wakeAgent(t, {
+                calls,
+                input: fixture("agent/worker.input") as AgentInput,
+                responses: [fauxAssistantMessage(LAST_WORDS)],
+            });
+            await until(() => named(sent, "worker_done").length === 1);
+            return agent;
+        },
+        answers: { realm: { worker_done: () => null } },
+    },
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
     {
@@ -1080,6 +1348,7 @@ for (const row of WRITTEN) {
                           ? {}
                           : { offered: row.offered }),
                       ...(row.files === undefined ? {} : { files: row.files }),
+                      ...(row.agent === undefined ? {} : { agent: row.agent }),
                   })
                 : await row.drive(t, calls, sent);
         const { to, action } = actionOf(row.fixture);
@@ -1169,13 +1438,21 @@ const TAKEN = [
     "agent/place.hand",
     "agent/submit.answer",
     "agent/submit.letter",
+    "agent/submit.letter.files",
     "agent/submit.line",
     "agent/submit.line.attached",
     "agent/submit.line.reviewed",
     "agent/submit.notice",
     "agent/submit.question",
+    "agent/submit.question.files",
     "agent/submit.worker_answer",
 ] as const;
+
+/** What a taken call reports: a file held whole is not fetched past 32 MiB. */
+const REPORTED: Partial<Record<(typeof TAKEN)[number], RegExp>> = {
+    "agent/submit.letter.files":
+        /^inbox\/from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 32\.0 MiB$/,
+};
 
 const CREATED = [
     "agent/errand",
@@ -1189,7 +1466,10 @@ for (const call of TAKEN) {
     test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
         const action = actionOf(name).action as keyof typeof TAKERS;
         const { calls, sent } = fakeCalls({
-            realm: { reply: () => answer("realm/reply.done") },
+            realm: {
+                reply: () => answer("realm/reply.done"),
+                fetch_part: () => answer("realm/fetch_part.bytes.last"),
+            },
             profile: { files: () => answer("profile/files.part.last") },
         });
         const agent = await wakeAgent(t, {
@@ -1216,7 +1496,13 @@ for (const call of TAKEN) {
             await until(() => named(sent, "files").length === 2);
         }
         await agent.idle();
-        assert.deepEqual(agent.reported, []);
+        const report = REPORTED[call];
+        if (report === undefined) {
+            assert.deepEqual(agent.reported, []);
+        } else {
+            assert.equal(agent.reported.length, 1);
+            assert.match(agent.reported[0] ?? "", report);
+        }
         const entries = await agent.entries();
         await agent.stop();
 
@@ -1306,6 +1592,15 @@ const ANSWERED_BY_TOOLS = [
     "realm/lay_road",
     "realm/take_up_road",
     "realm/set_tools",
+    "realm/ask_chief",
+    "realm/object",
+    "realm/start_worker",
+    "realm/set_allowance",
+    "realm/read_budget",
+    "realm/agree_road",
+    "realm/set_nickname",
+    "realm/set_model",
+    "realm/read_record",
     "realm/create_profile",
     "realm/read_profile",
     "realm/edit_profile",
@@ -1319,24 +1614,49 @@ function answersTo(action: string): string[] {
     return fixtures(new RegExp(`^${action}(\\..+)?\\.answer$`));
 }
 
-async function toolResults(agent: Woken) {
-    return (await agent.entries()).filter(
-        (entry) => entry.kind === "pi.tool-result",
-    );
-}
-
 /**
  * pi-durable records a throw of a tool's `execute` as a result with no
  * output and a `tool_error` diagnostic.
  */
-function threw(data: unknown): boolean {
-    return JSON.stringify(data).includes('"tool_error"');
+function threw(result: ToolResult): boolean {
+    return result.diagnostics.some(({ code }) => code === "tool_error");
+}
+
+/** A tool whose call has no fixture this agent writes. */
+const CALLED: Readonly<Record<string, readonly [string, ToolArgs]>> = {
+    "realm/set_model": [
+        "set_model",
+        { hire: "hire#12", model: "anthropic::claude-opus" },
+    ],
+};
+
+/**
+ * A refusal the model is told in today's words of a result, not of an error:
+ * a call a chief must allow, and the chief that cannot be asked.
+ */
+function toldPlainly(given: {
+    why?: { type: string; most?: number };
+}): string | undefined {
+    switch (given.why?.type) {
+        case "reserved":
+            return "This call waits for a chief's answer.";
+        case "no_chief":
+            return "No chief oversees this turn; go on with what you know.";
+        case "too_many":
+            return `You have asked the chief ${given.why.most === 1 ? "once" : `${given.why.most} times`} this turn; go on with what you know.`;
+        default:
+            return undefined;
+    }
 }
 
 for (const action of ANSWERED_BY_TOOLS) {
     test(`each answer to ${action} gives its tool a result, never a throw`, async (t) => {
-        const row = WRITTEN.find((written) => written.fixture === action);
-        const tool = row?.tool;
+        const row = WRITTEN.find(
+            (written) =>
+                written.fixture === action ||
+                written.fixture.startsWith(`${action}.`),
+        );
+        const tool = row?.tool ?? CALLED[action];
         assert.ok(tool);
         const answers = answersTo(action).filter((name) => !listed(name));
         const queue = [...answers];
@@ -1354,6 +1674,7 @@ for (const action of ANSWERED_BY_TOOLS) {
                 toolCall(tool[0], tool[1], `c${index}`),
             ),
             ...(row?.files === undefined ? {} : { files: row.files }),
+            ...(row?.agent === undefined ? {} : { agent: row.agent }),
         });
         const results = await toolResults(agent);
         await agent.stop();
@@ -1361,13 +1682,24 @@ for (const action of ANSWERED_BY_TOOLS) {
         assert.equal(results.length, answers.length);
         answers.forEach((name, index) => {
             const result = results[index];
-            assert.ok(result && !threw(result.data), `${name} threw`);
-            const given = fixture(name) as { type: string; words?: string };
-            if (given.type === "refused") {
-                assert.equal(result.text, given.words, name);
+            assert.ok(result && !threw(result), `${name} threw`);
+            const given = fixture(name) as {
+                type: string;
+                why?: { type: string; most?: number };
+                words?: string;
+            };
+            const plainly = toldPlainly(given);
+            const told = [result.output, result.isError];
+            if (plainly !== undefined) {
+                assert.deepEqual(told, [plainly, false], name);
+            } else if (given.type === "refused") {
+                assert.deepEqual(told, [given.words, true], name);
             } else {
-                assert.notEqual(result.text, "", name);
-                assert.doesNotMatch(result.text, NOT_WORDS, name);
+                const shown = [result.output]
+                    .concat(result.diagnostics.map(({ message }) => message))
+                    .join("");
+                assert.notEqual(shown, "", name);
+                assert.doesNotMatch(shown, NOT_WORDS, name);
             }
         });
     });
@@ -1482,13 +1814,13 @@ for (const name of answersTo("library/offer")) {
         });
         const [result] = await toolResults(agent);
         await agent.stop();
-        assert.ok(result && !threw(result.data), `${name} threw`);
+        assert.ok(result && !threw(result), `${name} threw`);
         if (given.type === "refused") {
-            assert.equal(result.text, given.words);
+            assert.equal(result.output, given.words);
             assert.equal(named(sent, "offer").length, 1);
             assert.deepEqual(named(sent, "submit_skill"), []);
         } else {
-            assert.equal(result.text, "The librarian is judging it.");
+            assert.equal(result.output, "The librarian is judging it.");
             assert.ok(named(sent, "offer").length > 1);
             assert.equal(named(sent, "submit_skill").length, 1);
         }
@@ -1530,6 +1862,75 @@ for (const name of answersTo("realm/may_spend")) {
             assert.equal(agent.faux.state.callCount, 1);
         }
         assert.deepEqual(agent.reported, []);
+    });
+}
+
+for (const name of answersTo("realm/read_place")) {
+    test(`${name}'s sections end the prompt, each that it holds`, async (t) => {
+        const given = fixture(name) as PlaceText;
+        const { calls } = fakeCalls({
+            realm: { read_place: () => given },
+        });
+        const agent = await turn(t, calls, { submit: submitted(undefined) });
+        const prompt = (await agent.actions.read_prompt(agent.by(from.client)))
+            .text;
+        await agent.stop();
+
+        const sections = [given.place, given.realm, given.scholars].filter(
+            (text) => text !== undefined,
+        );
+        assert.ok(prompt.endsWith(`\n\n${sections.join("\n\n")}`), prompt);
+    });
+}
+
+for (const name of answersTo("realm/fetch_part")) {
+    test(`${name} is read by the parcel's saving`, async (t) => {
+        const given = fixture(name) as Part;
+        const last = fixture("realm/fetch_part.bytes.last.answer") as Part;
+        const held: Record<string, string> = {};
+        const { calls } = fakeCalls({
+            realm: { fetch_part: ({ part }) => (part === 0 ? given : last) },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            files: fakeFiles(held),
+            responses: [fauxAssistantMessage(LAST_WORDS)],
+        });
+        await agent.actions.submit(agent.by(from.realm), {
+            id: "input-1",
+            input: {
+                type: "letter",
+                from: { agent: 12, name: "Ada" },
+                text: "The report",
+                files: [
+                    {
+                        parcel: 8,
+                        file: 0,
+                        path: "from-hire-12/report.md",
+                        size: 2048,
+                    },
+                ],
+            },
+        });
+        await agent.idle();
+        await agent.stop();
+
+        const text = (part: Part) =>
+            part.type === "bytes"
+                ? Buffer.from(part.bytes, "base64").toString()
+                : "";
+        if (given.type === "bytes") {
+            assert.equal(
+                held["inbox/from-hire-12/report.md"],
+                text(given) + (given.last ? "" : text(last)),
+            );
+            assert.deepEqual(agent.reported, []);
+        } else {
+            assert.deepEqual(held, {});
+            assert.deepEqual(agent.reported, [
+                `from-hire-12/report.md was not saved in the inbox: ${given.words}`,
+            ]);
+        }
     });
 }
 
@@ -1849,13 +2250,15 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
         const [result] = await toolResults(agent);
         await agent.stop();
 
-        assert.ok(result && !threw(result.data));
+        assert.ok(result && !threw(result));
         // Today's words for a change that may have run (`calls.rs`).
         assert.ok(
-            result.text.includes(
-                "Tool bash was interrupted by a restart and may have partially run",
+            result.diagnostics.some(({ message }) =>
+                message.includes(
+                    "Tool bash was interrupted by a restart and may have partially run",
+                ),
             ),
-            result.text,
+            JSON.stringify(result.diagnostics),
         );
     });
 }
@@ -1871,16 +2274,8 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a client's call of the realm",
     ],
     [
-        /^realm\/(tell|ask)\.paths\.args$/,
-        "an act that sends paths, which this agent does not write",
-    ],
-    [
-        /^realm\/(seat|lay_road|take_up_road|set_tools)\.why\.args$/,
-        "an act with its why, which this agent does not write",
-    ],
-    [
-        /^realm\/charge\.tokens\.args$/,
-        "a charge with its tokens, which this agent does not write",
+        /^realm\/charge\.args$/,
+        "a charge without its tokens: the agent counts the tokens of every model call",
     ],
     [
         /^realm\/society_tools\.answer$/,
@@ -1941,18 +2336,14 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
-        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
-        "an agent's call of the realm, which this agent does not make",
+        /^realm\/read_budget\.args$/,
+        "a budget read for a task's payer: the agent reads its own, as today's read_budget does",
     ],
     [
-        /^agent\/submit\.(letter|question)\.files\.args$/,
-        "a letter or a question with a parcel: the agent takes it and drops the parcel, so the model is never told of its files",
+        /^realm\/set_model\.args$/,
+        "a model change with an effort and a speed, which today's set_model does not take",
     ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
-    [
-        /^realm\/read_place\./,
-        "the prompt's sections the realm writes, which this agent writes itself for now",
-    ],
 ];
 
 const CLIENT_CALLS = new RegExp(
@@ -1991,6 +2382,8 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),
         ...answersTo("realm/reply"),
+        ...answersTo("realm/read_place"),
+        ...answersTo("realm/fetch_part"),
         ...[
             "realm/credential",
             "realm/keep_credential",
@@ -2030,21 +2423,30 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
     );
 });
 
-test("a charge's micros and took_ms are held at 2^32 - 1", async (t) => {
+test("a charge's micros, took_ms and tokens are held at 2^32 - 1", async (t) => {
     // Five thousand dollars is five billion micros.
     const { calls, sent } = fakeCalls({});
     const agent = await turn(t, calls, {
         submit: submitted(undefined),
-        models: (models) => priced(models, 5_000),
+        models: (models) =>
+            priced(models, 5_000, { input: U32_MAX, output: 1 }),
     });
     await agent.stop();
 
     const charges = sent
         .filter((call) => call.name === "charge")
-        .map((call) => call.message as { micros: number; took_ms: number });
+        .map(
+            (call) =>
+                call.message as {
+                    micros: number;
+                    took_ms: number;
+                    tokens: number;
+                },
+        );
     assert.equal(charges.length, 1);
-    for (const { micros, took_ms } of charges) {
+    for (const { micros, took_ms, tokens } of charges) {
         assert.equal(micros, U32_MAX);
+        assert.equal(tokens, U32_MAX);
         assert.ok(Number.isInteger(took_ms) && took_ms <= U32_MAX);
     }
 });

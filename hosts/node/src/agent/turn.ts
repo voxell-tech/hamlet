@@ -45,6 +45,7 @@ import type {
     LetterId,
     ProfileId,
     RealmTask,
+    Refused,
 } from "./messages/shared.ts";
 import {
     type ReadAnswer,
@@ -81,6 +82,8 @@ const BARE = [
     "secrets",
     "worker_done",
     "errand_done",
+    "read_place",
+    "fetch_part",
 ] as const;
 
 export type BareRealm = {
@@ -160,6 +163,8 @@ export type TurnTask = {
 };
 
 export interface TurnInput {
+    /** The conversation `Turns.ofSession` found the session in. */
+    readonly conversation?: ConversationId;
     /** Absent when the run has no input of the agent's, such as a compaction. */
     readonly kind?: InputKind;
     readonly task: TurnTask;
@@ -293,7 +298,9 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         ofSession: async (sessionId) => {
             if (sessionId === undefined) return none;
             const conversation = await conversationOfSession(sessionId);
-            return conversation === undefined ? none : of(conversation);
+            return conversation === undefined
+                ? none
+                : { ...(await of(conversation)), conversation };
         },
     };
 }
@@ -412,29 +419,51 @@ const WORKSPACE_STAMPS: {
     cancel: "read",
 };
 
-/** Whether an act carries the calling turn's conversation in itself. */
-const OWN_CONVERSATION: {
-    readonly [N in SocietyTool]: "conversation" extends keyof SocietyActs[N]["act"]
-        ? true
-        : false;
+type Carries<
+    N extends SocietyTool,
+    K extends string,
+> = K extends keyof SocietyActs[N]["act"]
+    ? Record<string, never> extends Pick<SocietyActs[N]["act"], K>
+        ? boolean
+        : true
+    : false;
+
+/**
+ * Whether an act carries the calling turn's conversation, and its task, in
+ * itself. An act's task is the turn's, the standing one included.
+ */
+const OWN: {
+    readonly [N in SocietyTool]: readonly [
+        conversation: Carries<N, "conversation">,
+        task: Carries<N, "task">,
+    ];
 } = {
-    found: false,
-    hire: false,
-    end: false,
-    seat: false,
-    tell: false,
-    ask: true,
-    lay_road: false,
-    take_up_road: false,
-    request_road: false,
-    set_tools: false,
-    create_profile: false,
-    read_profile: false,
-    edit_profile: false,
-    tag: false,
-    revert: false,
-    ask_librarian: false,
-    submit_skill: false,
+    found: [false, false],
+    hire: [false, false],
+    end: [false, false],
+    seat: [false, false],
+    tell: [false, false],
+    ask: [true, false],
+    lay_road: [false, false],
+    take_up_road: [false, false],
+    request_road: [false, false],
+    set_tools: [false, false],
+    ask_chief: [true, true],
+    object: [true, true],
+    start_worker: [false, true],
+    set_allowance: [false, false],
+    read_budget: [false, false],
+    agree_road: [false, false],
+    set_nickname: [false, false],
+    set_model: [false, false],
+    read_record: [false, false],
+    create_profile: [false, false],
+    read_profile: [false, false],
+    edit_profile: [false, false],
+    tag: [false, false],
+    revert: [false, false],
+    ask_librarian: [false, false],
+    submit_skill: [false, false],
 };
 
 type WorkspaceTool = Exclude<keyof WorkspaceActions, "list_tools" | "cancel">;
@@ -481,6 +510,7 @@ export async function callOut<
         answer: Granted<AnswersOf<A>[N]>,
     ) => ToolExecutionResult | Promise<ToolExecutionResult>,
     tool: string,
+    refused?: (answer: Refused) => ToolExecutionResult | undefined,
 ): Promise<ToolExecutionResult> {
     const stamp = await stamped(peers, api, to, name, message as object);
     let answer: unknown;
@@ -501,7 +531,7 @@ export async function callOut<
                   `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
               );
     }
-    if (isRefused(answer)) return failed(answer.words);
+    if (isRefused(answer)) return refused?.(answer) ?? failed(answer.words);
     return said(answer as Granted<AnswersOf<A>[N]>);
 }
 
@@ -520,7 +550,8 @@ async function stamped(
     }
     const call = callOf(api);
     const conversation = refOf(api.conversationId);
-    const task = carried((await peers.turns.of(api.conversationId)).task);
+    const turn = (await peers.turns.of(api.conversationId)).task;
+    const task = carried(turn);
     if (to.kind === WORKSPACE.kind) {
         return {
             message: {
@@ -532,14 +563,17 @@ async function stamped(
             changes: true,
         };
     }
+    const [ownConversation, ownTask] = OWN[name as SocietyTool];
     return {
         message: {
             call,
             ...(task === undefined ? {} : { task }),
             conversation,
-            act: OWN_CONVERSATION[name as SocietyTool]
-                ? { ...message, conversation }
-                : message,
+            act: {
+                ...message,
+                ...(ownConversation ? { conversation } : {}),
+                ...(ownTask ? { task: turn.task } : {}),
+            },
         },
         changes: true,
     };
@@ -575,8 +609,21 @@ export function libraryCalls(peers: Peers): {
     };
 }
 
-export function listTools(peers: Peers): Promise<ToolList> {
-    return reaching(peers[CALLS])(WORKSPACE, "list_tools", []);
+/**
+ * The workspace's tool list, read once for a wake as today reads it once
+ * for a server, and read again after a failed read.
+ */
+export function toolLister(peers: Peers): () => Promise<ToolList> {
+    let listed: Promise<ToolList> | undefined;
+    return () => {
+        listed ??= reaching(peers[CALLS])(WORKSPACE, "list_tools", []).catch(
+            (error: unknown) => {
+                listed = undefined;
+                throw error;
+            },
+        );
+        return listed;
+    };
 }
 
 export function readFile(peers: Peers, message: ReadFile): Promise<ReadAnswer> {
@@ -639,7 +686,7 @@ export function reasonOf(error: unknown): string {
     return String(error);
 }
 
-function isRefused(answer: unknown): answer is { words: string } {
+function isRefused(answer: unknown): answer is Refused {
     return (
         typeof answer === "object" &&
         answer !== null &&

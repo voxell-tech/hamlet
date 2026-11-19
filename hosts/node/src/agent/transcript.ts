@@ -904,7 +904,7 @@ function usageOf(
 }
 
 /** As `crates/hamlet_server/src/spend.rs` shows money. */
-function money(micros: number): string {
+export function money(micros: number): string {
     if (micros >= 1 && micros < 10_000) return "<$0.01";
     const cents = Math.floor((micros + 5_000) / 10_000);
     return `$${Math.floor(cents / 100)}.${`${cents % 100}`.padStart(2, "0")}`;

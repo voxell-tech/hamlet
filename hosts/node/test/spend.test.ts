@@ -32,6 +32,9 @@ const onTask = (calls: Parameters<typeof peersOf>[0]["calls"]) =>
         report: () => {},
     });
 
+/** Every request has its place. */
+const PLACED = { missing: () => undefined };
+
 const line = (id: string, text: string, task?: string) => ({
     id,
     ...(task === undefined ? {} : { task }),
@@ -60,7 +63,12 @@ test("each provider request is asked for and charged once under its own id", asy
         sent
             .filter((call) => call.to === "realm/local")
             .map((call) => call.name)
-            .filter((name) => name !== "read_copies" && name !== "secrets"),
+            .filter(
+                (name) =>
+                    name !== "read_copies" &&
+                    name !== "secrets" &&
+                    name !== "read_place",
+            ),
         ["may_spend", "charge", "may_spend", "charge"],
     );
     assert.deepEqual(
@@ -117,7 +125,8 @@ test("a refused model call ends the turn with the realm's words and sends no req
                     name !== "list_tools" &&
                     name !== "read_copies" &&
                     name !== "secrets" &&
-                    name !== "shelves",
+                    name !== "shelves" &&
+                    name !== "read_place",
             ),
         ["may_spend", "turn_failed"],
     );
@@ -303,9 +312,12 @@ test("a model request with no session is charged to the standing task", async ()
         },
         report: () => {},
     });
-    const answer = await gated(models, peers).completeSimple(faux.getModel(), {
-        messages: [{ role: "user", content: "hi", timestamp: 0 }],
-    });
+    const answer = await gated(models, peers, PLACED).completeSimple(
+        faux.getModel(),
+        {
+            messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        },
+    );
     assert.equal(answer.stopReason, "stop");
     assert.deepEqual(
         named(sent, "may_spend").map((call) => call.message),
@@ -348,7 +360,7 @@ test("a charge too large for a u32 is held at 2^32 - 1, whether its time is meas
             };
         },
     });
-    const gate = gated(huge, onTask(calls));
+    const gate = gated(huge, onTask(calls), PLACED);
     for (const _ of ["measured", "given"]) {
         await gate.completeSimple(faux.getModel(), {
             messages: [{ role: "user", content: "hi", timestamp: 0 }],
@@ -384,7 +396,7 @@ test("a request that finds the harness closing waits for the run's abort, and is
         report: () => {},
     });
     const run = new AbortController();
-    const asked = gated(models, peers)
+    const asked = gated(models, peers, PLACED)
         .completeSimple(
             faux.getModel(),
             { messages: [] },
@@ -491,7 +503,8 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
                     name !== "list_tools" &&
                     name !== "read_copies" &&
                     name !== "secrets" &&
-                    name !== "shelves",
+                    name !== "shelves" &&
+                    name !== "read_place",
             ),
         ["may_spend", "may_spend", "charge"],
     );
@@ -514,9 +527,12 @@ test("a stream's charge is taken before its last event reaches pi-durable", asyn
     });
     const { faux, models } = fauxModels();
     faux.setResponses([fauxAssistantMessage("ok")]);
-    const stream = gated(models, onTask(calls)).streamSimple(faux.getModel(), {
-        messages: [{ role: "user", content: "hi", timestamp: 0 }],
-    });
+    const stream = gated(models, onTask(calls), PLACED).streamSimple(
+        faux.getModel(),
+        {
+            messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        },
+    );
     const result = stream.result().then(() => order.push("result"));
     for await (const event of stream) {
         if (event.type === "done") order.push("done");
@@ -536,7 +552,7 @@ test("the run's abort cuts off a question the realm never answers", async () => 
     const run = new AbortController();
     setTimeout(() => run.abort(), 20);
     const ended = await within(
-        gated(models, onTask(calls)).completeSimple(
+        gated(models, onTask(calls), PLACED).completeSimple(
             faux.getModel(),
             { messages: [] },
             { signal: run.signal },

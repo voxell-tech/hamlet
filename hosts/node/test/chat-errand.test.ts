@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
-import {
-    type Context,
-    type FauxResponseFactory,
-    fauxAssistantMessage,
-} from "@earendil-works/pi-ai";
+import { type Context, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import type {
     AgentInput,
@@ -16,12 +12,14 @@ import type {
 } from "../src/agent/messages/agent.ts";
 import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import {
+    asked,
     fakeCalls,
     fakeFiles,
     from,
     named,
     timedOut,
     until,
+    userWords,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -30,28 +28,9 @@ import { context, fixture } from "./testing.ts";
 const ERRAND = fixture("agent/errand.input") as AgentInput;
 const WORKER = fixture("agent/worker.input") as AgentInput;
 
-function asked(seen: Context[], words: string): FauxResponseFactory {
-    return (context) => {
-        seen.push(context);
-        return fauxAssistantMessage(words);
-    };
-}
-
 async function offered(agent: Woken): Promise<string[]> {
     const root = await (await agent.harness()).root(context);
     return (await root.agent(context)).tools.map((tool) => tool.name).sort();
-}
-
-function userWords(context: Context): string[] {
-    return context.messages.flatMap((message) =>
-        message.role !== "user"
-            ? []
-            : typeof message.content === "string"
-              ? [message.content]
-              : message.content.flatMap((part) =>
-                    part.type === "text" ? [part.text] : [],
-                ),
-    );
 }
 
 test("an errand answers once and ends", async (t) => {
@@ -375,6 +354,7 @@ async function workerPrompt(t: TestContext): Promise<string> {
                 charter: { version: 1, value: "Keep the docs whole." },
             }),
             worker_done: () => null,
+            read_place: () => ({ place: WORKER_PLACE }),
         },
     });
     const agent = await wakeAgent(t, {
@@ -390,9 +370,11 @@ async function workerPrompt(t: TestContext): Promise<string> {
     return getCurrentSystemPrompt(request.messages);
 }
 
+const WORKER_PLACE = "# Your place\nYou are worker#7, started by `hire#4`.";
+
 // Today's worker reads the charter, the machine, the project and its place,
 // and no memory (`talk/prompt.rs:78-98`, `talk/prompt/place.rs:84-94`).
-test("a worker's prompt is the charter, the environment, the project and today's worker place", async (t) => {
+test("a worker's prompt is the charter, the environment, the project and the realm's worker place", async (t) => {
     const prompt = await workerPrompt(t);
 
     assert.ok(prompt.startsWith("Keep the docs whole.\n\n# Environment\n"));
@@ -405,15 +387,5 @@ test("a worker's prompt is the charter, the environment, the project and today's
             "# Your place",
         ],
     );
-    assert.ok(
-        prompt.endsWith(
-            "\n\n# Your place\nYou are worker#7, started by a chief for one task, given as your first message. Do it, then answer in your final message: that answer is all a chief gets. Your lodge is a scratch folder that ends with you; you keep no memory.",
-        ),
-    );
-});
-
-test("a worker's prompt names the agent that started it", {
-    todo: "no message carries a worker's starter, which `talk/prompt/place.rs:85-88` names",
-}, async (t) => {
-    assert.match(await workerPrompt(t), /started by (hand|hire#\d+)/);
+    assert.ok(prompt.endsWith(`\n\n${WORKER_PLACE}`));
 });

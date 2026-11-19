@@ -41,9 +41,7 @@ export function conversationFor(
     c: AgentCall,
     input: Input,
 ): Promise<ConversationId> {
-    if (input.type === "line" || input.type === "worker_answer") {
-        return chiefSession(c);
-    }
+    if (input.type === "line") return chiefSession(c);
     return withHarness(c, generationOf(c).options, async (harness, context) => {
         const named = async (ref: string | undefined) => {
             const id = ref === undefined ? undefined : conversationOf(ref);
@@ -68,6 +66,7 @@ export function conversationFor(
                 ).id;
             // One the realm names no conversation for is the chief's.
             case "notice":
+            case "worker_answer":
                 return (await named(input.conversation))?.id ?? chiefSession(c);
         }
     });

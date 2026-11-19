@@ -244,7 +244,7 @@ test("events number one more each over every chat, and a new wake starts a new e
         [JSON.stringify(CHIEF), JSON.stringify(LETTERS)].sort(),
     );
     assert.deepEqual(shown((await read(agent, LETTERS)).items), [
-        "user: A letter from Ada (`hire#3`):\n\nHello.",
+        "user: Hello.",
         "assistant: Dear Ada.",
     ]);
 

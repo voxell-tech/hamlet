@@ -5,9 +5,11 @@ import type { Context } from "@earendil-works/chord/context";
 import {
     type AssistantMessage,
     createAssistantMessageEventStream,
+    type FauxResponseFactory,
     type FauxResponseStep,
     fauxAssistantMessage,
     fauxToolCall,
+    type Context as ModelContext,
     type Models,
     type ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -92,6 +94,7 @@ export function fakeCalls(answers: {
             secrets: () => ({ version: 1, values: [] }),
             lapse: () => null,
             turn_failed: () => null,
+            read_place: () => ({ place: "# Your place\nYou are `hand`." }),
             ...answers.realm,
         },
         [LIBRARY.kind]: {
@@ -183,7 +186,27 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             edits += 1;
             return ok({ before, after: text });
         },
-        list: async () => ok([]),
+        list: async (path) => {
+            const names = new Set(
+                Object.keys(files)
+                    .filter((name) => name.startsWith(`${path}/`))
+                    .map(
+                        (name) =>
+                            name.slice(path.length + 1).split("/")[0] ?? "",
+                    ),
+            );
+            return ok(
+                [...names].sort().map((name) => ({
+                    name,
+                    path: `${root}/${path}/${name}`,
+                    kind:
+                        files[`${path}/${name}`] === undefined
+                            ? ("directory" as const)
+                            : ("file" as const),
+                    size: 0,
+                })),
+            );
+        },
         search: async () => ok({ found: [], more: false, capped: false }),
         find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),
@@ -218,11 +241,41 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
 }
 
 /** The faux provider prices nothing. */
-export function priced(models: Models, dollars: number): Models {
+/** Answers `words`, keeping the request it answers in `seen`. */
+export function asked(
+    seen: ModelContext[],
+    words: string,
+): FauxResponseFactory {
+    return (context) => {
+        seen.push(context);
+        return fauxAssistantMessage(words);
+    };
+}
+
+/** The words of each user message of a request. */
+export function userWords(context: ModelContext): string[] {
+    return context.messages.flatMap((message) =>
+        message.role !== "user"
+            ? []
+            : typeof message.content === "string"
+              ? [message.content]
+              : message.content.flatMap((part) =>
+                    part.type === "text" ? [part.text] : [],
+                ),
+    );
+}
+
+/** Each answer costs `dollars`, and uses `tokens` when they are given. */
+export function priced(
+    models: Models,
+    dollars: number,
+    tokens?: { readonly input: number; readonly output: number },
+): Models {
     const costing = (message: AssistantMessage): AssistantMessage => ({
         ...message,
         usage: {
             ...message.usage,
+            ...tokens,
             cost: { ...message.usage.cost, total: dollars },
         },
     });

@@ -949,7 +949,7 @@ test("a letter to a busy agent waits for the next run", async (t) => {
 
     assert.deepEqual((await said(agent, await lettersOf(agent))).slice(-3), [
         "Read.",
-        "A letter from Ada (`hire#12`):\n\nThanks",
+        "Thanks",
         "Thanks.",
     ]);
 });
