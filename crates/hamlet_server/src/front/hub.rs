@@ -329,12 +329,19 @@ impl ResetsHeld {
     /// Sends the agent's watchers its current session read again, and
     /// every chat when a reset was held back.
     pub(crate) async fn release(self) {
+        let (hub, agent) = (self.hub.clone(), self.agent);
+        drop(self);
+        hub.reread(agent).await;
+    }
+}
+
+impl Drop for ResetsHeld {
+    fn drop(&mut self) {
         if let Some(found) =
             self.hub.shared.followed().get_mut(&self.agent)
         {
             found.holds = found.holds.saturating_sub(1);
         }
-        self.hub.reread(self.agent).await;
     }
 }
 
