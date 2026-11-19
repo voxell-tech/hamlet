@@ -22,8 +22,9 @@ use hamlet_messages::agent::{
 };
 use hamlet_messages::profile::{
     BadPath, Branch, CommitId, Edit, EditRefusal, Missing,
-    Path as FilePath, ProfileInput, Read, ReadAnswer, Revert,
-    RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
+    Path as FilePath, ProfileInput, Purge, PurgeAnswer, Read,
+    ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
+    TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -64,6 +65,8 @@ mod chiefs;
 mod choices;
 #[path = "realm/copies.rs"]
 mod copies;
+#[path = "realm/dreams.rs"]
+mod dreams;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]
@@ -132,6 +135,8 @@ enum Callee {
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
+    /// A profile's purge, by the profile's number.
+    Purge,
     SetReach,
     Submit,
 }
@@ -151,6 +156,7 @@ struct Seen {
     edits: Mutex<Vec<(ProfileId, Edit)>>,
     tags: Mutex<Vec<(ProfileId, Tag)>>,
     reverts: Mutex<Vec<(ProfileId, Revert)>>,
+    purges: Mutex<Vec<(ProfileId, Purge)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -378,7 +384,7 @@ struct ProfileStandIn {
 impl Actor for ProfileStandIn {
     /// `None` for a profile a test calls without making it.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Read, Edit, Tag, Revert);
+    type Actions = (Branch, Read, Edit, Tag, Revert, Purge);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -532,6 +538,33 @@ impl Handler<Revert> for ProfileStandIn {
             clashes: vec![FilePath {
                 path: "notes.md".to_owned(),
             }],
+        })
+    }
+}
+
+/// The hire every stand-in profile's purge leaves holding the path.
+const STILL_HOLDS: AgentNumber = AgentNumber(3);
+
+impl Handler<Purge> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        purge: Purge,
+    ) -> anyhow::Result<PurgeAnswer> {
+        self.seen
+            .called(Callee::Purge, AgentNumber(self.profile.0))
+            .await?;
+        let path = purge.path.clone();
+        self.seen.purges.lock().unwrap().push((self.profile, purge));
+        Ok(if path == NOT_A_PATH {
+            PurgeAnswer::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            }
+        } else {
+            PurgeAnswer::Purged {
+                branches: 2,
+                still_hold: vec![STILL_HOLDS],
+            }
         })
     }
 }

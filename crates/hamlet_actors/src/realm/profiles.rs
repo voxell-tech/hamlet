@@ -9,21 +9,21 @@ use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::profile::{
-    By, Edit, ProfileInput, Read, ReadAnswer, Revert, RevertAnswer,
-    Tag, TagAnswer,
+    By, Edit, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
+    Revert, RevertAnswer, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
-    Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
-    RevertProfile, RevertProfileRefusal, TagProfile,
-    TagProfileRefusal,
+    Made, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
+    ReadProfile, ReadProfileRefusal, RevertProfile,
+    RevertProfileRefusal, TagProfile, TagProfileRefusal,
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
     Refusable, Tool, ToolCall,
 };
-use hamlet_messages::sender::{Client, Hand};
+use hamlet_messages::sender::{Client, Hand, sender};
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
@@ -398,6 +398,72 @@ impl<T: ProfileChange> Relay<Client> for Asked<T> {
 
     fn answer(answer: <T::Call as Action>::Output) -> Self::Output {
         T::answered(answer)
+    }
+}
+
+impl Relay<Client> for Asked<PurgeProfile> {
+    type Call = Purge;
+    type Output = PurgeAnswer<PurgeProfileRefusal>;
+
+    async fn ask(
+        &self,
+        _by: &Client,
+        rows: &Rows<'_>,
+    ) -> Result<Result<(ProfileId, Purge), Self::Output>> {
+        Ok(match shared(rows, self.act.profile).await? {
+            Ok(profile) => Ok((
+                profile,
+                Purge {
+                    id: self.id.clone(),
+                    path: self.act.path.clone(),
+                    by: By::Chief { chief: CHIEF },
+                },
+            )),
+            Err(why) => Err(PurgeAnswer::refused(why.into())),
+        })
+    }
+
+    fn answer(answer: PurgeAnswer) -> Self::Output {
+        match answer {
+            PurgeAnswer::Purged {
+                branches,
+                still_hold,
+            } => PurgeAnswer::Purged {
+                branches,
+                still_hold,
+            },
+            PurgeAnswer::Refused { why } => {
+                PurgeAnswer::refused(why.into())
+            }
+        }
+    }
+}
+
+/// A chief's purge, answered from the profile's answer once it has
+/// asked every hire to remove the path.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Purging(pub Asked<PurgeProfile>);
+
+impl Action for Purging {
+    type Output = <Asked<PurgeProfile> as Action>::Output;
+    const NAME: &'static str = <Asked<PurgeProfile> as Action>::NAME;
+}
+
+impl Message for Purging {
+    type To = <Asked<PurgeProfile> as Message>::To;
+    type From = <Asked<PurgeProfile> as Message>::From;
+}
+
+impl Handler<Purging> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Purging(asked): Purging,
+    ) -> Result<<Purging as Action>::Output> {
+        let by = sender(&ctx, &asked)?;
+        callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
+            .await
     }
 }
 

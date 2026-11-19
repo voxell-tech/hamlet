@@ -91,6 +91,12 @@ const _: () = assert!(
      deadline"
 );
 
+const _: () = assert!(
+    peer::When::OverAgents.deadline().as_millis()
+        < SHORTEST_CALLER_DEADLINE.as_millis(),
+    "a purge is answered inside a caller's deadline"
+);
+
 /// The realm's settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`].
 pub struct Options {
@@ -226,6 +232,7 @@ impl Actor for Realm {
         Relays<Asked<EditProfile>>,
         Relays<Asked<TagProfile>>,
         Relays<Asked<RevertProfile>>,
+        profiles::Purging,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
