@@ -163,3 +163,23 @@ async fn a_client_is_served_before_the_node_host_is_up() {
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
+
+/// On a new realm folder the realm makes the Hand's profile as it
+/// hires the Hand, and the Hand reads its library's shelves.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_realm_starts_the_hand_and_its_library() {
+    let (mut server, _home, _side) = serve(json!(["Here."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    chief.tell(hand, "Are you there?").await;
+    chief.shows(&chat, "Here.").await;
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    let log = server.log();
+    assert!(
+        !log.contains("shelves were not read"),
+        "the Hand could not read its shelves: {log}"
+    );
+}

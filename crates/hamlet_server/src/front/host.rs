@@ -10,14 +10,11 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, ensure};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
-use hamlet_actor_error::ActorError;
 use hamlet_actors::{library, profile, realm, workspace};
 use hamlet_host::child::{self, ChildOptions, LinkState, Supervisor};
 use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Host, HostOptions};
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::profile::ProfileInput;
-use hamlet_messages::realm::ProfileId;
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{ReachSeen, Seen, Status};
 use hamlet_messages::workspace::AgentNumber;
@@ -45,9 +42,6 @@ const LIVE_WITHIN: Duration = Duration::from_secs(20);
 const READ_WITHIN: Duration = Duration::from_secs(10);
 
 pub(crate) const HAND: AgentNumber = AgentNumber(1);
-
-/// The profile the realm gives the Hand.
-const HAND_PROFILE: ProfileId = ProfileId(1);
 
 /// Opens the folder `root`, with the Node host's model answering
 /// from the script `faux` when given. The program is `HAMLET_NODE`,
@@ -99,11 +93,11 @@ pub(crate) fn open(
     child::open(root, factories, options, child)
 }
 
-/// Starts the workspace, the Hand's profile, then the realm, which
+/// Starts the workspace and the library, then the realm, which
 /// answers a client from then on.
 pub(crate) async fn start_realm(host: &Host) -> Result<()> {
     host.get_or_start(&address::Workspace.address()?).await?;
-    make_hand_profile(host).await?;
+    host.get_or_start(&address::Library.address()?).await?;
     host.get_or_start(&address::Realm.address()?).await?;
     Ok(())
 }
@@ -133,34 +127,6 @@ pub(crate) async fn start_agents(
     );
     host.boot().await?;
     Ok(())
-}
-
-/// Makes the Hand's profile from the Hand's character, unless it was
-/// made before. The realm's first start only starts that profile,
-/// and a profile is made with its input.
-async fn make_hand_profile(host: &Host) -> Result<()> {
-    let input = Some(ProfileInput::Character {
-        text: crate::realm::HAND.to_owned(),
-    });
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&input, &mut bytes)?;
-    let at = address::Profile(HAND_PROFILE).address()?;
-    match host.create(&at, bytes).await {
-        Err(error)
-            if error
-                .chain()
-                .filter_map(|cause| {
-                    cause.downcast_ref::<ActorError>()
-                })
-                .any(|found| {
-                    found.group() == "actor"
-                        && found.code() == "duplicate_key"
-                }) =>
-        {
-            Ok(())
-        }
-        made => made,
-    }
 }
 
 /// Whether the realm shows the Hand live, with its reach applied,
