@@ -1,9 +1,11 @@
-//! Bevy and Hamlet's plugin API as one shared library, linked by the
-//! app and by every plugin.
+//! Bevy, fynix, Hamlet's widget kit and Hamlet's plugin API as one
+//! shared library, linked by the app and by every plugin.
 
 use std::sync::atomic::AtomicUsize;
 
 pub use bevy;
+pub use bevy_fynix;
+pub use hamlet_ui;
 
 /// The function a plugin exports as [`ENTRY`].
 pub type Entry = fn(&mut bevy::app::App);

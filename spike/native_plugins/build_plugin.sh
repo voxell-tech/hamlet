@@ -15,7 +15,12 @@ rsync -a --delete --exclude target "$spike/sdk/hamlet_sdk/" "$build/hamlet_sdk/"
 rsync -a --delete "$spike/sdk/.cargo/" "$build/.cargo/"
 cp "$spike/sdk/rust-toolchain.toml" "$build/"
 [ -f "$build/Cargo.lock" ] || cp "$spike/sdk/Cargo.lock" "$build/"
-sed 's/^members = .*/members = ["hamlet_sdk", "plugins\/*"]/' "$spike/sdk/Cargo.toml" > "$build/Cargo.toml"
+# The SDK's crates outside its workspace (hamlet_ui, fynix) are hashed by
+# their absolute path, so they are named by it here too.
+repo=$(cd "$spike/../.." && pwd)
+sed -e 's/^members = .*/members = ["hamlet_sdk", "plugins\/*"]/' \
+    -e "s#path = \"\.\./\.\./\.\./#path = \"$repo/#" \
+    "$spike/sdk/Cargo.toml" > "$build/Cargo.toml"
 
 rsync -a --delete --exclude target --exclude Cargo.lock --exclude .cargo \
     --exclude rust-toolchain.toml "$plugin/" "$build/plugins/$name/"

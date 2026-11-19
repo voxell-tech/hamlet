@@ -9,3 +9,5 @@ crate-type = ["dylib"]
 
 [dependencies]
 bevy.workspace = true
+bevy_fynix.workspace = true
+hamlet_ui.workspace = true
