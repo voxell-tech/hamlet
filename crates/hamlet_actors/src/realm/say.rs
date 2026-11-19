@@ -167,7 +167,7 @@ mod tests {
     use super::*;
     use crate::realm::chiefs::limits;
     use crate::realm::testing::Started;
-    use crate::realm::tree::Member;
+    use crate::realm::tree::Node;
     use crate::realm::{act, marker};
 
     fn task_7() -> TaskId {
@@ -188,7 +188,7 @@ mod tests {
         HamletId("h".to_owned())
     }
 
-    fn lineage(agent: Member) -> Lineage {
+    fn lineage(agent: Node) -> Lineage {
         let hamlet =
             (agent.kind == AgentKind::Hire).then(|| chiefs::Hamlet {
                 id: hamlet(),
@@ -207,7 +207,7 @@ mod tests {
     }
 
     fn mayor(status: Status, has_purpose: bool) -> Lineage {
-        lineage(Member {
+        lineage(Node {
             agent: AgentNumber(2),
             kind: AgentKind::Hire,
             status,
@@ -217,7 +217,7 @@ mod tests {
     }
 
     fn hand() -> Lineage {
-        lineage(Member {
+        lineage(Node {
             agent: Hand::NUMBER,
             kind: AgentKind::Hand,
             status: Status::Live,

@@ -51,7 +51,7 @@ impl Status {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Member {
+pub(super) struct Node {
     pub agent: AgentNumber,
     pub kind: AgentKind,
     pub status: Status,
@@ -64,15 +64,15 @@ pub(super) struct Member {
 /// the root of its hamlet, its own hires, and its hamlet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Lineage {
-    pub agent: Member,
+    pub agent: Node,
     /// Its lead first, the mayor last.
-    pub leads: Vec<Member>,
-    pub hires: Vec<Member>,
+    pub leads: Vec<Node>,
+    pub hires: Vec<Node>,
     /// `None` for the Hand.
     pub hamlet: Option<chiefs::Hamlet>,
 }
 
-impl Member {
+impl Node {
     pub fn can_take_purpose(&self) -> bool {
         self.kind == AgentKind::Hire && !self.has_purpose
     }
@@ -104,9 +104,9 @@ impl Lineage {
     /// the Hand (H41). An ended lead leads nothing.
     pub fn is_led_by(&self, lead: AgentNumber) -> bool {
         lead == Hand::NUMBER
-            || self.leads.iter().any(|member| {
-                member.agent == lead
-                    && !matches!(member.status, Status::Ended(_))
+            || self.leads.iter().any(|node| {
+                node.agent == lead
+                    && !matches!(node.status, Status::Ended(_))
             })
     }
 
@@ -121,13 +121,13 @@ pub(super) async fn lineage(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<Lineage>> {
-    let Some(own) = member(rows, agent).await? else {
+    let Some(own) = node(rows, agent).await? else {
         return Ok(None);
     };
     let mut leads = Vec::new();
     let mut next = own.lead;
     while let Some(lead) = next {
-        let lead = member(rows, lead).await?.with_context(|| {
+        let lead = node(rows, lead).await?.with_context(|| {
             format!("the lead {} of a hire", lead.0)
         })?;
         next = lead.lead;
@@ -142,7 +142,7 @@ pub(super) async fn lineage(
         .await?
     {
         hires.push(
-            member(rows, AgentNumber(hire))
+            node(rows, AgentNumber(hire))
                 .await?
                 .with_context(|| format!("the hire {hire}"))?,
         );
@@ -221,10 +221,10 @@ pub(super) async fn lineage_of(
         .with_context(|| format!("agent {} has no row", agent.0))
 }
 
-async fn member(
+async fn node(
     rows: &Rows<'_>,
     agent: AgentNumber,
-) -> Result<Option<Member>> {
+) -> Result<Option<Node>> {
     let Some((kind, status, how, why, lead, has_purpose)) = rows
         .row::<(
             String,
@@ -244,7 +244,7 @@ async fn member(
     else {
         return Ok(None);
     };
-    Ok(Some(Member {
+    Ok(Some(Node {
         agent,
         kind: change::from_case_name(kind)?,
         status: Status::of_row(agent, &status, how, why)?,
@@ -690,8 +690,8 @@ mod tests {
     use super::super::versions;
     use super::*;
 
-    fn agents(members: &[Member]) -> Vec<AgentNumber> {
-        members.iter().map(|member| member.agent).collect()
+    fn agents(nodes: &[Node]) -> Vec<AgentNumber> {
+        nodes.iter().map(|node| node.agent).collect()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -845,9 +845,9 @@ mod tests {
             .await
             .unwrap();
         let rows = started.rows();
-        let member = lineage(&rows, worker).await.unwrap().unwrap();
+        let node = lineage(&rows, worker).await.unwrap().unwrap();
         assert_eq!(
-            (member.agent.kind, member.agent.status, member.hamlet),
+            (node.agent.kind, node.agent.status, node.hamlet),
             (AgentKind::Worker, Status::Live, None)
         );
         assert_eq!(
@@ -897,10 +897,9 @@ mod tests {
         }
         let rows = started.rows();
 
-        let member =
-            lineage(&rows, hire).await.unwrap().unwrap().agent;
+        let node = lineage(&rows, hire).await.unwrap().unwrap().agent;
         assert_eq!(
-            (member.status, member.has_purpose),
+            (node.status, node.has_purpose),
             (Status::Live, true)
         );
         let purpose = rows

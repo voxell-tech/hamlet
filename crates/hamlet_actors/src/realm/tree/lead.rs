@@ -23,7 +23,7 @@ use super::super::{
     chiefs, hire, laid, oversight, record, roads, steps, tasks,
     waits, workers,
 };
-use super::{Change, Lineage, Member, Of, Status};
+use super::{Change, Lineage, Node, Of, Status};
 
 enum Joining {
     Hamlet(HamletId),
@@ -441,11 +441,11 @@ pub(in crate::realm) async fn end(
     })
 }
 
-fn living_agents(members: &[Member]) -> Vec<AgentNumber> {
-    members
+fn living_agents(nodes: &[Node]) -> Vec<AgentNumber> {
+    nodes
         .iter()
-        .filter(|member| !matches!(member.status, Status::Ended(_)))
-        .map(|member| member.agent)
+        .filter(|node| !matches!(node.status, Status::Ended(_)))
+        .map(|node| node.agent)
         .collect()
 }
 
@@ -505,7 +505,7 @@ mod tests {
     /// The lineage of hire 5 in one hamlet: the mayor 2, hire 3 under
     /// it, and 5 under 3.
     fn lineage_of_5() -> Lineage {
-        let member = |agent, lead: Option<u32>, status| Member {
+        let node = |agent, lead: Option<u32>, status| Node {
             agent: AgentNumber(agent),
             kind: AgentKind::Hire,
             status,
@@ -513,10 +513,10 @@ mod tests {
             has_purpose: false,
         };
         Lineage {
-            agent: member(5, Some(3), Status::Hiring),
+            agent: node(5, Some(3), Status::Hiring),
             leads: vec![
-                member(3, Some(2), Status::Live),
-                member(2, None, Status::Live),
+                node(3, Some(2), Status::Live),
+                node(2, None, Status::Live),
             ],
             hires: Vec::new(),
             hamlet: Some(chiefs::Hamlet {
@@ -532,7 +532,7 @@ mod tests {
 
     fn hand() -> Lineage {
         Lineage {
-            agent: Member {
+            agent: Node {
                 agent: Hand::NUMBER,
                 kind: AgentKind::Hand,
                 status: Status::Live,
