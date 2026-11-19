@@ -394,6 +394,27 @@ async fn a_tag_is_kept_and_its_repeat_answered_from_the_marker() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tag_at_a_commit_git_fails_to_read_fails_and_tags_nothing()
+{
+    let dir = Scratch::new("profile-tag-damaged");
+    let host = made(&dir).await;
+    let damaged: hamlet_git::CommitId =
+        "cd".repeat(20).parse().unwrap();
+    let hex = damaged.to_string();
+    let folder = dir.join("scholars/1.git/objects").join(&hex[..2]);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(&hex[2..]), b"not a git object")
+        .unwrap();
+    let asked = Tag {
+        at: Some(commit_id(damaged)),
+        ..tag(&RequestId::new(), "v1", "")
+    };
+    call_as(&host, &realm(), &asked).await.unwrap_err();
+    assert!(repository(&dir, 1).versions().unwrap().is_empty());
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_wrong_caller_is_refused_before_anything() {
     let dir = Scratch::new("profile-caller");
     let host = made(&dir).await;

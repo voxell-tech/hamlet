@@ -65,9 +65,10 @@ fn tag(
     let (at, seen, taken) = {
         let git = unit.git()?;
         let at = match tag.at {
-            Some(at) => Some(git_commit(at)?)
-                .filter(|found| git.has(*found).unwrap_or(false))
-                .ok_or(at),
+            Some(at) => {
+                let found = git_commit(at)?;
+                if git.has(found)? { Ok(found) } else { Err(at) }
+            }
             None => {
                 Ok(git.tip(MAIN)?.context("a profile has a main")?)
             }

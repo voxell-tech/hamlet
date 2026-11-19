@@ -121,7 +121,7 @@ impl Reads {
     }
 
     pub fn has(&self, at: CommitId) -> Result<bool> {
-        Ok(self.0.resolve(&at.to_string())? == Some(at))
+        self.0.has_commit(at)
     }
 }
 
