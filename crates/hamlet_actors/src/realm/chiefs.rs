@@ -23,7 +23,7 @@ use super::callers::RealmWide;
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
-use super::{hire, record, steps, tasks, tree};
+use super::{hire, profiles, record, steps, tasks, tree};
 
 const SCHEMA_VERSION: i64 = 1;
 
@@ -243,7 +243,13 @@ impl<By: RealmWide> Act<By> for Found {
         rows: &Rows<'_>,
     ) -> Result<Founding> {
         Ok(Founding {
-            of: tree::made_of(rows, self.mayor).await?,
+            of: match self.mayor {
+                Some(mayor) => profiles::hireable(rows, mayor)
+                    .await?
+                    .map(tree::Of::Profile)
+                    .map_err(|_| mayor),
+                None => Ok(tree::blank(rows, None).await?),
+            },
             hamlet: fresh(),
             mayor: tree::fresh(rows).await?,
         })
@@ -292,6 +298,7 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet: hamlet.clone(),
                     lead: None,
                     of,
+                    version: None,
                     purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
@@ -350,7 +357,10 @@ mod tests {
 
     fn founding() -> Founding {
         Founding {
-            of: Ok(tree::Of::Blank(ProfileId(2))),
+            of: Ok(tree::Of::Blank {
+                profile: ProfileId(2),
+                name: None,
+            }),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),
         }

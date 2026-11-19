@@ -20,7 +20,7 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::profile::{Branch, Missing};
+use hamlet_messages::profile::{Branch, Missing, ProfileInput};
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
 };
@@ -80,6 +80,8 @@ mod oversight;
 mod parcels;
 #[path = "realm/places.rs"]
 mod places;
+#[path = "realm/profiles.rs"]
+mod profiles;
 #[path = "realm/record.rs"]
 mod record;
 #[path = "realm/repeats.rs"]
@@ -140,6 +142,7 @@ struct Seen {
     reaches: Mutex<Vec<SetReach>>,
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
+    profiles: Mutex<Vec<(ProfileId, ProfileInput)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -365,7 +368,8 @@ struct ProfileStandIn {
 
 #[async_trait::async_trait]
 impl Actor for ProfileStandIn {
-    type Input = ();
+    /// `None` for a profile a test calls without making it.
+    type Input = Option<ProfileInput>;
     type Actions = (Branch,);
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -377,7 +381,24 @@ impl Actor for ProfileStandIn {
             profile: ProfileId(key(ctx)?),
         })
     }
+
+    async fn on_create(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+    ) -> anyhow::Result<()> {
+        if let Some(input) = ctx.input()? {
+            self.seen
+                .profiles
+                .lock()
+                .unwrap()
+                .push((self.profile, input));
+        }
+        Ok(())
+    }
 }
+
+/// The one version every stand-in profile holds.
+const HELD_VERSION: &str = "v1";
 
 impl Handler<Branch> for ProfileStandIn {
     async fn handle(
@@ -391,12 +412,23 @@ impl Handler<Branch> for ProfileStandIn {
             .context("a hire's branch is hires/<n>")?
             .parse()?;
         self.seen.called(Callee::Branch, AgentNumber(agent)).await?;
+        let from = branch.from.clone();
         self.seen
             .branches
             .lock()
             .unwrap()
             .push((self.profile, branch));
-        Ok(Done::Done)
+        Ok(match from {
+            Some(version) if version.0 != HELD_VERSION => {
+                Done::Refused {
+                    why: Missing::NoVersion {
+                        profile: self.profile,
+                        version,
+                    },
+                }
+            }
+            _ => Done::Done,
+        })
     }
 }
 

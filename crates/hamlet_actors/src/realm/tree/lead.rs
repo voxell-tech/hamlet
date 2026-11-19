@@ -6,9 +6,10 @@ use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::oversight::Permission;
+use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
     Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    HowEnded, Named, OnlyAHire, ProfileId, Refusable, Seat,
+    HowEnded, Named, OnlyAHire, Refusable, Seat,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -44,7 +45,7 @@ pub(in crate::realm) struct Hiring {
     hamlet: Joining,
     under: Option<Lineage>,
     living: u32,
-    of: Result<Of, ProfileId>,
+    of: Result<Of, ProfileRefusal>,
     agent: AgentNumber,
 }
 
@@ -86,7 +87,8 @@ impl<By: Lead> Act<By> for Hire {
             hamlet,
             under,
             living,
-            of: super::made_of(rows, self.profile).await?,
+            of: super::made_of(rows, self.profile, self.name.clone())
+                .await?,
             agent: super::fresh(rows).await?,
         })
     }
@@ -151,10 +153,13 @@ impl<By: Lead> Act<By> for Hire {
         }
         let of = match hiring.of {
             Ok(of) => of,
-            Err(profile) => {
+            Err(ProfileRefusal::NoSuchProfile { profile }) => {
                 return refuse(HireRefusal::NoSuchProfile {
                     profile,
                 });
+            }
+            Err(ProfileRefusal::Apart { label }) => {
+                return refuse(HireRefusal::Apart { label });
             }
         };
         let agent = hiring.agent;
@@ -165,6 +170,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
+                    version: self.version.clone(),
                     purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
@@ -493,7 +499,9 @@ pub(in crate::realm) async fn seat(
 #[cfg(test)]
 mod tests {
     use hamlet_messages::address::Agent;
-    use hamlet_messages::realm::{LeadRefusal, Left, Rank, Tier};
+    use hamlet_messages::realm::{
+        LeadRefusal, Left, ProfileId, Rank, Tier,
+    };
     use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::reach::Mode;
 
@@ -605,7 +613,9 @@ mod tests {
             ..under_5("h")
         };
         let missing = Hiring {
-            of: Err(ProfileId(9)),
+            of: Err(ProfileRefusal::NoSuchProfile {
+                profile: ProfileId(9),
+            }),
             ..under_5("h")
         };
 
@@ -636,7 +646,10 @@ mod tests {
             hamlet: Joining::Hamlet(HamletId(hamlet.to_owned())),
             under: Some(lineage_of_5()),
             living: 3,
-            of: Ok(Of::Blank(ProfileId(6))),
+            of: Ok(Of::Blank {
+                profile: ProfileId(6),
+                name: None,
+            }),
             agent: AgentNumber(6),
         }
     }

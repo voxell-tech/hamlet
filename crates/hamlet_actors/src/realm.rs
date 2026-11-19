@@ -17,6 +17,7 @@ mod oversight;
 mod parcels;
 mod peer;
 mod place;
+mod profiles;
 mod reach;
 mod record;
 mod reviews;
@@ -400,6 +401,7 @@ mod testing {
                 hamlet: hamlet.clone(),
                 lead,
                 of: tree::Of::Profile(tree::HAND_PROFILE),
+                version: None,
                 purpose: None,
             })
             .await
