@@ -128,7 +128,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
 | `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
-| `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
+| `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`. A chat that is not there, or an agent the chief does not reach, gets a failure `reply`; an unknown `before`, a `fault`. |
 | `close` (`Close`) | `chat: ChatRef`; no `id` | End that connection's watch; no answer. |
 | `login` (`Login`) | One step below | Start, answer or cancel a connection-owned sign-in. |
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
@@ -364,7 +364,7 @@ readable `text`; neither carries a machine error code.
 | Envelope | Use |
 |---|---|
 | `reply`, kind `error`, with `to` | An ordinary requested operation is refused: an edit, read, answer, check or conversation action, or a typed command. |
-| `fault` with `to` | A malformed request with a recoverable UUID, an open/page refusal, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
+| `fault` with `to` | A malformed request with a recoverable UUID, a page whose `before` is unknown, a watch failure still associated with its opening request, or an unexpected request-handler failure, a panic included. |
 | `fault` without `to` | A handshake or connection failure, input with no valid request ID, or a watch failure after its opening request has been answered. |
 
 A fault does not itself imply disconnect. Malformed input after hello,
@@ -372,8 +372,8 @@ second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
 failures close it as described above. The server's
 `clients/connection.rs` and `clients/requests.rs` own these paths. Watch failures use
-the `fault` envelope, even when their cause is an ordinary access
-refusal.
+the `fault` envelope; an open refused because its chat is not there or
+its agent is not reached is a failure `reply`.
 
 ## Changing the protocol
 
