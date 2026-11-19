@@ -14,12 +14,12 @@ import type {
     ChatRef,
     Input,
 } from "../src/agent/messages/agent.ts";
-import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     fakeFiles,
     from,
+    reflecting,
     toolCall,
     type Woken,
     wakeAgent,
@@ -271,23 +271,6 @@ test("a chat's usage counts its calls and their time, also from before a wake's 
     const again = (await read(woken)).usage;
     assert.deepEqual({ calls: again.calls, ms: again.ms }, { calls, ms });
 });
-
-/** Answers each reflection "Kept.", and every other request from `answers` in order. */
-function reflecting(answers: string[]): FauxResponseStep[] {
-    const step: FauxResponseStep = (request) => {
-        const last = request.messages.at(-1);
-        const text =
-            typeof last?.content === "string"
-                ? last.content
-                : (last?.content ?? [])
-                      .map((part) => (part.type === "text" ? part.text : ""))
-                      .join("");
-        return fauxAssistantMessage(
-            text === REFLECT ? "Kept." : (answers.shift() ?? "Nothing left."),
-        );
-    };
-    return Array.from({ length: answers.length + 2 }, () => step);
-}
 
 test("a session's history is modified when its last entry was written", async (t) => {
     const agent = await wake(t, reflecting(["One.", "Two."]));

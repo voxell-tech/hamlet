@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { copyFileSync, existsSync } from "node:fs";
 import type { TestContext } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -44,6 +45,7 @@ import {
     WORKSPACE,
     type WorkspaceActions,
 } from "../src/agent/messages/workspace.ts";
+import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import { textOf } from "../src/agent/transcript.ts";
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";
@@ -295,11 +297,41 @@ export interface Woken {
     /** Makes the database's next transaction fail once. Resolves when it has. */
     failNextCommit(): Promise<void>;
     /**
+     * Holds the agent's next read of `sql`, outside a transaction, until
+     * `release`; `reached` resolves when it is made.
+     */
+    holdRead(sql: string): Held;
+    /**
      * As `onDestroy` does: running work stops at once and resumes at the
      * next wake.
      */
     stop(): Promise<void>;
     again(): Promise<Woken>;
+    /**
+     * As a kill does: wakes the agent on what its file holds now, and stops
+     * this one, whose later writes the new one never sees.
+     */
+    killed(): Promise<Woken>;
+}
+
+/**
+ * Answers the reflection a `/new` or a `/resume` asks "Kept.", and every
+ * other request from `answers` in order, whichever conversation asks first.
+ */
+export function reflecting(answers: string[]): FauxResponseStep[] {
+    const step: FauxResponseStep = (request) => {
+        const last = request.messages.at(-1);
+        const text =
+            typeof last?.content === "string"
+                ? last.content
+                : (last?.content ?? [])
+                      .map((part) => (part.type === "text" ? part.text : ""))
+                      .join("");
+        return fauxAssistantMessage(
+            text === REFLECT ? "Kept." : (answers.shift() ?? "Nothing left."),
+        );
+    };
+    return Array.from({ length: answers.length + 2 }, () => step);
 }
 
 export async function wakeAgent(
@@ -315,7 +347,8 @@ export async function wakeAgent(
         key?: string;
     },
 ): Promise<Woken> {
-    const commits = failing(plainDatabase(scratchFile(t)));
+    const file = scratchFile(t);
+    const commits = failing(plainDatabase(file));
     const { faux, models, model } = fauxModels();
     faux.setResponses(given.responses ?? []);
     const files = given.files ?? fakeFiles({});
@@ -330,7 +363,10 @@ export async function wakeAgent(
     const definition = agentActor(config).config as unknown as Definition;
     await definition.db.onMigrate(commits.database);
     const address = Address.of("agent", given.key ?? "7");
-    const start = async (first: boolean): Promise<Woken> => {
+    const start = async (
+        first: boolean,
+        database: RawAccess = commits.database,
+    ): Promise<Woken> => {
         const alarms: number[] = [];
         const reported: string[] = [];
         const events: unknown[][] = [];
@@ -338,7 +374,7 @@ export async function wakeAgent(
             actorId: `agent-${address.key}`,
             address,
             call: given.calls.call,
-            db: commits.database,
+            db: database,
             vars: { [PI_RUNTIME]: createPiRuntime() },
             conns: new Map(),
             log: {
@@ -376,21 +412,57 @@ export async function wakeAgent(
             idle: async () => (await harness()).waitForIdle(context),
             entries: async () => entriesOf(await harness(), context),
             failNextCommit: commits.failNext,
+            holdRead: commits.holdRead,
             stop: () => definition.onDestroy(c),
             again: () => start(false),
+            killed: async () => {
+                const copy = scratchFile(t);
+                for (const suffix of ["", "-journal"]) {
+                    if (existsSync(file + suffix)) {
+                        copyFileSync(file + suffix, copy + suffix);
+                    }
+                }
+                await definition.onDestroy(c);
+                return start(false, plainDatabase(copy));
+            },
         };
     };
     return start(true);
 }
 
+export interface Held {
+    readonly reached: Promise<void>;
+    release(): void;
+}
+
 function failing(database: RawAccess): {
     readonly database: RawAccess;
     failNext(): Promise<void>;
+    holdRead(sql: string): Held;
 } {
     let armed: (() => void) | undefined;
+    const holds = new Map<
+        string,
+        { reach(): void; readonly released: Promise<void> }
+    >();
+    const held =
+        <F extends (sql: string, ...args: never[]) => Promise<unknown>>(
+            read: F,
+        ) =>
+        async (sql: string, ...args: never[]) => {
+            const hold = holds.get(sql);
+            if (hold !== undefined) {
+                holds.delete(sql);
+                hold.reach();
+                await hold.released;
+            }
+            return read(sql, ...args);
+        };
     return {
         database: {
             ...database,
+            get: held(database.get) as RawAccess["get"],
+            all: held(database.all) as RawAccess["all"],
             transaction: ((...args: never[]) => {
                 const fail = armed;
                 if (fail !== undefined) {
@@ -409,6 +481,15 @@ function failing(database: RawAccess): {
             const fired = Promise.withResolvers<void>();
             armed = fired.resolve;
             return fired.promise;
+        },
+        holdRead: (sql) => {
+            const reached = Promise.withResolvers<void>();
+            const released = Promise.withResolvers<void>();
+            holds.set(sql, {
+                reach: reached.resolve,
+                released: released.promise,
+            });
+            return { reached: reached.promise, release: released.resolve };
         },
     };
 }
