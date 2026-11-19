@@ -68,6 +68,19 @@ impl View {
         .to_string()
     }
 
+    /// How the agent numbered `number` is shown to a chief: its
+    /// address, and its nickname beside it when it has one.
+    pub(crate) fn name(&self, number: AgentNumber) -> String {
+        let address = self.address(number);
+        match self
+            .agent(number)
+            .and_then(|seen| seen.nickname.as_ref())
+        {
+            Some(nickname) => format!("{address} ({nickname})"),
+            None => address,
+        }
+    }
+
     /// What `payer` spent in its period, as the world holds it.
     pub(crate) fn spend(&self, payer: &Payer) -> Option<&Spend> {
         self.world.spend.iter().find(|spend| spend.payer == *payer)
@@ -296,8 +309,12 @@ fn hamlet(view: &View, seen: &HamletSeen) -> protocol::Hamlet {
     }
 }
 
-/// The budget report of `payer`, from its spend in the world.
-fn report(spend: Option<&Spend>, whose: &str) -> protocol::Report {
+/// The budget report of a payer, `Hamlet` or `Realm` by `whose`,
+/// from its spend in the world.
+pub(crate) fn report(
+    spend: Option<&Spend>,
+    whose: &str,
+) -> protocol::Report {
     let count = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
     let spent = protocol::Amount {
         micros: spend.map_or(0, |spend| count(spend.spent_micros)),
@@ -337,7 +354,7 @@ fn grant(view: &View, seen: &GrantSeen) -> protocol::Grant {
 
 /// A wait as the protocol shows it, with the answers the realm
 /// takes for its kind.
-fn wait(view: &View, seen: &WaitSeen) -> protocol::Wait {
+pub(crate) fn wait(view: &View, seen: &WaitSeen) -> protocol::Wait {
     let approval = |danger: Danger, wire: WaitDanger| {
         (
             vec![Choice::Allow, Choice::Deny],

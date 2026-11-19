@@ -370,7 +370,7 @@ pub(crate) fn line(wait: &Wait, by: &str, most: usize) -> String {
 }
 
 /// `text` on one line, cut to `most` characters.
-fn clip(text: &str, most: usize) -> String {
+pub(crate) fn clip(text: &str, most: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= most {
         return flat;
