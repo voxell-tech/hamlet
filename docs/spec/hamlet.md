@@ -415,7 +415,8 @@ be within its own allowance and that of every parent above it. A worker
 counts as its starter.
 
 **H46.** A chief of its hamlet, the Hand or a parent above it can give an
-agent a name of at most 24 letters, kept in the record. The world shows an
+agent a name of at most 24 letters, kept in the record, and an agent of a
+hamlet can name itself. The world shows an
 agent by its name, else by its profile's name; the window keeps its
 address. A chief can name a worker too. Everyone but the Hand can be
 renamed: a profile with `/name-profile`, a hamlet with `/name-hamlet`. In
@@ -543,7 +544,7 @@ only the tools in its own row:
 |---|---|
 | Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
 | Every agent of a hamlet | `propose_channel` |
-| A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `open_channel`, `close_channel` |
+| A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |
 | The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `set_mode`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
 | Every agent but a worker, in its one conversation | `object` (H10) |

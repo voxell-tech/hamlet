@@ -233,8 +233,8 @@ pub(crate) struct SetAllowance {
     pub reason: String,
 }
 
-/// Give an agent under you a short name it is shown by in the
-/// world; leave out `name` for its profile's name.
+/// Give yourself, or an agent under you, a short name shown in the
+/// world; leave out `name` for the profile's name.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RenameAgent {
     #[schemars(description = ADDRESS)]
