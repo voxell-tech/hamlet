@@ -30,6 +30,10 @@ const ENTRY: &str = concat!(
     "/../../hosts/node/src/agent/demo-host.ts"
 );
 
+/// Set to `1`, the Node host lists two loopback providers to sign in
+/// to. It is for tests, until the product's Node entry exists.
+const SIGN_IN: &str = "HAMLET_DEMO_SIGN_IN";
+
 /// The longest the Node host may take to be ready.
 const READY_WITHIN: Duration = Duration::from_secs(20);
 
@@ -46,7 +50,9 @@ const HAND_PROFILE: ProfileId = ProfileId(1);
 
 /// Opens the folder `root`, with the Node host's model answering
 /// from the script `faux` when given. The program is `HAMLET_NODE`,
-/// or `node`. Shut the supervisor down first, then the host.
+/// or `node`; with [`SIGN_IN`] set to `1`, it lists two loopback
+/// providers to sign in to. Shut the supervisor down first, then the
+/// host.
 pub(crate) fn open(
     root: &Path,
     sandbox: Sandbox,
@@ -72,6 +78,9 @@ pub(crate) fn open(
             .to_str()
             .context("the faux script's path is not UTF-8")?;
         argv.extend(["--faux".to_owned(), script.to_owned()]);
+    }
+    if std::env::var(SIGN_IN).is_ok_and(|set| set == "1") {
+        argv.push("--sign-in".to_owned());
     }
     let factories = HashMap::from([
         (address::Workspace::KIND.to_owned(), workspace::factory()),

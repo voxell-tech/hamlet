@@ -8,48 +8,63 @@ mod call;
 mod commands;
 mod frames;
 mod host;
+mod hub;
+mod route;
 mod view;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
-use hamlet_host::{Address, Host, Item};
+use hamlet_host::Host;
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::agent::chat::{ChatEvent, ChatPage, ReadChat};
-use hamlet_messages::realm::client::Say;
+use hamlet_messages::agent::chat::{Login, LoginAnswer, Stop};
+use hamlet_messages::realm::client::{Answer, Say, SayAnswer};
+use hamlet_messages::realm::world::Status;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, ClientMessage, Confinement, Open, ServerMessage,
+    self as protocol, AgentId, ClientMessage, Confinement,
+    LoginProgress, LoginReply, LoginStep, RequestId, ServerMessage,
 };
 use hamlet_sandbox::Sandbox;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
-use tokio::task::{AbortHandle, JoinSet};
+use tokio::task::JoinSet;
+use tokio::time::Instant;
 use tracing_subscriber::EnvFilter;
 
-use self::call::Calls;
+use self::call::{Calls, failed, failure, server_failed};
+use self::host::HAND;
+use self::hub::Hub;
+use self::route::{After, Asked, Call, Route};
 use crate::claim::Claim;
-use crate::clients::check::{Protocol, fault, reply};
+use crate::clients::check::{Protocol, reply};
 use crate::clients::connection::{self, Client, Event, GRACE};
 use crate::credentials::Credentials;
-use crate::diagnostic::{self, Secrets};
 use crate::layout::Layout;
+use crate::oversight::{Ruling, clip};
+use crate::providers::no_sign_in;
 use crate::serve::{Options, Signals, announce, chief_name, publish};
 use crate::society::refusal::Refusal;
 
-/// Longer than the realm takes to answer a line, at most 8 seconds.
-const SAY_WITHIN: Duration = Duration::from_secs(10);
+/// The longest a line is sent again while the agent's answer to the
+/// realm is cut off.
+const RESEND_WITHIN: Duration = Duration::from_secs(60);
 
-/// The longest an agent may take to answer a read of a chat.
-const READ_WITHIN: Duration = Duration::from_secs(60);
+/// Who a frame is for.
+#[derive(Clone, Copy, Debug)]
+enum To {
+    One(u64),
+    /// Every connection that said hello.
+    Welcomed,
+}
 
-/// A frame for a connection, from a task of the server.
-type Frames = mpsc::UnboundedSender<(u64, ServerMessage)>;
+/// A frame for the connections, from a task of the server.
+type Frames = mpsc::UnboundedSender<(To, ServerMessage)>;
 
 /// Serves the realm at `options.home` from the actors until SIGTERM
 /// or Ctrl-C, then closes the clients, the Node host and the host,
@@ -122,16 +137,17 @@ fn log_host() {
         .try_init();
 }
 
-/// The connections and what each watches.
+/// The connections, the chats they follow and the sign-ins they
+/// started.
 struct Door {
-    host: Host,
     calls: Calls,
+    hub: Hub,
     protocol: Protocol,
     credentials: Arc<Credentials>,
     own: Arc<view::Own>,
     clients: BTreeMap<u64, Client>,
     next: u64,
-    watches: Vec<Watch>,
+    sign_ins: SignIns,
     events: mpsc::Sender<Event>,
     frames: Frames,
     closing: watch::Receiver<bool>,
@@ -139,28 +155,6 @@ struct Door {
     connections: JoinSet<()>,
     /// The tasks that call the actors for the clients.
     work: JoinSet<()>,
-}
-
-/// A chat a connection watches, followed by a task of its own.
-struct Watch {
-    client: u64,
-    chat: protocol::ChatRef,
-    task: AbortHandle,
-}
-
-/// A chief's command or edit, answered by `commands`.
-enum Asked {
-    Command(protocol::Say),
-    Edit(protocol::RequestId, protocol::Edit),
-}
-
-impl Asked {
-    fn id(&self) -> &protocol::RequestId {
-        match self {
-            Self::Command(say) => &say.id,
-            Self::Edit(id, _) => id,
-        }
-    }
 }
 
 impl Door {
@@ -176,15 +170,20 @@ impl Door {
         let (events, mut event) = mpsc::channel(1024);
         let (frames, mut frame) = mpsc::unbounded_channel();
         let (shutdown, closing) = watch::channel(false);
+        let calls = Calls::new(host);
         let mut door = Self {
-            calls: Calls::new(host.clone()),
-            host,
+            hub: Hub::new(
+                calls.clone(),
+                frames.clone(),
+                credentials.clone(),
+            ),
+            calls,
             protocol: Protocol::new()?,
             credentials,
             own: Arc::new(own),
             clients: BTreeMap::new(),
             next: 0,
-            watches: Vec::new(),
+            sign_ins: SignIns::default(),
             events,
             frames,
             closing,
@@ -201,8 +200,8 @@ impl Door {
                     Ok(())
                 }
                 Some(event) = event.recv() => door.connection(event),
-                Some((client, message)) = frame.recv() => {
-                    door.send(client, message)
+                Some((to, message)) = frame.recv() => {
+                    door.deliver(to, message)
                 }
                 Some(_) = door.work.join_next() => Ok(()),
             };
@@ -212,6 +211,7 @@ impl Door {
         };
         shutdown.send_replace(true);
         door.work.abort_all();
+        door.hub.close_all();
         let connections = &mut door.connections;
         let drained = async {
             while connections.join_next().await.is_some() {}
@@ -253,7 +253,22 @@ impl Door {
             }
             Event::Gone(client) => {
                 self.clients.remove(&client);
-                self.unwatch(|watch| watch.client == client);
+                self.hub.forget(client);
+                for login in self.sign_ins.forget(client) {
+                    let calls = self.calls.clone();
+                    self.work.spawn(async move {
+                        let cancel = protocol::Login::Cancel {
+                            cancel: login,
+                            id: RequestId::new(),
+                        };
+                        let _ = calls
+                            .call(
+                                &address::Agent(HAND),
+                                &Login(cancel),
+                            )
+                            .await;
+                    });
+                }
                 Ok(())
             }
         }
@@ -306,7 +321,7 @@ impl Door {
                     return connection::refuse(found, &words, 4002);
                 }
                 found.welcomed = true;
-                self.show(client);
+                self.show(To::One(client));
                 Ok(())
             }
             _ if !welcomed => connection::refuse(
@@ -314,166 +329,285 @@ impl Door {
                 "The first message is a hello.",
                 1008,
             ),
-            message => self.request(client, message),
+            message => {
+                let id = message.id().cloned();
+                match route::route(message) {
+                    Ok(route) => self.request(client, route),
+                    Err(error) => self.send(
+                        client,
+                        server_failed(id.as_ref(), &error),
+                    ),
+                }
+            }
         }
     }
 
-    fn request(
+    fn request(&mut self, client: u64, route: Route) -> Result<()> {
+        match route {
+            Route::Now(answer) => return self.send(client, *answer),
+            Route::Open(open) => self.hub.watch(client, open),
+            Route::Close(chat) => self.hub.close(client, &chat),
+            Route::Command(asked) => self.command(client, asked),
+            Route::Line(say, agent) => self.line(client, say, agent),
+            Route::Call(call) => self.call(client, call),
+            Route::Answer(answer) => self.answer(client, answer),
+            Route::StopAll(id) => self.stop_all(client, id),
+            Route::SignIn(login) => self.sign_in(client, login),
+        }
+        Ok(())
+    }
+
+    /// The door's means for a task that answers `client`.
+    fn ask(&self, client: u64) -> Asker {
+        Asker {
+            client,
+            calls: self.calls.clone(),
+            hub: self.hub.clone(),
+            own: self.own.clone(),
+            frames: self.frames.clone(),
+        }
+    }
+
+    /// Sends `to` the realm as it is now.
+    fn show(&mut self, to: To) {
+        let (calls, own) = (self.calls.clone(), self.own.clone());
+        let frames = self.frames.clone();
+        self.work.spawn(async move {
+            show(&calls, &own, &frames, to).await;
+        });
+    }
+
+    /// Makes the call `call` and sends its answer's frame, after what
+    /// the call changed is shown.
+    fn call(&mut self, client: u64, call: Call) {
+        let asker = self.ask(client);
+        self.work.spawn(async move {
+            let Call {
+                to,
+                action,
+                args,
+                request,
+                answer,
+                after,
+            } = call;
+            let message =
+                match asker.calls.send(&to, action, args).await {
+                    Ok(answered) => {
+                        asker.after(after).await;
+                        answer(&request, &answered, &asker.own)
+                            .unwrap_or_else(|error| {
+                                server_failed(Some(&request), &error)
+                            })
+                    }
+                    Err(error) => failed(&request, &error),
+                };
+            asker.send(message);
+        });
+    }
+
+    /// Gives the realm a chief's line to `agent`, whose reply the hub
+    /// owes from before the line is sent.
+    fn line(
         &mut self,
         client: u64,
-        message: ClientMessage,
-    ) -> Result<()> {
-        let id = message.id().cloned();
-        match message {
-            ClientMessage::Hello(_) => self.send(
-                client,
-                fault(None, "This connection said hello already."),
-            ),
-            ClientMessage::Open(open) => {
-                self.open(client, open);
-                Ok(())
-            }
-            ClientMessage::Close(close) => {
-                self.unwatch(|watch| {
-                    watch.client == client && watch.chat == close.chat
-                });
-                Ok(())
-            }
-            ClientMessage::Say(say) => {
-                if say.text.trim().starts_with('/') {
-                    self.command(client, Asked::Command(say));
-                } else {
-                    self.say(client, say);
-                }
-                Ok(())
-            }
-            ClientMessage::Edit(edit) => {
-                let id = id.context("an edit has an id")?;
-                self.command(client, Asked::Edit(id, edit));
-                Ok(())
-            }
-            message => {
-                let what = serde_json::to_value(&message)?["type"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned();
-                let refusal = Refusal::Unsupported {
-                    what: format!("`{what}`"),
-                };
-                let answer = match message.id() {
-                    Some(id) => reply(id, Err(refusal)),
-                    None => fault(None, refusal.to_string()),
-                };
-                self.send(client, answer)
-            }
-        }
-    }
-
-    /// Sends `client` the page `open` asks for, and from then on the
-    /// changes of its chat, unless it follows that chat already.
-    fn open(&mut self, client: u64, open: Open) {
-        self.unwatch(|watch| watch.task.is_finished());
-        let host = self.host.clone();
-        let frames = self.frames.clone();
-        let credentials = self.credentials.clone();
-        if self.watches.iter().any(|watch| {
-            watch.client == client && watch.chat == open.chat
-        }) {
-            self.work.spawn(async move {
-                let _ = page(&host, client, &open, &frames).await;
-            });
-            return;
-        }
-        let chat = open.chat.clone();
-        let task = self.work.spawn(follow(
-            host,
-            client,
-            open,
-            frames,
-            credentials,
-        ));
-        self.watches.push(Watch { client, chat, task });
-    }
-
-    /// Gives the realm a chief's line. An answer that is a refusal is
-    /// sent back with its words.
-    fn say(&mut self, client: u64, say: protocol::Say) {
-        let host = self.host.clone();
-        let frames = self.frames.clone();
-        self.work.spawn(async move {
-            let id = say.id.clone();
-            let said = async {
-                let answer = host
-                    .call_for_client(
-                        &address::Realm.address()?,
-                        Say::NAME,
-                        encode_positional(&Say(say))?,
-                        SAY_WITHIN,
-                    )
-                    .await?;
-                frames::refusal_words(&answer)
-            };
-            let message = match said.await {
-                Ok(None) => return,
-                Ok(Some(words)) => {
-                    reply(&id, Err(Refusal::Usage { words }))
-                }
-                Err(error) => failed(Some(&id), &error),
-            };
-            let _ = frames.send((client, message));
-        });
-    }
-
-    /// Sends `client` the realm as it is now.
-    fn show(&mut self, client: u64) {
-        let calls = self.calls.clone();
-        let own = self.own.clone();
-        let frames = self.frames.clone();
-        self.work.spawn(async move {
-            let message = match view::read(&calls, &own).await {
-                Ok(view) => ServerMessage::State(view::state(&view)),
-                Err(error) => failed(None, &error),
-            };
-            let _ = frames.send((client, message));
-        });
+        say: protocol::Say,
+        agent: AgentNumber,
+    ) {
+        let asker = self.ask(client);
+        self.work.spawn(async move { asker.line(say, agent).await });
     }
 
     /// Runs a chief's command or edit with the realm as it is now,
-    /// and sends its reply.
+    /// and sends its reply once what it changed is shown.
     fn command(&mut self, client: u64, asked: Asked) {
-        let calls = self.calls.clone();
-        let own = self.own.clone();
-        let frames = self.frames.clone();
+        let asker = self.ask(client);
         self.work.spawn(async move {
             let ran = async {
-                let view = view::read(&calls, &own).await?;
+                let view =
+                    view::read(&asker.calls, &asker.own).await?;
                 match &asked {
                     Asked::Command(say) => {
-                        commands::run(&calls, &view, say).await
+                        commands::run(&asker.calls, &view, say).await
                     }
                     Asked::Edit(_, edit) => {
-                        commands::edit(&calls, &view, edit).await
+                        commands::edit(&asker.calls, &view, edit)
+                            .await
                     }
                 }
             };
             let id = asked.id();
             let message = match ran.await {
-                Ok(outcome) => reply(id, outcome.reply),
-                Err(error) => failed(Some(id), &error),
+                Ok(outcome) => {
+                    asker
+                        .after(match outcome.reread {
+                            Some(agent) => After::Reread(agent),
+                            None => After::Show,
+                        })
+                        .await;
+                    reply(id, outcome.reply)
+                }
+                Err(error) => failed(id, &error),
             };
-            let _ = frames.send((client, message));
+            asker.send(message);
         });
     }
 
-    /// Stops following each watch `picks` holds for.
-    fn unwatch(&mut self, picks: impl Fn(&Watch) -> bool) {
-        self.watches.retain(|watch| {
-            let picked = picks(watch);
-            if picked {
-                watch.task.abort();
-            }
-            !picked
+    /// Gives the realm a chief's answer to a wait, worded with the
+    /// wait as the realm showed it before.
+    fn answer(&mut self, client: u64, answer: protocol::Answer) {
+        let asker = self.ask(client);
+        self.work.spawn(async move {
+            let id = answer.id.clone();
+            let message = match asker.answer(answer).await {
+                Ok(words) => {
+                    asker.after(After::Show).await;
+                    reply(&id, words)
+                }
+                Err(error) => failed(&id, &error),
+            };
+            asker.send(message);
         });
+    }
+
+    /// Stops each living agent the chief reaches.
+    fn stop_all(&mut self, client: u64, id: RequestId) {
+        let asker = self.ask(client);
+        self.work.spawn(async move {
+            let message = match asker.stop_all(&id).await {
+                Ok(turns) => {
+                    asker.after(After::Show).await;
+                    reply(&id, Ok(frames::stopped_words(turns)))
+                }
+                Err(error) => failed(&id, &error),
+            };
+            asker.send(message);
+        });
+    }
+
+    /// Takes a step of a sign-in: one its client starts, answers or
+    /// cancels. Only the connection that started a sign-in may
+    /// answer, cancel or start it again.
+    fn sign_in(&mut self, client: u64, login: protocol::Login) {
+        let asker = self.ask(client);
+        let sign_ins = self.sign_ins.clone();
+        match login {
+            protocol::Login::Start { id, start } => {
+                let login = id.to_string();
+                let held = {
+                    let mut open = sign_ins.lock();
+                    let held = open
+                        .get(&login)
+                        .is_some_and(|open| open.client != client);
+                    if !held {
+                        open.insert(
+                            login.clone(),
+                            SignIn {
+                                client,
+                                start: id.clone(),
+                                provider: start.provider.clone(),
+                                last: None,
+                                asking: false,
+                            },
+                        );
+                    }
+                    held
+                };
+                if held {
+                    asker.send(reply(&id, Err(no_sign_in())));
+                    return;
+                }
+                let start = protocol::Login::Start { id, start };
+                self.work.spawn(sign_ins.steps(asker, login, start));
+            }
+            protocol::Login::Reply { id, reply: answer } => {
+                let refusal = {
+                    let mut open = sign_ins.lock();
+                    match open
+                        .get_mut(&answer.login)
+                        .filter(|open| open.client == client)
+                    {
+                        None => Some(no_sign_in()),
+                        Some(open) if !open.asking => {
+                            Some(Refusal::Usage {
+                                words: "That sign-in is not waiting \
+                                        for an answer."
+                                    .into(),
+                            })
+                        }
+                        Some(open) => {
+                            open.asking = false;
+                            None
+                        }
+                    }
+                };
+                if let Some(refusal) = refusal {
+                    asker.send(reply(&id, Err(refusal)));
+                    return;
+                }
+                asker.send(reply(
+                    &id,
+                    Ok("Sign-in answer received.".to_owned()),
+                ));
+                let login = answer.login.clone();
+                let answered =
+                    protocol::Login::Reply { id, reply: answer };
+                self.work
+                    .spawn(sign_ins.steps(asker, login, answered));
+            }
+            protocol::Login::Cancel { id, cancel } => {
+                let open = {
+                    let mut open = sign_ins.lock();
+                    open.get(&cancel)
+                        .is_some_and(|open| open.client == client)
+                        .then(|| open.remove(&cancel))
+                        .flatten()
+                };
+                let Some(open) = open else {
+                    asker.send(reply(&id, Err(no_sign_in())));
+                    return;
+                };
+                asker.send(open.frame(
+                    &cancel,
+                    LoginStep::Failed {
+                        failed: "Sign-in cancelled.".into(),
+                    },
+                ));
+                asker.send(reply(
+                    &id,
+                    Ok("Sign-in cancelled.".to_owned()),
+                ));
+                self.work.spawn(async move {
+                    let cancel =
+                        protocol::Login::Cancel { cancel, id };
+                    let _ = asker
+                        .calls
+                        .call(&address::Agent(HAND), &Login(cancel))
+                        .await;
+                });
+            }
+        }
+    }
+
+    fn deliver(
+        &mut self,
+        to: To,
+        message: ServerMessage,
+    ) -> Result<()> {
+        match to {
+            To::One(client) => self.send(client, message),
+            To::Welcomed => {
+                for found in self.clients.values_mut() {
+                    if found.welcomed {
+                        connection::send(
+                            found,
+                            &self.credentials,
+                            message.clone(),
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 
     fn send(
@@ -490,134 +624,273 @@ impl Door {
     }
 }
 
-/// Follows the chat `open` names for `client`: subscribed first, so
-/// no change is missed, then its page, then each change after it.
-async fn follow(
-    host: Host,
-    client: u64,
-    open: Open,
-    frames: Frames,
-    credentials: Arc<Credentials>,
+/// Sends `to` the realm as it is now. A connection that said hello
+/// is told why it could not be read.
+async fn show(
+    calls: &Calls,
+    own: &Arc<view::Own>,
+    frames: &Frames,
+    to: To,
 ) {
-    let tell = |words: String| {
-        diagnostic::tell(Secrets::Of(&credentials), words);
+    let shown = match view::read(calls, own).await {
+        Ok(view) => ServerMessage::State(view::state(&view)),
+        Err(error) if matches!(to, To::One(_)) => {
+            server_failed(None, &error)
+        }
+        Err(_) => return,
     };
-    let at = match agent(&open) {
-        Ok(at) => at,
-        Err(error) => {
-            let _ =
-                frames.send((client, failed(Some(&open.id), &error)));
+    let _ = frames.send((to, shown));
+}
+
+/// What a task that answers one client works with.
+#[derive(Clone)]
+struct Asker {
+    client: u64,
+    calls: Calls,
+    hub: Hub,
+    own: Arc<view::Own>,
+    frames: Frames,
+}
+
+impl Asker {
+    fn send(&self, message: ServerMessage) {
+        let _ = self.frames.send((To::One(self.client), message));
+    }
+
+    async fn show(&self, to: To) {
+        show(&self.calls, &self.own, &self.frames, to).await;
+    }
+
+    /// Does what a request's answer is followed by, before the
+    /// answer is sent.
+    async fn after(&self, after: After) {
+        match after {
+            After::Nothing => {}
+            After::Show => self.show(To::Welcomed).await,
+            After::Reread(agent) => {
+                self.show(To::Welcomed).await;
+                self.hub.reread(agent).await;
+            }
+        }
+    }
+
+    async fn line(&self, say: protocol::Say, agent: AgentNumber) {
+        let id = say.id.clone();
+        if self.hub.owe(self.client, agent, &id).await.is_err() {
             return;
         }
-    };
-    let mut subscription =
-        match host.subscribe_for_client(&at, "chat").await {
-            Ok(subscription) => subscription,
-            Err(error) => {
-                tell(format!("cannot follow {at}'s chat: {error:#}"));
-                let _ = frames
-                    .send((client, failed(Some(&open.id), &error)));
-                return;
+        let settle = |message| {
+            self.hub.settle(agent, self.client, &id, message);
+        };
+        let said = async {
+            let realm = address::Realm.address()?;
+            let args = encode_positional(&Say(say))?;
+            let end = Instant::now() + RESEND_WITHIN;
+            loop {
+                let answer = self
+                    .calls
+                    .send(&realm, Say::NAME, args.clone())
+                    .await?;
+                if let Some(words) = frames::refusal_words(&answer)? {
+                    return Ok(Some(words));
+                }
+                let taken: SayAnswer =
+                    ciborium::from_reader(answer.as_slice())?;
+                if !matches!(taken, SayAnswer::NotTaken { .. }) {
+                    return Ok::<_, anyhow::Error>(None);
+                }
+                if Instant::now() >= end {
+                    bail!(
+                        "the realm did not take the line within {} s",
+                        RESEND_WITHIN.as_secs()
+                    );
+                }
             }
         };
-    let Ok((epoch, number)) =
-        page(&host, client, &open, &frames).await
-    else {
-        return;
-    };
-    loop {
-        let event = match subscription.next().await {
-            Ok(Item::Event(args)) => ciborium::from_reader::<
-                (ChatEvent,),
-                _,
-            >(args.as_slice()),
-            Ok(Item::Gap) => {
-                tell(format!("changes of {at}'s chat were lost"));
-                continue;
+        match said.await {
+            Ok(None) => self.hub.taken(self.client, agent, &id).await,
+            Ok(Some(words)) => {
+                settle(reply(&id, Err(Refusal::Usage { words })));
             }
-            Err(error) => {
-                tell(format!("{at}'s chat ended: {error:#}"));
-                return;
-            }
-        };
-        let (event,) = match event {
-            Ok(event) => event,
-            Err(error) => {
-                tell(format!("a change of {at}'s chat: {error}"));
-                continue;
-            }
-        };
-        if event.epoch == epoch && event.number <= number {
-            continue;
-        }
-        match frames::turn(event, &open.chat) {
-            Ok(Some(turn)) => {
-                let _ =
-                    frames.send((client, ServerMessage::Turn(turn)));
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tell(format!("a change of {at}'s chat: {error}"));
-            }
+            Err(error) => settle(failed(&id, &error)),
         }
     }
-}
 
-/// Reads the page `open` asks for and sends it to `client`, or the
-/// fault of why it could not be read. Gives the page's epoch and the
-/// number of the last change it holds.
-async fn page(
-    host: &Host,
-    client: u64,
-    open: &Open,
-    frames: &Frames,
-) -> Result<(u32, u32)> {
-    let read = async {
-        let answer = host
-            .call_for_client(
-                &agent(open)?,
-                ReadChat::NAME,
-                encode_positional(&ReadChat(open.clone()))?,
-                READ_WITHIN,
+    /// The words of a chief's answer to a wait.
+    async fn answer(
+        &self,
+        answer: protocol::Answer,
+    ) -> Result<Result<String, Refusal>> {
+        let view = view::read(&self.calls, &self.own).await?;
+        let number = answer.wait.trim_start_matches('#');
+        let subject = view
+            .world
+            .waits
+            .iter()
+            .find(|wait| wait.wait.0.to_string() == number)
+            .map(|wait| clip(&wait.subject, 80));
+        let ruling = Ruling::of(&answer.choice);
+        let realm = address::Realm.address()?;
+        let done = self
+            .calls
+            .send(
+                &realm,
+                Answer::NAME,
+                encode_positional(&Answer(answer))?,
             )
             .await?;
-        let page: ChatPage =
-            ciborium::from_reader(answer.as_slice())?;
-        let read = (page.epoch, page.number);
-        let transcript = frames::transcript(
-            page,
-            open.chat.clone(),
-            Some(open.id.clone()),
-        )?;
-        Ok::<_, anyhow::Error>((read, transcript))
-    };
-    match read.await {
-        Ok((read, transcript)) => {
-            let _ = frames.send((
-                client,
-                ServerMessage::Transcript(transcript),
-            ));
-            Ok(read)
+        if let Some(words) = frames::refusal_words(&done)? {
+            return Ok(Err(Refusal::Usage { words }));
         }
-        Err(error) => {
-            let _ =
-                frames.send((client, failed(Some(&open.id), &error)));
-            Err(error)
+        Ok(Ok(match subject {
+            Some(subject) => format!("Answered /{ruling}: {subject}"),
+            None => format!("Answered /{ruling}."),
+        }))
+    }
+
+    /// Stops each living agent the realm shows, and gives the turns
+    /// stopped.
+    async fn stop_all(&self, id: &RequestId) -> Result<u32> {
+        let view = view::read(&self.calls, &self.own).await?;
+        let mut turns = 0;
+        for agent in &view.world.agents {
+            if !matches!(agent.status, Status::Live) {
+                continue;
+            }
+            let stop = Stop(protocol::Stop {
+                agent: Some(AgentId(u64::from(agent.agent.0))),
+                id: id.clone(),
+            });
+            let stopped = self
+                .calls
+                .call(&address::Agent(agent.agent), &stop)
+                .await?;
+            turns += stopped.turns;
         }
+        Ok(turns)
     }
 }
 
-/// The address of the agent whose chat `open` names.
-fn agent(open: &Open) -> Result<Address> {
-    let number = u32::try_from(open.chat.with.0)
-        .context("no agent has that number")?;
-    Ok(address::Agent(AgentNumber(number)).address()?)
+/// The sign-ins the door's clients started, by login: the id of the
+/// `start` that began each.
+#[derive(Clone, Default)]
+struct SignIns(Arc<Mutex<HashMap<String, SignIn>>>);
+
+struct SignIn {
+    client: u64,
+    start: RequestId,
+    provider: String,
+    /// The step given last, which a step that finds nothing new
+    /// gives again.
+    last: Option<LoginStep>,
+    /// Whether it waits for the chief's typed answer.
+    asking: bool,
 }
 
-/// The fault of a request the server failed.
-fn failed(
-    to: Option<&protocol::RequestId>,
-    error: &anyhow::Error,
-) -> ServerMessage {
-    fault(to, format!("The server failed: {error}"))
+impl SignIn {
+    /// `step` of sign-in `login`, as its client is sent it.
+    fn frame(&self, login: &str, step: LoginStep) -> ServerMessage {
+        ServerMessage::Login(LoginProgress {
+            login: login.to_owned(),
+            step,
+            to: Some(self.start.clone()),
+        })
+    }
+}
+
+impl SignIns {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, SignIn>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Drops the sign-ins `client` started, whose connection closed,
+    /// and gives their logins.
+    fn forget(&self, client: u64) -> Vec<String> {
+        let mut open = self.lock();
+        let gone = open
+            .iter()
+            .filter(|(_, open)| open.client == client)
+            .map(|(login, _)| login.clone())
+            .collect::<Vec<_>>();
+        open.retain(|_, open| open.client != client);
+        gone
+    }
+
+    /// Sends the Hand `first`, a step of sign-in `login`, then asks
+    /// it for each next step and sends each new one to its client,
+    /// until the sign-in waits for the chief, ends or is dropped.
+    async fn steps(
+        self,
+        asker: Asker,
+        login: String,
+        first: protocol::Login,
+    ) {
+        let hand = address::Agent(HAND);
+        let mut next = first;
+        loop {
+            let answer = asker.calls.call(&hand, &Login(next)).await;
+            let step = match answer {
+                Ok(LoginAnswer::Step { step, .. }) => step,
+                Ok(LoginAnswer::Done { .. }) => {
+                    let ended = self.lock().remove(&login);
+                    if let Some(ended) = ended {
+                        let done = LoginStep::Done {
+                            done: ended.provider.clone(),
+                        };
+                        asker.after(After::Show).await;
+                        asker.send(ended.frame(&login, done));
+                    }
+                    return;
+                }
+                Ok(LoginAnswer::Failed { words, .. }) => {
+                    return self.end(&asker, &login, words);
+                }
+                Ok(LoginAnswer::NotTheHand) => {
+                    let error =
+                        anyhow!("agent {} is not the Hand", HAND.0);
+                    return self.end(&asker, &login, failure(&error));
+                }
+                Err(error) => {
+                    return self.end(&asker, &login, failure(&error));
+                }
+            };
+            {
+                let mut open = self.lock();
+                let Some(going) = open
+                    .get_mut(&login)
+                    .filter(|going| going.client == asker.client)
+                else {
+                    return;
+                };
+                if going.last.as_ref() != Some(&step) {
+                    asker.send(going.frame(&login, step.clone()));
+                    going.last = Some(step.clone());
+                }
+                if let LoginStep::Prompt { .. } = step {
+                    going.asking = true;
+                    return;
+                }
+            }
+            next = protocol::Login::Reply {
+                id: RequestId::new(),
+                reply: LoginReply {
+                    login: login.clone(),
+                    value: String::new(),
+                },
+            };
+        }
+    }
+
+    /// Ends sign-in `login`, unless it ended, with its failure in
+    /// `words`.
+    fn end(&self, asker: &Asker, login: &str, words: String) {
+        if let Some(ended) = self.lock().remove(login) {
+            asker.send(
+                ended.frame(
+                    login,
+                    LoginStep::Failed { failed: words },
+                ),
+            );
+        }
+    }
 }

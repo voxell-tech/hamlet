@@ -1085,7 +1085,7 @@ fn flat_price(rate: f64) -> Price {
 
 /// The refusal of a sign-in reply or cancel that is not the
 /// connection's own open one.
-fn no_sign_in() -> Refusal {
+pub(crate) fn no_sign_in() -> Refusal {
     Refusal::Usage {
         words: "No sign-in of yours is open.".into(),
     }
