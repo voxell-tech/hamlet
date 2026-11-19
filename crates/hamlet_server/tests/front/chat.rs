@@ -5,9 +5,9 @@ use std::collections::HashSet;
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    ClientMessage, ItemKind, Login, LoginMethod, LoginReply,
-    LoginStart, LoginStep, Open, ReplyKind, RequestId, Say,
-    ServerMessage, Stop,
+    Check, Choice, ClientMessage, ItemKind, Login, LoginMethod,
+    LoginReply, LoginStart, LoginStep, New, Open, Read, ReadResult,
+    ReplyKind, RequestId, Resume, Retry, Say, ServerMessage, Stop,
 };
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
@@ -233,6 +233,139 @@ async fn an_open_after_its_follow_ended_follows_again() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+/// Each request the door answers from the actors, in today's words,
+/// with what changed shown to every client before the reply.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_request_is_answered_in_todays_words() {
+    let (mut server, _home, _side) =
+        serve(json!(["Hello back."])).await;
+    let mut chief = Client::join(&server).await;
+    let mut other = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    other.open(&chat).await;
+    let reply = chief.say(hand, "Hello.").await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+
+    let checked = chief
+        .request(|id| {
+            ClientMessage::Check(Check::Model {
+                id,
+                model: Some("faux::faux-1".into()),
+            })
+        })
+        .await;
+    assert_eq!(checked.kind, ReplyKind::Notice, "{}", checked.text);
+    assert!(!chief.prompt(hand).await.is_empty(), "a prompt is read");
+    let history = chief.history(hand).await;
+    assert!(
+        history.iter().any(|past| past.current && past.number == 1),
+        "the history holds the current session: {history:?}"
+    );
+    let read = chief.read(|id| Read::Charter { id }).await;
+    let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
+        read
+    else {
+        panic!("the charter is read: {read:?}");
+    };
+    assert!(!charter.own && !charter.text.is_empty(), "{charter:?}");
+
+    let retried = chief
+        .request(|id| ClientMessage::Retry(Retry { id, to: hand }))
+        .await;
+    assert_eq!(
+        (retried.kind, retried.text.as_str()),
+        (
+            ReplyKind::Error,
+            "the last message was answered, so there is nothing to \
+             carry on"
+        )
+    );
+    let line = chief
+        .items(&chat)
+        .into_iter()
+        .find(|item| item.kind == ItemKind::User)
+        .expect("the chief's line is in the chat");
+    let rewound = chief.rewind(&chat, &line.id).await;
+    assert_eq!(
+        (rewound.kind, rewound.text.as_str()),
+        (ReplyKind::Rewound, "Hello.")
+    );
+
+    let seen = other.messages().len();
+    let asked = chief.messages().len();
+    let began = chief
+        .request(|id| ClientMessage::New(New { id, to: hand }))
+        .await;
+    assert_eq!(
+        (began.kind, began.text.as_str()),
+        (ReplyKind::Notice, "Session 2 began.")
+    );
+    let answered = chief
+        .messages()
+        .iter()
+        .rposition(|message| {
+            matches!(message, ServerMessage::Reply(_))
+        })
+        .unwrap();
+    assert!(
+        chief.messages()[asked..answered].iter().any(
+            |message| matches!(message, ServerMessage::State(_))
+        ),
+        "the asker is shown the realm before the reply"
+    );
+    let reread = |message: &ServerMessage| {
+        matches!(
+            message,
+            ServerMessage::Transcript(page)
+                if page.to.is_none() && page.chat == chat
+        )
+    };
+    other
+        .until("the watcher's session read again", |other| {
+            other.messages()[seen..].iter().any(reread)
+        })
+        .await;
+    other
+        .until("the watcher shown the realm", |other| {
+            other.messages()[seen..].iter().any(|message| {
+                matches!(message, ServerMessage::State(_))
+            })
+        })
+        .await;
+    let back = chief
+        .request(|id| {
+            ClientMessage::Resume(Resume {
+                id,
+                number: 1,
+                to: hand,
+            })
+        })
+        .await;
+    assert_eq!(
+        (back.kind, back.text.as_str()),
+        (ReplyKind::Notice, "Back in session 1.")
+    );
+    let stopped = chief
+        .request(|id| ClientMessage::Stop(Stop { agent: None, id }))
+        .await;
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Nothing was running.")
+    );
+    let answered = chief.choose("#99", Choice::Allow, None).await;
+    assert_eq!(answered.kind, ReplyKind::Error, "{}", answered.text);
+    assert!(
+        answered.text.starts_with("nothing waits here"),
+        "{}",
+        answered.text
+    );
+    chief.close().await;
+    other.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_answer_from_another_connection_is_refused() {
     let (mut server, _home, _side) = serve_signing_in().await;
@@ -254,10 +387,112 @@ async fn a_sign_in_answer_from_another_connection_is_refused() {
         (refused.kind, refused.text.as_str()),
         (ReplyKind::Error, "No sign-in of yours is open.")
     );
+    other
+        .send(ClientMessage::Login(Login::Start {
+            id: start.clone(),
+            start: LoginStart {
+                method: LoginMethod::Key,
+                provider: "loopback".into(),
+            },
+        }))
+        .await;
+    let ServerMessage::Reply(restarted) = other.answer(&start).await
+    else {
+        panic!("a start another connection holds is answered");
+    };
+    assert_eq!(
+        (restarted.kind, restarted.text.as_str()),
+        (ReplyKind::Error, "No sign-in of yours is open.")
+    );
     finish_sign_in(&mut chief, &start).await;
     let frames = [frames(&chief), frames(&other)].concat();
     chief.close().await;
     other.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    keeps_the_key_to_itself(&server, &frames);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_to_a_subscription_shows_each_step_once() {
+    let (mut server, _home, _side) = serve_signing_in().await;
+    let mut chief = Client::join(&server).await;
+    let start = RequestId::new();
+    chief
+        .send(ClientMessage::Login(Login::Start {
+            id: start.clone(),
+            start: LoginStart {
+                method: LoginMethod::Subscription,
+                provider: "chatgpt".into(),
+            },
+        }))
+        .await;
+    login_step(
+        &mut chief,
+        &start,
+        "the prompt for the code",
+        |step| matches!(step, LoginStep::Prompt { .. }),
+    )
+    .await;
+    let answered = chief
+        .request(|id| {
+            ClientMessage::Login(Login::Reply {
+                id,
+                reply: LoginReply {
+                    login: start.to_string(),
+                    value: KEY.into(),
+                },
+            })
+        })
+        .await;
+    assert_eq!(answered.kind, ReplyKind::Notice, "{}", answered.text);
+    login_step(&mut chief, &start, "the sign-in's end", |step| {
+        matches!(
+            step,
+            LoginStep::Done { .. } | LoginStep::Failed { .. }
+        )
+    })
+    .await;
+    let steps = chief
+        .messages()
+        .iter()
+        .filter_map(|message| match message {
+            ServerMessage::Login(progress)
+                if progress.to.as_ref() == Some(&start) =>
+            {
+                Some(progress.step.clone())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        steps,
+        [
+            LoginStep::Url {
+                instructions: Some("Offline sign-in".into()),
+                url: "https://example.invalid/oauth".into(),
+            },
+            LoginStep::Url {
+                instructions: None,
+                url: "https://example.invalid/device".into(),
+            },
+            LoginStep::Code {
+                code: "SAFE-CODE".into(),
+            },
+            LoginStep::Progress {
+                progress: "Waiting for the offline code".into(),
+            },
+            LoginStep::Prompt {
+                prompt: "Paste the code.".into(),
+                secret: true,
+            },
+            LoginStep::Done {
+                done: "chatgpt".into(),
+            },
+        ],
+        "each step of the sign-in reaches its client once, in order"
+    );
+    let frames = frames(&chief);
+    chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
     keeps_the_key_to_itself(&server, &frames);
 }

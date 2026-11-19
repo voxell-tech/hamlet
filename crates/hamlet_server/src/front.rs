@@ -17,7 +17,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
 use hamlet_host::Host;
@@ -486,23 +486,36 @@ impl Door {
 
     /// Takes a step of a sign-in: one its client starts, answers or
     /// cancels. Only the connection that started a sign-in may
-    /// answer or cancel it.
+    /// answer, cancel or start it again.
     fn sign_in(&mut self, client: u64, login: protocol::Login) {
         let asker = self.ask(client);
         let sign_ins = self.sign_ins.clone();
         match login {
             protocol::Login::Start { id, start } => {
-                sign_ins.lock().insert(
-                    id.to_string(),
-                    SignIn {
-                        client,
-                        start: id.clone(),
-                        provider: start.provider.clone(),
-                        last: None,
-                        asking: false,
-                    },
-                );
                 let login = id.to_string();
+                let held = {
+                    let mut open = sign_ins.lock();
+                    let held = open
+                        .get(&login)
+                        .is_some_and(|open| open.client != client);
+                    if !held {
+                        open.insert(
+                            login.clone(),
+                            SignIn {
+                                client,
+                                start: id.clone(),
+                                provider: start.provider.clone(),
+                                last: None,
+                                asking: false,
+                            },
+                        );
+                    }
+                    held
+                };
+                if held {
+                    asker.send(reply(&id, Err(no_sign_in())));
+                    return;
+                }
                 let start = protocol::Login::Start { id, start };
                 self.work.spawn(sign_ins.steps(asker, login, start));
             }
@@ -683,10 +696,14 @@ impl Asker {
                 }
                 let taken: SayAnswer =
                     ciborium::from_reader(answer.as_slice())?;
-                if !matches!(taken, SayAnswer::NotTaken { .. })
-                    || Instant::now() >= end
-                {
+                if !matches!(taken, SayAnswer::NotTaken { .. }) {
                     return Ok::<_, anyhow::Error>(None);
+                }
+                if Instant::now() >= end {
+                    bail!(
+                        "the realm did not take the line within {} s",
+                        RESEND_WITHIN.as_secs()
+                    );
                 }
             }
         };
