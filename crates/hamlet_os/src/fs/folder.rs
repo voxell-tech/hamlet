@@ -242,7 +242,6 @@ impl Folder {
             .below(given)?
             .ok_or(io::Error::from(io::ErrorKind::IsADirectory))?;
         let (folders, last) = tree.split_last();
-        // The open folders on the way, this one first.
         let mut held = vec![self.root.try_clone()?];
         for name in folders {
             let next = held[held.len() - 1].child(name)?;

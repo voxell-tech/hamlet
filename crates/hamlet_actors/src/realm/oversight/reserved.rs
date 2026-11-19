@@ -169,9 +169,8 @@ pub(in crate::realm) enum Kept {
     Refused(Gate),
 }
 
-/// What becomes of `act`, called by `by` in `called`, when the limits
-/// of `by`'s hamlet reserve `tool` for a chief. Only a hire has a
-/// hamlet: the Hand's and a worker's acts are not reserved by them.
+/// `act`, called by `by` in `called`, kept for a chief when the
+/// limits of `by`'s hamlet reserve `tool`.
 pub(in crate::realm) async fn reserve(
     rows: &Rows<'_>,
     tool: SocietyTool,

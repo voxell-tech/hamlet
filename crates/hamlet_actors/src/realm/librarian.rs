@@ -256,7 +256,6 @@ async fn notice(
     })
 }
 
-/// The notice that gives `to` the librarian's `text`.
 fn told(
     to: AgentNumber,
     id: InputId,
@@ -274,7 +273,6 @@ fn told(
     }
 }
 
-/// The changes the end of errand `errand` makes.
 pub(super) fn ended(
     errand: ErrandNumber,
     ended: &Ended,
@@ -392,7 +390,6 @@ impl ToolAct<Agent> for AskLibrarian {
     }
 }
 
-/// What a librarian's errand is started with, for its asker.
 pub(super) struct Asker {
     n: ErrandNumber,
     task: TaskId,
@@ -549,7 +546,7 @@ impl Handler<Submitting> for Realm {
     }
 }
 
-/// What a submitted offer comes to.
+/// The outcome of a submitted offer.
 pub(super) enum Judging {
     /// An errand judges it already.
     Already,

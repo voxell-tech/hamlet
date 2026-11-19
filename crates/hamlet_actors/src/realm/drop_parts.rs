@@ -1,4 +1,4 @@
-//! What an ended hire leaves in the actors that keep its parts: the
+//! The parts an ended hire leaves in the actors that keep them: the
 //! save under way in its profile, and the offers under way in the
 //! library. A step row drops them once the hire ends.
 
@@ -22,7 +22,6 @@ pub(super) fn row(agent: AgentNumber) -> StepId {
     }
 }
 
-/// The steps that drop an ended hire's parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     /// Its profile drops its save under way.

@@ -51,8 +51,8 @@ async fn an_ended_hires_parts_are_dropped_by_its_profile_and_the_library()
     realm.host.shutdown().await.unwrap();
 }
 
-/// A hire ended before its Profile step was never filled, so it left
-/// no save; the library still drops its offers.
+/// A hire that ended before its Profile step left no save; the
+/// library still drops its offers.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_ended_before_its_profile_step_asks_no_profile_to_drop()
  {

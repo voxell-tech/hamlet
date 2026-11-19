@@ -1,4 +1,4 @@
-/** What the tests of the agent's branch share. */
+/** Helpers shared by the tests of the agent's branch. */
 import assert from "node:assert/strict";
 import type {
     FilesAnswer,

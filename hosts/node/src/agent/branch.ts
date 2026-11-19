@@ -292,7 +292,7 @@ export function branchOf(
         await c.db.run("UPDATE agent SET filled = ? WHERE id = 1", tip ?? null);
     };
 
-    /** What the filesystem changed since the commit it holds. */
+    /** The filesystem's changes since the commit it holds. */
     const changed = async (): Promise<Change[]> => {
         const walked = await files.walk("", context);
         if (!walked.ok) throw walked.error;

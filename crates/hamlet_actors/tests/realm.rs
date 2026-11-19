@@ -451,7 +451,6 @@ impl Actor for ProfileStandIn {
     }
 }
 
-/// The one version every stand-in profile holds.
 const HELD_VERSION: &str = "v1";
 
 impl Handler<Branch> for ProfileStandIn {
@@ -486,7 +485,6 @@ impl Handler<Branch> for ProfileStandIn {
     }
 }
 
-/// The one file every stand-in profile holds.
 const HELD_FILE: &str = "CHARACTER.md";
 
 impl Handler<Read> for ProfileStandIn {
@@ -532,7 +530,6 @@ const OTHERS_OFFER: u32 = 405;
 /// An offer whose verdict the stand-in library refuses as judged.
 const JUDGED_OFFER: u32 = 406;
 
-/// The text of every `SKILL.md` the stand-in library holds.
 const SKILL_MD: &str =
     "---\nname: well\ndescription: Digs a well.\n---\n";
 

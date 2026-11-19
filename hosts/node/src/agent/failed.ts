@@ -167,10 +167,7 @@ export function emptyAnswer(tell: TellFailed) {
     });
 }
 
-/**
- * What runs once a turn ends, answered or not: an answered one's `afterRun`
- * calls it, and a failed one's follower. It never rejects.
- */
+/** A callback run once a turn ends, answered or not. It never rejects. */
 export type TurnEnded = (conversation: ConversationId) => Promise<void>;
 
 export interface FailedTurns {

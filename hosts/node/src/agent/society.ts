@@ -44,7 +44,7 @@ import {
 
 type Invalid = { readonly invalid: string };
 
-/** What an act may read beside the model's arguments. */
+/** The context an act reads beside the model's arguments. */
 interface Calling {
     readonly peers: Peers;
     readonly api: Pick<ToolExecutionApi, "taskId">;

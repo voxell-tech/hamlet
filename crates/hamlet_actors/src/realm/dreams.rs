@@ -145,7 +145,6 @@ impl Act<Client> for Dream {
     }
 }
 
-/// A dream's steps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     /// The profile checks the dream's folders out.

@@ -38,7 +38,6 @@ use super::peer::When;
 use super::steps::Cx;
 use super::{Realm, calls, dreams, settings};
 
-/// The character the Hand's profile starts from.
 const HAND_CHARACTER: &str =
     include_str!("../../../hamlet_server/assets/hand.md");
 
@@ -47,7 +46,6 @@ const HAND_CHARACTER: &str =
 )]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Kind {
-    /// The Hand's own.
     Hand,
     /// A blank hire's own, made for it alone (H38).
     Blank,
@@ -83,13 +81,10 @@ fn id(profile: ProfileId) -> BindParam {
     BindParam::Integer(i64::from(profile.0))
 }
 
-/// A profile's address as a model names it: `scholar#<id>`.
 pub(super) fn address(profile: ProfileId) -> String {
     format!("scholar#{}", profile.0)
 }
 
-/// How a chief and an agent are shown a profile:
-/// `scholar#<id> (<name>)`.
 pub(super) fn label(profile: ProfileId, name: &str) -> String {
     format!("{} ({name})", address(profile))
 }
@@ -185,7 +180,6 @@ pub(super) async fn apply(
     Ok(Affected::default())
 }
 
-/// The character given to `create_profile`; empty gives none.
 fn given(character: Option<&str>) -> Option<&str> {
     character.filter(|text| !text.is_empty())
 }
@@ -193,7 +187,6 @@ fn given(character: Option<&str>) -> Option<&str> {
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
     type Loaded = ProfileId;
-    /// The profile and its name.
     type Done = (ProfileId, String);
 
     async fn load(

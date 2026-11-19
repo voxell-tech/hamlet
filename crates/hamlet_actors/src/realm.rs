@@ -171,7 +171,6 @@ struct Realm {
 }
 
 impl Realm {
-    /// What keeps `profile`'s purges and its dream's checkout apart.
     fn purging(
         &self,
         profile: ProfileId,

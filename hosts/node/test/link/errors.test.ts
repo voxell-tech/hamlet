@@ -13,7 +13,7 @@ import {
 
 const SKIP = { skip: process.platform !== "linux" };
 
-/** What agent 1 reads when the realm refuses it `tell` as its wrong caller. */
+/** Agent 1's answer when the realm refuses its `tell` as a wrong caller. */
 const REFUSED_TELL = fixture("error/wrong_caller.tell.agent.answer") as {
     readonly message: string;
     readonly metadata: Record<string, unknown>;

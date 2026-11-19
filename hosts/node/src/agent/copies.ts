@@ -1,8 +1,8 @@
 /**
- * What the agent keeps of what the realm owns, the charter, its model and
- * its settings, of what its profile owns, its character, and of what the
- * library owns, its shelves: each with the version its owner gave it. Only
- * `keep` writes the table, and an older or equal version changes nothing.
+ * The agent's copies of the realm's charter, model and settings, of its
+ * profile's character, and of the library's shelves, each with the version
+ * its owner gave it. Only `keep` writes the table, and an older or equal
+ * version changes nothing.
  */
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
@@ -39,8 +39,8 @@ export interface Held {
 }
 
 /**
- * What the agent keeps: the realm's copies, the character its profile
- * gives, and the library's shelves.
+ * The agent's copies: the realm's, the character its profile gives, and the
+ * library's shelves.
  */
 export type Kept = Copies & {
     readonly character?: Versioned<string>;

@@ -292,10 +292,8 @@ where
     }
 }
 
-/// Ends the row that failed for good: its hire or worker ends as
-/// failed, its errand as one that gave no answer, its review as
-/// failed, its parcel as refused, and its dream, its verdict or its
-/// dropping of parts as closed.
+/// Ends the row that failed for good, and closes what it ran as
+/// failed.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,

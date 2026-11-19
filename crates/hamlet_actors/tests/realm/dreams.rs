@@ -36,8 +36,8 @@ const PROFILE_ASKS_WITHIN: Duration = Duration::from_secs(4);
 
 /// The stand-in profile answers half a second past the time the
 /// profile gives its hires, as a purge with one silent hire does. The
-/// realm waits 8 s, so the answer has 3.5 s to spare, over 10× the
-/// tenth of a second the rest of this test takes.
+/// realm waits 8 s, so the answer has 3.5 s to spare, over ten times
+/// the tenth of a second the rest of this test takes.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chiefs_purge_is_answered_from_the_profile_past_its_asks() {
     let (realm, _) = hamlet_with(0).await;

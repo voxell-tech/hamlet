@@ -650,7 +650,8 @@ its own: the realm's `submit`, `place`, `fill` and `copies`, the
 workspace's `finished`, the profile's `moved` and `remove_path`, the
 library's `shelves_changed`, and `pi.wake`, the alarm of its timers. Each action checks
 its sender, reads its message with the lenient readers of `messages.ts`,
-which types every message the agent takes or sends, and answers `null`.
+which types every message the agent takes or sends, and answers `null`,
+but `remove_path`, which answers `removed` or `later`.
 An input is taken once under its id.
 
 At each wake `actor.ts` builds the agent's parts from its peers: the
@@ -682,9 +683,10 @@ workspace or the realm answers with what it kept.
   `submit_skill` offers the skill's files to the library first.
 - `branch.ts` keeps the agent's filesystem and its branch of the
   profile: a fill writes the files at the branch's tip, a save after a
-  turn sends what changed since, and a move or a removal from the
-  profile pulls what the branch holds now, never over a file the agent
-  changed.
+  turn sends what changed since, and a move from the profile pulls
+  what the branch holds now, never over a file the agent changed. A
+  removal from the profile, as a purge sends, removes the path whether
+  or not the agent changed it.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
