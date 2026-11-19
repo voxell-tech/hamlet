@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -15,7 +15,6 @@ import {
     type Calls,
 } from "../../src/actor/actor/mod.ts";
 import type { JsonCompatValue } from "../../src/actor/common/encoding.ts";
-import { decodeCborCompat } from "../../src/actor/serde.ts";
 import { agentActor } from "../../src/agent/actor.ts";
 import type {
     AgentActions,
@@ -24,7 +23,7 @@ import type {
     Submit,
 } from "../../src/agent/messages.ts";
 import { fakeFiles } from "../agent-testing.ts";
-import { fauxModels } from "../testing.ts";
+import { FIXTURES, fauxModels, fixture } from "../testing.ts";
 import { eventually, inFolder, startLocalHost } from "./support.ts";
 
 const CALL: CallOptions = { deadlineMs: 10_000 };
@@ -251,15 +250,10 @@ test("a wrong caller across the host gets message.wrong_caller, and nothing is a
     });
 });
 
-const AGENT_FIXTURES = new URL(
-    "../../../../crates/hamlet_messages/fixtures/agent/",
-    import.meta.url,
-);
+const AGENT_FIXTURES = new URL("agent/", FIXTURES);
 
 function argsOf(name: string): unknown {
-    const [message] = decodeCborCompat<unknown[]>(
-        readFileSync(new URL(`${name}.args.cbor`, AGENT_FIXTURES)),
-    );
+    const [message] = fixture(`agent/${name}.args`) as unknown[];
     return message;
 }
 

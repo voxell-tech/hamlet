@@ -1578,6 +1578,8 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         // `workspace/run.tool` waits until the tool it lists is offered.
         "workspace/list_tools.answer",
         ...fixtures(/^error\/.*\.run\./),
+        // `test/link/errors.test.ts` reads it across the link.
+        "error/wrong_caller.tell.agent.answer",
     ]);
     const all = fixtures(/./);
     assert.deepEqual(
