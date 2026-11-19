@@ -20,7 +20,7 @@ use hamlet_protocol::client::RequestId;
 use super::chiefs::chief;
 use super::{
     FOUR, MAYOR, Realm, THREE, charge, done_to, hamlet_with, limit,
-    may_spend, shown, standing, to, tool, words,
+    may_spend, shown, standing, to, tool, words, worker_shown,
 };
 
 fn allowance(hire: AgentNumber, micros: Option<u64>) -> SetAllowance {
@@ -76,7 +76,7 @@ fn over_allowance(
     Done::Refused {
         why: SpendRefusal::Budget(Budget::OverAllowance {
             hire,
-            name: format!("hire#{}", hire.0),
+            name: shown(hire).name,
             spent_micros: spent,
             allowance_micros: allowance,
         }),
@@ -116,8 +116,8 @@ async fn over_its_allowance_a_hire_is_refused() {
     assert_eq!(spent, over_allowance(MAYOR, 10, 10));
     assert_eq!(
         words(spent),
-        "`hire#2`'s allowance of <$0.01 is spent. Its lead or a \
-         chief can raise it."
+        "`hire#2 (Mayor)`'s allowance of <$0.01 is spent. Its lead \
+         or a chief can raise it."
     );
     assert_eq!(reset, Done::Done);
     assert_eq!(after_reset, over_allowance(MAYOR, 10, 10));
@@ -142,7 +142,7 @@ async fn a_living_worker_spends_its_starters_allowance() {
         assert_eq!(
             started,
             Started::Started {
-                worker: shown(FOUR)
+                worker: worker_shown(FOUR)
             }
         );
 
@@ -151,7 +151,7 @@ async fn a_living_worker_spends_its_starters_allowance() {
         let starter = may_spend(&realm, THREE, &task).await;
         if chief_ends_it {
             let end = End {
-                hire: to(FOUR),
+                hire: Named::Worker { worker: FOUR },
                 why: None,
             };
             assert_eq!(chief(&realm, end).await, Done::Done);
@@ -445,7 +445,10 @@ async fn setting_an_allowance_is_recorded() {
     };
     assert_eq!(
         lines.last().map(|line| line.text.as_str()),
-        Some("- hire#2 set the allowance of hire#3: small")
+        Some(
+            "- hire#2 (Mayor) set the allowance of hire#3 (Hire 1): \
+             small"
+        )
     );
     realm.host.shutdown().await.unwrap();
 }

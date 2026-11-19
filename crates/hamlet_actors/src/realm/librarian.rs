@@ -416,7 +416,7 @@ async fn asker(
         model: documents::model(rows, by)
             .await?
             .map(|chosen| chosen.model),
-        name: record::name_of(rows, by).await?,
+        name: record::agent_name(rows, by).await?.name,
     })
 }
 

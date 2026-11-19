@@ -204,7 +204,10 @@ async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
         task,
         brief,
         tools: serde_json::from_str(&tools)?,
-        ended: ended.as_deref().map(tree::read_how).transpose()?,
+        ended: match ended {
+            Some(ended) => Some(tree::read_how(rows, &ended).await?),
+            None => None,
+        },
         answer,
     })
 }
@@ -217,7 +220,8 @@ pub(super) async fn answer(
     ctx: &Ctx<Realm>,
     worker: AgentNumber,
 ) -> Result<()> {
-    let row = row_of(&Rows::outside(ctx)?, worker).await?;
+    let rows = Rows::outside(ctx)?;
+    let row = row_of(&rows, worker).await?;
     let Some(starter) = row.starter else {
         return Ok(());
     };
@@ -230,7 +234,9 @@ pub(super) async fn answer(
         input: Input::WorkerAnswer {
             from: Author {
                 agent: worker,
-                name: Some(record::agent_name(worker).name),
+                name: Some(
+                    record::agent_name(&rows, worker).await?.name,
+                ),
             },
             text: words(how, row.answer),
             conversation: None,
@@ -416,7 +422,7 @@ impl Act<Agent> for StartWorker {
         };
         Ok(ByAgent::Starter {
             worker: tree::fresh(rows).await?,
-            name: record::name_of(rows, by.0).await?,
+            name: record::agent_name(rows, by.0).await?.name,
             hamlet: starter.hamlet.map(|hamlet| hamlet.id),
             off: tree::tools::off_for(rows, by.0).await?,
             task,
@@ -464,7 +470,7 @@ impl Act<Agent> for StartWorker {
         _made: &Made,
     ) -> Self::Output {
         Started::Started {
-            worker: record::agent_name(worker),
+            worker: record::new_worker(worker),
         }
     }
 }
@@ -545,7 +551,7 @@ impl Act<Client> for StartWorker {
         _made: &Made,
     ) -> Self::Output {
         Started::Started {
-            worker: record::agent_name(worker),
+            worker: record::new_worker(worker),
         }
     }
 }

@@ -5,7 +5,7 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::{
-    Asked, Done, End, HamletId, NeedsChief,
+    Asked, Done, End, HamletId, Named, NeedsChief,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
@@ -19,7 +19,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::chiefs::chief;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, done_to, founded, hires,
-    needs, shown, to, tool, until, words,
+    needs, to, tool, until, words, worker_shown,
 };
 
 const FOLDER: &str = "/work/mill";
@@ -157,10 +157,10 @@ async fn a_revoke_raises_the_reach() {
         (none_left, never_held),
         (
             Done::Refused {
-                why: no_grant("hire#3")
+                why: no_grant("hire#3 (Hire 1)")
             },
             Done::Refused {
-                why: no_grant("hire#2")
+                why: no_grant("hire#2 (Mayor)")
             }
         )
     );
@@ -229,7 +229,7 @@ async fn an_always_on_a_workers_network_wait_gives_it_the_network() {
     assert_eq!(
         started,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
 
@@ -283,7 +283,7 @@ async fn an_end_revokes_the_agents_grants() {
     assert_eq!(
         revoked,
         Done::Refused {
-            why: no_grant("hire#3")
+            why: no_grant("hire#3 (Hire 1)")
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -348,7 +348,7 @@ async fn an_end_revokes_a_workers_grants() {
     assert_eq!(
         started,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
     let asked = NeedsChief {
@@ -359,7 +359,7 @@ async fn an_end_revokes_a_workers_grants() {
     let always = realm.ask(&answer("1", Choice::Always, None)).await;
     assert_eq!(always.unwrap(), Done::Done);
     let end = End {
-        hire: to(FOUR),
+        hire: Named::Worker { worker: FOUR },
         why: None,
     };
     assert_eq!(chief(&realm, end).await, Done::Done);

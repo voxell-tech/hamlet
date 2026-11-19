@@ -8,8 +8,9 @@ use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{Author, Input, InputId, Submit};
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, Enclosed, LetterId, LetterRefusal,
-    Named, Refusable, Reply, ReplyRefusal, Sent, Tell, Waiting,
+    AgentName, AgentRefusal, Ask, Done, Enclosed, LetterId,
+    LetterRefusal, Named, Refusable, Reply, ReplyRefusal, Sent, Tell,
+    Waiting,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
@@ -24,7 +25,7 @@ use super::peer::When;
 use super::roads::{self, End, Ends, Way};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
-use super::{Realm, hire, laid, parcels, record};
+use super::{Realm, hire, laid, parcels};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -336,7 +337,7 @@ impl Route {
 /// A kept letter or question and its receiver.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Sending {
-    to: AgentNumber,
+    to: AgentName,
     route: Route,
 }
 
@@ -420,13 +421,13 @@ impl Written<'_> {
         }
         if let Status::Ended(left) = &to.status {
             return refuse(LetterRefusal::Left {
-                to: record::agent_name(to.agent),
+                to: to.name.clone(),
                 left: left.clone(),
             });
         }
         let Some(way) = ends.way() else {
             return refuse(LetterRefusal::NoRoad {
-                to: record::agent_name(to.agent),
+                to: to.name.clone(),
             });
         };
         if to.status == Status::Hiring {
@@ -434,7 +435,7 @@ impl Written<'_> {
                 row: hire::row(to.agent),
                 refusal: O::refused(AgentRefusal::Act(
                     LetterRefusal::StillHiring {
-                        to: record::agent_name(to.agent),
+                        to: to.name.clone(),
                     },
                 )),
             };
@@ -447,7 +448,7 @@ impl Written<'_> {
         } = Route::of(kept, held, parcel);
         Decision::Change(Decided {
             done: Sending {
-                to: to.agent,
+                to: to.name.clone(),
                 route,
             },
             changes,
@@ -526,9 +527,7 @@ impl Act<Agent> for Paid<Tell> {
     }
 
     fn answer(&self, sending: Sending, _made: &Made) -> Self::Output {
-        Sent::Sent {
-            to: record::agent_name(sending.to),
-        }
+        Sent::Sent { to: sending.to }
     }
 }
 
@@ -583,7 +582,7 @@ impl Act<Agent> for Paid<Ask> {
 
     fn answer(&self, sending: Sending, _made: &Made) -> Self::Output {
         Waiting::Waiting {
-            on: record::agent_name(sending.to),
+            on: sending.to,
             question: sending.route.letter(),
         }
     }
@@ -678,11 +677,13 @@ mod tests {
     use hamlet_messages::realm::{HamletId, Named};
 
     use super::*;
+    use crate::realm::record;
     use crate::realm::roads::End;
 
     fn end(agent: u32, lead: Option<u32>) -> End {
         End {
             agent: AgentNumber(agent),
+            name: record::bare(AgentNumber(agent)),
             status: Status::Live,
             lead: lead.map(AgentNumber),
             hamlet: Some(HamletId("h".into())),
@@ -726,7 +727,7 @@ mod tests {
             .decide(&sender(), letter),
             Decision::Answer(Sent::Refused {
                 why: AgentRefusal::Act(LetterRefusal::NoRoad {
-                    to: record::agent_name(AgentNumber(4))
+                    to: record::bare(AgentNumber(4))
                 })
             })
         );

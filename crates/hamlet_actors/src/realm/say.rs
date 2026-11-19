@@ -13,7 +13,7 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Rows};
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, hire, record, reviews};
+use super::{chiefs, hire, reviews};
 
 pub(super) struct Target {
     lineage: Option<Lineage>,
@@ -74,7 +74,7 @@ impl Act<Client> for Say {
         match &agent.status {
             Status::Ended(left) => Decision::Answer(
                 SayAnswer::refused(SayRefusal::Left {
-                    agent: record::agent_name(agent.agent),
+                    agent: agent.name.clone(),
                     left: left.clone(),
                 }),
             ),
@@ -82,7 +82,7 @@ impl Act<Client> for Say {
                 row: hire::row(agent.agent),
                 refusal: SayAnswer::refused(
                     SayRefusal::StillHiring {
-                        agent: record::agent_name(agent.agent),
+                        agent: agent.name.clone(),
                     },
                 ),
             },
@@ -170,7 +170,7 @@ mod tests {
     use crate::realm::chiefs::limits;
     use crate::realm::testing::Started;
     use crate::realm::tree::Node;
-    use crate::realm::{act, marker};
+    use crate::realm::{act, marker, record};
 
     fn task_7() -> TaskId {
         TaskId::of(&RealmTask("7".to_owned())).unwrap()
@@ -211,6 +211,7 @@ mod tests {
     fn mayor(status: Status, has_purpose: bool) -> Lineage {
         lineage(Node {
             agent: AgentNumber(2),
+            name: record::bare(AgentNumber(2)),
             kind: AgentKind::Hire,
             status,
             lead: None,
@@ -221,6 +222,7 @@ mod tests {
     fn hand() -> Lineage {
         lineage(Node {
             agent: Hand::NUMBER,
+            name: record::bare(Hand::NUMBER),
             kind: AgentKind::Hand,
             status: Status::Live,
             lead: None,
@@ -301,7 +303,7 @@ mod tests {
                 "hi"
             ),
             Decision::Answer(SayAnswer::refused(SayRefusal::Left {
-                agent: record::agent_name(AgentNumber(2)),
+                agent: record::bare(AgentNumber(2)),
                 left,
             }))
         );

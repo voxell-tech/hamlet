@@ -340,7 +340,11 @@ async fn ran(
     rows: &Rows<'_>,
     entries: &[record::Entry],
 ) -> Result<Option<String>> {
-    let name = async |agent| record::name_of(rows, agent).await;
+    let name = async |agent| {
+        record::agent_name(rows, agent)
+            .await
+            .map(|shown| shown.name)
+    };
     for entry in entries {
         return Ok(Some(match entry {
             record::Entry::Hired { hire, .. } => {

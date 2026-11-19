@@ -14,7 +14,8 @@ use hamlet_protocol::client::RequestId;
 
 use super::{
     Callee, MAYOR, Realm, chief_hires, done_to, error_code, found,
-    founded, hire, hired, paid, shown, standing, tool, until,
+    founded, hire, hired, named_as, paid, shown, standing, tool,
+    until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -481,7 +482,7 @@ async fn a_lead_in_another_hamlet_is_refused() {
         "{pond:?}"
     );
     let other = HireRefusal::OtherHamlet {
-        lead: shown(AgentNumber(3)),
+        lead: named_as(3, "hire#3 (Mayor)"),
     };
     assert_eq!(
         by_the_chief,
@@ -490,7 +491,11 @@ async fn a_lead_in_another_hamlet_is_refused() {
     assert_eq!(by_the_hand.unwrap(), refused_to_an_agent(other));
     assert_eq!(
         by_the_mayor.unwrap(),
-        HireAnswer::Refused { why: not_a_lead(3) }
+        HireAnswer::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: named_as(3, "hire#3 (Mayor)"),
+            })
+        }
     );
     realm.host.shutdown().await.unwrap();
 }

@@ -6,8 +6,8 @@ use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, HamletId, Named,
-    Refusable,
+    AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed,
+    HamletId, Named, Refusable,
 };
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
@@ -147,14 +147,8 @@ impl Agreeing {
 /// to.
 #[derive(Serialize, Deserialize)]
 pub(super) enum Outcome {
-    Waiting {
-        mine: AgentNumber,
-        theirs: AgentNumber,
-    },
-    Laid {
-        mine: AgentNumber,
-        theirs: AgentNumber,
-    },
+    Waiting { mine: AgentName, theirs: AgentName },
+    Laid { mine: AgentName, theirs: AgentName },
 }
 
 impl Act<Agent> for AgreeRoad {
@@ -218,15 +212,16 @@ impl Act<Agent> for AgreeRoad {
             return refuse(AgreeRefusal::NotAMayor);
         }
         let (a, b) = (mine.agent.agent, theirs.agent.agent);
+        let names =
+            (mine.agent.name.clone(), theirs.agent.name.clone());
         if agreeing.has_road {
-            return refuse(AgreeRefusal::RoadExists {
-                a: record::agent_name(a),
-                b: record::agent_name(b),
-            });
+            let (a, b) = names;
+            return refuse(AgreeRefusal::RoadExists { a, b });
         }
+        let (mine, theirs) = names;
         let Some(first) = agreeing.agreed_there else {
             return Decision::Change(
-                Decided::new(Outcome::Waiting { mine: a, theirs: b })
+                Decided::new(Outcome::Waiting { mine, theirs })
                     .change(Change::Agree {
                         a,
                         b,
@@ -238,7 +233,7 @@ impl Act<Agent> for AgreeRoad {
         let (here, there) =
             if hamlets[0] == own { (a, b) } else { (b, a) };
         Decision::Change(
-            Decided::new(Outcome::Laid { mine: a, theirs: b })
+            Decided::new(Outcome::Laid { mine, theirs })
                 .change(laid::Change::Agreed {
                     a,
                     b,
@@ -262,14 +257,12 @@ impl Act<Agent> for AgreeRoad {
 
     fn answer(&self, done: Outcome, _made: &Made) -> Self::Output {
         match done {
-            Outcome::Waiting { mine, theirs } => Agreed::Waiting {
-                mine: record::agent_name(mine),
-                theirs: record::agent_name(theirs),
-            },
-            Outcome::Laid { mine, theirs } => Agreed::Laid {
-                mine: record::agent_name(mine),
-                theirs: record::agent_name(theirs),
-            },
+            Outcome::Waiting { mine, theirs } => {
+                Agreed::Waiting { mine, theirs }
+            }
+            Outcome::Laid { mine, theirs } => {
+                Agreed::Laid { mine, theirs }
+            }
         }
     }
 }

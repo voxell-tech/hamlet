@@ -13,7 +13,7 @@ use hamlet_messages::realm::workers::{
 };
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left,
+    AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left, Named,
     SetTools, ToolName,
 };
 use hamlet_messages::workspace::reach::Reach;
@@ -23,8 +23,8 @@ use hamlet_protocol::client::RequestId;
 use super::chiefs::chief;
 use super::{
     Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, done_to,
-    hamlet_with, made, made_until, needs, say, seen_submits, shown,
-    standing, to, tool, until, world,
+    hamlet_with, made, made_until, needs, say, seen_submits,
+    standing, to, tool, until, worker_shown, world,
 };
 
 fn start(brief: &str) -> StartWorker {
@@ -194,7 +194,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                 input: Input::WorkerAnswer {
                     from: Author {
                         agent: FOUR,
-                        name: Some(shown(FOUR).name),
+                        name: Some(worker_shown(FOUR).name),
                     },
                     text: "Counted: 3 files.".to_owned(),
                     conversation: None,
@@ -355,7 +355,7 @@ async fn a_chiefs_worker_answers_in_its_own_conversation() {
     assert_eq!(
         answer,
         Started::Started {
-            worker: shown(THREE)
+            worker: worker_shown(THREE)
         }
     );
     let input = made_until(&realm, THREE).await;
@@ -416,7 +416,7 @@ async fn an_unknown_tool_is_refused() {
         };
         assert_eq!(
             why.to_string(),
-            format!("`hire#3` has no such tool: {name}")
+            format!("`hire#3 (Hire 1)` has no such tool: {name}")
         );
     }
     let answer = realm
@@ -437,7 +437,7 @@ async fn an_unknown_tool_is_refused() {
     assert_eq!(
         answer,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
     let tools = made_until(&realm, FOUR).await.brief.unwrap().tools;
@@ -584,7 +584,7 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
     let ended = chief(
         &realm,
         End {
-            hire: to(FOUR),
+            hire: Named::Worker { worker: FOUR },
             why: None,
         },
     )
@@ -613,7 +613,7 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
             Input::WorkerAnswer {
                 from: Author {
                     agent: FOUR,
-                    name: Some(shown(FOUR).name),
+                    name: Some(worker_shown(FOUR).name),
                 },
                 text: "It gave no answer.".to_owned(),
                 conversation: None,
@@ -637,7 +637,7 @@ async fn a_chief_sets_no_tools_of_a_worker() {
     let set = chief(
         &realm,
         SetTools {
-            hire: to(FOUR),
+            hire: Named::Worker { worker: FOUR },
             off: vec![ToolName {
                 name: "bash".to_owned(),
             }],

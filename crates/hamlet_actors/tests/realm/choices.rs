@@ -266,7 +266,7 @@ async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_hand_takes_no_nickname_and_no_model() {
+async fn the_hand_takes_no_nickname_and_a_chief_sets_its_model() {
     let (realm, _) = hamlet_with(0).await;
 
     let nicknamed = chief(
@@ -291,11 +291,17 @@ async fn the_hand_takes_no_nickname_and_no_model() {
             name: "hand".to_owned(),
         },
     };
-    assert_eq!((&nicknamed, &modelled), (&not_a_hire, &not_a_hire));
+    assert_eq!((&nicknamed, &modelled), (&not_a_hire, &Done::Done));
     assert_eq!(words(nicknamed), "`hand` is not a hire");
+    assert_eq!(nicknames(&realm).await, Vec::new());
     assert_eq!(
-        (nicknames(&realm).await, model_choices(&realm).await),
-        (Vec::new(), Vec::new())
+        model_choices(&realm).await,
+        [(
+            "agent/1".to_owned(),
+            Some("faux::faux-1".to_owned()),
+            None,
+            None
+        )]
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -417,7 +423,8 @@ async fn a_leads_choice_changes_only_the_model() {
     assert_eq!(quiet, before);
     assert_eq!(
         lines().await[before.len()..],
-        ["- hire#2 chose the model of hire#3: cheap"]
+        ["- hire#2 (Mayor) chose the model of hire#3 (Hire 1): \
+          cheap"]
     );
     assert_eq!(
         model_choices(&realm).await,

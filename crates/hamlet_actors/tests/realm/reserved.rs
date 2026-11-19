@@ -19,7 +19,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::asking::chief_task;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    needs, seen_submits, shown, submits_to, to, tool,
+    needs, seen_submits, submits_to, to, tool, worker_shown,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -366,7 +366,10 @@ async fn an_allowed_reserved_end_ends_the_hire() {
         decisions(&realm).await[decided.len()..],
         ["ended".to_owned()]
     );
-    assert_eq!(notices(&realm, MAYOR).await, ["Ended hire#3."]);
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["Ended hire#3 (Hire 1)."]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -406,8 +409,10 @@ async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
     assert_eq!(
         notices(&realm, MAYOR).await,
         [
-            "Laid a road between hire#3 and hire#4.",
-            "Took up the road between hire#3 and hire#4.",
+            "Laid a road between hire#3 (Hire 1) and hire#4 (Hire \
+             2).",
+            "Took up the road between hire#3 (Hire 1) and hire#4 \
+             (Hire 2).",
         ]
     );
     realm.host.shutdown().await.unwrap();
@@ -440,8 +445,9 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
     assert_eq!(choice, "allow");
     let told = notices(&realm, MAYOR).await;
     assert!(
-        told.iter()
-            .any(|told| told.starts_with("`hire#3` has left")),
+        told.iter().any(
+            |told| told.starts_with("`hire#3 (Hire 1)` has left")
+        ),
         "{told:?}"
     );
     realm.host.shutdown().await.unwrap();
@@ -472,7 +478,7 @@ async fn a_workers_act_is_never_reserved() {
     assert_eq!(
         started,
         Started::Started {
-            worker: shown(THREE)
+            worker: worker_shown(THREE)
         }
     );
     let hiring = hiring.unwrap();

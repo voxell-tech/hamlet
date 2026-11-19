@@ -188,11 +188,14 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         };
         let agent = AgentNumber(u32::of(id)?);
         let status = match tree::Status::of_row(
+            rows,
             agent,
             &String::of(status)?,
             Option::of(how)?,
             Option::of(why)?,
-        )? {
+        )
+        .await?
+        {
             tree::Status::Hiring => Status::Hiring,
             tree::Status::Live => Status::Live,
             tree::Status::Ended(left) => Status::Ended { left },

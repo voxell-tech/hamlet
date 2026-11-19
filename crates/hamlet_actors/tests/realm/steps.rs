@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
-    made_until, seen_submits, shown, submits_to, tell, to,
-    told_of_failed, tool, until, words,
+    made_until, seen_submits, submits_to, tell, to, told_of_failed,
+    tool, until, words, worker_shown,
 };
 
 const BLANK: ProfileId = ProfileId(2);
@@ -309,7 +309,8 @@ async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
     realm.host.shutdown().await.unwrap();
 }
 
-const HIRE_3_FAILED: &str = "`hire#3` has left: its task failed: ";
+const HIRE_3_FAILED: &str =
+    "`hire#3 (Hire 1)` has left: its task failed: ";
 
 async fn told_of_a_hire_failing_at(callee: Callee) -> String {
     let (realm, _) = hamlet_with(0).await;
@@ -372,7 +373,7 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
     assert_eq!(
         started,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
     assert_eq!(
@@ -380,7 +381,7 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
         Input::WorkerAnswer {
             from: Author {
                 agent: FOUR,
-                name: Some(shown(FOUR).name),
+                name: Some(worker_shown(FOUR).name),
             },
             text: "It gave no answer.".to_owned(),
             conversation: None,

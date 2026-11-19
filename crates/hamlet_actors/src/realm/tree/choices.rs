@@ -9,7 +9,7 @@ use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::choices::{
     ChoiceRefusal, ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::{HamletId, Named, Refusable};
+use hamlet_messages::realm::{AgentName, HamletId, Named, Refusable};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::Effort;
 
@@ -243,51 +243,36 @@ pub(in crate::realm) async fn nickname(
     .await
 }
 
-/// The agent a choice names, with its name.
-pub(in crate::realm) struct Subject {
-    lineage: Box<Lineage>,
-    name: String,
-}
-
-async fn subject<By: Lead>(
-    rows: &Rows<'_>,
-    by: &By,
-    hire: &Named,
-) -> Result<Option<Subject>> {
-    let Some(lineage) = super::named(rows, by, hire).await? else {
-        return Ok(None);
-    };
-    Ok(Some(Subject {
-        name: record::name_of(rows, lineage.agent.agent).await?,
-        lineage: Box::new(lineage),
-    }))
-}
-
-/// The agent a choice is for, when `by` may make it: a living hire
-/// it leads.
+/// The agent a choice is for, when `by` may make it: a living agent
+/// it leads, a hire when `by` is an agent and of a kind in
+/// `chief_takes` when it is a chief.
 fn led<By: Lead>(
     by: &By,
     named: &Named,
-    subject: Option<Subject>,
-) -> Result<AgentNumber, By::Why<ChoiceRefusal>> {
-    let Some(Subject { lineage, name }) = subject else {
+    lineage: Option<Lineage>,
+    chief_takes: &[AgentKind],
+) -> Result<AgentName, By::Why<ChoiceRefusal>> {
+    let Some(lineage) = lineage else {
         return Err(By::refused(ChoiceRefusal::NoSuchAgent {
             address: named.to_string(),
         }));
     };
-    let agent = lineage.agent.agent;
-    by.leads(&lineage, agent)?;
-    if lineage.agent.kind == AgentKind::Hand {
-        return Err(By::refused(ChoiceRefusal::NotAHire { name }));
+    let takes = match by.by() {
+        record::By::Chief => chief_takes,
+        record::By::Agent(_) => &[AgentKind::Hire],
+    };
+    let name = lineage.agent.name.clone();
+    if !takes.contains(&lineage.agent.kind) {
+        return Err(By::refused(ChoiceRefusal::NotAHire {
+            name: name.name,
+        }));
     }
+    by.leads(&lineage)?;
     match lineage.agent.status {
         Status::Ended(left) => {
-            Err(By::refused(ChoiceRefusal::Left {
-                hire: record::agent_name(agent),
-                left,
-            }))
+            Err(By::refused(ChoiceRefusal::Left { hire: name, left }))
         }
-        Status::Hiring | Status::Live => Ok(agent),
+        Status::Hiring | Status::Live => Ok(name),
     }
 }
 
@@ -307,34 +292,40 @@ fn given_nickname(
 
 impl<By: Lead> Act<By> for SetNickname {
     type Output = By::OnAgent<By::Why<ChoiceRefusal>>;
-    type Loaded = Option<Subject>;
-    type Done = AgentNumber;
+    type Loaded = Option<Lineage>;
+    type Done = AgentName;
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
-    ) -> Result<Option<Subject>> {
-        subject(rows, by, &self.hire).await
+    ) -> Result<Option<Lineage>> {
+        super::named(rows, by, &self.hire).await
     }
 
     fn decide(
         &self,
         by: &By,
-        subject: Option<Subject>,
-    ) -> Decision<AgentNumber, Self::Output> {
+        lineage: Option<Lineage>,
+    ) -> Decision<AgentName, Self::Output> {
         let refuse =
             |why| Decision::Answer(Self::Output::refused(why));
-        let agent = match led(by, &self.hire, subject) {
-            Ok(agent) => agent,
+        let shown = match led(
+            by,
+            &self.hire,
+            lineage,
+            &[AgentKind::Hire, AgentKind::Worker],
+        ) {
+            Ok(shown) => shown,
             Err(why) => return refuse(why),
         };
+        let agent = shown.agent;
         let name = match given_nickname(self.name.as_deref()) {
             Ok(name) => name,
             Err(why) => return refuse(By::refused(why)),
         };
         Decision::Change(
-            Decided::new(agent)
+            Decided::new(shown)
                 .change(Change::Nickname {
                     agent,
                     name,
@@ -348,11 +339,7 @@ impl<By: Lead> Act<By> for SetNickname {
         )
     }
 
-    fn answer(
-        &self,
-        agent: AgentNumber,
-        _made: &Made,
-    ) -> Self::Output {
+    fn answer(&self, agent: AgentName, _made: &Made) -> Self::Output {
         By::on_agent(agent)
     }
 }
@@ -360,7 +347,7 @@ impl<By: Lead> Act<By> for SetNickname {
 pub(in crate::realm) enum Target {
     Agent {
         hire: Named,
-        subject: Option<Subject>,
+        lineage: Option<Box<Lineage>>,
         chief_chose: bool,
     },
     Hamlet {
@@ -372,17 +359,15 @@ pub(in crate::realm) enum Target {
 impl<By: Lead> Act<By> for SetModel {
     type Output = By::OnAgent<By::Why<ChoiceRefusal>>;
     type Loaded = Target;
-    type Done = Option<AgentNumber>;
+    type Done = Option<AgentName>;
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Target> {
         Ok(match &self.of {
             ModelOf::Hire { hire } => {
-                let subject = subject(rows, by, hire).await?;
-                let chief_chose = match &subject {
-                    Some(subject) => {
-                        let of = Chosen::Agent(
-                            subject.lineage.agent.agent,
-                        );
+                let lineage = super::named(rows, by, hire).await?;
+                let chief_chose = match &lineage {
+                    Some(lineage) => {
+                        let of = Chosen::Agent(lineage.agent.agent);
                         rows.value::<String>(
                             "SELECT model_by FROM model_choice \
                              WHERE of = ?1 AND model_by IS NOT NULL",
@@ -395,7 +380,7 @@ impl<By: Lead> Act<By> for SetModel {
                 };
                 Target::Agent {
                     hire: hire.clone(),
-                    subject,
+                    lineage: lineage.map(Box::new),
                     chief_chose,
                 }
             }
@@ -410,11 +395,12 @@ impl<By: Lead> Act<By> for SetModel {
         &self,
         by: &By,
         target: Target,
-    ) -> Decision<Option<AgentNumber>, Self::Output> {
+    ) -> Decision<Option<AgentName>, Self::Output> {
         let refuse = |why| {
             Decision::Answer(Self::Output::refused(By::refused(why)))
         };
         let by_chief = by.by() == record::By::Chief;
+        let mut shown = None;
         let of = match target {
             Target::Hamlet { .. } if !by_chief => {
                 return refuse(ChoiceRefusal::HamletFromAnAgent);
@@ -433,15 +419,28 @@ impl<By: Lead> Act<By> for SetModel {
             } => Chosen::Hamlet(hamlet),
             Target::Agent {
                 hire,
-                subject,
+                lineage,
                 chief_chose,
-            } => match led(by, &hire, subject) {
+            } => match led(
+                by,
+                &hire,
+                lineage.map(|lineage| *lineage),
+                &[
+                    AgentKind::Hand,
+                    AgentKind::Hire,
+                    AgentKind::Worker,
+                ],
+            ) {
                 Ok(hire) if chief_chose && !by_chief => {
                     return refuse(ChoiceRefusal::ChiefChose {
-                        hire: record::agent_name(hire),
+                        hire,
                     });
                 }
-                Ok(agent) => Chosen::Agent(agent),
+                Ok(agent) => {
+                    let chosen = Chosen::Agent(agent.agent);
+                    shown = Some(agent);
+                    chosen
+                }
                 Err(why) => {
                     return Decision::Answer(Self::Output::refused(
                         why,
@@ -454,15 +453,11 @@ impl<By: Lead> Act<By> for SetModel {
         } else {
             (None, None)
         };
-        let agent = match &of {
-            Chosen::Agent(agent) => Some(*agent),
-            Chosen::Hamlet(_) => None,
-        };
         if self.model.is_none() && effort.is_none() && fast.is_none()
         {
-            return Decision::Answer(answered::<By>(agent));
+            return Decision::Answer(answered::<By>(shown));
         }
-        let mut decided = Decided::new(agent);
+        let mut decided = Decided::new(shown);
         if let (Chosen::Agent(agent), Some(_)) = (&of, &self.model) {
             decided = decided.record(record::Entry::Model {
                 agent: *agent,
@@ -481,7 +476,7 @@ impl<By: Lead> Act<By> for SetModel {
 
     fn answer(
         &self,
-        agent: Option<AgentNumber>,
+        agent: Option<AgentName>,
         _made: &Made,
     ) -> Self::Output {
         answered::<By>(agent)
@@ -490,7 +485,7 @@ impl<By: Lead> Act<By> for SetModel {
 
 /// The answer to a model set for `agent`, or for a hamlet when none.
 fn answered<By: Lead>(
-    agent: Option<AgentNumber>,
+    agent: Option<AgentName>,
 ) -> By::OnAgent<By::Why<ChoiceRefusal>> {
     agent.map_or_else(By::hamlet_model, By::on_agent)
 }

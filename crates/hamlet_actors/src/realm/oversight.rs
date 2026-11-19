@@ -254,7 +254,7 @@ impl Act<Client> for Revoke {
             }
         };
         Ok(Holding::Nothing {
-            name: record::name_of(rows, self.agent).await?,
+            name: record::agent_name(rows, self.agent).await?.name,
             to_all,
         })
     }

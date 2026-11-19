@@ -248,7 +248,7 @@ impl<By: RealmWide> Act<By> for Found {
                     .await?
                     .map(tree::Of::Profile)
                     .map_err(|_| mayor),
-                None => Ok(tree::blank(rows, None).await?),
+                None => Ok(tree::blank(rows, None, None).await?),
             },
             hamlet: fresh(),
             mayor: tree::fresh(rows).await?,
@@ -359,7 +359,7 @@ mod tests {
         Founding {
             of: Ok(tree::Of::Blank {
                 profile: ProfileId(2),
-                name: None,
+                name: "Mayor".to_owned(),
             }),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),

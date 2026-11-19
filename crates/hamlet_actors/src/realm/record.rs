@@ -1,7 +1,7 @@
 //! The `decision` table: the record of what was decided, by whom
 //! and why (H17), and its reader.
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
@@ -11,7 +11,6 @@ use hamlet_messages::realm::hamlets::{
 use hamlet_messages::realm::{
     AgentName, HamletId, HamletRefusal, Refusable, Tier,
 };
-use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::act::{Act, Decision, Unchanged};
@@ -19,7 +18,6 @@ use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
-use super::tree::choices;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -331,10 +329,12 @@ async fn lines(
     for (kind, agent, by, why) in kept {
         let who = match by.as_str() {
             CHIEF => CHIEF.to_owned(),
-            agent => name_of(rows, numbered(agent)?).await?,
+            agent => agent_name(rows, numbered(agent)?).await?.name,
         };
         let subject = match agent {
-            Some(agent) => name_of(rows, AgentNumber(agent)).await?,
+            Some(agent) => {
+                agent_name(rows, AgentNumber(agent)).await?.name
+            }
             None => String::new(),
         };
         let why = why
@@ -354,15 +354,36 @@ fn numbered(by: &str) -> Result<AgentNumber> {
     }
 }
 
-/// `agent` as chiefs and agents are shown it: the Hand as `hand`, any
-/// other agent as `hire#<n>`.
-pub(super) fn agent_name(agent: AgentNumber) -> AgentName {
-    let name = if agent == Hand::NUMBER {
-        "hand".to_owned()
-    } else {
-        format!("hire#{}", agent.0)
+/// `agent` as chiefs and agents are shown it: its address, and beside
+/// it a hire's nickname or else its profile's name, or a worker's
+/// nickname, as in `hire#3 (Mira)`.
+pub(super) async fn agent_name(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<AgentName> {
+    let (kind, nickname, profile) = rows
+        .row::<(String, Option<String>, Option<String>)>(
+            "SELECT agent.kind, nickname.name, profile.name FROM \
+             agent LEFT JOIN nickname ON nickname.agent = agent.id \
+             LEFT JOIN hire ON hire.agent = agent.id LEFT JOIN \
+             profile ON profile.id = hire.profile WHERE agent.id = \
+             ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .with_context(|| format!("agent {} has no row", agent.0))?;
+    let kind = change::from_case_name(kind)?;
+    let address = address_of(agent, kind)?;
+    let beside = match kind {
+        AgentKind::Hire => nickname.or(profile),
+        AgentKind::Worker => nickname,
+        AgentKind::Hand | AgentKind::Errand => None,
     };
-    AgentName { agent, name }
+    let name = match beside {
+        Some(beside) => format!("{address} ({beside})"),
+        None => address,
+    };
+    Ok(AgentName { agent, name })
 }
 
 /// `agent`'s address, as in `hire#3`.
@@ -370,26 +391,47 @@ pub(super) async fn address(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<String> {
+    address_of(agent, super::tree::kind_of(rows, agent).await?)
+}
+
+fn address_of(agent: AgentNumber, kind: AgentKind) -> Result<String> {
     let n = agent.0;
-    Ok(match super::tree::kind_of(rows, agent).await? {
+    Ok(match kind {
         AgentKind::Hand => "hand".to_owned(),
         AgentKind::Hire => format!("hire#{n}"),
-        AgentKind::Worker => format!("worker#{n}"),
+        AgentKind::Worker => new_worker(agent).name,
         AgentKind::Errand => bail!("errand {n} has no address"),
     })
 }
 
-/// How `agent` is shown to chiefs and agents: its address, with its
-/// nickname beside it when it has one, as in `hire#3 (Spade)`.
-pub(super) async fn name_of(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<String> {
-    let address = address(rows, agent).await?;
-    Ok(match choices::nickname(rows, agent).await? {
-        Some(nickname) => format!("{address} ({nickname})"),
-        None => address,
-    })
+/// A hire just made of a profile named `profile`.
+pub(super) fn new_hire(
+    hire: AgentNumber,
+    profile: &str,
+) -> AgentName {
+    AgentName {
+        agent: hire,
+        name: format!("hire#{} ({profile})", hire.0),
+    }
+}
+
+/// `agent` shown by its address alone, as `hand` or `hire#3`.
+#[cfg(test)]
+pub(super) fn bare(agent: AgentNumber) -> AgentName {
+    let name = if agent == hamlet_messages::sender::Hand::NUMBER {
+        "hand".to_owned()
+    } else {
+        format!("hire#{}", agent.0)
+    };
+    AgentName { agent, name }
+}
+
+/// A worker just started, which no one has nicknamed yet.
+pub(super) fn new_worker(worker: AgentNumber) -> AgentName {
+    AgentName {
+        agent: worker,
+        name: format!("worker#{}", worker.0),
+    }
 }
 
 /// What a decision of `kind` did, after who made it.

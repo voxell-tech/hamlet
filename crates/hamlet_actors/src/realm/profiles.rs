@@ -93,10 +93,17 @@ pub(super) async fn label_of(
     rows: &Rows<'_>,
     profile: ProfileId,
 ) -> Result<String> {
+    Ok(label(profile, &name_of(rows, profile).await?))
+}
+
+pub(super) async fn name_of(
+    rows: &Rows<'_>,
+    profile: ProfileId,
+) -> Result<String> {
     let kept = row(rows, profile).await?.with_context(|| {
         format!("profile {} has no row", profile.0)
     })?;
-    Ok(label(profile, &kept.name))
+    Ok(kept.name)
 }
 
 /// `named`, when it is a shared profile: one a hire may be made of,

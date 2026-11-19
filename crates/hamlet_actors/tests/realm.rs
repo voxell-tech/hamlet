@@ -90,6 +90,8 @@ mod letters;
 mod librarian;
 #[path = "realm/living.rs"]
 mod living;
+#[path = "realm/names.rs"]
+mod names;
 #[path = "realm/oversight.rs"]
 mod oversight;
 #[path = "realm/parcels.rs"]
@@ -1278,14 +1280,33 @@ fn sent<R>(to: AgentNumber) -> Sent<R> {
     Sent::Sent { to: shown(to) }
 }
 
-/// `agent` as the realm names it to chiefs and agents.
+/// `agent` as the realm names it to chiefs and agents, when the
+/// mayor and each hire after it were made blank and unnamed in one
+/// hamlet: the mayor as `Mayor`, the hires as `Hire 1` on.
 fn shown(agent: AgentNumber) -> AgentName {
-    let name = if agent == Hand::NUMBER {
-        "hand".to_owned()
-    } else {
-        format!("hire#{}", agent.0)
+    let name = match agent.0 {
+        1 => "hand".to_owned(),
+        2 => "hire#2 (Mayor)".to_owned(),
+        n => format!("hire#{n} (Hire {})", n - 2),
     };
     AgentName { agent, name }
+}
+
+/// The worker `worker`, which no one has nicknamed, as the realm
+/// names it.
+fn worker_shown(worker: AgentNumber) -> AgentName {
+    AgentName {
+        agent: worker,
+        name: format!("worker#{}", worker.0),
+    }
+}
+
+/// `agent` shown as `name`.
+fn named_as(agent: u32, name: &str) -> AgentName {
+    AgentName {
+        agent: AgentNumber(agent),
+        name: name.to_owned(),
+    }
 }
 
 /// The copies `agent` was pushed, oldest first.

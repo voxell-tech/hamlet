@@ -333,7 +333,7 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
             panic!("a letter: {letters:?}");
         };
         assert_eq!(author.agent, from);
-        assert!(text.contains(" hire#4: "), "{text}");
+        assert!(text.contains(" hire#4 (Hire 2): "), "{text}");
         assert!(text.contains("to share the notes"), "{text}");
     }
     realm.host.shutdown().await.unwrap();
@@ -368,7 +368,9 @@ async fn a_road_request_gives_a_lead_with_no_purpose_one() {
     assert_eq!(asked, Done::Done);
     assert_eq!(
         purpose_of(&realm, THREE).await.as_deref(),
-        Some("I ask for a road to hire#2: to report the well")
+        Some(
+            "I ask for a road to hire#2 (Mayor): to report the well"
+        )
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -717,8 +719,10 @@ async fn a_road_keeps_its_reasons_in_the_record() {
     assert_eq!(
         texts.rev().take(2).collect::<Vec<_>>(),
         [
-            "- hire#2 took up a road from hire#3: done",
-            "- hire#2 laid a road from hire#3: share",
+            "- hire#2 (Mayor) took up a road from hire#3 (Hire 1): \
+             done",
+            "- hire#2 (Mayor) laid a road from hire#3 (Hire 1): \
+             share",
         ]
     );
     realm.host.shutdown().await.unwrap();

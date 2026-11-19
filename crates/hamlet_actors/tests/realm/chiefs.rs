@@ -404,7 +404,10 @@ async fn a_seat_records_its_reason() {
     };
     assert_eq!(
         lines.last().map(|line| line.text.as_str()),
-        Some("- chief gave the office to hire#3: cy leads now")
+        Some(
+            "- chief gave the office to hire#3 (Hire 1): cy leads \
+             now"
+        )
     );
     realm.host.shutdown().await.unwrap();
 }
