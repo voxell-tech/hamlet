@@ -14,7 +14,7 @@ use crate::layout::Layout;
 use crate::society::{chiefs, hand};
 
 /// The Hand's character in a new realm.
-const HAND: &str = include_str!("../assets/hand.md");
+pub(crate) const HAND: &str = include_str!("../assets/hand.md");
 
 pub(crate) struct Realm {
     layout: Layout,
