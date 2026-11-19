@@ -4,30 +4,34 @@
 //! library.
 
 use std::fmt::Display;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Library};
 use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::library::{
-    OfferId, ReadShelves, Verdict, VerdictRefusal,
+    OfferId, OfferRead, ReadOffer, ReadShelves, Verdict,
+    VerdictRefusal,
 };
 use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
 use hamlet_messages::realm::workers::Ended;
-use hamlet_messages::realm::{Done, Standing};
+use hamlet_messages::realm::{Done, Standing, Tool, ToolCall as _};
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ErrandNumber,
+    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
 };
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Called, Decided, Decision, ToolAct};
-use super::calls::{self, Delivery};
+use super::act::{self, Act, Called, Decided, Decision, ToolAct};
+use super::calls::{self, Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, TaskId};
 use super::workers::errands::{self, ErrandInput, Purpose};
-use super::{documents, profiles, record, tree};
+use super::{Realm, callers, documents, profiles, record, tree};
 
 /// The librarian's part before every errand, in today's words.
 const ROLE: &str =
@@ -40,6 +44,10 @@ const ROLE: &str =
 const LOOKING: &str = "Name the skills on the shelves that do what \
                        is asked, with their exact commands. If \
                        nothing fits, say so.";
+
+/// The most characters of an offer's `SKILL.md` its judge is shown,
+/// as today.
+const SHOWN: usize = 6000;
 
 const JUDGING: &str = "Answer with ACCEPT or REFUSE as your first \
                        word, then say why in a sentence or two.";
@@ -237,19 +245,33 @@ async fn notice(
         return Ok(Affected::default());
     }
     Ok(Affected {
-        deliveries: vec![Delivery::Line {
-            to: asker,
-            submit: Submit {
-                id: InputId(format!("librarian/{}", errand.get())),
-                task: Some(task.on_the_wire()),
-                input: Input::Notice {
-                    text,
-                    conversation: conversation.map(ConversationId),
-                },
-            },
-        }],
+        deliveries: vec![told(
+            asker,
+            InputId(format!("librarian/{}", errand.get())),
+            Some(task.on_the_wire()),
+            conversation.map(ConversationId),
+            text,
+        )],
         ..Affected::default()
     })
+}
+
+/// The notice that gives `to` the librarian's `text`.
+fn told(
+    to: AgentNumber,
+    id: InputId,
+    task: Option<RealmTask>,
+    conversation: Option<ConversationId>,
+    text: String,
+) -> Delivery {
+    Delivery::Line {
+        to,
+        submit: Submit {
+            id,
+            task,
+            input: Input::Notice { text, conversation },
+        },
+    }
 }
 
 /// The changes the end of errand `errand` makes.
@@ -370,17 +392,6 @@ impl ToolAct<Agent> for AskLibrarian {
     }
 }
 
-impl ToolAct<Agent> for SubmitSkill {
-    type Run = Librarian<Self>;
-
-    fn run(self, called: &Called) -> Librarian<Self> {
-        Librarian {
-            called: called.clone(),
-            act: self,
-        }
-    }
-}
-
 /// What a librarian's errand is started with, for its asker.
 pub(super) struct Asker {
     n: ErrandNumber,
@@ -414,14 +425,16 @@ async fn asker(
 
 impl<T: Send + Sync + 'static> Librarian<T> {
     /// The changes that start the librarian's errand for `by`, asked
-    /// to do `asked` with `text`, judging what was `offered`.
-    fn start(
+    /// to do `asked` with `text`, judging what was `offered`; the act
+    /// made `done`.
+    fn start<D>(
         &self,
+        done: D,
         by: &Agent,
         asker: Asker,
         (asked, text): (&str, String),
         offered: Option<Offered>,
-    ) -> Decision<(), Done<Standing>> {
+    ) -> Decision<D, Done<Standing>> {
         let input = ErrandInput {
             instructions: Some(asked.to_owned()),
             text,
@@ -430,7 +443,7 @@ impl<T: Send + Sync + 'static> Librarian<T> {
             cap: errands::UNCAPPED,
         };
         Decision::Change(
-            Decided::new(())
+            Decided::new(done)
                 .change(errands::start(
                     Purpose::Librarian,
                     input,
@@ -467,7 +480,7 @@ impl Act<Agent> for Librarian<AskLibrarian> {
     ) -> Decision<(), Self::Output> {
         let text =
             format!("{} asks: {}", asker.name, self.act.question);
-        self.start(by, asker, (LOOKING, text), None)
+        self.start((), by, asker, (LOOKING, text), None)
     }
 
     fn answer(&self, (): (), _made: &calls::Made) -> Self::Output {
@@ -475,56 +488,193 @@ impl Act<Agent> for Librarian<AskLibrarian> {
     }
 }
 
-impl Act<Agent> for Librarian<SubmitSkill> {
+/// An agent's `submit_skill`, with what the library holds of the
+/// offer it names.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct Submitted {
+    asked: SubmitSkill,
+    read: OfferRead,
+}
+
+/// An agent's `submit_skill`, run once the library has read its
+/// offer.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Submitting(pub Tool<SubmitSkill>);
+
+impl Action for Submitting {
+    type Output = <Tool<SubmitSkill> as Action>::Output;
+    const NAME: &'static str = <Tool<SubmitSkill> as Action>::NAME;
+}
+
+impl Message for Submitting {
+    type To = <Tool<SubmitSkill> as Message>::To;
+    type From = <Tool<SubmitSkill> as Message>::From;
+}
+
+impl Handler<Submitting> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Submitting(tool): Submitting,
+    ) -> Result<Done<Standing>> {
+        let name = Submitting::NAME;
+        let by = sender(&ctx, &tool)?;
+        let read = self
+            .peers
+            .call(
+                &Library,
+                &ReadOffer {
+                    offer: tool.act.offer,
+                },
+                When::BeforeAnswer,
+            )
+            .await?;
+        let (key, called, asked) = act::called(&by, name, tool)?;
+        let act = Librarian {
+            called: called.clone(),
+            act: Submitted { asked, read },
+        };
+        let ran = act::run_called(
+            &self,
+            &ctx,
+            by,
+            (key, called),
+            name,
+            SubmitSkill::TOOL,
+            act,
+        )
+        .await?;
+        callers::unreserved(name, ran)
+    }
+}
+
+/// What a submitted offer comes to.
+pub(super) enum Judging {
+    /// An errand judges it already.
+    Already,
+    /// It is not judged: its caller is told these words.
+    Unjudged(String),
+    /// An errand of `asker` is to judge `offered`, asked `text`.
+    Judge {
+        asker: Asker,
+        offered: Offered,
+        text: String,
+    },
+}
+
+impl Act<Agent> for Librarian<Submitted> {
     type Output = Done<Standing>;
-    /// The asker, unless an errand judges the offer already.
-    type Loaded = Option<Asker>;
-    type Done = ();
+    type Loaded = Judging;
+    /// The words its caller is told at once, when the offer is not
+    /// judged.
+    type Done = Option<String>;
 
     async fn load(
         &self,
         by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<Option<Asker>> {
+    ) -> Result<Judging> {
+        let Submitted { asked, read } = &self.act;
+        let (skill, reason, paths, skill_md) = match read {
+            OfferRead::Offered {
+                agent,
+                skill,
+                reason,
+                paths,
+                skill_md,
+            } if *agent == by.0 => (skill, reason, paths, skill_md),
+            OfferRead::Offered { .. } => {
+                let why = format!(
+                    "the offer {} is not yours",
+                    asked.offer.0
+                );
+                return Ok(Judging::Unjudged(unjudged(
+                    &asked.skill,
+                    &why,
+                )));
+            }
+            OfferRead::Refused { why } => {
+                return Ok(Judging::Unjudged(unjudged(
+                    &asked.skill,
+                    why,
+                )));
+            }
+        };
         let judging = rows
             .value::<i64>(
                 "SELECT 1 FROM librarian WHERE offer = ?1",
-                vec![BindParam::Integer(self.act.offer.0.into())],
+                vec![BindParam::Integer(asked.offer.0.into())],
             )
             .await?
             .is_some();
         if judging {
-            return Ok(None);
+            return Ok(Judging::Already);
         }
-        Ok(Some(asker(rows, by.0, &self.called).await?))
+        let asker = asker(rows, by.0, &self.called).await?;
+        let shown = skill_md.chars().take(SHOWN).collect::<String>();
+        let text = format!(
+            "{} offers the skill `{skill}`: {reason}\n\nIts files: \
+             {}\n\nIts SKILL.md:\n{shown}",
+            asker.name,
+            paths.join(", ")
+        );
+        Ok(Judging::Judge {
+            asker,
+            offered: Offered {
+                offer: asked.offer,
+                skill: skill.clone(),
+            },
+            text,
+        })
     }
 
     fn decide(
         &self,
         by: &Agent,
-        asker: Option<Asker>,
-    ) -> Decision<(), Self::Output> {
-        let Some(asker) = asker else {
-            return Decision::Answer(Done::Done);
-        };
-        let SubmitSkill {
-            offer,
-            skill,
-            reason,
-        } = &self.act;
-        let text = format!(
-            "{} offers the skill `{skill}`: {}",
-            asker.name,
-            reason.as_deref().unwrap_or_default()
-        );
-        let offered = Offered {
-            offer: *offer,
-            skill: skill.clone(),
-        };
-        self.start(by, asker, (JUDGING, text), Some(offered))
+        judging: Judging,
+    ) -> Decision<Option<String>, Self::Output> {
+        match judging {
+            Judging::Already => Decision::Answer(Done::Done),
+            Judging::Unjudged(words) => {
+                Decision::Change(Decided::new(Some(words)))
+            }
+            Judging::Judge {
+                asker,
+                offered,
+                text,
+            } => self.start(
+                None,
+                by,
+                asker,
+                (JUDGING, text),
+                Some(offered),
+            ),
+        }
     }
 
-    fn answer(&self, (): (), _made: &calls::Made) -> Self::Output {
+    fn deliveries(
+        &self,
+        by: &Agent,
+        words: &Option<String>,
+    ) -> Calls {
+        let Some(text) = words.clone() else {
+            return Calls::none();
+        };
+        Calls::after_answer(told(
+            by.0,
+            InputId(format!("submit_skill/{}", self.called.call.0)),
+            self.called.task.clone(),
+            self.called.conversation.clone(),
+            text,
+        ))
+    }
+
+    fn answer(
+        &self,
+        _: Option<String>,
+        _made: &calls::Made,
+    ) -> Self::Output {
         Done::Done
     }
 }

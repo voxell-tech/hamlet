@@ -12,6 +12,7 @@ mod dreams;
 mod hire;
 mod laid;
 mod lanes;
+mod leftovers;
 mod letters;
 mod librarian;
 mod marker;
@@ -66,7 +67,7 @@ use hamlet_messages::realm::oversight::{
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
     AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
-    SubmitSkill, TagProfile,
+    TagProfile,
 };
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
@@ -258,7 +259,7 @@ impl Actor for Realm {
         profiles::Purging,
         Asked<Dream>,
         Unreserved<Tool<AskLibrarian>>,
-        Unreserved<Tool<SubmitSkill>>,
+        librarian::Submitting,
     );
     type Events = ();
     type ConnParams = Option<Caller>;

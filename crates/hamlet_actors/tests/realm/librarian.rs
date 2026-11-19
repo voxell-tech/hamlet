@@ -8,8 +8,8 @@ use hamlet_messages::workspace::{
 };
 
 use super::{
-    Callee, NO_OFFER, Realm, THREE, hamlet_with, made_until,
-    seen_submits, standing, until,
+    Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, Realm, SKILL_MD,
+    THREE, hamlet_with, made_until, seen_submits, standing, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -174,7 +174,10 @@ async fn the_librarians_verdict_reaches_the_library_then_the_offerer()
     );
     assert_eq!(
         brief.text,
-        "hire#3 offers the skill `well`: for digging"
+        format!(
+            "hire#3 offers the skill `well`: for digging\n\nIts \
+             files: SKILL.md, dig.sh\n\nIts SKILL.md:\n{SKILL_MD}"
+        )
     );
     ended(
         &realm,
@@ -268,7 +271,10 @@ async fn a_verdict_the_library_refuses_is_told_to_the_offerer() {
     let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, THREE);
     realm
-        .tool(THREE, &in_conversation("s1", submit(NO_OFFER, "well")))
+        .tool(
+            THREE,
+            &in_conversation("s1", submit(JUDGED_OFFER, "well")),
+        )
         .await
         .unwrap();
     made_until(&realm, errand(0)).await;
@@ -282,11 +288,90 @@ async fn a_verdict_the_library_refuses_is_told_to_the_offerer() {
     )
     .await;
 
-    let unjudged =
-        "The librarian could not judge `well`: there is no offer 404";
+    let unjudged = "The librarian could not judge `well`: the offer \
+                    406 was judged already";
     assert_eq!(
         seen_submits(&realm, THREE, 1).await,
         [notice(0, unjudged, &task)]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_offer_not_the_callers_own_or_not_held_is_not_judged() {
+    let (realm, _) = hamlet_with(1).await;
+
+    for (call, offer) in [("s1", OTHERS_OFFER), ("s2", NO_OFFER)] {
+        let answer = realm
+            .tool(
+                THREE,
+                &in_conversation(call, submit(offer, "well")),
+            )
+            .await
+            .unwrap();
+        assert_eq!(answer, Done::Done);
+    }
+
+    let told = |call: &str, why: &str| Submit {
+        id: InputId(format!("submit_skill/{call}")),
+        task: None,
+        input: Input::Notice {
+            text: format!(
+                "The librarian could not judge `well`: {why}"
+            ),
+            conversation: Some(ConversationId("c".to_owned())),
+        },
+    };
+    let mut seen = seen_submits(&realm, THREE, 2).await;
+    seen.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+    assert_eq!(
+        seen,
+        [
+            told("s1", "the offer 405 is not yours"),
+            told("s2", "there is no offer 404"),
+        ]
+    );
+    assert!(super::made(&realm, errand(0)).is_none(), "no errand");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The asker's agent fails the first notice of each as an actor not
+/// ready; the realm gives it again a second later.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_librarians_answer_and_verdict_are_told_again_until_taken()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    let asked = realm
+        .tool(THREE, &in_conversation("a1", ask("Which skill digs?")))
+        .await
+        .unwrap();
+    let submitted = realm
+        .tool(THREE, &in_conversation("s1", submit(7, "well")))
+        .await
+        .unwrap();
+    assert_eq!((asked, submitted), (Done::Done, Done::Done));
+    made_until(&realm, errand(1)).await;
+
+    realm.seen.fail_once(Callee::Submit, THREE);
+    let said = Ended::Answered {
+        text: "Use dig.".to_owned(),
+    };
+    ended(&realm, 0, said).await;
+    let says = notice(0, "The librarian says: Use dig.", &task);
+    assert_eq!(
+        seen_submits(&realm, THREE, 1).await,
+        std::slice::from_ref(&says)
+    );
+
+    realm.seen.fail_once(Callee::Submit, THREE);
+    let judged = Ended::Answered {
+        text: "ACCEPT Clear and useful.".to_owned(),
+    };
+    ended(&realm, 1, judged).await;
+    assert_eq!(
+        seen_submits(&realm, THREE, 2).await,
+        [says, notice(1, TOOK, &task)]
     );
     realm.host.shutdown().await.unwrap();
 }

@@ -21,8 +21,8 @@ use super::super::calls::{Calls, Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, laid, oversight, record, roads, steps, tasks,
-    waits, workers,
+    chiefs, hire, laid, leftovers, oversight, record, roads, steps,
+    tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
 
@@ -428,6 +428,13 @@ pub(in crate::realm) async fn end(
     for hire in moved {
         set_lead(writer, hire, lead).await?;
     }
+    let left = steps::apply(
+        writer,
+        steps::Change::Begin {
+            row: leftovers::row(agent),
+        },
+    )
+    .await?;
     let revoked = oversight::apply(
         writer,
         oversight::Change::Revoke {
@@ -439,6 +446,7 @@ pub(in crate::realm) async fn end(
     Ok(Affected {
         places,
         reaches: revoked.reaches.into_iter().chain([agent]).collect(),
+        begun: left.begun,
         ..Affected::seen(
             [Part::Agents, Part::Reaches]
                 .into_iter()

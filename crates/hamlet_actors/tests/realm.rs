@@ -21,13 +21,14 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::library::{
-    ReadShelves, ShelfList, Skill, Verdict, VerdictRefusal,
+    DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
+    ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
-    Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
-    Purge, PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1,
-    Tag, TagAnswer, TagRefusal,
+    BadPath, Branch, CommitId, DreamEnd, DropSaveParts, Edit,
+    EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
+    Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
+    Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -80,6 +81,8 @@ mod found;
 mod laid;
 #[path = "realm/lead.rs"]
 mod lead;
+#[path = "realm/leftovers.rs"]
+mod leftovers;
 #[path = "realm/letters.rs"]
 mod letters;
 #[path = "realm/librarian.rs"]
@@ -136,6 +139,14 @@ const FOUR: AgentNumber = AgentNumber(4);
 enum Callee {
     Branch,
     Create,
+    /// The library's drop of an agent's offers under way, by the
+    /// agent's number.
+    DropOfferParts,
+    /// A profile's drop of an agent's save under way, by the agent's
+    /// number.
+    DropSaveParts,
+    /// A profile's edit, by the profile's number.
+    Edit,
     /// A profile's end of a dream, by the profile's number.
     EndDream,
     Fill,
@@ -172,6 +183,8 @@ struct Seen {
     /// when it came.
     prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
     dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    save_drops: Mutex<Vec<(ProfileId, DropSaveParts)>>,
+    offer_drops: Mutex<Vec<DropOfferParts>>,
     /// Each verdict the library was called with, failed calls too.
     verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
@@ -410,6 +423,7 @@ impl Actor for ProfileStandIn {
         Purge,
         PrepareDream,
         EndDream,
+        DropSaveParts,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -512,6 +526,16 @@ const NOT_A_PATH: &str = "../out";
 /// An offer the stand-in library does not hold.
 const NO_OFFER: u32 = 404;
 
+/// An offer of agent 9's in the stand-in library.
+const OTHERS_OFFER: u32 = 405;
+
+/// An offer whose verdict the stand-in library refuses as judged.
+const JUDGED_OFFER: u32 = 406;
+
+/// The text of every `SKILL.md` the stand-in library holds.
+const SKILL_MD: &str =
+    "---\nname: well\ndescription: Digs a well.\n---\n";
+
 impl Handler<Edit> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -520,6 +544,9 @@ impl Handler<Edit> for ProfileStandIn {
     ) -> anyhow::Result<Done<EditRefusal>> {
         let path = edit.path.clone();
         self.seen.edits.lock().unwrap().push((self.profile, edit));
+        self.seen
+            .called(Callee::Edit, AgentNumber(self.profile.0))
+            .await?;
         Ok(if path == NOT_A_PATH {
             Done::Refused {
                 why: BadPath::NotAPath { path }.into(),
@@ -652,7 +679,7 @@ struct LibraryStandIn {
 #[async_trait::async_trait]
 impl Actor for LibraryStandIn {
     type Input = ();
-    type Actions = (ReadShelves, Verdict);
+    type Actions = (ReadShelves, ReadOffer, Verdict, DropOfferParts);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -684,6 +711,63 @@ impl Handler<ReadShelves> for LibraryStandIn {
     }
 }
 
+impl Handler<ReadOffer> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        ReadOffer { offer }: ReadOffer,
+    ) -> anyhow::Result<OfferRead> {
+        let agent = match offer.0 {
+            NO_OFFER => {
+                return Ok(OfferRead::Refused {
+                    why: NoOffer::NoSuchOffer { offer },
+                });
+            }
+            OTHERS_OFFER => AgentNumber(9),
+            _ => THREE,
+        };
+        Ok(OfferRead::Offered {
+            agent,
+            skill: "well".to_owned(),
+            reason: "for digging".to_owned(),
+            paths: vec!["SKILL.md".to_owned(), "dig.sh".to_owned()],
+            skill_md: SKILL_MD.to_owned(),
+        })
+    }
+}
+
+impl Handler<DropOfferParts> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropOfferParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropOfferParts, dropped.agent)
+            .await?;
+        self.seen.offer_drops.lock().unwrap().push(dropped);
+        Ok(())
+    }
+}
+
+impl Handler<DropSaveParts> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropSaveParts,
+    ) -> anyhow::Result<()> {
+        self.seen
+            .called(Callee::DropSaveParts, dropped.agent)
+            .await?;
+        self.seen
+            .save_drops
+            .lock()
+            .unwrap()
+            .push((self.profile, dropped));
+        Ok(())
+    }
+}
+
 impl Handler<Verdict> for LibraryStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -695,8 +779,8 @@ impl Handler<Verdict> for LibraryStandIn {
         self.seen
             .called(Callee::Verdict, AgentNumber(offer.0))
             .await?;
-        Ok(if offer.0 == NO_OFFER {
-            Done::refused(VerdictRefusal::NoSuchOffer { offer })
+        Ok(if offer.0 == JUDGED_OFFER {
+            Done::refused(VerdictRefusal::Judged { offer })
         } else {
             Done::Done
         })

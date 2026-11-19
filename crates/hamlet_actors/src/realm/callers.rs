@@ -445,14 +445,28 @@ where
     ) -> Result<<T as ToolCall>::Answer> {
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
-        match act::run_tool(&self, &ctx, by, name, tool.0).await? {
-            Ok(answer) => Ok(answer),
-            Err(Stood::Standing(why)) => {
-                Ok(Refusable::refused(why.into()))
-            }
-            Err(Stood::Gate(why)) => {
-                bail!("{name} met a chief's gate: {why}")
-            }
+        unreserved(
+            name,
+            act::run_tool(&self, &ctx, by, name, tool.0).await?,
+        )
+    }
+}
+
+/// The answer of the society tool `name`, which no chief reserves, to
+/// a caller that `ran` it or whose standing refused it.
+pub(super) fn unreserved<O>(
+    name: &str,
+    ran: Result<O, Stood>,
+) -> Result<O>
+where
+    O: Refusable,
+    O::Why: From<Standing>,
+{
+    match ran {
+        Ok(answer) => Ok(answer),
+        Err(Stood::Standing(why)) => Ok(O::refused(why.into())),
+        Err(Stood::Gate(why)) => {
+            bail!("{name} met a chief's gate: {why}")
         }
     }
 }

@@ -427,7 +427,7 @@ fn purge(
     let path = unit.message().path.clone();
     let mut writer = unit.write();
     let branches = writer.purge(&path)?;
-    files::drop_saves(&writer)?;
+    files::drop_saves(&writer, None)?;
     // A repeat past a kill rewrites nothing, and still tells every
     // agent and keeps every pin.
     hires::repin(&mut writer)?;
