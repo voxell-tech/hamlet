@@ -22,8 +22,11 @@ exists. It runs pi with `HAMLET_NODE`, else the `node` beside it, else
 Node on `PATH`.
 
 pi's optional packages are left out: they carry Anthropic's Claude
-program, whose terms are Anthropic's, so a released pi offers no Claude
+program, whose terms are Anthropic's
 ([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)).
+When a chief first signs in to Claude, pi downloads them from npm into
+the realm's `claude-program/`: the files its `package-lock.json` names
+for that computer, each checked against the lockfile's integrity.
 
 ## The launcher
 

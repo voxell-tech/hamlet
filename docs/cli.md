@@ -18,8 +18,9 @@ The CLI selects the server by `HAMLET_SERVER_BIN`, then a sibling
 `HAMLET_PI_HARNESS`, then the one shipped beside it, then its build
 checkout's, and refuses to start when that entry does not exist.
 `HAMLET_NODE` selects Node. A release leaves out the optional packages
-that carry Claude's program, so pi offers Claude only where `npm ci`
-installed them; `HAMLET_CLAUDE_EXECUTABLE` selects another one.
+that carry Claude's program, and pi downloads them into the realm when
+Claude is first signed in to; `HAMLET_CLAUDE_EXECUTABLE` selects another
+program.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
 running server, and opens a window. The realm's folder is `HAMLET_HOME`,
