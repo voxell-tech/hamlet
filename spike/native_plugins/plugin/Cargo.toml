@@ -11,7 +11,8 @@ publish = false
 crate-type = ["dylib"]
 
 [dependencies]
-# Named so that Bevy's derives find it. No features: the SDK's are the
-# only ones, and one more would make a Bevy the app does not have.
+# The code reaches Bevy through `hamlet_sdk`. Bevy is named only so that
+# its derives find it when cargo builds the plugin. No features: the SDK's
+# are the only ones, and one more would make a Bevy the app does not have.
 bevy = { version = "=0.20.1", default-features = false }
 hamlet_sdk = { path = "../sdk/hamlet_sdk" }

@@ -2,11 +2,11 @@
 
 use std::sync::atomic::Ordering;
 
-use bevy::asset::embedded_asset;
-use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
-use bevy::shader::ShaderRef;
-use bevy::tasks::ComputeTaskPool;
+use hamlet_sdk::bevy::asset::embedded_asset;
+use hamlet_sdk::bevy::prelude::*;
+use hamlet_sdk::bevy::render::render_resource::AsBindGroup;
+use hamlet_sdk::bevy::shader::ShaderRef;
+use hamlet_sdk::bevy::tasks::ComputeTaskPool;
 use hamlet_sdk::{LOADS, Probe, Probes};
 
 /// The plugin's entry, which the window calls once at start.
