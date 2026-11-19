@@ -18,7 +18,7 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Fill, Place, PlaceVersion, Submit,
+    AgentInput, Fill, Input, InputId, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
@@ -1294,6 +1294,30 @@ async fn seen_submits(
     })
     .await;
     submits_to(realm, agent)
+}
+
+/// What `lead` is told of its hire `hire`, which ended as it was
+/// hired.
+async fn told_of_failed(
+    realm: &Realm,
+    lead: AgentNumber,
+    hire: AgentNumber,
+) -> String {
+    let id = InputId(format!("hire/{}", hire.0));
+    let told = || {
+        submits_to(realm, lead)
+            .into_iter()
+            .find(|seen| seen.id == id)
+    };
+    until(
+        &format!("agent {} is told of hire {}", lead.0, hire.0),
+        || told().is_some(),
+    )
+    .await;
+    match told().map(|seen| seen.input) {
+        Some(Input::Notice { text, .. }) => text,
+        other => panic!("not a notice: {other:?}"),
+    }
 }
 
 fn to(agent: AgentNumber) -> Named {

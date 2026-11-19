@@ -286,13 +286,13 @@ pub(super) async fn push_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     pushes: Vec<Push>,
-) -> usize {
-    let mut failed = 0;
+) -> Vec<anyhow::Error> {
+    let mut failed = Vec::new();
     for made in pushes {
         let shown = format!("{made:?}");
         if let Err(error) = push(realm, ctx, made).await {
             tracing::warn!(push = shown, "a push failed: {error:#}");
-            failed += 1;
+            failed.push(error);
         }
     }
     failed

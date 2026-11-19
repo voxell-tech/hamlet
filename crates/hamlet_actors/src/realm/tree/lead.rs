@@ -7,14 +7,14 @@ use anyhow::{Context as _, Result};
 use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::Profile;
-use hamlet_messages::agent::AgentKind;
+use hamlet_messages::agent::{AgentKind, Input, InputId, Submit};
 use hamlet_messages::profile::{VersionName, Versions};
 use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
     Asked, Done, End, EndRefusal, HamletId, Hire, HireAnswer,
-    HireRefusal, HowEnded, LeadRefusal, Named, OnlyAHire, Refusable,
-    Seat, Tool, ToolCall,
+    HireRefusal, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
+    Refusable, Seat, Tool, ToolCall,
 };
 use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
@@ -495,21 +495,50 @@ fn hire_ending(
     .collect()
 }
 
-/// The changes that end `hire`, whose steps failed for good. None
-/// for the Hand, a mayor or a hire that ended: an end refuses them.
+/// The changes that end `hire`, whose step failed for good as its
+/// callee said `why`, and its lead's notice of it in the words an
+/// end of it is refused with. None for the Hand, a mayor or a hire
+/// that ended: an end refuses them.
 pub(in crate::realm) async fn failed(
     rows: &Rows<'_>,
     hire: AgentNumber,
-) -> Result<Vec<change::Change>> {
+    why: String,
+) -> Result<(Vec<change::Change>, Calls)> {
     let lineage = super::lineage_of(rows, hire).await?;
     if lineage.agent.kind == AgentKind::Hand
         || lineage.is_mayor()
         || matches!(lineage.agent.status, Status::Ended(_))
     {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Calls::none()));
     }
+    let left = Left {
+        how: HowEnded::Failed,
+        why: Some(why),
+    };
+    let calls = match lineage.agent.lead {
+        Some(lead) if super::left(rows, lead).await?.is_none() => {
+            let text = EndRefusal::Left {
+                hire,
+                left: left.clone(),
+            }
+            .to_string();
+            Calls::after_answer(Delivery::Line {
+                to: lead,
+                submit: Submit {
+                    id: InputId(format!("hire/{}", hire.0)),
+                    task: None,
+                    input: Input::Notice {
+                        text,
+                        conversation: None,
+                    },
+                },
+            })
+        }
+        _ => Calls::none(),
+    };
     let workers = workers::end_with(rows, hire).await?;
-    Ok(hire_ending(hire, HowEnded::Failed, None, workers))
+    let changes = hire_ending(hire, left.how, left.why, workers);
+    Ok((changes, calls))
 }
 
 fn how_of(by: record::By) -> HowEnded {

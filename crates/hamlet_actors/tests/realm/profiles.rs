@@ -22,7 +22,7 @@ use super::reserved::{in_turn, notices, waits};
 use super::steps::hiring_and_how;
 use super::{
     Callee, MAYOR, Realm, THREE, answer, founded, hamlet_with, hire,
-    hired, tell, to, tool, until, words,
+    hired, tell, to, told_of_failed, tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";
@@ -132,6 +132,11 @@ async fn a_hire_at_a_version_its_profile_lacks_ends_as_failed() {
     let (hiring, how) = hiring_and_how(&realm, THREE).await;
     assert_eq!(hiring, 0);
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
+    assert_eq!(
+        told_of_failed(&realm, MAYOR, THREE).await,
+        "`hire#3` has left: its task failed: `scholar#3` has no \
+         version `v9`"
+    );
     realm.host.shutdown().await.unwrap();
 }
 

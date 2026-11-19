@@ -10,7 +10,7 @@ use hamlet_messages::workspace::AgentNumber;
 use super::change::Change;
 use super::peer::{self, When};
 use super::steps::{Cx, Kind, StepId, Steps};
-use super::{documents, place, profiles, tasks, tree, versions};
+use super::{documents, place, profiles, tasks, tree};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
@@ -110,10 +110,7 @@ pub(super) async fn run(
                 .await?;
         }
         Step::Reach => {
-            cx.commit(vec![
-                versions::Change::WantReach(agent).into(),
-            ])
-            .await?;
+            cx.want_reach(agent).await?;
         }
         Step::Live => {
             return Ok(vec![tree::Change::Live { agent }.into()]);

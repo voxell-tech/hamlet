@@ -18,7 +18,7 @@ use super::peer::{self, Peers, When};
 use super::workers::errands;
 use super::{
     Realm, calls, dreams, drop_parts, hire, librarian, parcels,
-    reviews, tree, workers,
+    reviews, tree, versions, workers,
 };
 
 #[derive(
@@ -220,18 +220,24 @@ impl Cx<'_> {
         .await)
     }
 
+    /// Commits `changes`, then makes the pushes they decided, and
+    /// gives the errors of those that failed.
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
-    ) -> Result<()> {
+    ) -> Result<Vec<anyhow::Error>> {
         let pushes =
             change::commit(self.realm, self.ctx, changes).await?;
-        let failed =
-            calls::push_all(self.realm, self.ctx, pushes).await;
-        if failed > 0 {
-            bail!("{failed} of the commit's pushes failed");
-        }
-        Ok(())
+        Ok(calls::push_all(self.realm, self.ctx, pushes).await)
+    }
+
+    /// Commits the reach `agent` wants and carries it to the
+    /// workspace, which may refuse it.
+    pub async fn want_reach(&self, agent: AgentNumber) -> Result<()> {
+        let failed = self
+            .commit(vec![versions::Change::WantReach(agent).into()])
+            .await?;
+        failed.into_iter().next().map_or(Ok(()), Err)
     }
 }
 
@@ -254,7 +260,9 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
         walked
     })
     .await;
-    if refused && let Err(error) = end_failed(realm, ctx, row).await {
+    if let Some(why) = refused
+        && let Err(error) = end_failed(realm, ctx, row, why).await
+    {
         tracing::warn!(?row, "ending a failed row: {error:#}");
     }
 }
@@ -262,12 +270,12 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
 /// Runs `attempt`, after `wait` when one is given, and again after
 /// each failure in passing, waiting [`FIRST_RETRY`] doubled after
 /// each up to [`LAST_RETRY`], until it is done or the realm stops.
-/// Returns whether the callee refused it, which ends it.
+/// Returns the callee's words when it refused it, which ends it.
 pub(super) async fn retried<F>(
     ctx: &Ctx<Realm>,
     mut wait: Option<Duration>,
     mut attempt: impl FnMut() -> F,
-) -> bool
+) -> Option<String>
 where
     F: Future<Output = Result<()>>,
 {
@@ -275,15 +283,15 @@ where
     loop {
         if let Some(wait) = wait {
             tokio::select! {
-                () = stopping.cancelled() => return false,
+                () = stopping.cancelled() => return None,
                 () = tokio::time::sleep(wait) => {}
             }
         }
         let Err(error) = attempt().await else {
-            return false;
+            return None;
         };
         if peer::refused(&error) {
-            return true;
+            return Some(error.root_cause().to_string());
         }
         wait =
             Some(wait.map_or(FIRST_RETRY, |wait| {
@@ -298,14 +306,13 @@ async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     row: StepId,
+    why: String,
 ) -> Result<()> {
     let agent = u32::try_from(row.n).map(AgentNumber);
     let tx = change::Transaction::begin(ctx).await?;
     let rows = tx.rows();
     let (changes, calls) = match row.kind {
-        Kind::Hire => {
-            (tree::failed(&rows, agent?).await?, Calls::none())
-        }
+        Kind::Hire => tree::failed(&rows, agent?, why).await?,
         Kind::Worker => (
             workers::failed(&rows, agent?).await?,
             Calls::after_answer(Delivery::WorkerAnswer(agent?)),
@@ -429,7 +436,10 @@ async fn walk<S: Steps>(
         if next + 1 == S::ALL.len() {
             changes.push(Change::Close { row: id }.into());
         }
-        cx.commit(changes).await?;
+        let failed = cx.commit(changes).await?;
+        if !failed.is_empty() {
+            bail!("{} of the commit's pushes failed", failed.len());
+        }
     }
 }
 
