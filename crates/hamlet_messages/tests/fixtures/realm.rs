@@ -1688,11 +1688,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 from: author(),
                 text: "The report".into(),
                 files: vec![
-                    parcel_file(
-                        0,
-                        "from-hire-12/report.md",
-                        2_048,
-                    ),
+                    parcel_file(0, "from-hire-12/report.md", 2_048),
                     parcel_file(
                         1,
                         "from-hire-12/figures/plot.png",
