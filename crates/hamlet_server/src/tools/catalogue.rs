@@ -17,6 +17,7 @@ pub(crate) enum Society {
     ReadBudget,
     Object,
     ProposeChannel,
+    ProposeFolder,
     CreateProfile,
     MakeProfile,
     AddAgent,
@@ -39,7 +40,6 @@ pub(crate) enum Society {
     MoveHamlet,
     SetTier,
     SetFolder,
-    SetMode,
     ResetBudget,
     EditLimits,
     ReadRecord,
@@ -195,6 +195,8 @@ pub(crate) const FACTS: [Facts; 67] = {
         facts(S::Object, "object", Chats),
         facts(S::ProposeChannel, "propose_channel", HamletAgents)
             .doing(Doing::Await),
+        facts(S::ProposeFolder, "propose_folder", HamletAgents)
+            .doing(Doing::Await),
         facts(S::CreateProfile, "create_profile", Parents)
             .doing(Doing::Think),
         facts(S::MakeProfile, "make_profile", Parents)
@@ -229,7 +231,6 @@ pub(crate) const FACTS: [Facts; 67] = {
         facts(S::SetTier, "set_tier", Hand).reserved(Reserve::Hand),
         facts(S::SetFolder, "set_folder", Hand)
             .reserved(Reserve::Hand),
-        facts(S::SetMode, "set_mode", Hand).reserved(Reserve::Hand),
         facts(S::ResetBudget, "reset_budget", Hand)
             .reserved(Reserve::Hand),
         facts(S::EditLimits, "edit_limits", Hand)

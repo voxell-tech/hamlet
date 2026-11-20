@@ -455,8 +455,8 @@ fn limits_wire() -> Value {
 
 fn hamlet_wire() -> Value {
     json!({
-        "id": "home", "name": "Home", "folder": null, "before": ["/tmp/old"],
-        "mode": "manual", "modeWords": "Commands wait for a chief.", "limits": limits_wire(),
+        "id": "home", "name": "Home", "folders": ["/tmp/work", "/tmp/docs"], "before": ["/tmp/old"],
+        "supervised": true, "limits": limits_wire(),
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0.25,
             "spent": {"tokens": 100, "micros": 1250000, "ms": 200},
@@ -469,7 +469,7 @@ fn hamlet_wire() -> Value {
 
 fn hand_wire() -> Value {
     json!({
-        "id": 1, "kind": "hand", "address": "hand", "name": null, "hamlet": null, "profile": null,
+        "id": 1, "kind": "hand", "access": "auto", "address": "hand", "name": null, "hamlet": null, "profile": null,
         "parent": null, "pin": null, "purpose": "", "since": 0, "lead": false, "model": "faux/test",
         "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
@@ -482,7 +482,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hamlet", "address": "agent#2", "name": "Fen", "hamlet": "home", "profile": 1,
+        "id": 2, "kind": "hamlet", "access": "accept-edits", "address": "agent#2", "name": "Fen", "hamlet": "home", "profile": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "lead": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
@@ -548,7 +548,7 @@ fn state_wire() -> Value {
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
         "realm": "/home/chief/.hamlet", "hand": 1, "profiles": [profile_wire()], "limits": {"channelsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
-        "actions": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
+        "actions": [{"name": "permissions", "usage": "<address> <supervised|accept-edits|auto|full>", "description": "How far an agent goes without asking"}],
         "terminals": [terminal_wire()]
     })
 }

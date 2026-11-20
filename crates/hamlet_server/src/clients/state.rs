@@ -15,11 +15,12 @@ use crate::conversations::{errands, inputs, models};
 use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
+use crate::society::access::Access;
 use crate::society::addresses::{self, wire_agent, wire_profile};
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::channels::{self, ChannelKind, Way};
 use crate::society::city::{self, Arrival, Profile};
-use crate::society::hamlets::{self, Hamlet, Mode};
+use crate::society::hamlets::{self, Hamlet};
 use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
@@ -206,6 +207,10 @@ fn agent_view(
         }),
         _ => None,
     };
+    let access = match found.kind {
+        AgentKind::Hamlet => hamlet_agents::get(db, id)?.access,
+        _ => Access::Auto,
+    };
     let own_model = match found.kind {
         AgentKind::Hand => hand::model(db)?,
         AgentKind::Hamlet => hamlet_agents::get(db, id)?.model,
@@ -253,6 +258,7 @@ fn agent_view(
                 id,
                 crate::calls::society::library::LIBRARIAN,
             )?,
+        access: access.wire(),
         effort: found.effort.map(Effort::wire),
         faulted: shown.is_some_and(|a| a.faulted),
         fast: found.fast,
@@ -373,10 +379,8 @@ fn hamlet_view(
             chiefs_shown.push(found.name);
         }
     }
-    let before = hamlets::folders(db, &place.id)?
-        .into_iter()
-        .filter(|folder| Some(folder) != place.folder.as_ref())
-        .collect();
+    let before = hamlets::folders(db, &place.id)?;
+    let folders = hamlets::working(db, &place.id)?;
     Ok(protocol::Hamlet {
         at: match (place.site_x, place.site_z) {
             (Some(x), Some(z)) => Some(protocol::TownAt { x, z }),
@@ -385,28 +389,13 @@ fn hamlet_view(
         before,
         budget: spend::report(db, Some(&place.id), at)?,
         chiefs: chiefs_shown,
-        folder: place.folder.clone(),
+        folders,
         id: place.id.to_string(),
         limits: hamlet_limits(&own),
         lead: wire_agent(place.lead),
-        mode: match place.mode {
-            Mode::Manual => protocol::HamletMode::Manual,
-            Mode::Auto => protocol::HamletMode::Auto,
-        },
-        mode_words: match (place.mode, place.folder.is_some()) {
-            (_, false) => "Agents work in their worktrees; no \
-                           folder is chosen."
-                .into(),
-            (Mode::Manual, true) => "Agents wait for your approval \
-                                     before each edit and command \
-                                     in the folder."
-                .into(),
-            (Mode::Auto, true) => "Agents edit the folder and run \
-                                   commands without approval."
-                .into(),
-        },
         name: place.name.clone(),
         channels: channels_shown,
+        supervised: hamlet_agents::any_supervised(db, &place.id)?,
         tier: u64::try_from(place.tier).unwrap_or_default(),
     })
 }

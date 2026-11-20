@@ -574,16 +574,9 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 .boxed()
                         };
                         // Open on the front; the others are pages.
-                        let open = [
-                            padded(
-                                crate::folder::section(hamlet)
-                                    .boxed(),
-                            ),
-                            padded(
-                                crate::folder::approvals(hamlet)
-                                    .boxed(),
-                            ),
-                        ];
+                        let open = [padded(
+                            crate::folder::section(hamlet).boxed(),
+                        )];
                         let rows =
                             Part::PAGES.into_iter().map(|part| {
                                 nav_row(

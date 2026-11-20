@@ -18,6 +18,8 @@ fn worktree(scratch: &Scratch) -> Place {
     Place {
         worktree,
         folder: None,
+        also: Vec::new(),
+        unconfined: false,
         realm: scratch.to_path_buf(),
         shared: Vec::new(),
     }
@@ -50,6 +52,8 @@ async fn a_tool_makes_the_worktree_it_works_in() {
     let place = Place {
         worktree: scratch.join("workers/7"),
         folder: None,
+        also: Vec::new(),
+        unconfined: false,
         realm: scratch.to_path_buf(),
         shared: Vec::new(),
     };

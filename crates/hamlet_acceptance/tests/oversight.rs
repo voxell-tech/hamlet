@@ -178,7 +178,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
         s.chief.hamlet_id("docs")
     ));
     s.chief
-        .command(ada, &format!("/folder {}", folder.display()))
+        .command(ada, &format!("/folder add {}", folder.display()))
         .await;
     let now = chat(ada);
     s.chief.open(&now).await;
@@ -234,9 +234,9 @@ async fn an_auto_hamlet_works_in_its_folder_without_asking() {
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     s.chief
-        .command(ada, &format!("/folder {}", folder.display()))
+        .command(ada, &format!("/folder add {}", folder.display()))
         .await;
-    s.chief.command(ada, "/mode auto").await;
+    s.chief.command(ada, "/permissions agent#2 auto").await;
     let now = chat(ada);
     s.chief.open(&now).await;
     s.chief.tell(ada, "Write.").await;

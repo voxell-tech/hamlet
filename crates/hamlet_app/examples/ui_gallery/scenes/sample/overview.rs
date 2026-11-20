@@ -84,10 +84,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut hamlet = hamlet_testing::realm::hamlet(id, first);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.folder = Some("/projects/orchard-almanac".into());
-            hamlet.mode_words = "Agents ask before each edit and \
-                                 command on the server."
-                .into();
+            hamlet.folders = vec!["/projects/orchard-almanac".into()];
+            hamlet.supervised = true;
             hamlet.budget.lines = vec![
                 "Today: $1.25 of $5.00".into(),
                 "Model time: 4 minutes".into(),

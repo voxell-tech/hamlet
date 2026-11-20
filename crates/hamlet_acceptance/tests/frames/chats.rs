@@ -107,7 +107,7 @@ async fn approval() {
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 2))
         .await;
     c.open(2).await;
-    c.say(2, &format!("/folder {}", folder.display())).await;
+    c.say(2, &format!("/folder add {}", folder.display())).await;
     c.send(json!({"type":"say","to":2,"text":"Run the command and write in manual mode."})).await;
     let mut preview = Value::Null;
     for danger in ["command", "edit"] {
@@ -127,7 +127,7 @@ async fn approval() {
         ops.iter()
             .any(|o| o["op"] == "close" && o["change"] == preview)
     })));
-    c.say(2, "/mode auto").await;
+    c.say(2, "/permissions agent#2 auto").await;
     c.finish("approval").await;
 }
 

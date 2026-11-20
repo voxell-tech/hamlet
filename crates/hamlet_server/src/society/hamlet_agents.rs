@@ -12,6 +12,7 @@ use hamlet_store::schema::{
 };
 use serde_json::json;
 
+use super::access::Access;
 use super::agents::{self, AgentKind, EndHow};
 use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
@@ -37,6 +38,7 @@ pub(crate) struct HamletAgent {
     pub model_reason: Option<String>,
     pub allowance: Option<Micros>,
     pub allowance_by: Option<Actor>,
+    pub access: Access,
     pub merged_into: Option<AgentId>,
     pub ending_dream: bool,
 }
@@ -139,6 +141,11 @@ pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
         }
     };
     let agent = agents::make(cx, AgentKind::Hamlet)?;
+    // It starts as its parent is, and a lead supervised.
+    let access = match spec.parent {
+        Some(parent) => get(cx.db, parent)?.access.handed_down(),
+        None => Access::Supervised,
+    };
     diesel::insert_into(hamlet_agent::table)
         .values((
             hamlet_agent::agent.eq(agent),
@@ -147,6 +154,7 @@ pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
             hamlet_agent::parent.eq(spec.parent),
             hamlet_agent::purpose.eq(spec.purpose.trim()),
             hamlet_agent::pin.eq(&pin),
+            hamlet_agent::access.eq(access),
         ))
         .execute(cx.db)?;
     jobs::add(cx, &Job::Worktree { agent })?;
@@ -598,6 +606,48 @@ pub(crate) fn set_model(
             .subject(id)
             .detail(json!({ "model": model })),
     )?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
+}
+
+/// Whether a living agent of `hamlet` waits for a chief before it
+/// edits a folder or runs a command.
+pub(crate) fn any_supervised(
+    db: &mut Db,
+    hamlet: &HamletId,
+) -> Result<bool> {
+    let held = [Access::Supervised, Access::AcceptEdits];
+    Ok(hamlet_agent::table
+        .inner_join(agent::table)
+        .filter(hamlet_agent::hamlet.eq(hamlet))
+        .filter(agent::ended_at.is_null())
+        .filter(hamlet_agent::access.eq_any(held))
+        .count()
+        .get_result::<i64>(db)?
+        > 0)
+}
+
+/// Sets how far the living agent `id` goes without a chief's answer
+/// (C21).
+pub(crate) fn set_access(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    access: Access,
+) -> Done<()> {
+    let agent = get(cx.db, id)?;
+    done!(require_living(cx.db, id));
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::access.eq(access))
+        .execute(cx.db)?;
+    if agent.access != access {
+        record::keep(
+            cx,
+            Decision::new(DecisionKind::Access, "")
+                .hamlet(&agent.hamlet)
+                .subject(id)
+                .detail(json!({ "access": access })),
+        )?;
+    }
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }

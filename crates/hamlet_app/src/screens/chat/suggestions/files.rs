@@ -144,11 +144,7 @@ fn index_in(world: &mut World, hub: Entity) {
 fn hamlet_folder(world: &World, hub: Entity) -> Option<PathBuf> {
     let agent = crate::convo::of(world, hub)?.agent;
     let hamlet = world.get::<LivesIn>(agent)?.0;
-    world
-        .get::<Works>(hamlet)?
-        .folder
-        .as_ref()
-        .map(PathBuf::from)
+    world.get::<Works>(hamlet)?.folder().map(PathBuf::from)
 }
 
 /// The files and folders under `folder`, nearest first, without the

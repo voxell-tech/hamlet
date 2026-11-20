@@ -57,9 +57,18 @@ enum Kind {
     /// Insecure mode: commands run as the server's account does.
     #[cfg(windows)]
     Insecure,
+    /// Full access: one agent's commands run as the server's account
+    /// does, on any platform, because a chief gave it (ADR 0018).
+    Unconfined,
 }
 
 impl Sandbox {
+    /// No confinement, for the commands of an agent a chief gave full
+    /// access.
+    pub fn unconfined() -> Self {
+        Self(Kind::Unconfined)
+    }
+
     /// The sandbox `isolation` asks for on this platform, refused on
     /// a platform without one (C18).
     pub fn open(isolation: Isolation) -> Result<Self, NoSandbox> {
@@ -88,6 +97,7 @@ impl Sandbox {
             Kind::Seatbelt => "seatbelt",
             #[cfg(windows)]
             Kind::Insecure => "insecure",
+            Kind::Unconfined => "unconfined",
         }
     }
 
@@ -97,6 +107,8 @@ impl Sandbox {
             Kind::Bwrap | Kind::Seatbelt => false,
             #[cfg(windows)]
             Kind::Insecure => true,
+            // The server's own sandbox is not this one.
+            Kind::Unconfined => false,
         }
     }
 
@@ -108,6 +120,7 @@ impl Sandbox {
             Kind::Seatbelt => (&seatbelt::PROBE[..], seatbelt::HINT),
             #[cfg(windows)]
             Kind::Insecure => return Ok(()),
+            Kind::Unconfined => return Ok(()),
         };
         #[expect(
             clippy::disallowed_methods,
@@ -150,16 +163,8 @@ impl Sandbox {
             Kind::Bwrap => bwrap::command(policy, argv, cwd, tmp),
             Kind::Seatbelt => seatbelt::command(policy, argv, tmp),
             #[cfg(windows)]
-            Kind::Insecure => {
-                let mut env = policy.env.clone();
-                for name in ["TEMP", "TMP"] {
-                    env.insert(name.into(), tmp.to_owned());
-                }
-                Confined {
-                    argv: argv.to_vec(),
-                    env,
-                }
-            }
+            Kind::Insecure => unconfined(policy, argv, tmp),
+            Kind::Unconfined => unconfined(policy, argv, tmp),
         }
     }
 
@@ -178,6 +183,22 @@ impl Sandbox {
             confined.argv.retain(|word| word != "--new-session");
         }
         confined
+    }
+}
+
+/// `argv` with the policy's environment and no confinement.
+fn unconfined(
+    policy: &Policy,
+    argv: &[String],
+    tmp: &str,
+) -> Confined {
+    let mut env = policy.env.clone();
+    for name in ["TEMP", "TMP", "TMPDIR"] {
+        env.insert(name.into(), tmp.to_owned());
+    }
+    Confined {
+        argv: argv.to_vec(),
+        env,
     }
 }
 

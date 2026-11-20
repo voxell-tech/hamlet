@@ -242,6 +242,12 @@ pub enum Glyph {
     Split,
     /// A window with a strip down its right: a panel's list.
     Sidebar,
+    /// A closed padlock: nothing runs without the chief.
+    Lock,
+    /// A shield with a check: runs in the sandbox.
+    ShieldCheck,
+    /// A shield struck through: no sandbox.
+    ShieldOff,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -270,7 +276,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 76] = [
+    pub const ALL: [Glyph; 79] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -347,6 +353,9 @@ impl Glyph {
         Glyph::Terminal,
         Glyph::Split,
         Glyph::Sidebar,
+        Glyph::Lock,
+        Glyph::ShieldCheck,
+        Glyph::ShieldOff,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -855,6 +864,25 @@ impl Glyph {
             Glyph::Sidebar => &[
                 Round(1.75, 2.75, 14.25, 13.25, 1.5),
                 Line(10.25, 2.75, 10.25, 13.25),
+            ],
+            Glyph::Lock => &[
+                Round(3.5, 7.25, 12.5, 14.0, 1.5),
+                Arc(8.0, 5.5, 2.5, 180.0, 360.0),
+                Line(5.5, 5.5, 5.5, 7.25),
+                Line(10.5, 5.5, 10.5, 7.25),
+                Dot(8.0, 10.6, 1.0),
+            ],
+            Glyph::ShieldCheck => &[
+                Path(&[[3.0, 4.0], [8.0, 2.0], [13.0, 4.0]]),
+                Curve(3.0, 4.0, 2.5, 11.0, 8.0, 14.25),
+                Curve(13.0, 4.0, 13.5, 11.0, 8.0, 14.25),
+                Path(&[[5.75, 8.0], [7.25, 9.5], [10.25, 6.5]]),
+            ],
+            Glyph::ShieldOff => &[
+                Path(&[[3.0, 4.0], [8.0, 2.0], [13.0, 4.0]]),
+                Curve(3.0, 4.0, 2.5, 11.0, 8.0, 14.25),
+                Curve(13.0, 4.0, 13.5, 11.0, 8.0, 14.25),
+                Line(2.75, 2.5, 13.25, 13.5),
             ],
         }
     }

@@ -136,7 +136,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             world
                 .get_mut::<Works>(hamlet)
                 .expect("its work")
-                .folder = Some(folder.to_string_lossy().into_owned());
+                .folders = vec![folder.to_string_lossy().into_owned()];
             if scene == Scene::Pictures {
                 use bevy::render::render_resource::{
                     Extent3d, TextureDimension, TextureFormat,

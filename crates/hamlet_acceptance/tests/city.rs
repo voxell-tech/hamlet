@@ -34,9 +34,9 @@ async fn founds_a_hamlet_under_a_new_profile_then_an_existing_one() {
     let hamlet = s.chief.hamlet("docs").unwrap();
     assert_eq!(hamlet.lead, ada);
     assert_eq!(hamlet.chiefs, ["chief"]);
-    assert_eq!(hamlet.mode, HamletMode::Manual);
     let lead = s.chief.agent("agent#2").unwrap();
     assert!(lead.lead);
+    assert_eq!(lead.access, Access::Supervised);
     assert_eq!(lead.kind, AgentKind::Hamlet);
     assert_eq!(lead.parent, Some(hand));
     assert_eq!(lead.purpose, "keep the docs");
@@ -223,24 +223,62 @@ async fn a_chief_runs_a_hamlet_by_commands() {
         .command(ada, &format!("/move-hamlet {docs} 3 4"))
         .await;
     s.chief.command(ada, "/tier 100").await;
-    s.chief.command(ada, "/mode auto").await;
-    s.chief.command(ada, &format!("/folder {folder}")).await;
+    s.chief.command(ada, "/permissions agent#2 auto").await;
+    s.chief.command(ada, "/permissions agent#3 auto").await;
+    s.chief.command(ada, &format!("/folder add {folder}")).await;
     s.chief
         .until("the hamlet's settings", |c| {
             c.hamlet("The Docs").is_some_and(|h| {
                 h.name == "The Docs"
                     && h.tier == 100
-                    && h.mode == HamletMode::Auto
-                    && h.folder.as_deref() == Some(folder.as_str())
+                    && !h.supervised
+                    && h.folders == [folder.clone()]
                     && h.at == Some(TownAt { x: 3.0, z: 4.0 })
             })
         })
         .await;
     s.chief.rejected(ada, "/tier 7").await;
     let reply =
-        s.chief.rejected(ada, "/folder /no/such/folder").await;
+        s.chief.rejected(ada, "/folder add /no/such/folder").await;
     assert!(reply.contains("/no/such/folder"), "{reply}");
     s.chief.command(ada, "/folder none").await;
+
+    // A hamlet works on several folders, the first added being its
+    // project, and an agent's permissions are its own.
+    let second = s.home.side().join("second");
+    std::fs::create_dir_all(&second).unwrap();
+    let second = second.display().to_string();
+    s.chief.command(ada, &format!("/folder add {folder}")).await;
+    s.chief.command(ada, &format!("/folder add {second}")).await;
+    s.chief
+        .until("two folders", |c| {
+            c.hamlet("The Docs").is_some_and(|h| {
+                h.folders == [folder.clone(), second.clone()]
+            })
+        })
+        .await;
+    s.chief
+        .command(ada, &format!("/folder drop {folder}"))
+        .await;
+    s.chief
+        .until("the first dropped", |c| {
+            c.hamlet("The Docs")
+                .is_some_and(|h| h.folders == [second.clone()])
+        })
+        .await;
+    s.chief.command(ada, "/folder none").await;
+    s.chief
+        .command(ada, "/permissions agent#2 accept-edits")
+        .await;
+    s.chief
+        .until("the lead's permissions", |c| {
+            c.agent("agent#2")
+                .is_some_and(|a| a.access == Access::AcceptEdits)
+        })
+        .await;
+    let reply =
+        s.chief.rejected(ada, "/permissions agent#2 root").await;
+    assert!(reply.contains("supervised"), "{reply}");
 
     // A channel is opened between two agents and closed again.
     let eve = s.add_agent(ada, "eve", "write").await;

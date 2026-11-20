@@ -8,12 +8,13 @@ use crate::conversations::chats;
 use crate::conversations::dreams::Notify;
 use crate::core::Core;
 use crate::realm::change::done;
+use crate::society::access::Access;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlet_agents::{
     self, LastDream, ProfileChoice, Spec,
 };
-use crate::society::hamlets::{self, Founding, Mode};
+use crate::society::hamlets::{self, Founding};
 use crate::society::rejection::Rejection;
 use crate::society::{
     authority, channels, city, record, spend, workers,
@@ -171,15 +172,17 @@ pub(super) const SOCIETY: &[Command] = &[
     },
     Command {
         name: "folder",
-        usage: "/folder <folder|none>",
-        does: "Choose the folder this hamlet works on",
+        usage: "/folder <add <folder>|drop <folder>|none>",
+        does: "Add a folder this hamlet works on, drop one, or drop \
+               them all",
         run: folder,
     },
     Command {
-        name: "mode",
-        usage: "/mode <manual|auto>",
-        does: "Choose how this hamlet's work is overseen",
-        run: mode,
+        name: "permissions",
+        usage: "/permissions <address> \
+                <supervised|accept-edits|auto|full>",
+        does: "Choose how far an agent goes without asking you",
+        run: permissions,
     },
     Command {
         name: "budget",
@@ -863,39 +866,62 @@ fn folder(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return Ok(Err(core.no_hamlet()));
     };
     done!(core.chief_of(&id));
-    let folder = match line.words().first() {
-        None => return usage(core, line),
-        Some(&"none") => None,
-        Some(_) => Some(line.rest.clone()),
-    };
-    if let Some(folder) = &folder
-        && let Err(rejection) = hamlets::check_folder(folder)
-    {
-        return Ok(Err(rejection));
+    let words = line.words();
+    let named = line
+        .rest
+        .split_once(char::is_whitespace)
+        .map_or("", |(_, path)| path.trim())
+        .to_owned();
+    match words.first().copied() {
+        Some("none") => {
+            let done = core.attempt(by(core), |cx, _| {
+                hamlets::set_folder(cx, &id, None)
+            })?;
+            Ok(done.map(|()| format!("`{id}` works on no folder.")))
+        }
+        Some("add") if !named.is_empty() => {
+            if let Err(rejection) = hamlets::check_folder(&named) {
+                return Ok(Err(rejection));
+            }
+            let done = core.attempt(by(core), |cx, _| {
+                hamlets::add_folder(cx, &id, &named, "")
+            })?;
+            Ok(done.map(|()| format!("`{id}` works on {named}.")))
+        }
+        Some("drop") if !named.is_empty() => {
+            let done = core.attempt(by(core), |cx, _| {
+                hamlets::drop_folder(cx, &id, &named)
+            })?;
+            Ok(done.map(|()| {
+                format!("`{id}` no longer works on {named}.")
+            }))
+        }
+        _ => usage(core, line),
     }
-    let done = core.attempt(by(core), |cx, _| {
-        hamlets::set_folder(cx, &id, folder.as_deref())
-    })?;
-    Ok(done.map(|()| match &folder {
-        Some(folder) => format!("`{id}` works on {folder}."),
-        None => format!("`{id}` works on no folder."),
-    }))
 }
 
-fn mode(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let Some(id) = line.here.clone() else {
-        return Ok(Err(core.no_hamlet()));
+fn permissions(core: &mut Core<'_, '_>, line: &Line) -> Answer {
+    let words = line.words();
+    let (Some(text), Some(value)) = (words.first(), words.get(1))
+    else {
+        return usage(core, line);
     };
-    done!(core.chief_of(&id));
-    let mode = match line.words().first() {
-        Some(&"manual") => Mode::Manual,
-        Some(&"auto") => Mode::Auto,
-        _ => return usage(core, line),
+    let agent =
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
+    let Ok(access) = value.parse::<Access>() else {
+        return Ok(Err(Rejection::NoAccess));
     };
+    let db = core.realm.store().connection();
+    if agents::get(db, agent)?.kind != AgentKind::Hamlet {
+        return Ok(Err(Rejection::NoPermissionsHere));
+    }
     let done = core.attempt(by(core), |cx, _| {
-        hamlets::set_mode(cx, &id, mode)
+        hamlet_agents::set_access(cx, agent, access)
     })?;
-    Ok(done.map(|()| format!("`{id}` is in {mode} mode.")))
+    Ok(done.map(|()| {
+        format!("`{text}` has {} permissions.", access.label())
+    }))
 }
 
 fn budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {

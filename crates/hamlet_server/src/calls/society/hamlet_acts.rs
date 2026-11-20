@@ -4,16 +4,14 @@ use hamlet_store::ids::{Actor, HamletId};
 
 use super::args::{
     Called, EditLimits, EraseHamlet, MoveHamlet, NameHamlet,
-    RemoveHamlet, ResetBudget, RestoreHamlet, SetFolder, SetMode,
-    SetTier,
+    RemoveHamlet, ResetBudget, RestoreHamlet, SetFolder, SetTier,
 };
 use super::{Call, unsupported};
 use crate::core::Core;
 use crate::realm::change::{Done, checked, reject};
-use crate::society::hamlets::{self, Mode};
 use crate::society::limits::{self, Limit};
 use crate::society::rejection::Rejection;
-use crate::society::{authority, spend};
+use crate::society::{authority, hamlets, spend};
 
 impl Core<'_, '_> {
     pub(super) fn hamlet_tool(
@@ -40,7 +38,6 @@ impl Core<'_, '_> {
             | Called::MoveHamlet(MoveHamlet { hamlet, .. })
             | Called::SetTier(SetTier { hamlet, .. })
             | Called::SetFolder(SetFolder { hamlet, .. })
-            | Called::SetMode(SetMode { hamlet, .. })
             | Called::ResetBudget(ResetBudget { hamlet }) => {
                 hamlet.clone()
             }
@@ -98,18 +95,6 @@ impl Core<'_, '_> {
                         None => {
                             format!("`{id}` works on no folder.")
                         }
-                    }))
-                })
-            }
-            Called::SetMode(SetMode { mode, .. }) => {
-                let mode = match mode.as_str() {
-                    "manual" => Mode::Manual,
-                    "auto" => Mode::Auto,
-                    _ => reject!(Rejection::NoMode),
-                };
-                self.carry(call, |cx, _| {
-                    Ok(hamlets::set_mode(cx, &id, mode)?.map(|()| {
-                        format!("`{id}` is in {mode} mode.")
                     }))
                 })
             }

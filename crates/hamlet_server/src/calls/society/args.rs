@@ -142,6 +142,21 @@ pub(crate) struct ProposeChannel {
     pub reason: String,
 }
 
+/// Propose a folder on this machine for your hamlet to work on, with
+/// your reason. A chief answers: when it agrees, the folder is added
+/// to the ones the hamlet works on, and you and your hamlet's agents
+/// may edit it and run commands in it. Relative paths keep going to
+/// the first folder.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ProposeFolder {
+    /// The folder's absolute path.
+    pub folder: String,
+    /// Why the hamlet needs it.
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
 /// Make a new profile of the city, to add an agent of next. Without
 /// a character it starts from the realm's own. A profile you make may
 /// wait at the harbor until it is let into the city; its agents work
@@ -408,8 +423,8 @@ pub(crate) struct SetTier {
     pub tier: u32,
 }
 
-/// Choose the folder a hamlet works on, or none; a chief approves it
-/// first.
+/// Make one folder the only one a hamlet works on, or none; a chief
+/// approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetFolder {
     #[schemars(description = HAMLET)]
@@ -417,16 +432,6 @@ pub(crate) struct SetFolder {
     /// A folder on this machine; none when left out.
     #[serde(default)]
     pub folder: String,
-}
-
-/// Choose whether a hamlet's edits and commands in its folder wait
-/// for a chief (`manual`) or not (`auto`); a chief approves it first.
-#[derive(Deserialize, JsonSchema)]
-pub(crate) struct SetMode {
-    #[schemars(description = HAMLET)]
-    pub hamlet: String,
-    #[schemars(extend("enum" = ["manual", "auto"]))]
-    pub mode: String,
 }
 
 /// Start a hamlet's budget period again, or the realm's; a chief
@@ -822,6 +827,7 @@ called!(
     ReadBudget,
     Object,
     ProposeChannel,
+    ProposeFolder,
     CreateProfile,
     MakeProfile,
     AddAgent,
@@ -844,7 +850,6 @@ called!(
     MoveHamlet,
     SetTier,
     SetFolder,
-    SetMode,
     ResetBudget,
     EditLimits,
     ReadRecord,

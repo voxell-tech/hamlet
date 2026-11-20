@@ -224,8 +224,6 @@ diesel::table! {
         founded_at -> BigInt,
         founded_by -> Text,
         lead -> BigInt,
-        folder -> Nullable<Text>,
-        mode -> Text,
         tier -> BigInt,
         site_x -> Nullable<Double>,
         site_z -> Nullable<Double>,
@@ -252,6 +250,7 @@ diesel::table! {
         model_reason -> Nullable<Text>,
         allowance -> Nullable<BigInt>,
         allowance_by -> Nullable<Text>,
+        access -> Text,
         merged_into -> Nullable<BigInt>,
         ending_dream -> Bool,
     }
@@ -269,6 +268,7 @@ diesel::table! {
         hamlet -> Text,
         folder -> Text,
         at -> BigInt,
+        since -> Nullable<BigInt>,
     }
 }
 
