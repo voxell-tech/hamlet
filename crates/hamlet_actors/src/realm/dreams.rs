@@ -1,24 +1,40 @@
 //! A chief's dream over a profile or a hire's branch: the `dream`
-//! table and its steps. One dream is open in the realm at a time.
+//! table, its steps and its errand. One dream is open in the realm
+//! at a time.
+
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Profile;
+use hamlet_messages::agent::BuiltIn;
 use hamlet_messages::profile::{
-    DreamId, DreamOf, EndDream, PrepareDream,
+    DreamId, DreamOf, EndDream, PrepareDream, Prepared,
 };
+use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer,
 };
+use hamlet_messages::realm::workers::{BUILT_IN, Ended};
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
+use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 
 use super::act::{Act, Decided, Decision};
-use super::change::{self, Affected, Rows, Writer, number};
+use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
-use super::{calls, profiles};
+use super::tree::tools::off_for;
+use super::workers::errands::{self, ErrandInput, Purpose};
+use super::{calls, documents, profiles, record, tasks, versions};
+
+/// The most a dream may spend, in millionths of a dollar, as today's
+/// default.
+const COST: u64 = 200_000;
+
+/// The input of a dream's errand, in today's words.
+const DREAM_NOW: &str = "Dream now.";
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -29,31 +45,132 @@ pub(super) enum Change {
         profile: ProfileId,
         hire: Option<AgentNumber>,
     },
+    /// Errand `errand` dreams in `folder`, under the realm folder.
+    Errand {
+        dream: DreamId,
+        errand: ErrandNumber,
+        folder: String,
+    },
+    /// The dream is to end, `done` with `summary` or not, when its
+    /// end was not decided.
+    Ending {
+        dream: DreamId,
+        done: bool,
+        summary: String,
+    },
+    /// The errand of a dream ended as `ended`.
+    ErrandEnded { errand: ErrandNumber, ended: Ended },
 }
 
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
 ) -> Result<Affected> {
-    let Change::Begin {
-        dream,
-        profile,
-        hire,
-    } = change;
-    writer
+    match change {
+        Change::Begin {
+            dream,
+            profile,
+            hire,
+        } => {
+            writer
+                .execute(
+                    "INSERT INTO dream (id, profile, hire, at) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    vec![
+                        id(dream),
+                        BindParam::Integer(i64::from(profile.0)),
+                        hire.map_or(BindParam::Null, number),
+                        BindParam::Integer(writer.at().0),
+                    ],
+                )
+                .await?;
+            steps::apply(
+                writer,
+                steps::Change::Begin { row: row(dream) },
+            )
+            .await
+        }
+        Change::Errand {
+            dream,
+            errand,
+            folder,
+        } => {
+            writer
+                .execute(
+                    "UPDATE dream SET errand = ?2, folder = ?3 \
+                     WHERE id = ?1",
+                    vec![
+                        id(dream),
+                        integer(errand.get())?,
+                        BindParam::Text(folder),
+                    ],
+                )
+                .await?;
+            Ok(Affected::default())
+        }
+        Change::Ending {
+            dream,
+            done,
+            summary,
+        } => ending(writer, dream, done, summary).await,
+        Change::ErrandEnded { errand, ended } => {
+            let dream = writer
+                .rows()
+                .value::<u32>(
+                    "SELECT id FROM dream WHERE errand = ?1",
+                    vec![integer(errand.get())?],
+                )
+                .await?
+                .with_context(|| {
+                    format!("errand {} dreams no dream", errand.get())
+                })?;
+            let (done, summary) = match ended {
+                Ended::Answered { text } => (
+                    true,
+                    text.lines()
+                        .next()
+                        .unwrap_or_default()
+                        .to_owned(),
+                ),
+                Ended::Failed { .. } => (false, String::new()),
+            };
+            ending(writer, DreamId(dream), done, summary).await
+        }
+    }
+}
+
+/// Keeps how the dream ends and begins the step that ends it, once.
+async fn ending(
+    writer: &Writer<'_>,
+    dream: DreamId,
+    done: bool,
+    summary: String,
+) -> Result<Affected> {
+    let decided = writer
         .execute(
-            "INSERT INTO dream (id, profile, hire, at) VALUES (?1, \
-             ?2, ?3, ?4)",
+            "UPDATE dream SET done = ?2, summary = ?3 WHERE id = ?1 \
+             AND done IS NULL",
             vec![
-                BindParam::Integer(i64::from(dream.0)),
-                BindParam::Integer(i64::from(profile.0)),
-                hire.map_or(BindParam::Null, number),
-                BindParam::Integer(writer.at().0),
+                id(dream),
+                BindParam::Integer(done.into()),
+                BindParam::Text(summary),
             ],
         )
         .await?;
-    steps::apply(writer, steps::Change::Begin { row: row(dream) })
-        .await
+    if decided == 0 {
+        return Ok(Affected::default());
+    }
+    steps::apply(
+        writer,
+        steps::Change::Begin {
+            row: end_row(dream),
+        },
+    )
+    .await
+}
+
+fn id(dream: DreamId) -> BindParam {
+    BindParam::Integer(i64::from(dream.0))
 }
 
 fn row(dream: DreamId) -> StepId {
@@ -63,15 +180,22 @@ fn row(dream: DreamId) -> StepId {
     }
 }
 
-/// The dream whose steps are not done, with its profile.
+fn end_row(dream: DreamId) -> StepId {
+    StepId {
+        kind: Kind::DreamEnd,
+        n: u64::from(dream.0),
+    }
+}
+
+/// The dream that has not ended, with its profile.
 pub(super) async fn open(
     rows: &Rows<'_>,
 ) -> Result<Option<(DreamId, ProfileId)>> {
     Ok(rows
         .row::<(u32, u32)>(
-            "SELECT dream.id, dream.profile FROM dream JOIN step ON \
-             step.kind = 'dream' AND step.n = dream.id WHERE \
-             step.closed = 0",
+            "SELECT id, profile FROM dream WHERE NOT EXISTS (SELECT \
+             1 FROM step WHERE step.kind = 'dream_end' AND step.n = \
+             dream.id AND step.closed = 1)",
             Vec::new(),
         )
         .await?
@@ -147,18 +271,33 @@ impl Act<Client> for Dream {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
-    /// The profile checks the dream's folders out.
+    /// The profile checks the dream's folders out, and its errand
+    /// starts.
     Prepare,
-    /// The profile removes them.
-    End,
 }
 
 impl Steps for Step {
-    const ALL: &'static [Self] = &[Self::Prepare, Self::End];
+    const ALL: &'static [Self] = &[Self::Prepare];
 
     fn name(self) -> &'static str {
         match self {
             Self::Prepare => "prepare",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EndStep {
+    /// The profile commits the dream's folders when it is done, and
+    /// removes them.
+    End,
+}
+
+impl Steps for EndStep {
+    const ALL: &'static [Self] = &[Self::End];
+
+    fn name(self) -> &'static str {
+        match self {
             Self::End => "end",
         }
     }
@@ -169,46 +308,256 @@ impl Steps for Step {
 pub(super) async fn run(
     cx: &Cx<'_>,
     n: u64,
-    step: Step,
+    Step::Prepare: Step,
 ) -> Result<Vec<change::Change>> {
     let dream = DreamId(u32::try_from(n)?);
     let (profile, hire) = cx
         .rows()?
         .row::<(u32, Option<u32>)>(
             "SELECT profile, hire FROM dream WHERE id = ?1",
-            vec![BindParam::Integer(i64::from(dream.0))],
+            vec![id(dream)],
         )
         .await?
         .with_context(|| format!("dream {n} has no row"))?;
     let profile = ProfileId(profile);
-    match step {
-        Step::Prepare => {
-            let of = match hire {
-                Some(agent) => DreamOf::Hire {
-                    agent: AgentNumber(agent),
-                },
-                None => DreamOf::Profile,
-            };
-            let _alone =
-                cx.realm.purging(profile).write_owned().await;
-            cx.peers()
-                .call(
-                    &Profile(profile),
-                    &PrepareDream { dream, of },
-                    When::AfterAnswer,
-                )
-                .await?;
-        }
-        Step::End => {
-            let end = EndDream {
+    let hire = hire.map(AgentNumber);
+    let of = match hire {
+        Some(agent) => DreamOf::Hire { agent },
+        None => DreamOf::Profile,
+    };
+    let prepared = {
+        let _alone = cx.realm.purging(profile).write_owned().await;
+        cx.peers()
+            .call(
+                &Profile(profile),
+                &PrepareDream { dream, of },
+                When::AfterAnswer,
+            )
+            .await?
+    };
+    match prepared {
+        Prepared::Nothing => Ok(vec![
+            Change::Ending {
                 dream,
                 done: false,
                 summary: String::new(),
-            };
-            cx.peers()
-                .call(&Profile(profile), &end, When::AfterAnswer)
-                .await?;
+            }
+            .into(),
+        ]),
+        Prepared::Ready { main, hire: side } => {
+            start(cx, dream, profile, hire, &main, side.as_deref())
+                .await
         }
     }
+}
+
+/// The changes that start the errand of `dream`, over `profile`'s
+/// `main` and `hire`'s branch, checked out at `main` and `side` under
+/// the realm folder.
+async fn start(
+    cx: &Cx<'_>,
+    dream: DreamId,
+    profile: ProfileId,
+    hire: Option<AgentNumber>,
+    main: &str,
+    side: Option<&str>,
+) -> Result<Vec<change::Change>> {
+    let rows = cx.rows()?;
+    let n = errands::next(&rows).await?;
+    let task = tasks::fresh(&rows).await?;
+    let label = profiles::label_of(&rows, profile).await?;
+    let home = &cx.realm.folder;
+    let folder = Path::new(main)
+        .parent()
+        .context("a dream's main is in no folder")?;
+    let main = home.join(main);
+    let (instructions, agent, payer, model) = match hire {
+        Some(hire) => {
+            let hire_side = home.join(
+                side.context("a hire's dream has no hire side")?,
+            );
+            let who = record::name_of(&rows, hire).await?;
+            let payer =
+                tasks::own_payer(&rows, hire).await?.with_context(
+                    || format!("hire {} pays nothing", hire.0),
+                )?;
+            let model = documents::model(&rows, hire)
+                .await?
+                .map(|chosen| chosen.model);
+            let instructions = format!(
+                "You are dreaming, between your work as `{who}`, a \
+                 hire of the scholar `{label}`. Your lodge at {} \
+                 holds what you learned as this hire: your memory/ \
+                 and skills/. `{label}`'s shared knowledge, its \
+                 main, is checked out at {}; every hire of \
+                 `{label}` starts from it and takes it in.\n\nBring \
+                 home what any hire of `{label}` would want to \
+                 know: move or merge it into the checkout's memory/ \
+                 and skills/, written for a reader who was not \
+                 there. Keep in your lodge what only this hire \
+                 needs. Tidy as you go: one fact in one place, \
+                 nothing stale, the root memory files short, and a \
+                 true `description:` on every memory file. Do not \
+                 change CHARACTER.md. When done, answer in one line \
+                 what you brought home, or `Nothing to bring home.`",
+                hire_side.display(),
+                main.display()
+            );
+            (instructions, hire, payer, model)
+        }
+        None => {
+            let instructions = format!(
+                "You are tidying the knowledge of the scholar \
+                 `{label}`, checked out at {}: its memory/ and \
+                 skills/. Merge what is said twice, correct or \
+                 remove what is stale, keep the root memory files \
+                 short and every memory file's `description:` true, \
+                 and make each memory folder's MEMORY.md describe \
+                 it. Do not change CHARACTER.md. Answer in one line \
+                 what you changed, or `Nothing to tidy.`",
+                main.display()
+            );
+            (instructions, n.agent(), Payer::Realm, None)
+        }
+    };
+    let input = ErrandInput {
+        instructions: Some(instructions),
+        text: DREAM_NOW.to_owned(),
+        task,
+        model,
+        cap: COST,
+    };
+    Ok(vec![
+        tasks::Change::Open {
+            task,
+            origin: tasks::Origin::Dream,
+            agent,
+            payer,
+        }
+        .into(),
+        errands::start(Purpose::Dream, input, n).into(),
+        Change::Errand {
+            dream,
+            errand: n,
+            folder: folder.to_string_lossy().into_owned(),
+        }
+        .into(),
+    ])
+}
+
+/// The changes that end the dream row `n`, whose step failed for
+/// good, as not done.
+pub(super) fn failed(n: u64) -> Result<Vec<change::Change>> {
+    let dream = DreamId(u32::try_from(n)?);
+    Ok(vec![
+        steps::Change::Close { row: row(dream) }.into(),
+        Change::Ending {
+            dream,
+            done: false,
+            summary: String::new(),
+        }
+        .into(),
+    ])
+}
+
+/// The changes that end the dream of errand `n`, which ended as
+/// `ended`, and its reach.
+pub(super) fn ended(
+    n: ErrandNumber,
+    ended: &Ended,
+) -> Vec<change::Change> {
+    vec![
+        Change::ErrandEnded {
+            errand: n,
+            ended: ended.clone(),
+        }
+        .into(),
+        versions::Change::WantReach(n.agent()).into(),
+    ]
+}
+
+/// The built-in tools of errand `n`: each one its hire's lead has not
+/// turned off.
+pub(super) async fn tools(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+) -> Result<Vec<BuiltIn>> {
+    let hire = rows
+        .value::<Option<u32>>(
+            "SELECT hire FROM dream WHERE errand = ?1",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .with_context(|| {
+            format!("errand {} dreams no dream", n.get())
+        })?;
+    let off = match hire {
+        Some(hire) => off_for(rows, AgentNumber(hire)).await?,
+        None => Vec::new(),
+    };
+    Ok(BUILT_IN
+        .iter()
+        .filter(|&&name| !off.iter().any(|tool| tool.name == name))
+        .map(|&name| BuiltIn {
+            name: name.to_owned(),
+        })
+        .collect())
+}
+
+/// The folder errand `n` dreams in, under `home`, while it has not
+/// ended.
+pub(super) async fn folder(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+    home: &Path,
+) -> Result<Option<PathBuf>> {
+    Ok(rows
+        .value::<String>(
+            "SELECT dream.folder FROM dream JOIN errand ON errand.n \
+             = dream.errand WHERE dream.errand = ?1 AND \
+             errand.ended IS NULL",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .map(|folder| home.join(folder)))
+}
+
+/// The reach of errand `n`: its dream's folder under `home` while it
+/// has not ended.
+pub(super) async fn reach(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+    home: &Path,
+    secrets: SecretsVersion,
+) -> Result<Reach> {
+    Ok(folder(rows, n, home).await?.map_or(Reach::Ended, |folder| {
+        Reach::Dream { folder, secrets }
+    }))
+}
+
+/// Ends the dream row `n` at its profile, and returns the changes
+/// committed with its progress.
+pub(super) async fn end(
+    cx: &Cx<'_>,
+    n: u64,
+    EndStep::End: EndStep,
+) -> Result<Vec<change::Change>> {
+    let dream = DreamId(u32::try_from(n)?);
+    let (profile, done, summary) = cx
+        .rows()?
+        .row::<(u32, bool, String)>(
+            "SELECT profile, done, summary FROM dream WHERE id = ?1",
+            vec![id(dream)],
+        )
+        .await?
+        .with_context(|| format!("dream {n} has no end"))?;
+    let end = EndDream {
+        dream,
+        done,
+        summary,
+    };
+    cx.peers()
+        .call(&Profile(ProfileId(profile)), &end, When::AfterAnswer)
+        .await?;
     Ok(Vec::new())
 }

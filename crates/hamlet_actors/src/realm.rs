@@ -39,6 +39,7 @@ mod workers;
 mod world;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -161,6 +162,8 @@ fn not_started(error: anyhow::Error) -> anyhow::Error {
 }
 
 struct Realm {
+    /// The realm folder, absolute.
+    folder: PathBuf,
     peers: peer::Peers,
     world: world::Held,
     secrets: secrets::Held,
@@ -272,6 +275,7 @@ impl Actor for Realm {
             let host = HostRef::of(ctx.inner())?;
             ctx.sql().exec(SCHEMA).await?;
             Ok(Self {
+                folder: std::path::absolute(host.folder())?,
                 hiring_wait: host
                     .value::<Options>()
                     .map_or(HIRING_WAIT, |options| {

@@ -120,6 +120,27 @@ test("an errand's prompt is its instructions only", async (t) => {
     assert.deepEqual(await offered(agent), []);
 });
 
+test("an errand whose brief names built-in tools is offered those alone", async (t) => {
+    const { calls, sent } = fakeCalls({ realm: { errand_done: () => null } });
+    const brief = ERRAND.brief;
+    assert.ok(brief !== undefined);
+    const agent = await wakeAgent(t, {
+        calls,
+        input: {
+            ...ERRAND,
+            brief: {
+                ...brief,
+                tools: [{ name: "read" }, { name: "write" }, { name: "bash" }],
+            },
+        },
+        responses: [fauxAssistantMessage("Nothing to bring home.")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "errand_done").length === 1);
+
+    assert.deepEqual(await offered(agent), ["bash", "read", "write"]);
+});
+
 test("a worker is offered only the built-in tools its brief names", async (t) => {
     const added = (name: string) => ({
         name,

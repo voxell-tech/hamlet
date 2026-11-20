@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,11 +26,11 @@ use hamlet_messages::library::{
     ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, DreamEnd, DropSaveParts, Edit,
-    EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
-    Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
-    Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
-    VersionList, VersionName, VersionSeen, Versions,
+    BadPath, Branch, CommitId, DreamEnd, DreamOf, DropSaveParts,
+    Edit, EditRefusal, EndDream, Missing, Path as FilePath,
+    PrepareDream, Prepared, ProfileInput, Purge, PurgeAnswer, Read,
+    ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
+    TagRefusal, VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -70,6 +71,8 @@ mod chiefs;
 mod choices;
 #[path = "realm/copies.rs"]
 mod copies;
+#[path = "realm/dream_errands.rs"]
+mod dream_errands;
 #[path = "realm/dreams.rs"]
 mod dreams;
 #[path = "realm/drop_parts.rs"]
@@ -186,6 +189,9 @@ struct Seen {
     /// when it came.
     prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
     dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    /// Each profile answers a dream's preparation with nothing to
+    /// dream over.
+    nothing_to_dream: AtomicBool,
     save_drops: Mutex<Vec<(ProfileId, DropSaveParts)>>,
     offer_drops: Mutex<Vec<DropOfferParts>>,
     /// Each verdict the library was called with, failed calls too.
@@ -661,14 +667,18 @@ impl Handler<PrepareDream> for ProfileStandIn {
             .called(Callee::PrepareDream, AgentNumber(self.profile.0))
             .await?;
         let dream = prepare.dream.0;
+        let of_a_hire = matches!(prepare.of, DreamOf::Hire { .. });
         self.seen.prepares.lock().unwrap().push((
             self.profile,
             prepare,
             purging,
         ));
+        if self.seen.nothing_to_dream.load(Ordering::SeqCst) {
+            return Ok(Prepared::Nothing);
+        }
         Ok(Prepared::Ready {
             main: format!("dreams/{dream}/main"),
-            hire: None,
+            hire: of_a_hire.then(|| format!("dreams/{dream}/hire")),
         })
     }
 }

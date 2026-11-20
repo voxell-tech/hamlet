@@ -738,6 +738,13 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             }),
         );
     }
+    fixtures.args(
+        "workspace/set_reach.dream",
+        &set_reach(Reach::Dream {
+            folder: "/realm/dreams/1".into(),
+            secrets: SecretsVersion(2),
+        }),
+    );
     fixtures
         .args("workspace/set_reach.ended", &set_reach(Reach::Ended));
     fixtures.args(
@@ -866,6 +873,13 @@ fn the_stored_rows(fixtures: &mut Fixtures) {
                 project: None,
                 ..footing()
             },
+        },
+    );
+    fixtures.stored(
+        "reach.dream",
+        &Reach::Dream {
+            folder: "/realm/dreams/1".into(),
+            secrets: SecretsVersion(2),
         },
     );
     fixtures.stored("reach.ended", &Reach::Ended);

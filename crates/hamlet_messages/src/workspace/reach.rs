@@ -19,6 +19,12 @@ pub enum Reach {
         starter: Option<AgentNumber>,
         footing: Footing,
     },
+    /// A dream's errand, which works in `folder`, a dream's folder
+    /// inside the realm folder, and never waits for a chief.
+    Dream {
+        folder: PathBuf,
+        secrets: SecretsVersion,
+    },
     /// The agent ended. Its row stays, so an older reach that arrives
     /// late cannot bring it back.
     Ended,
@@ -114,13 +120,22 @@ pub(crate) fn needs_words(needs: &[Need]) -> String {
 }
 
 impl Reach {
-    /// The footing of a reach that has not ended.
+    /// The footing of an agent's or a worker's reach.
     pub fn footing(&self) -> Option<&Footing> {
         match self {
             Self::Agent(footing) | Self::Worker { footing, .. } => {
                 Some(footing)
             }
-            Self::Ended => None,
+            Self::Dream { .. } | Self::Ended => None,
+        }
+    }
+
+    /// The version of the realm's secrets in force, for a reach that
+    /// has not ended.
+    pub fn secrets(&self) -> Option<SecretsVersion> {
+        match self {
+            Self::Dream { secrets, .. } => Some(*secrets),
+            _ => self.footing().map(|footing| footing.secrets),
         }
     }
 }

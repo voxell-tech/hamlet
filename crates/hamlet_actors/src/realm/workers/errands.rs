@@ -21,7 +21,7 @@ use super::super::change::{
 };
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
-use super::super::{callers, documents, librarian, reviews};
+use super::super::{callers, documents, dreams, librarian, reviews};
 
 const ANSWERED: &str = "answered";
 
@@ -41,6 +41,8 @@ pub(in crate::realm) enum Purpose {
     Review { task: TaskId },
     /// The librarian, for the call its `librarian` row names.
     Librarian,
+    /// The dream whose `dream` row names it.
+    Dream,
 }
 
 impl Purpose {
@@ -49,6 +51,7 @@ impl Purpose {
         match self {
             Self::Review { task } => ("review", Some(*task)),
             Self::Librarian => ("librarian", None),
+            Self::Dream => ("dream", None),
         }
     }
 
@@ -56,6 +59,7 @@ impl Purpose {
         match (purpose, subject) {
             ("review", Some(task)) => Ok(Self::Review { task }),
             ("librarian", None) => Ok(Self::Librarian),
+            ("dream", None) => Ok(Self::Dream),
             _ => bail!("an errand for `{purpose}` on {subject:?}"),
         }
     }
@@ -203,6 +207,7 @@ fn ending(
     let made = match purpose {
         Purpose::Review { task } => reviews::ended(task, &ended),
         Purpose::Librarian => librarian::ended(n, &ended),
+        Purpose::Dream => dreams::ended(n, &ended),
     };
     [
         Change::End { n, ended }.into(),
@@ -378,16 +383,30 @@ pub(in crate::realm) async fn run(
             let rows = cx.rows()?;
             let errand = errand_of(&rows, n).await?;
             let mut brief = brief(&rows, n).await?;
-            if errand.purpose == Purpose::Librarian {
-                brief.instructions = Some(
-                    librarian::instructions(cx, brief.instructions)
+            let mut place = outside();
+            match errand.purpose {
+                Purpose::Librarian => {
+                    brief.instructions = Some(
+                        librarian::instructions(
+                            cx,
+                            brief.instructions,
+                        )
                         .await?,
-                );
+                    );
+                }
+                Purpose::Dream => {
+                    brief.tools = dreams::tools(&rows, n).await?;
+                    place.folder =
+                        dreams::folder(&rows, n, &cx.realm.folder)
+                            .await?;
+                    cx.want_reach(n.agent()).await?;
+                }
+                Purpose::Review { .. } => {}
             }
             let input = AgentInput {
                 kind: AgentKind::Errand,
                 task: errand.task.on_the_wire(),
-                place: outside(),
+                place,
                 brief: Some(brief),
                 copies: documents::for_agent(&rows, n.agent())
                     .await?,

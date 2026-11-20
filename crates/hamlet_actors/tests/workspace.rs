@@ -59,6 +59,9 @@ mod output;
 #[path = "workspace/parcel.rs"]
 mod parcel;
 
+#[path = "workspace/dreams.rs"]
+mod dreams;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.

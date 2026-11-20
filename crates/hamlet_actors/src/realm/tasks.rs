@@ -54,6 +54,7 @@ pub(super) enum Origin {
     Standing,
     Retry,
     Reflection,
+    Dream,
 }
 
 impl From<TaskTurn> for Origin {

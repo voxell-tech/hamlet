@@ -545,7 +545,8 @@ mod tests {
                 (started.realm.clone(), started.ctx.clone());
             let read = tokio::spawn(async move {
                 let rows = Rows::outside(&ctx)?;
-                reach::of(&rows, HIRE, &realm.secrets).await
+                reach::of(&rows, HIRE, &realm.secrets, &realm.folder)
+                    .await
             });
             let tx = change::Transaction::begin(&started.ctx)
                 .await

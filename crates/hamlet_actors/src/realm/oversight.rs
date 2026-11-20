@@ -349,9 +349,14 @@ mod tests {
         started: &Started,
         agent: AgentNumber,
     ) -> SetReach {
-        reach::of(&started.rows(), agent, &started.realm.secrets)
-            .await
-            .unwrap()
+        reach::of(
+            &started.rows(),
+            agent,
+            &started.realm.secrets,
+            &started.realm.folder,
+        )
+        .await
+        .unwrap()
     }
 
     fn footing_of(set: SetReach) -> Footing {
