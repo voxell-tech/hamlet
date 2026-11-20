@@ -117,7 +117,7 @@ pub(super) fn refused(error: &anyhow::Error) -> bool {
     error.downcast_ref::<Refused>().is_some()
 }
 
-/// What a caller reads of `error`, a callee's own: a refusal's
+/// The words a caller reads of `error`, a callee's own: a refusal's
 /// words, else the plain sentence of an internal error, never the
 /// error's own text.
 pub(super) fn words(error: &anyhow::Error) -> String {

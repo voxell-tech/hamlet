@@ -135,7 +135,7 @@ async fn end(
             };
             *noted = Some(format!(
                 "{} reviewed this line: {note}",
-                record::address(&rows, kept.lead).await?
+                record::agent_name(&rows, kept.lead).await?.name
             ));
             writer
                 .execute(
@@ -157,9 +157,9 @@ async fn end(
                 conversation: None,
                 subject: format!(
                     "A chief told `{}`: {}\n{} objects: {reason}",
-                    record::address(&rows, kept.hire).await?,
+                    record::agent_name(&rows, kept.hire).await?.name,
                     text_of(&kept.line)?,
-                    record::address(&rows, kept.lead).await?
+                    record::agent_name(&rows, kept.lead).await?.name
                 ),
                 detail: crate::cbor(&WaitKind::Objection {
                     reason,
@@ -294,7 +294,7 @@ pub(super) async fn intercept(
         ),
         text: format!(
             "A chief told `{}`: {text}",
-            record::address(rows, hire).await?
+            record::agent_name(rows, hire).await?.name
         ),
         task,
         model,
@@ -370,11 +370,11 @@ async fn instructions(
     for hire in tree::under(rows, lead).await? {
         under.push(format!(
             "- {}: {}",
-            record::address(rows, hire).await?,
+            record::agent_name(rows, hire).await?.name,
             purpose_of(hire).await?
         ));
     }
-    let name = record::address(rows, hire).await?;
+    let name = record::agent_name(rows, hire).await?.name;
     Ok(format!(
         "You are `{}`, and you lead `{name}`, hired to {}. A chief \
          has just instructed `{name}` directly. The work has begun \
@@ -382,7 +382,7 @@ async fn instructions(
          is a mistake for the work you lead, answer `OBJECT: \
          <reason>`. Otherwise answer `PASS`. Most instructions are \
          fine.\n\n# The hires you lead\n{}",
-        record::address(rows, lead).await?,
+        record::agent_name(rows, lead).await?.name,
         purpose_of(hire).await?.trim_end_matches('.'),
         under.join("\n")
     ))

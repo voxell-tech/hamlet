@@ -295,7 +295,9 @@ async fn close(
                 choice,
                 scope,
                 reason,
-                nullable(ruling),
+                nullable(
+                    ruling.map(|ruling| writer.scrubbed(&ruling)),
+                ),
                 BindParam::Integer(writer.at().0),
                 change::integer(wait.0)?,
             ],

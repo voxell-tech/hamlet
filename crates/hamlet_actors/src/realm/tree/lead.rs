@@ -53,7 +53,7 @@ pub(in crate::realm) struct Hiring {
     hamlet: Joining,
     under: Option<Lineage>,
     living: u32,
-    /// What the hire is made of, and the hire as it is shown.
+    /// The parts of the hire, and the hire as it is shown.
     of: Result<(Of, AgentName), HireRefusal>,
     agent: AgentNumber,
 }

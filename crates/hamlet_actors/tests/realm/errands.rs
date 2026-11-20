@@ -25,10 +25,10 @@ use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
 };
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, THREE, charge, errand, error_code,
-    hamlet_with, hire, made_until, may_spend, standing, tell, to,
-    tool, until,
+    MAYOR, Realm, THREE, charge, errand, error_code, hamlet_with,
+    hire, made_until, may_spend, standing, tell, to, tool, until,
 };
 
 fn brief() -> Brief {

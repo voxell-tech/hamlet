@@ -15,10 +15,12 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::profile_stand_in::{NOT_A_PATH, STILL_HOLDS};
 use super::profiles::{asked, create};
+use super::stand_ins::Callee;
 use super::{
-    Callee, NOT_A_PATH, Realm, STILL_HOLDS, THREE, dream_ends,
-    hamlet_with, hire_3_ends, of_hire, until,
+    Realm, THREE, dream_ends, hamlet_with, hire_3_ends, of_hire,
+    until,
 };
 
 fn purge(profile: u32, path: &str) -> PurgeProfile {

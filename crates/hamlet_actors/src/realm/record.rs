@@ -12,8 +12,9 @@ use hamlet_messages::realm::{
     AgentName, HamletId, HamletRefusal, Refusable, Tier,
 };
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_sandbox::scrub::scrub_text;
 
-use super::act::{Act, Decision, Unchanged};
+use super::act::{Act, Decision, Reading, Unchanged};
 use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
@@ -287,7 +288,7 @@ impl By {
 
 const CHIEF: &str = "chief";
 
-impl<By: RealmWide> Act<By> for ReadRecord {
+impl<By: RealmWide> Act<By> for Reading<ReadRecord> {
     type Output = Record;
     type Loaded = Record;
     type Done = Unchanged;
@@ -297,7 +298,8 @@ impl<By: RealmWide> Act<By> for ReadRecord {
         _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Record> {
-        if let Some(hamlet) = &self.hamlet
+        let hamlet = self.read.hamlet.as_ref();
+        if let Some(hamlet) = hamlet
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
             return Ok(Record::refused(
@@ -305,7 +307,7 @@ impl<By: RealmWide> Act<By> for ReadRecord {
             ));
         }
         Ok(Record::Read {
-            lines: lines(rows, self.hamlet.as_ref()).await?,
+            lines: lines(rows, hamlet, &self.secrets).await?,
         })
     }
 
@@ -323,10 +325,12 @@ impl<By: RealmWide> Act<By> for ReadRecord {
 }
 
 /// The decisions of `hamlet`, or the realm's own, oldest first, in
-/// words, or "Nothing is decided yet." when there are none.
+/// words with `secrets` removed, or "Nothing is decided yet." when
+/// there are none.
 async fn lines(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
+    secrets: &[String],
 ) -> Result<Vec<RecordLine>> {
     let kept = rows
         .rows::<(String, Option<u32>, String, Option<String>)>(
@@ -351,7 +355,9 @@ async fn lines(
         };
         let why = why
             .filter(|why| !why.is_empty())
-            .map_or_else(String::new, |why| format!(": {why}"));
+            .map_or_else(String::new, |why| {
+                format!(": {}", scrub_text(secrets, &why))
+            });
         lines.push(RecordLine {
             text: format!("- {who} {} {subject}{why}", done(&kind)),
         });
@@ -457,10 +463,6 @@ fn done(kind: &str) -> &'static str {
         "founded" => "founded the hamlet under",
         "hired" => "hired",
         "ended" => "ended",
-        "merged" => "merged",
-        "split" => "split",
-        "restored" => "restored",
-        "erased" => "erased",
         "seated" => "gave the office to",
         "model" => "chose the model of",
         "tools" => "changed the tools of",
@@ -468,21 +470,19 @@ fn done(kind: &str) -> &'static str {
         "road" => "laid a road from",
         "unroad" => "took up a road from",
         "road-agreed" => "agreed a road from",
-        "road-refused" => "refused a road for",
-        "pinned" => "pinned",
         "nicknamed" => "nicknamed",
-        "scholar-named" => "renamed",
         _ => "changed",
     }
 }
 
 /// The decisions of `hamlet` made at or after `since`, in ms since
-/// the Unix epoch, oldest first, in words: its latest decisions, as
-/// many as were made since.
+/// the Unix epoch, oldest first, in words with `secrets` removed: its
+/// latest decisions, as many as were made since.
 pub(super) async fn since(
     rows: &Rows<'_>,
     hamlet: &HamletId,
     since: i64,
+    secrets: &[String],
 ) -> Result<Vec<String>> {
     let made = rows
         .value::<u64>(
@@ -495,7 +495,7 @@ pub(super) async fn since(
         )
         .await?
         .unwrap_or(0);
-    let mut lines = lines(rows, Some(hamlet)).await?;
+    let mut lines = lines(rows, Some(hamlet), secrets).await?;
     let made = usize::try_from(made)?.min(lines.len());
     Ok(lines
         .split_off(lines.len() - made)

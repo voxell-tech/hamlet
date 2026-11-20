@@ -294,7 +294,12 @@ impl Repository {
         }))
     }
 
+    /// The commit the ref `name` peels to; none when no ref can have
+    /// that name.
     fn peel(&self, name: &str) -> Result<Option<CommitId>> {
+        if gix::refs::FullName::try_from(name).is_err() {
+            return Ok(None);
+        }
         let Some(mut found) = self.0.try_find_reference(name)? else {
             return Ok(None);
         };

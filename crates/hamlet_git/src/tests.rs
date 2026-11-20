@@ -180,6 +180,18 @@ fn a_revert_undoes_one_commit_and_keeps_later_ones() {
 }
 
 #[test]
+fn a_name_no_ref_can_have_resolves_to_nothing() {
+    let dir = Scratch::new("git-no-ref");
+    let repo = repository(&dir);
+    repo.commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
+        .unwrap();
+
+    for name in ["no such", "a..b", "", "end."] {
+        assert_eq!(repo.resolve(name).unwrap(), None, "{name:?}");
+    }
+}
+
+#[test]
 fn versions_name_commits_and_resolve() {
     let dir = Scratch::new("git-versions");
     let repo = repository(&dir);

@@ -25,7 +25,7 @@ use super::peer::When;
 use super::roads::{self, End, Ends, Way};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
-use super::{Realm, hire, laid, parcels};
+use super::{Realm, hire, laid, parcels, record};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -206,7 +206,7 @@ async fn letter_input(
         )
         .await?
         .with_context(|| format!("no letter {}", letter.0))?;
-    let from = author(sender);
+    let from = author(rows, sender).await?;
     let files = parcels::files(rows, letter).await?;
     let input = match change::from_case_name::<Kind>(kind)? {
         Kind::Letter => Input::Letter { from, text, files },
@@ -252,7 +252,7 @@ async fn answer_input(
         task: task.map(TaskId::on_the_wire),
         input: Input::Answer {
             question,
-            from: author(asked),
+            from: author(rows, asked).await?,
             text,
             conversation: ConversationId(conversation),
         },
@@ -260,11 +260,14 @@ async fn answer_input(
     Ok((AgentNumber(asker), submit))
 }
 
-fn author(agent: u32) -> Author {
-    Author {
-        agent: AgentNumber(agent),
-        name: None,
-    }
+/// `agent` as the author of a letter or an answer, with the name it
+/// is shown by.
+async fn author(rows: &Rows<'_>, agent: u32) -> Result<Author> {
+    let agent = AgentNumber(agent);
+    Ok(Author {
+        agent,
+        name: Some(record::agent_name(rows, agent).await?.name),
+    })
 }
 
 /// What becomes of a letter or an answer once it is kept.
@@ -683,7 +686,6 @@ mod tests {
     use hamlet_messages::realm::{HamletId, Named};
 
     use super::*;
-    use crate::realm::record;
     use crate::realm::roads::End;
 
     fn end(agent: u32, lead: Option<u32>) -> End {

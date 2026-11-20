@@ -25,10 +25,11 @@ use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::stand_ins::Callee;
 use super::{
-    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, done_to,
-    hamlet_with, made, made_until, needs, say, seen_submits,
-    standing, to, tool, until, worker_shown, world,
+    DEADLINE, FOUR, MAYOR, Realm, THREE, done_to, hamlet_with, made,
+    made_until, needs, say, seen_submits, standing, to, tool, until,
+    worker_shown, world,
 };
 
 fn start(brief: &str) -> StartWorker {
@@ -249,6 +250,34 @@ async fn a_worker_runs_on_its_starters_model() {
             .model
             .map(|model| (model.value.model, model.value.effort)),
         Some(("faux::faux-2".to_owned(), Some(Effort::High)))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_keeps_its_own_fast_mode() {
+    let (realm, _) = hamlet_with(1).await;
+    let chosen = chief(
+        &realm,
+        SetModel {
+            of: ModelOf::Hire { hire: to(THREE) },
+            model: Some("faux::faux-2".to_owned()),
+            effort: None,
+            fast: Some(true),
+            why: None,
+        },
+    )
+    .await;
+
+    started_by_three(&realm, "w").await;
+    let input = made_until(&realm, FOUR).await;
+
+    assert_eq!(chosen, Done::Done);
+    assert_eq!(
+        input
+            .copies
+            .model
+            .map(|model| (model.value.model, model.value.fast)),
+        Some(("faux::faux-2".to_owned(), false))
     );
 }
 

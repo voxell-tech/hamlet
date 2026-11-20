@@ -21,9 +21,10 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, errand, founded,
-    hires, paid, say, sent, submits_to, tell, to, tool, until,
+    FOUR, MAYOR, Realm, THREE, answer, errand, founded, hires, paid,
+    say, sent, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -180,24 +181,28 @@ async fn a_passed_line_reaches_the_hire_once_with_the_note() {
     assert_eq!(
         brief.instructions.as_deref(),
         Some(
-            "You are `hire#2`, and you lead `hire#3`, hired to \
-             Check the links. A chief has just instructed `hire#3` \
-             directly. The work has begun already, and the chief \
-             always decides. If the instruction is a mistake for \
-             the work you lead, answer `OBJECT: <reason>`. \
-             Otherwise answer `PASS`. Most instructions are \
-             fine.\n\n# The hires you lead\n- hire#3: Check the \
-             links\n- hire#4: Check the links"
+            "You are `hire#2 (Mayor)`, and you lead `hire#3 (Hire \
+             1)`, hired to Check the links. A chief has just \
+             instructed `hire#3 (Hire 1)` directly. The work has \
+             begun already, and the chief always decides. If the \
+             instruction is a mistake for the work you lead, answer \
+             `OBJECT: <reason>`. Otherwise answer `PASS`. Most \
+             instructions are fine.\n\n# The hires you lead\n- \
+             hire#3 (Hire 1): Check the links\n- hire#4 (Hire 2): \
+             Check the links"
         )
     );
-    assert_eq!(brief.text, "A chief told `hire#3`: Plain line.");
+    assert_eq!(
+        brief.text,
+        "A chief told `hire#3 (Hire 1)`: Plain line."
+    );
     assert!(before.is_empty(), "{before:?}");
     assert_eq!(
         given,
         [(
             "Plain line.".to_owned(),
             Some(
-                "hire#2 reviewed this line: mind the tests"
+                "hire#2 (Mayor) reviewed this line: mind the tests"
                     .to_owned()
             )
         )]
@@ -231,8 +236,8 @@ async fn an_objection_holds_the_line_past_the_deadline() {
     assert_eq!(waits[0].1, "objection");
     assert_eq!(
         waits[0].2,
-        "A chief told `hire#3`: Odd line.\nhire#2 objects: the odd \
-         line breaks the plan."
+        "A chief told `hire#3 (Hire 1)`: Odd line.\nhire#2 (Mayor) \
+         objects: the odd line breaks the plan."
     );
     assert!(
         matches!(dismissed, Done::Refused { .. }),
@@ -622,7 +627,8 @@ async fn a_hire_cannot_object_to_a_line_it_was_not_given() {
     assert_eq!(waits.len(), 1, "{waits:?}");
     assert_eq!(
         waits[0].2,
-        "A chief told `hire#3`: Odd line.\nhire#2 objects: odd"
+        "A chief told `hire#3 (Hire 1)`: Odd line.\nhire#2 (Mayor) \
+         objects: odd"
     );
     assert!(lines(&realm, THREE).is_empty());
     realm.host.shutdown().await.unwrap();

@@ -19,10 +19,11 @@ use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
 use super::reserved::{in_turn, notices, waits};
+use super::stand_ins::Callee;
 use super::steps::hiring_and_how;
 use super::{
-    Callee, MAYOR, Realm, THREE, answer, founded, hamlet_with, hire,
-    hired, named_as, tell, to, told_of_failed, tool, until, words,
+    MAYOR, Realm, THREE, answer, founded, hamlet_with, hire, hired,
+    named_as, tell, to, told_of_failed, tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";

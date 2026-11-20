@@ -13,15 +13,40 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, chief_hires, done_to,
-    error_code, founded, hamlet_with, hire, hires, paid, purpose_of,
-    say, seen_submits, sent, shown, standing, submits_to, tell, to,
-    tool, until, words,
+    FOUR, MAYOR, Realm, THREE, chief_hires, done_to, error_code,
+    founded, hamlet_with, hire, hires, paid, purpose_of, say,
+    seen_submits, sent, shown, standing, submits_to, tell, to, tool,
+    until, words,
 };
 
+/// `agent` as the author of a letter or an answer.
 fn from(agent: AgentNumber) -> Author {
-    Author { agent, name: None }
+    Author {
+        agent,
+        name: Some(shown(agent).name),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_from_the_hand_names_the_hand() {
+    let (realm, _) = hamlet_with(0).await;
+
+    realm
+        .tool(Hand::NUMBER, &tool("t1", tell(to(MAYOR), "hello")))
+        .await
+        .unwrap();
+    let given = seen_submits(&realm, MAYOR, 1).await;
+
+    assert_eq!(
+        given[0].input,
+        Input::Letter {
+            from: from(Hand::NUMBER),
+            text: "hello".to_owned(),
+            files: Vec::new(),
+        }
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

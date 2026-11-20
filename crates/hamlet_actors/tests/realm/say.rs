@@ -8,10 +8,10 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::asking::{chief_task, given, objection, open_waits};
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, error_code,
-    founded, hamlet_with, paid, say, shown, submits_to, tell, to,
-    tool, until,
+    FOUR, MAYOR, Realm, THREE, answer, error_code, founded,
+    hamlet_with, paid, say, shown, submits_to, tell, to, tool, until,
 };
 
 async fn mayor_held_at_its_branch(realm: &Realm) {

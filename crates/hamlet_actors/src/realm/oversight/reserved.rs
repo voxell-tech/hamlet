@@ -15,8 +15,8 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    DoneTo, End, Gate, HireAnswer, LayRoad, Named, RoadDone,
-    SocietyTool, TakeUpRoad,
+    AgentName, DoneTo, End, Gate, HireAnswer, LayRoad, Named,
+    RoadDone, SocietyTool, TakeUpRoad,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
@@ -262,10 +262,19 @@ pub(in crate::realm) async fn ruling(
     }
     let (by, held) = held(rows, wait).await?;
     let mut ruling = match held {
-        Held::Hire(act) => replay(rows, &by, act).await?,
-        Held::End(act) => replay(rows, &by, act).await?,
-        Held::LayRoad(act) => replay(rows, &by, act).await?,
-        Held::TakeUpRoad(act) => replay(rows, &by, act).await?,
+        Held::Hire(act) => {
+            replay(rows, &by, act, |hired: &AgentName| {
+                Some(format!("Hired {}.", hired.name))
+            })
+            .await?
+        }
+        Held::End(act) => replay(rows, &by, act, |_| None).await?,
+        Held::LayRoad(act) => {
+            replay(rows, &by, act, |_| None).await?
+        }
+        Held::TakeUpRoad(act) => {
+            replay(rows, &by, act, |_| None).await?
+        }
         Held::EditProfile(_) | Held::Tag(_) | Held::Revert(_) => {
             return Ok(Ruling {
                 deferred: true,
@@ -306,12 +315,14 @@ pub(in crate::realm) async fn carry_out(
     }
 }
 
-/// What `act` decides now as `by`: its changes and decisions, or the
-/// words of the refusal it meets.
+/// The decision of `act` now as `by`: its changes and decisions, with
+/// the words `told` gives of what it made, or the words of the
+/// refusal it meets.
 async fn replay<A>(
     rows: &Rows<'_>,
     by: &Agent,
     act: A,
+    told: impl FnOnce(&A::Done) -> Option<String>,
 ) -> Result<Ruling>
 where
     A: Act<Agent>,
@@ -320,6 +331,7 @@ where
     let loaded = act.load(by, rows).await?;
     Ok(match act.decide(by, loaded) {
         Decision::Change(decided) => Ruling {
+            told: told(&decided.done),
             changes: decided.changes,
             entries: decided.entries,
             ..Ruling::default()
@@ -347,9 +359,6 @@ async fn ran(
     };
     for entry in entries {
         return Ok(Some(match entry {
-            record::Entry::Hired { hire, .. } => {
-                format!("Hired hire#{}.", hire.0)
-            }
             record::Entry::Ended { hire, .. } => {
                 format!("Ended {}.", name(*hire).await?)
             }

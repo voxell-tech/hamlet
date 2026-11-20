@@ -15,8 +15,9 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::stand_ins::Callee;
 use super::{
-    Callee, FOUR, MAYOR, Realm, THREE, chief_hires, done_to, found,
+    FOUR, MAYOR, Realm, THREE, chief_hires, done_to, found,
     hamlet_with, hire, named_as, purpose_of, road_done, seen_submits,
     sent, shown, submits_to, tell, to, tool, until, world,
 };
@@ -154,7 +155,7 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
         Input::Letter {
             from: Author {
                 agent: THREE,
-                name: None
+                name: Some(shown(THREE).name),
             },
             text: "hi".to_owned(),
             files: Vec::new(),

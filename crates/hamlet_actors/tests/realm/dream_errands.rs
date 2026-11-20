@@ -22,10 +22,11 @@ use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::profiles::{asked, create};
+use super::stand_ins::Callee;
 use super::{
-    Callee, HIRE_3, Realm, THREE, charge, dream_ends, errand,
-    hamlet_with, hire_3_ends, made, made_until, may_spend, of_hire,
-    standing, to, until,
+    HIRE_3, Realm, THREE, charge, dream_ends, errand, hamlet_with,
+    hire_3_ends, made, made_until, may_spend, of_hire, standing, to,
+    until,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's

@@ -14,9 +14,8 @@ use hamlet_messages::realm::{HamletId, ProfileId};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_sandbox::scrub::scrub_text;
-use serde::Serialize;
 
-use super::act::{Act, Decision, Unchanged};
+use super::act::{Act, Decision, Reading, Unchanged};
 use super::calls::Made;
 use super::change::{self, Rows, number};
 use super::roads::{self, Way};
@@ -77,16 +76,7 @@ const LINE_CHARS: usize = 160;
 
 const DAY_MS: i64 = 86_400_000;
 
-/// `read_place` as the realm takes it, with the secrets its text
-/// must not hold.
-#[derive(Serialize)]
-pub(super) struct Reading {
-    pub read: ReadPlace,
-    #[serde(skip)]
-    pub secrets: Vec<String>,
-}
-
-impl Act<Agent> for Reading {
+impl Act<Agent> for Reading<ReadPlace> {
     type Output = PlaceText;
     type Loaded = PlaceText;
     type Done = Unchanged;
@@ -296,7 +286,8 @@ async fn hire(
     }
     let since =
         rows.at().0 - i64::from(hamlet.limits.told_days) * DAY_MS;
-    let decided = record::since(rows, &hamlet.id, since).await?;
+    let decided =
+        record::since(rows, &hamlet.id, since, secrets).await?;
     lines.push(format!("How `{id}` was run lately:"));
     if decided.is_empty() {
         lines.push("Nothing is decided yet.".into());

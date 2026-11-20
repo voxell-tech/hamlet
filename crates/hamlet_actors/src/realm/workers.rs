@@ -92,7 +92,7 @@ async fn start(writer: &Writer<'_>, worker: Worker) -> Result<()> {
                 worker.hamlet.map_or(BindParam::Null, |id| {
                     BindParam::Text(id.0)
                 }),
-                BindParam::Text(worker.brief),
+                BindParam::Text(writer.scrubbed(&worker.brief)),
                 BindParam::Text(serde_json::to_string(&tools)?),
                 worker.task.column()?,
                 worker.conversation.map_or(BindParam::Null, |id| {

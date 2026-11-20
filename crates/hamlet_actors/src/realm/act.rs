@@ -219,6 +219,15 @@ pub(super) struct Carried<T> {
     pub act: T,
 }
 
+/// A read as the realm takes it, with the secrets its text must not
+/// hold.
+#[derive(Serialize)]
+pub(super) struct Reading<T> {
+    pub read: T,
+    #[serde(skip)]
+    pub secrets: Vec<String>,
+}
+
 /// A society tool's act as the realm runs it for a caller of kind
 /// `By`, given the call that carried it.
 pub(super) trait ToolAct<By>: ToolCall {

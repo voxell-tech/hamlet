@@ -63,26 +63,7 @@ impl Reads {
     /// that order. A name no ref can have, such as `no such`, names
     /// nothing.
     pub fn resolve(&self, name: &str) -> Result<Option<CommitId>> {
-        if let Some((_, tip)) = self
-            .0
-            .branches()?
-            .into_iter()
-            .find(|(branch, _)| branch == name)
-        {
-            return Ok(Some(tip));
-        }
-        if let Some(version) = self
-            .0
-            .versions()?
-            .into_iter()
-            .find(|seen| seen.name == name)
-        {
-            return Ok(Some(version.commit));
-        }
-        match name.parse::<CommitId>() {
-            Ok(id) if self.0.has_commit(id)? => Ok(Some(id)),
-            _ => Ok(None),
-        }
+        self.0.resolve(name)
     }
 
     pub fn entries(&self, at: CommitId) -> Result<Vec<Entry>> {
