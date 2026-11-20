@@ -25,7 +25,7 @@ async fn confines_reads_writes_and_the_worktree_with_and_without_a_folder()
         // is founded.
         let worktree = home.file("hamlets/{{docs}}/2");
         let attempts = [
-            (format!("cat '{}'", secret.display()), open),
+            (format!("cat '{}'", secret.display()), true),
             (
                 format!(
                     "cat '{}/credentials.json'",
