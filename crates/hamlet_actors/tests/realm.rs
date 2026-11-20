@@ -81,6 +81,8 @@ mod living;
 mod names;
 #[path = "realm/oversight.rs"]
 mod oversight;
+#[path = "realm/parcel_files.rs"]
+mod parcel_files;
 #[path = "realm/parcels.rs"]
 mod parcels;
 #[path = "realm/places.rs"]
