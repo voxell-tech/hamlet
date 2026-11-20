@@ -417,7 +417,12 @@ impl Handler<KeepCredential> for Realm {
         let tx = change::Transaction::begin(&ctx).await?;
         let raises = raises(&tx.rows()).await?;
         self.secrets.keep(&keep, by)?;
-        commit(&self, &ctx, tx, raises).await
+        let write = change::Write::<()> {
+            changes: raises,
+            entries: Vec::new(),
+            marker: None,
+        };
+        commit(&self, &ctx, tx, write).await
     }
 }
 
@@ -434,17 +439,12 @@ pub(super) async fn raises(
 }
 
 /// Commits `changes` in `tx`, and makes the pushes they raise.
-pub(super) async fn commit(
+pub(super) async fn commit<D: Serialize>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     tx: change::Transaction,
-    changes: Vec<change::Change>,
+    write: change::Write<'_, D>,
 ) -> Result<()> {
-    let write = change::Write::<()> {
-        changes,
-        entries: Vec::new(),
-        marker: None,
-    };
     let pushes = tx.commit(realm, write).await?;
     ctx.register_task(calls::after_answer(
         realm.clone(),
@@ -563,7 +563,12 @@ mod tests {
                 .secrets
                 .keep(&keep, Agent(Hand::NUMBER))
                 .unwrap();
-            commit(&started.realm, &started.ctx, tx, raises)
+            let write = change::Write::<()> {
+                changes: raises,
+                entries: Vec::new(),
+                marker: None,
+            };
+            commit(&started.realm, &started.ctx, tx, write)
                 .await
                 .unwrap();
             let set = read.await.unwrap().unwrap();

@@ -34,6 +34,7 @@ use super::world::Part;
 use super::{
     Realm, oversight, parcels, record, tasks, tree, versions,
 };
+use crate::cbor;
 
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
@@ -226,10 +227,10 @@ async fn open(
     writer
         .execute(
             "INSERT INTO wait (id, agent, kind, task, conversation, \
-             call, subject, needs, reach_version, choice, scope, \
-             reason, closed_at, at) VALUES (?1, ?2, 'tool', ?3, ?4, \
-             ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) ON CONFLICT \
-             (agent, call) DO NOTHING",
+             call, subject, needs, detail, reach_version, choice, \
+             scope, reason, closed_at, at) VALUES (?1, ?2, 'tool', \
+             ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) \
+             ON CONFLICT (agent, call) DO NOTHING",
             vec![
                 wait,
                 number(asked.agent),
@@ -240,6 +241,10 @@ async fn open(
                 BindParam::Text(asked.call.0),
                 BindParam::Text(asked.subject),
                 BindParam::Text(serde_json::to_string(&asked.needs)?),
+                match &asked.change {
+                    Some(change) => BindParam::Blob(cbor(change)?),
+                    None => BindParam::Null,
+                },
                 change::integer(asked.reach_version.0)?,
                 choice,
                 scope,

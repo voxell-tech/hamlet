@@ -58,6 +58,9 @@ pub struct AgentSeen {
     pub worker: Option<Starter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
+    /// The model it runs now; absent while none is chosen anywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs: Option<String>,
     /// The model chosen for it; absent while it follows its hamlet's
     /// or the realm's.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -19,7 +19,7 @@ use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::documents::{self, Copied, Readers};
 use super::super::world::Part;
-use super::super::{chiefs, record};
+use super::super::{chiefs, record, workers};
 use super::{Lineage, Status};
 
 /// The most letters a nickname has.
@@ -173,7 +173,7 @@ pub(in crate::realm) async fn apply(
                                 || was.fast != thinking.fast
                         })
                 }
-                Chosen::Hamlet(_) => false,
+                Chosen::Hamlet(_) => true,
             };
             let whole = thinking.is_some();
             let Thinking { effort, fast } =
@@ -214,7 +214,15 @@ pub(in crate::realm) async fn apply(
                 )
                 .await?;
             let readers = match of {
-                Chosen::Agent(agent) => BTreeSet::from([agent]),
+                Chosen::Agent(agent) => {
+                    let mut readers =
+                        workers::living_of(&writer.rows(), agent)
+                            .await?
+                            .into_iter()
+                            .collect::<BTreeSet<_>>();
+                    readers.insert(agent);
+                    readers
+                }
                 Chosen::Hamlet(hamlet) => {
                     chiefs::hamlet::agents_of(&writer.rows(), &hamlet)
                         .await?

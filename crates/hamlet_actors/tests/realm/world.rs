@@ -9,6 +9,7 @@ use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::client::{ReadWorld, SayAnswer};
+use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{
     AskChief, Lapse, LapseReason, Object, Permission, Question,
@@ -28,6 +29,7 @@ use hamlet_messages::realm::{
     Limit, Named, NeedsChief, ReservedAct, SetLimits,
 };
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::files::EditDiff;
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
     AgentNumber, CallId, ConversationId, ReachVersion, RealmTask,
@@ -41,7 +43,7 @@ use super::asking::chief_task;
 use super::{
     Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
     decoded, done_to, founded, hamlet_with, hire, needs, say, sent,
-    standing, submits_to, tell, tool, until,
+    standing, submits_to, tell, to, tool, until,
 };
 
 pub(super) async fn seen_until(
@@ -1238,5 +1240,92 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         hire.status,
         Status::Ended { .. }
     )));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_world_shows_the_model_each_agent_runs() {
+    let (realm, _) = hamlet_with(1).await;
+    let set = chief(
+        &realm,
+        EditSettings {
+            set: vec![Setting::Model {
+                model: "faux::faux-1".into(),
+            }],
+        },
+    )
+    .await;
+    let chosen = chief(
+        &realm,
+        SetModel {
+            of: ModelOf::Hire { hire: to(THREE) },
+            model: Some("faux::faux-2".to_owned()),
+            effort: None,
+            fast: None,
+            why: None,
+        },
+    )
+    .await;
+
+    let seen =
+        seen_until(&realm, "each agent runs a model", |seen| {
+            [MAYOR, THREE].iter().all(|&of| {
+                agent(seen, of)
+                    .is_some_and(|seen| seen.runs.is_some())
+            })
+        })
+        .await;
+
+    assert_eq!((set, chosen), (Done::Done, Done::Done));
+    let runs = |of| {
+        agent(&seen, of)
+            .map(|seen| (seen.runs.clone(), seen.model.clone()))
+    };
+    assert_eq!(
+        runs(MAYOR),
+        Some((Some("faux::faux-1".into()), None))
+    );
+    assert_eq!(
+        runs(THREE),
+        Some((
+            Some("faux::faux-2".into()),
+            Some("faux::faux-2".into())
+        ))
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_wait_shows_its_change_after_a_restart() {
+    let (realm, _) = hamlet_with(0).await;
+    let change = EditDiff {
+        diff: "1 + a".to_owned(),
+        patch: "@@ -0,0 +1 @@\n+a\n".to_owned(),
+        first_changed_line: Some(1),
+    };
+    realm
+        .call_as_workspace(&NeedsChief {
+            needs: vec![Need::Edit],
+            change: Some(change.clone()),
+            ..needs(MAYOR, "c1")
+        })
+        .await
+        .unwrap();
+
+    let realm = realm.restart().await;
+    let seen = realm.ask(&ReadWorld).await.unwrap();
+
+    assert_eq!(
+        seen.waits
+            .iter()
+            .map(|wait| wait.kind.clone())
+            .collect::<Vec<_>>(),
+        [WaitKind::Tool {
+            call: CallId("c1".to_owned()),
+            danger: Need::Edit,
+            always: Some(Lasting::Session),
+            change: Some(change),
+        }]
+    );
     realm.host.shutdown().await.unwrap();
 }

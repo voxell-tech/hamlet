@@ -1320,6 +1320,7 @@ fn seen() -> Seen {
         reach,
         worker: None,
         nickname: None,
+        runs: Some("faux::faux-1".to_owned()),
         model: None,
         effort: None,
         fast: None,
@@ -1350,6 +1351,7 @@ fn seen() -> Seen {
             ),
             AgentSeen {
                 nickname: Some("ada".into()),
+                runs: Some("anthropic::claude-opus".into()),
                 model: Some("anthropic::claude-opus".into()),
                 effort: Some(Effort::High),
                 fast: Some(true),
