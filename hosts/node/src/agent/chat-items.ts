@@ -133,7 +133,7 @@ export class Fold {
         const text = result.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join("");
-        const ops = [
+        return [
             added({
                 ...item,
                 tool: {
@@ -147,20 +147,6 @@ export class Fold {
                 },
             }),
         ];
-        // As `crates/hamlet_server/src/clients/fold.rs` shows the chief's answer.
-        const said =
-            result.toolName === "ask_chief" ? chiefSaid(text) : undefined;
-        if (said !== undefined) {
-            ops.push(
-                added({
-                    id: `${entry.id}:0`,
-                    at: timeOf(entry),
-                    kind: "answered",
-                    text: said,
-                }),
-            );
-        }
-        return ops;
     }
 
     #partial(message: AssistantMessage | undefined): ChatOp[] {
@@ -246,13 +232,18 @@ function itemsOf(entry: EntryRecord): Shown[] {
         case "pi.compaction":
             return one("notice", SUMMARY_NOTICE);
         // A notice the realm told the model is an input; one for people
-        // alone keeps its text in its data.
-        case "hamlet.notice":
-            return one(
-                "notice",
+        // alone keeps its text in its data. The chief's answer to an
+        // `ask_chief` shows as `crates/hamlet_server/src/clients/fold.rs`
+        // shows it.
+        case "hamlet.notice": {
+            const text =
                 (entry.data as { text?: string } | undefined)?.text ??
-                    textOf(entry),
-            );
+                textOf(entry);
+            const said = chiefSaid(text);
+            return said === undefined
+                ? one("notice", text)
+                : one("answered", said);
+        }
         case "hamlet.reflection":
             return one("notice", "reflection");
         case "hamlet.retry":
@@ -347,7 +338,7 @@ function blocksOf(
 /** `crates/hamlet_server/src/talk/asking.rs`'s `ANSWERS`. */
 const ANSWERS = "The chief answers:";
 
-/** The chief's words in an `ask_chief` result, as `talk/asking.rs`'s `said` reads them. */
+/** The chief's words in the realm's answer to an `ask_chief`, as `talk/asking.rs`'s `said` reads them. */
 function chiefSaid(result: string): string | undefined {
     if (!result.startsWith(ANSWERS)) return undefined;
     const words = result.slice(ANSWERS.length).trim();
