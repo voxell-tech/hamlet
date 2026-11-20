@@ -8,6 +8,7 @@ use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
 use hamlet_messages::realm::{
     AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
@@ -25,7 +26,7 @@ use super::change::Rows;
 use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
-use super::{Realm, marker, prompt, record};
+use super::{Realm, marker, record};
 
 /// A sender the realm takes calls from.
 pub(super) trait Witness:
@@ -462,13 +463,46 @@ impl Handler<Secrets> for Realm {
     }
 }
 
+impl Handler<Asked<ReadRecord>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<ReadRecord>,
+    ) -> Result<Record> {
+        let by = sender(&ctx, &asked)?;
+        let reading = act::Reading {
+            read: asked.act,
+            secrets: self.secrets.secrets(),
+        };
+        let name = <Asked<ReadRecord> as Action>::NAME;
+        act::run(&self, &ctx, by, None, name, reading).await
+    }
+}
+
+impl Handler<ByHand<Tool<ReadRecord>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        hand: ByHand<Tool<ReadRecord>>,
+    ) -> Result<Record> {
+        let by = sender(&ctx, &hand)?;
+        let reading = act::Reading {
+            read: hand.0.act,
+            secrets: self.secrets.secrets(),
+        };
+        let name = <Tool<ReadRecord> as Action>::NAME;
+        act::run(&self, &ctx, by, None, name, reading).await
+    }
+}
+
 impl Handler<Say> for Realm {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        say: Say,
+        mut say: Say,
     ) -> Result<<Say as Action>::Output> {
         let by = sender(&ctx, &say)?;
+        say.0.text = self.secrets.scrubbed(&say.0.text);
         let id = marker::Id::Request(say.0.id.clone());
         act::run(&self, &ctx, by, Some(id), Say::NAME, say).await
     }
@@ -484,7 +518,7 @@ impl Handler<ReadPlace> for Realm {
         if let Numbered::Errand(_) = by.0.numbered() {
             return refuse(ReadPlace::NAME, by);
         }
-        let reading = prompt::Reading {
+        let reading = act::Reading {
             read,
             secrets: self.secrets.secrets(),
         };

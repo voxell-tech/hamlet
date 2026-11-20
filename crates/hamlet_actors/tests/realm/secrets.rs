@@ -14,17 +14,21 @@ use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin, Settings,
 };
+use hamlet_messages::realm::oversight::{AskChief, Question};
+use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::SecretsVersion;
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use hamlet_protocol::client::{Choice, RequestId};
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
+use super::asking::chief_task;
 use super::chiefs::chief;
 use super::{
-    MAYOR, Realm, Seen, THREE, hamlet_with, open, seen_submits, tell,
-    to, tool, until,
+    MAYOR, Realm, Seen, THREE, answer, hamlet_with, made_until, open,
+    say, seen_submits, submits_to, tell, to, tool, until,
 };
 
 fn file(realm: &Realm) -> PathBuf {
@@ -745,4 +749,159 @@ async fn a_kept_key_shows_as_removed_in_the_record_a_letter_and_a_note()
             .any(|window| window == text.as_bytes())
     };
     assert!(holds(removed) && !holds(KEY));
+}
+
+const KEPT: &str = "sk-made-up-0452";
+
+fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
+    submits_to(realm, agent)
+        .into_iter()
+        .filter_map(|submit| match submit.input {
+            Input::Notice { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_answer_reaches_the_agent_with_a_kept_key_removed() {
+    let (realm, _) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+    let task = chief_task(&realm, Hand::NUMBER).await;
+    let ask = AskChief {
+        task,
+        conversation: ConversationId("c".to_owned()),
+        message: None,
+        questions: vec![Question {
+            question: "Which key?".to_owned(),
+            description: None,
+            options: Vec::new(),
+            text_input: true,
+        }],
+    };
+    realm.tool(Hand::NUMBER, &tool("a1", ask)).await.unwrap();
+
+    let reply = format!("use {KEPT} please");
+    let ruled = realm
+        .ask(&answer("1", Choice::Reply, Some(&reply)))
+        .await
+        .unwrap();
+    until("the Hand is told", || {
+        !notices(&realm, Hand::NUMBER).is_empty()
+    })
+    .await;
+    let kept = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT ruling FROM wait WHERE id = 1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+        })
+        .await;
+
+    assert_eq!(ruled, Done::Done);
+    assert_eq!(
+        notices(&realm, Hand::NUMBER),
+        ["The chief answers: use [REDACTED] please"]
+    );
+    assert_eq!(kept.as_deref(), Some("use [REDACTED] please"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_line_reaches_the_agent_and_its_task_with_a_kept_key_removed()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    realm
+        .ask(&say(
+            &RequestId::new(),
+            MAYOR,
+            &format!("deploy with {KEPT}"),
+        ))
+        .await
+        .unwrap();
+    let given = seen_submits(&realm, MAYOR, 1).await;
+    let kept = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT text FROM task WHERE text IS NOT NULL",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+
+    assert!(
+        matches!(&given[0].input, Input::Line { text, .. } if text == "deploy with [REDACTED]"),
+        "{given:?}"
+    );
+    assert_eq!(kept, "deploy with [REDACTED]");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_worker_brief_reaches_the_worker_with_a_kept_key_removed()
+ {
+    let (realm, hamlet) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    let started = chief(
+        &realm,
+        StartWorker {
+            brief: format!("count with {KEPT}"),
+            hamlet: Some(hamlet),
+            tools: Vec::new(),
+            task: None,
+        },
+    )
+    .await;
+    let input = made_until(&realm, THREE).await;
+
+    assert!(
+        matches!(started, Started::Started { .. }),
+        "{started:?}"
+    );
+    assert_eq!(
+        input.brief.map(|brief| brief.text).as_deref(),
+        Some("count with [REDACTED]")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_kept_after_a_reason_is_removed_from_the_record_read() {
+    let (realm, hamlet) = hamlet_with(1).await;
+    let renamed = chief(
+        &realm,
+        SetNickname {
+            hire: to(THREE),
+            name: Some("Spade".to_owned()),
+            why: Some(format!("use {KEPT} for it")),
+        },
+    )
+    .await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    let read = ReadRecord {
+        hamlet: Some(hamlet),
+    };
+    let by_the_hand = realm
+        .tool(Hand::NUMBER, &tool("r1", read.clone()))
+        .await
+        .unwrap();
+    let by_a_chief = chief(&realm, read).await;
+
+    assert_eq!(renamed, Done::Done);
+    for record in [by_the_hand, by_a_chief] {
+        let Record::Read { lines } = record else {
+            panic!("a record: {record:?}");
+        };
+        assert_eq!(
+            lines.last().map(|line| line.text.as_str()),
+            Some(
+                "- chief nicknamed hire#3 (Spade): use [REDACTED] \
+                 for it"
+            )
+        );
+    }
 }

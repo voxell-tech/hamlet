@@ -8,7 +8,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use hamlet_actor::{BindParam, ColumnValue, Ctx};
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_sandbox::scrub::scrub_text;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -376,7 +375,7 @@ impl Writer<'_> {
     /// `text` with every secret the realm holds removed, as the realm
     /// keeps a text a model reads.
     pub fn scrubbed(&self, text: &str) -> String {
-        scrub_text(&self.secrets.secrets(), text)
+        self.secrets.scrubbed(text)
     }
 }
 

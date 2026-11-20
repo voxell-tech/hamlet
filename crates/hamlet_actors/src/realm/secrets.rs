@@ -18,6 +18,7 @@ use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::sender::{Hand, Scrubber, sender};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
+use hamlet_sandbox::scrub::scrub_text;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -147,6 +148,11 @@ impl Held {
     /// Every secret the realm holds, longest first.
     pub fn secrets(&self) -> Vec<String> {
         self.list().values
+    }
+
+    /// `text` with every secret the realm holds removed.
+    pub fn scrubbed(&self, text: &str) -> String {
+        scrub_text(&self.secrets(), text)
     }
 
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may
