@@ -305,7 +305,8 @@ async fn an_unreserved_tool_runs_at_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_allowed_reserved_hire_is_decided_and_told() {
+async fn an_allowed_reserved_hire_is_decided_and_told_with_the_hires_name()
+ {
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let task = chief_task(&realm, MAYOR).await;
@@ -317,7 +318,10 @@ async fn an_allowed_reserved_hire_is_decided_and_told() {
         .unwrap();
     realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
 
-    assert_eq!(notices(&realm, MAYOR).await, ["Hired hire#3."]);
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["Hired hire#3 (Hire 1)."]
+    );
     let told = submits_to(&realm, MAYOR)
         .into_iter()
         .filter_map(|submit| match submit.input {
