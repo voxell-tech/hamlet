@@ -303,22 +303,41 @@ async fn close(
         .await
 }
 
+/// Closes `agent`'s open waits, and the send waits of parcels to it.
 async fn lapse(
     writer: &Writer<'_>,
     agent: AgentNumber,
+) -> Result<u64> {
+    let mut closed = lapsed(writer, "agent", number(agent)).await?;
+    for wait in parcels::waits_to(&writer.rows(), agent).await? {
+        closed +=
+            lapsed(writer, "id", change::integer(wait.0)?).await?;
+    }
+    Ok(closed)
+}
+
+/// Closes the open waits whose `column` is `value` as lapsed by an
+/// end.
+async fn lapsed(
+    writer: &Writer<'_>,
+    column: &str,
+    value: BindParam,
 ) -> Result<u64> {
     let [choice, scope, reason] =
         Choice::Lapsed(workspace::Lapse::Ended).columns()?;
     writer
         .execute(
-            "UPDATE wait SET choice = ?1, scope = ?2, reason = ?3, \
-             closed_at = ?4 WHERE agent = ?5 AND closed_at IS NULL",
+            &format!(
+                "UPDATE wait SET choice = ?1, scope = ?2, reason = \
+                 ?3, closed_at = ?4 WHERE {column} = ?5 AND \
+                 closed_at IS NULL"
+            ),
             vec![
                 choice,
                 scope,
                 reason,
                 BindParam::Integer(writer.at().0),
-                number(agent),
+                value,
             ],
         )
         .await

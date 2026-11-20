@@ -41,7 +41,7 @@ use tokio::io::{
 };
 
 use super::calls::{self, Calls, Delivery};
-use super::change::{self, Affected, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::letters::Kind;
 use super::oversight::asking;
 use super::peer::When;
@@ -97,6 +97,11 @@ pub(super) enum Change {
     },
     Refused {
         parcel: ParcelId,
+    },
+    /// The parcels to `receiver` that wait for a chief are refused:
+    /// it has left.
+    ReceiverLeft {
+        receiver: AgentNumber,
     },
     /// Their files may go.
     Swept {
@@ -199,6 +204,19 @@ pub(super) async fn apply(
                 State::Ready,
             ];
             moved(writer, parcel, &unrefused, State::Refused).await?;
+        }
+        Change::ReceiverLeft { receiver } => {
+            writer
+                .execute(
+                    "UPDATE parcel SET state = ?1 WHERE receiver = \
+                     ?2 AND state = ?3",
+                    vec![
+                        state(State::Refused)?,
+                        number(receiver),
+                        state(State::Waiting)?,
+                    ],
+                )
+                .await?;
         }
         Change::Released { task } => {
             writer
@@ -1054,6 +1072,35 @@ pub(super) async fn lapsed(
 ) -> Result<change::Change> {
     let parcel = sending(rows, wait).await?;
     Ok(Change::Refused { parcel }.into())
+}
+
+/// The open send waits of parcels to `receiver`.
+pub(super) async fn waits_to(
+    rows: &Rows<'_>,
+    receiver: AgentNumber,
+) -> Result<Vec<WaitId>> {
+    let open = rows
+        .rows::<(u64, Vec<u8>)>(
+            "SELECT id, detail FROM wait WHERE kind = 'send' AND \
+             closed_at IS NULL ORDER BY id",
+            Vec::new(),
+        )
+        .await?;
+    let mut waits = Vec::new();
+    for (wait, detail) in open {
+        let Sending { parcel, .. } =
+            ciborium::from_reader(detail.as_slice())?;
+        let to = rows
+            .value::<u32>(
+                "SELECT receiver FROM parcel WHERE id = ?1",
+                vec![id(parcel)],
+            )
+            .await?;
+        if to == Some(receiver.0) {
+            waits.push(WaitId(wait));
+        }
+    }
+    Ok(waits)
 }
 
 /// The parcel a send's wait `wait` waits on.

@@ -30,7 +30,7 @@ use super::super::peer::When;
 use super::super::world::Part;
 use super::super::{
     Realm, chiefs, drop_parts, hire, laid, marker, oversight,
-    profiles, record, roads, steps, tasks, waits, workers,
+    parcels, profiles, record, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
 
@@ -504,6 +504,7 @@ fn hire_ending(
         }
         .into(),
         waits::Change::Lapse { agent: hire }.into(),
+        parcels::Change::ReceiverLeft { receiver: hire }.into(),
         steps::Change::Close {
             row: hire::row(hire),
         }
