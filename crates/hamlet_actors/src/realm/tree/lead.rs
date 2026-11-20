@@ -299,7 +299,7 @@ impl<By: Lead> Act<By> for Pinned {
                     lead: Some(lead),
                     of,
                     version: hire.version.clone(),
-                    purpose: purpose.clone(),
+                    purpose,
                 })
                 .change(tasks::Change::Standing {
                     agent,
@@ -311,7 +311,6 @@ impl<By: Lead> Act<By> for Pinned {
                 .record(record::Entry::Hired {
                     hire: agent,
                     by: by.by(),
-                    why: purpose,
                 }),
         )
     }
