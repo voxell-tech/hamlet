@@ -49,7 +49,10 @@
 //!     <text ...>
 //! demo agent <n> ask <call> <to> <text ...>
 //!                    send a letter or a question as agent <n>'s call
-//!                    <call>, to `hand`, `mayor` or `hire#<k>`
+//!                    <call>, to `hand`, `mayor` or `hire#<k>`; a
+//!                    letter with the files at the absolute paths
+//!                    <p>, in agent <n>'s hamlet's folder, which its
+//!                    receiver finds in its inbox
 //! demo agent <n> reply <question> <text ...>
 //!                    answer the question <question>
 //! demo agent <n> ask-chief <call> <task> <question ...>
