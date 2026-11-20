@@ -77,7 +77,7 @@ async fn leaving() {
         c.has(|m| {
             m["changes"].as_array().is_some_and(|updates| {
                 updates.iter().any(|u| {
-                    u["agent"]["name"] == "agent#3"
+                    u["agent"]["address"] == "agent#3"
                         && u["agent"]["left"]["how"] == "merged"
                 })
             })

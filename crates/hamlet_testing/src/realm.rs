@@ -38,8 +38,7 @@ pub fn state() -> protocol::State {
 /// `lead`.
 pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
     serde_json::from_value(json!({
-        "id": id, "name": id, "folder": null, "before": [], "mode": "manual",
-        "modeWords": "Agents ask you before each edit and command.",
+        "id": id, "name": id, "folders": [], "before": [], "supervised": true,
         "channels": [], "at": null, "lead": lead, "tier": 50, "chiefs": ["chief"],
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0,
@@ -61,7 +60,7 @@ pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
 /// The Hand.
 pub fn hand(id: u64) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hand", "address": "hand", "name": null, "hamlet": null,
+        "id": id, "kind": "hand", "access": "auto", "address": "hand", "name": null, "hamlet": null,
         "profile": null, "parent": null, "pin": null, "purpose": "", "since": 0, "lead": false,
         "model": "faux::faux-1", "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
@@ -76,7 +75,7 @@ pub fn hand(id: u64) -> protocol::Agent {
 /// its lead under the Hand, or an agent under the first lead.
 pub fn agent(id: u64, hamlet: &str, lead: bool) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hamlet", "address": format!("agent#{id}"), "name": null,
+        "id": id, "kind": "hamlet", "access": "supervised", "address": format!("agent#{id}"), "name": null,
         "hamlet": hamlet, "profile": id,
         "parent": if lead { json!(1) } else { json!(2) },
         "pin": null, "purpose": "", "since": 0, "lead": lead,

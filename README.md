@@ -32,9 +32,12 @@ and open-source forever.
   agents.
 - **Agents that grow**: Agents write their own skills, shared through a
   library.
-- **Your code**: Give a hamlet a folder and its agents work in it.
-- **You stay in charge**: In manual mode every edit and command waits for
-  your approval. In auto mode the sandbox keeps writes in the folder.
+- **Your code**: Give a hamlet folders and its agents work in them. An
+  agent can propose another, and it is added only if you agree.
+- **You stay in charge**: Each agent has its own permissions. Supervised
+  waits for your approval of every edit and command; Auto-accept edits
+  waits only for commands; Auto runs both in the sandbox; Full access
+  runs one trusted agent's commands with no sandbox.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 

@@ -1,5 +1,6 @@
 //! The right-click menu of a thing in the world, and its questions.
 
+mod access;
 mod action;
 mod add_agent;
 mod channel;
@@ -47,6 +48,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
+pub(crate) use self::access::{glyph_of, label_of};
 pub(crate) use self::action::{Action, question};
 pub(crate) use self::context::{ContextUse, fill, track};
 pub(crate) use self::founding::Founding;
@@ -126,6 +128,9 @@ pub(crate) enum Open {
     /// How much of the context the chat of a Hub holds, against what
     /// it was asked from.
     Context(Entity, Rect),
+    /// The permissions of an agent, against what they were asked
+    /// from.
+    Permissions(Entity, Rect),
 }
 
 impl Open {
@@ -424,6 +429,23 @@ pub(crate) fn ask_model(world: &mut World, agent: Entity) {
     model::open(world, agent);
 }
 
+/// Shows the permissions of `agent`, against `anchor`.
+pub(crate) fn show_permissions(
+    world: &mut World,
+    agent: Entity,
+    anchor: Rect,
+) {
+    *world.resource_mut::<Open>() = Open::Permissions(agent, anchor);
+}
+
+/// The permissions `agent` has now.
+pub(crate) fn permissions_of(
+    world: &World,
+    agent: Entity,
+) -> hamlet_client::realm::Access {
+    access::of(world, agent)
+}
+
 /// Shows how much of the context the chat of `hub` holds, against
 /// `anchor`.
 pub(crate) fn show_context(
@@ -531,6 +553,9 @@ fn menus() -> AnyView {
             Open::Model(agent) => model::picker(agent).boxed(),
             Open::Context(hub, anchor) => {
                 context::context(hub, anchor).boxed()
+            }
+            Open::Permissions(agent, anchor) => {
+                access::permissions(agent, anchor).boxed()
             }
         },
     )

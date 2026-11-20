@@ -38,18 +38,47 @@ impl Default for RealmBylaws {
     }
 }
 
-/// The received mode for edits and commands.
+/// Whether a hamlet's agents wait for a chief: manual while any of
+/// them does, else auto.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Manual,
     Auto,
 }
 
-impl From<protocol::HamletMode> for Mode {
-    fn from(mode: protocol::HamletMode) -> Self {
-        match mode {
-            protocol::HamletMode::Manual => Self::Manual,
-            protocol::HamletMode::Auto => Self::Auto,
+/// How far an agent's edits and commands go without a chief's
+/// answer, as T3 Code words it.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Supervised,
+    AcceptEdits,
+    Auto,
+    Full,
+}
+
+impl Access {
+    /// Every level, the least trusting first.
+    pub const ALL: [Self; 4] =
+        [Self::Supervised, Self::AcceptEdits, Self::Auto, Self::Full];
+
+    /// The word a `/permissions` command takes.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Supervised => "supervised",
+            Self::AcceptEdits => "accept-edits",
+            Self::Auto => "auto",
+            Self::Full => "full",
+        }
+    }
+}
+
+impl From<protocol::Access> for Access {
+    fn from(access: protocol::Access) -> Self {
+        match access {
+            protocol::Access::Supervised => Self::Supervised,
+            protocol::Access::AcceptEdits => Self::AcceptEdits,
+            protocol::Access::Auto => Self::Auto,
+            protocol::Access::Full => Self::Full,
         }
     }
 }
@@ -64,15 +93,33 @@ impl From<protocol::HamletMode> for Mode {
 #[require(Spot)]
 pub struct HamletId(pub String);
 
-/// The hamlet's folder, earlier folders, mode words and size.
+/// The hamlet's folders, earlier folders, whether its agents are
+/// supervised, and size.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Works {
-    pub folder: Option<String>,
+    /// The folders it works on, the first being the project.
+    pub folders: Vec<String>,
     pub before: Vec<String>,
-    pub mode: Mode,
-    pub words: String,
+    /// Whether a living agent of it waits for a chief.
+    pub supervised: bool,
     /// The most agents it holds.
     pub tier: u64,
+}
+
+impl Works {
+    /// The project: the first folder it works on.
+    pub fn folder(&self) -> Option<&String> {
+        self.folders.first()
+    }
+
+    /// How its work is overseen, none while it works on no folder.
+    pub fn mode(&self) -> Option<Mode> {
+        (!self.folders.is_empty()).then_some(if self.supervised {
+            Mode::Manual
+        } else {
+            Mode::Auto
+        })
+    }
 }
 
 /// The chief's received limits for a hamlet.
@@ -384,6 +431,7 @@ pub fn register(world: &mut World) {
     world.register_component::<HamletId>();
     world.register_component::<Name>();
     world.register_component::<Works>();
+    world.register_component::<Access>();
     world.register_component::<Bylaws>();
     world.register_component::<Treasury>();
     world.register_component::<Identity>();
@@ -694,10 +742,9 @@ fn upsert_hamlet(
     put(
         &mut entity_mut,
         Works {
-            folder: value.folder,
+            folders: value.folders,
             before: value.before,
-            mode: value.mode.into(),
-            words: value.mode_words,
+            supervised: value.supervised,
             tier: value.tier,
         },
     );
@@ -795,6 +842,7 @@ fn upsert_agent(
         consulting && world.get::<Consulting>(entity).is_none();
     let mut agent = world.entity_mut(entity);
     put(&mut agent, Identity(value.id));
+    put(&mut agent, Access::from(value.access));
     put(&mut agent, Kind(value.kind));
     put(&mut agent, Name::new(value.address));
     flag(

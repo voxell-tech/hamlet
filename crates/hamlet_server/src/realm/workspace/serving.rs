@@ -104,7 +104,7 @@ fn session_in(
 ) -> Result<Session> {
     let hamlet = hamlet_of(db, agent)?;
     let project = match &hamlet {
-        Some(id) => hamlets::get(db, id)?.folder.is_some(),
+        Some(id) => !hamlets::working(db, id)?.is_empty(),
         None => false,
     };
     transport.session(

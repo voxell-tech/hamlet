@@ -143,7 +143,7 @@ fn index(mode: Mode) -> usize {
 
 /// The mode a hamlet works in. None while it works on no folder.
 fn mode(works: Option<&Works>) -> Option<Mode> {
-    works.filter(|w| w.folder.is_some()).map(|w| w.mode)
+    works.and_then(Works::mode)
 }
 
 /// The bench: a plank top on four legs with a shelf under it, a
@@ -616,7 +616,7 @@ fn title(
         let folder = hamlets
             .get(top.hamlet)
             .ok()
-            .and_then(|works| works.folder.as_deref())
+            .and_then(|works| works.folder().map(String::as_str))
             .map(|folder| {
                 std::path::Path::new(folder).file_name().map_or_else(
                     || folder.to_string(),

@@ -600,6 +600,8 @@ mod tests {
         let place = Place {
             worktree,
             folder: None,
+            also: Vec::new(),
+            unconfined: false,
             realm: scratch.to_path_buf(),
             shared: Vec::new(),
         };

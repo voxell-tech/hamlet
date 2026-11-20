@@ -77,8 +77,6 @@ CREATE TABLE hamlet (
     founded_by TEXT NOT NULL,
     lead INTEGER NOT NULL
         REFERENCES hamlet_agent(agent) DEFERRABLE INITIALLY DEFERRED,
-    folder TEXT,
-    mode TEXT NOT NULL DEFAULT 'manual' CHECK (mode IN ('manual', 'auto')),
     tier INTEGER NOT NULL DEFAULT 50 CHECK (tier IN (50, 100, 200, 500)),
     site_x REAL,
     site_z REAL,
@@ -97,11 +95,14 @@ CREATE TABLE hamlet_chief (
     PRIMARY KEY (hamlet, chief)
 ) STRICT, WITHOUT ROWID;
 
--- The folders a hamlet worked on, and when it last chose each.
+-- The folders a hamlet worked on, and when it last chose each. It
+-- works on those with a `since`, the first added being the one
+-- commands run in.
 CREATE TABLE hamlet_folder (
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
     folder TEXT NOT NULL,
     at INTEGER NOT NULL,
+    since INTEGER,
     PRIMARY KEY (hamlet, folder)
 ) STRICT, WITHOUT ROWID;
 
@@ -158,6 +159,9 @@ CREATE TABLE hamlet_agent (
     model_reason TEXT,
     allowance INTEGER CHECK (allowance IS NULL OR allowance >= 0),
     allowance_by TEXT,
+    -- How far its edits and commands go without a chief's answer.
+    access TEXT NOT NULL DEFAULT 'supervised' CHECK (access IN
+        ('supervised', 'accept-edits', 'auto', 'full')),
     merged_into INTEGER REFERENCES hamlet_agent(agent),
     -- Whether it was ended with one more dream.
     ending_dream INTEGER NOT NULL DEFAULT 0 CHECK (ending_dream IN (0, 1)),
@@ -610,7 +614,7 @@ CREATE TABLE wait (
          'mcp-server')),
     danger TEXT CHECK (danger IS NULL OR danger IN
         ('network', 'unconfined', 'reserved', 'edit', 'command',
-         'send', 'act')),
+         'send', 'act', 'folder')),
     agent INTEGER REFERENCES agent(id),
     -- The newcomer a `newcomer` wait asks about.
     profile INTEGER REFERENCES profile(id),

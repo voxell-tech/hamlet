@@ -259,8 +259,8 @@ mod tests {
         let mut app = app();
         app.add_plugins(ClientPlugin { server: None });
         let mut state = hamlet_testing::realm::state();
-        state.hamlets[0].folder =
-            Some(first.to_string_lossy().into_owned());
+        state.hamlets[0].folders =
+            vec![first.to_string_lossy().into_owned()];
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
@@ -294,8 +294,8 @@ mod tests {
         assert!(found.contains(&Anchor::File(absolute)));
         assert!(found.contains(&Anchor::File(first.join("plan.md"))));
         assert_eq!(found.len(), 2);
-        state.hamlets[0].folder =
-            Some(second.to_string_lossy().into_owned());
+        state.hamlets[0].folders =
+            vec![second.to_string_lossy().into_owned()];
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

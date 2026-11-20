@@ -2,10 +2,7 @@
 //! and the chief's limits.
 
 use anyhow::{Context, Result};
-use diesel::deserialize::FromSqlRow;
-use diesel::expression::AsExpression;
 use diesel::prelude::*;
-use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
     Actor, AgentId, ChiefId, HamletId, ProfileId,
@@ -13,9 +10,7 @@ use hamlet_store::ids::{
 use hamlet_store::schema::{
     agent, hamlet, hamlet_agent, hamlet_chief, hamlet_folder,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strum::{Display, EnumString, IntoStaticStr};
 
 use super::agents::{self, EndHow};
 use super::city;
@@ -32,31 +27,6 @@ use crate::realm::jobs::{self, Job};
 /// The tiers a hamlet's cap of agents may take.
 pub(crate) const TIERS: [i64; 4] = [50, 100, 200, 500];
 
-/// How a hamlet's work on its folder is overseen (C21).
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    AsExpression,
-    FromSqlRow,
-    IntoStaticStr,
-    EnumString,
-    Display,
-)]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
-#[diesel(sql_type = Text)]
-pub(crate) enum Mode {
-    Manual,
-    Auto,
-}
-hamlet_store::named_text!(Mode);
-
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hamlet)]
 pub(crate) struct Hamlet {
@@ -65,8 +35,6 @@ pub(crate) struct Hamlet {
     pub founded_at: i64,
     pub founded_by: Actor,
     pub lead: AgentId,
-    pub folder: Option<String>,
-    pub mode: Mode,
     pub tier: i64,
     pub site_x: Option<f64>,
     pub site_z: Option<f64>,
@@ -270,38 +238,105 @@ pub(crate) fn set_tier(
     Ok(Ok(()))
 }
 
-/// Points `id` at `folder`, or at none (C20).
+/// Makes `folder` one `id` works on, after the ones it works on
+/// already (C20). The first it worked on is where commands run.
+pub(crate) fn add_folder(
+    cx: &mut Change<'_>,
+    id: &HamletId,
+    folder: &str,
+    reason: &str,
+) -> Done<()> {
+    done!(living(cx.db, id));
+    let last = hamlet_folder::table
+        .filter(hamlet_folder::hamlet.eq(id))
+        .select(diesel::dsl::max(hamlet_folder::since))
+        .first::<Option<i64>>(cx.db)?;
+    let held = hamlet_folder::table
+        .find((id, folder))
+        .select(hamlet_folder::since)
+        .first::<Option<i64>>(cx.db)
+        .optional()?
+        .flatten();
+    // A folder it works on keeps its place.
+    let since = held.unwrap_or_else(|| {
+        last.map_or(cx.at, |last| (last + 1).max(cx.at))
+    });
+    diesel::insert_into(hamlet_folder::table)
+        .values((
+            hamlet_folder::hamlet.eq(id),
+            hamlet_folder::folder.eq(folder),
+            hamlet_folder::at.eq(cx.at),
+            hamlet_folder::since.eq(since),
+        ))
+        .on_conflict((hamlet_folder::hamlet, hamlet_folder::folder))
+        .do_update()
+        .set((
+            hamlet_folder::at.eq(cx.at),
+            hamlet_folder::since.eq(since),
+        ))
+        .execute(cx.db)?;
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Folder, reason)
+            .hamlet(id)
+            .detail(json!({ "added": folder })),
+    )?;
+    Ok(Ok(()))
+}
+
+/// Stops `id` working on `folder`, which stays among the ones it
+/// worked on before.
+pub(crate) fn drop_folder(
+    cx: &mut Change<'_>,
+    id: &HamletId,
+    folder: &str,
+) -> Done<()> {
+    done!(living(cx.db, id));
+    let dropped = diesel::update(
+        hamlet_folder::table
+            .find((id, folder))
+            .filter(hamlet_folder::since.is_not_null()),
+    )
+    .set(hamlet_folder::since.eq(None::<i64>))
+    .execute(cx.db)?;
+    if dropped == 0 {
+        reject!(Rejection::NotWorkedOn {
+            path: folder.into()
+        });
+    }
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::Folder, "")
+            .hamlet(id)
+            .detail(json!({ "dropped": folder })),
+    )?;
+    Ok(Ok(()))
+}
+
+/// Makes `folder` the only folder `id` works on, or none (C20).
 pub(crate) fn set_folder(
     cx: &mut Change<'_>,
     id: &HamletId,
     folder: Option<&str>,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    diesel::update(hamlet::table.find(id))
-        .set(hamlet::folder.eq(folder))
-        .execute(cx.db)?;
-    if let Some(folder) = folder {
-        diesel::insert_into(hamlet_folder::table)
-            .values((
-                hamlet_folder::hamlet.eq(id),
-                hamlet_folder::folder.eq(folder),
-                hamlet_folder::at.eq(cx.at),
-            ))
-            .on_conflict((
-                hamlet_folder::hamlet,
-                hamlet_folder::folder,
-            ))
-            .do_update()
-            .set(hamlet_folder::at.eq(cx.at))
-            .execute(cx.db)?;
+    diesel::update(
+        hamlet_folder::table.filter(hamlet_folder::hamlet.eq(id)),
+    )
+    .set(hamlet_folder::since.eq(None::<i64>))
+    .execute(cx.db)?;
+    match folder {
+        Some(folder) => add_folder(cx, id, folder, ""),
+        None => {
+            record::keep(
+                cx,
+                Decision::new(DecisionKind::Folder, "")
+                    .hamlet(id)
+                    .detail(json!({ "cleared": true })),
+            )?;
+            Ok(Ok(()))
+        }
     }
-    record::keep(
-        cx,
-        Decision::new(DecisionKind::Folder, "")
-            .hamlet(id)
-            .detail(json!({ "folder": folder })),
-    )?;
-    Ok(Ok(()))
 }
 
 /// Rejects `folder` unless it is a folder on this machine.
@@ -315,35 +350,30 @@ pub(crate) fn check_folder(folder: &str) -> Result<(), Rejection> {
     }
 }
 
-/// The folders `id` worked on, the latest first.
+/// The folders `id` works on, the one commands run in first (C20).
+pub(crate) fn working(
+    db: &mut Db,
+    id: &HamletId,
+) -> Result<Vec<String>> {
+    Ok(hamlet_folder::table
+        .filter(hamlet_folder::hamlet.eq(id))
+        .filter(hamlet_folder::since.is_not_null())
+        .order((hamlet_folder::since.asc(), hamlet_folder::folder))
+        .select(hamlet_folder::folder)
+        .load(db)?)
+}
+
+/// The folders `id` worked on and does not now, the latest first.
 pub(crate) fn folders(
     db: &mut Db,
     id: &HamletId,
 ) -> Result<Vec<String>> {
     Ok(hamlet_folder::table
         .filter(hamlet_folder::hamlet.eq(id))
+        .filter(hamlet_folder::since.is_null())
         .order(hamlet_folder::at.desc())
         .select(hamlet_folder::folder)
         .load(db)?)
-}
-
-/// Sets how the work of `id` on its folder is overseen (C21).
-pub(crate) fn set_mode(
-    cx: &mut Change<'_>,
-    id: &HamletId,
-    mode: Mode,
-) -> Done<()> {
-    done!(living(cx.db, id));
-    diesel::update(hamlet::table.find(id))
-        .set(hamlet::mode.eq(mode))
-        .execute(cx.db)?;
-    record::keep(
-        cx,
-        Decision::new(DecisionKind::Mode, "")
-            .hamlet(id)
-            .detail(json!({ "mode": mode })),
-    )?;
-    Ok(Ok(()))
 }
 
 /// Replaces the limits of `id` (H22).

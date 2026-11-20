@@ -128,7 +128,7 @@ A profile a parent made, waiting at the harbor until let in.
 _Avoid_: applicant, guest
 
 **Hamlet**:
-A group of agents under one lead, with its own record, limits and folder.
+A group of agents under one lead, with its own record, limits and folders.
 _Avoid_: team, project, town
 
 **Workspace**:
@@ -148,6 +148,17 @@ _Avoid_: unconfined, no-sandbox mode, unsafe mode
 A program a chief lists in `mcp/servers.json`, which runs under the
 sandbox for as long as it is listed and whose tools agents are offered.
 _Avoid_: plugin, connector, extension
+
+**Permissions**:
+How far an agent's edits and commands go before a chief answers: Supervised,
+Auto-accept edits, Auto or Full access, T3 Code's words. Each agent's own.
+Not a **Grant**.
+_Avoid_: mode, approvals, autonomy
+
+**Full access**:
+The permissions of one agent whose commands run with no sandbox and the
+network open, given by a chief (ADR 0018). Not **Insecure mode**.
+_Avoid_: unconfined, root, yolo
 
 **Leftover**:
 A process an agent's command started that outlives the command.

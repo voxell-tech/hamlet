@@ -217,6 +217,9 @@ pub enum Update {
 #[serde(deny_unknown_fields)]
 pub struct Agent {
     pub activity: AgentActivity,
+    /// How far its edits and commands go without a chief's answer.
+    /// Only an agent of a hamlet has its own; the others are `auto`.
+    pub access: Access,
     /// Its address: `hand`, `agent#id` or `worker#id`.
     pub address: String,
     /// The dollars an agent may spend in its hamlet's budget period;
@@ -556,17 +559,17 @@ pub struct Hamlet {
     pub budget: Report,
     /// The chiefs it answers to.
     pub chiefs: Vec<String>,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub folder: Option<String>,
+    /// The folders it works on, the first being where commands run.
+    pub folders: Vec<String>,
     pub id: String,
     /// The agent at the root of its tree.
     pub lead: AgentId,
     pub limits: Limits,
-    pub mode: HamletMode,
-    #[serde(rename = "modeWords")]
-    pub mode_words: String,
     pub name: String,
     pub channels: Vec<Channel>,
+    /// Whether a living agent of it waits for a chief before it
+    /// edits a folder or runs a command.
+    pub supervised: bool,
     /// The most agents it holds.
     pub tier: u64,
 }
@@ -574,11 +577,19 @@ pub struct Hamlet {
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
-pub enum HamletMode {
-    #[serde(rename = "manual")]
-    Manual,
+pub enum Access {
+    /// Each edit of a folder and each command waits for a chief.
+    #[serde(rename = "supervised")]
+    Supervised,
+    /// Edits of a folder run; each command waits.
+    #[serde(rename = "accept-edits")]
+    AcceptEdits,
+    /// Edits and commands run in the sandbox; the network waits.
     #[serde(rename = "auto")]
     Auto,
+    /// Edits and commands run with no sandbox and the network open.
+    #[serde(rename = "full")]
+    Full,
 }
 
 #[derive(

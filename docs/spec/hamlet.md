@@ -51,7 +51,8 @@ the chief is talking to.
 | `/name-agent <address> [name]` | What an agent or a worker is called in the world, or none to go by its own again (H46) |
 | `/channel <address> <address> [reason]`, `/unchannel <address> <address> [reason]` | Open or close a channel between two agents (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
-| `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
+| `/folder <add <folder>\|drop <folder>\|none>` | The folders the hamlet works on (C20) |
+| `/permissions <address> <supervised\|accept-edits\|auto\|full>` | How far an agent goes without asking (C21, ADR 0018) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/history` | The record: who was added, ended, merged and restored, and the other decisions (H17) |
 | `/profiles`, `/profile new <name>[: <character>]`, `/name-profile <profile#id> <name>` | List the city's profiles, make one, or give one a new name (H38) |
@@ -80,7 +81,7 @@ empty city and no hamlet.
 - It can do in any hamlet what a parent can (H41), and what a chief can in
   the realm: found hamlets (H6), give a hamlet's office to another agent
   (H18), name, move, remove, restore and erase a hamlet (H19), set its tier,
-  folder, mode, limits and budget, read a hamlet's record, read and change
+  folders, limits and budget, read a hamlet's record, read and change
   profiles and let newcomers into the city (H38, H39, H45), restore and
   erase agents, pin, dream, reflect and stop, read an agent's prompt and
   papers, and change the realm's settings and charter (H35).
@@ -88,7 +89,7 @@ empty city and no hamlet.
   answers what waits for a chief or takes back a grant, and never chooses
   its own model, effort or fast tier.
 - Its changes to a profile's `main`, a purge, removing or erasing anything,
-  a hamlet's tier, folder, mode, limits and budget, and the realm's
+  a hamlet's tier, folders, limits and budget, and the realm's
   settings and charter are reserved: they wait for a chief (H11). It asks
   for a chief's word before it touches what a chief owns.
 - Its spend and that of the workers it starts are charged to the realm's
@@ -513,10 +514,13 @@ skill out (`/unshelve`).
   may not run unconfined;
 - it is something the chief's limits reserve (H22), or one of the Hand's
   acts on what chiefs own (H37);
-- its hamlet is in manual mode and it is an edit of the folder or a
-  command, not an edit of the agent's own worktree (C21);
+- its agent's permissions hold it: an edit of a folder under Supervised, or
+  a command under Supervised or Auto-accept edits, but never an edit of the
+  agent's own worktree (C21);
+- it is a folder an agent proposes for its hamlet (C20), whatever its
+  agent's permissions;
 - it is a call of an MCP tool that may change something outside the realm,
-  in any mode (C36).
+  whatever its agent's permissions (C36).
 
 A chief answers: allow it once; allow edits, commands or the calls of one
 MCP tool for the rest of the agent's conversation, which a rewind's fork
@@ -557,10 +561,10 @@ only the tools in its own row:
 | Who | Tools |
 |---|---|
 | Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `request_mcp_server` (C36), `read_budget` (H8) |
-| Every agent of a hamlet | `propose_channel` |
+| Every agent of a hamlet | `propose_channel`, `propose_folder` (C20) |
 | A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `reparent_agent` (H41), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |
-| The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `set_mode`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
+| The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
 | Every agent but a worker, in its one conversation | `object` (H10) |
 | A worker | None of the society's |
 | A dream | None of the society's |

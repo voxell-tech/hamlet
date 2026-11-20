@@ -100,7 +100,7 @@ fn work_folder(world: &World, hub: Entity) -> Option<String> {
 /// The local work folder of `agent`'s hamlet.
 fn folder_of(world: &World, agent: Entity) -> Option<String> {
     let hamlet = world.get::<LivesIn>(agent)?.0;
-    world.get::<Works>(hamlet)?.folder.clone()
+    world.get::<Works>(hamlet)?.folder().cloned()
 }
 
 /// The work folder a path drawn `under` is of: a chat's own, or that
@@ -125,7 +125,7 @@ fn turn(world: &mut World) {
                 .iter(world)
                 .filter_map(|convo| {
                     let hamlet = world.get::<LivesIn>(convo.agent)?.0;
-                    world.get::<Works>(hamlet)?.folder.clone()
+                    world.get::<Works>(hamlet)?.folder().cloned()
                 })
                 .collect::<Vec<_>>()
         })

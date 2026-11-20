@@ -17,9 +17,9 @@ use hamlet_store::ids::{
 
 use self::args::{
     AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
-    FoundHamlet, MakeProfile, MergeAgents, ReadRecord, RenameAgent,
-    ReparentAgent, RequestMcpServer, SetAllowance, SetLead, SetModel,
-    SetTools,
+    FoundHamlet, MakeProfile, MergeAgents, ProposeFolder, ReadRecord,
+    RenameAgent, ReparentAgent, RequestMcpServer, SetAllowance,
+    SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
 use super::{Call, rejected, said};
@@ -463,7 +463,6 @@ impl Core<'_, '_> {
             | Called::MoveHamlet(_)
             | Called::SetTier(_)
             | Called::SetFolder(_)
-            | Called::SetMode(_)
             | Called::ResetBudget(_)
             | Called::EditLimits(_)) => {
                 self.hamlet_tool(call, called)
@@ -497,6 +496,29 @@ impl Core<'_, '_> {
             | Called::ReadCharter(_)
             | Called::ReadModels(_)
             | Called::Unshelve(_)) => self.realm_tool(call, called),
+            Called::ProposeFolder(ProposeFolder {
+                folder,
+                reason,
+            }) => {
+                // The gate held this for a chief, who agreed.
+                let Some(here) = here.cloned() else {
+                    reject!(Rejection::NoHamlet {
+                        id: String::new()
+                    });
+                };
+                if let Err(rejection) = hamlets::check_folder(&folder)
+                {
+                    reject!(rejection);
+                }
+                self.carry(call, |cx, _| {
+                    Ok(hamlets::add_folder(
+                        cx, &here, &folder, &reason,
+                    )?
+                    .map(|()| {
+                        format!("Your hamlet works on {folder} now.")
+                    }))
+                })
+            }
             Called::ReadBudget(_) => {
                 let db = self.realm.store().connection();
                 Ok(Ok(budget(db, agent)?))

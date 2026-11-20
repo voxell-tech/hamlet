@@ -4,6 +4,7 @@
 //! oversight of agents by chiefs: what waits for a chief, and the
 //! gate that decides a call.
 
+pub(crate) mod access;
 pub(crate) mod addresses;
 pub(crate) mod agents;
 pub(crate) mod authority;

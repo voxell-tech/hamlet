@@ -28,7 +28,7 @@ checks permissions at execution, including after approval or replay.
 Commands read the machine's files but the realm's folder, as Codex's and
 Claude Code's sandboxes let theirs, and run with the chief's own `PATH`
 and `HOME`, so the chief's programs and toolchains are found. They write
-their own worktree, the folder when the hamlet has one, and a private
+their own worktree, the hamlet's folders, and a private
 temporary space. Other worktrees, credentials and the database are in
 the realm's folder, and not readable. On macOS they also reach the
 system's logging, trust, preferences, directory and audio services, and
@@ -49,22 +49,36 @@ each `bash` call runs under the sandbox, and the agent's commands
 terminal only shows it, read-only. The chief's shell always runs on the
 server's machine, whichever workspace the agents use.
 
-## A folder a hamlet works on
+## The folders a hamlet works on
 
-The chief chooses a local folder for a hamlet. Its agents then work
+The chief chooses local folders for a hamlet, and an agent may propose
+one with `propose_folder`, which waits for a chief. Its agents then work
 there, with their own memory, skills and inbox still in their worktrees:
-relative paths go to the folder, except those whose first part is
-`memory/`, `skills/` or `inbox/`.
+relative paths go to the first folder, the project, except one whose
+first part, as `memory/`, `skills/` or `inbox/`, is missing from the
+project and present in the worktree, which goes to the worktree. A full
+path reaches the worktree whatever the project holds, and reaches the
+other folders.
 
-Manual mode asks before edits to the folder and commands; reading and
-worktree edits stay available. Auto mode allows work without those waits
-but does not remove the sandbox. With a folder, commands also write the
-folder.
+Each agent has its own permissions, which a chief sets:
 
-Agents use the chief's own git and machine credentials in that folder,
-and network still needs permission. Agents can write git hooks and config
-in the folder, including nested repositories, and those can later run
-under the chief's own git (C19, H11, ADR 0007).
+- **Supervised** asks before edits to the folders and before commands;
+  reading and worktree edits stay available.
+- **Auto-accept edits** runs edits and asks before commands.
+- **Auto** runs both without those waits but does not remove the sandbox.
+- **Full access** runs both, with no sandbox and the network open, for
+  that agent alone (ADR 0018). Its commands reach whatever the server's
+  account can, and the policy hash names `unconfined`. A remote workspace
+  keeps its own policy, so there it only opens the network.
+
+With folders, commands also write the folders. A worker goes as
+far as the agent that started it. An agent a parent adds starts with its
+parent's permissions, lowered from Full access to Auto.
+
+Agents use the chief's own git and machine credentials in the folders,
+and network still needs permission short of Full access. Agents can write
+git hooks and config in the folders, including nested repositories, and
+those can later run under the chief's own git (C19, H11, ADR 0007).
 
 ## File operations and leftovers
 

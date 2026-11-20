@@ -23,8 +23,8 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::Compact;
 use hamlet_client::realm::{
-    Activity, Busy, Kind, Left, LivesIn, Parent, Profile, Works,
-    id_of, name_of, shown_of,
+    Activity, Busy, HamletAgent, Kind, Left, LivesIn, Parent,
+    Profile, id_of, name_of, shown_of,
 };
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
@@ -47,7 +47,6 @@ use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
 use crate::menu::rect_of;
-use crate::overview::tell;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
 use crate::roll::rolled;
 use crate::screens::wait;
@@ -429,39 +428,32 @@ fn chip_style(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The hamlet `agent` lives in and how its work is overseen.
-fn mode_of(
-    world: &World,
-    agent: Entity,
-) -> Option<(Entity, hamlet_client::realm::Mode)> {
-    let lives = world.get::<LivesIn>(agent)?.0;
-    Some((lives, world.get::<Works>(lives)?.mode))
+/// The hamlet `agent` lives in, when it is an agent of one: only
+/// those have permissions of their own.
+fn hamlet_of(world: &World, agent: Entity) -> Option<Entity> {
+    world.get::<HamletAgent>(agent)?;
+    Some(world.get::<LivesIn>(agent)?.0)
 }
 
-/// The words of the hamlet's mode `agent` works under.
-fn mode_words(world: &World, agent: Entity) -> String {
-    match mode_of(world, agent).map(|at| at.1) {
-        Some(hamlet_client::realm::Mode::Auto) => words::NO_ASKING,
-        _ => words::ASK_FIRST,
-    }
-    .to_string()
-}
-
-/// On the words of the mode's chip in the composer's toolbar.
+/// On the words of the permissions chip in the composer's toolbar.
 #[derive(Component)]
 struct ModeWords;
 
-/// The chip of the hamlet's mode, which a press turns over.
+/// On the chip of the permissions of the agent it holds.
+#[derive(Component, Clone, Copy)]
+struct PermissionsChip(Entity);
+
+/// The chip of `agent`'s permissions, which opens their popup.
 fn mode_chip(agent: Entity, bar: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
-            mode_of(world, agent).map(|at| at.0)
+            hamlet_of(world, agent).is_some()
         })
         .when(every_frame()),
-        move |hamlet| {
-            let Some(hamlet) = *hamlet else {
+        move |&own| {
+            if !own {
                 return frame().boxed();
-            };
+            }
             let shown = keyed(
                 component::<Toolbar, _>(bar, |toolbar| {
                     toolbar.is_none_or(|toolbar| {
@@ -471,7 +463,12 @@ fn mode_chip(agent: Entity, bar: Entity) -> impl View {
                 move |&shown| match shown {
                     true => row((label(
                         derived(move |world: &World| {
-                            mode_words(world, agent)
+                            world_menu::label_of(
+                                world_menu::permissions_of(
+                                    world, agent,
+                                ),
+                            )
+                            .to_string()
                         })
                         .when(every_frame()),
                     )
@@ -483,48 +480,59 @@ fn mode_chip(agent: Entity, bar: Entity) -> impl View {
                 },
             )
             .within(row(()).gap(0.0));
+            let face = keyed(
+                derived(move |world: &World| {
+                    world_menu::permissions_of(world, agent)
+                })
+                .when(every_frame()),
+                |&access| {
+                    glyph(world_menu::glyph_of(access), 12.0).boxed()
+                },
+            )
+            .within(row(()));
             button(
-                row((glyph(Glyph::Shield, 12.0), shown))
-                    .gap(0.0)
-                    .align(AlignItems::Center),
+                row((face, shown)).gap(0.0).align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
             .rules(chip_style)
             .tagged(Variant::Text)
+            .tagged(PermissionsChip(agent))
             .tooltip(move || {
                 note(
                     derived(move |world: &World| {
-                        let tight = world
-                            .get::<Toolbar>(bar)
-                            .is_some_and(|t| t.fold == Fold::Tight);
-                        let mode = match tight {
-                            true => format!(
-                                "{}. ",
-                                mode_words(world, agent)
-                            ),
-                            false => String::new(),
-                        };
+                        let now =
+                            world_menu::permissions_of(world, agent);
                         format!(
-                            "{mode}{} Press to switch.",
-                            words::APPROVALS
+                            "{}. {}",
+                            world_menu::label_of(now),
+                            words::PERMISSIONS
                         )
                     })
                     .when(every_frame()),
                 )
             })
             .on_activate(move |world| {
-                let to = match mode_of(world, agent).map(|at| at.1) {
-                    Some(hamlet_client::realm::Mode::Auto) => {
-                        "manual"
-                    }
-                    _ => "auto",
-                };
-                tell(world, hamlet, format!("/mode {to}"));
+                open_permissions(world, agent);
             })
             .boxed()
         },
     )
     .within(bare())
+}
+
+/// Opens the popup of `agent`'s permissions over their chip.
+fn open_permissions(world: &mut World, agent: Entity) {
+    let chip = world
+        .try_query::<(Entity, &PermissionsChip)>()
+        .and_then(|mut chips| {
+            chips
+                .iter(world)
+                .find(|(_, of)| of.0 == agent)
+                .map(|(chip, _)| chip)
+        });
+    if let Some(anchor) = chip.and_then(|chip| rect_of(world, chip)) {
+        world_menu::show_permissions(world, agent, anchor);
+    }
 }
 
 /// The side of the round send and stop buttons.

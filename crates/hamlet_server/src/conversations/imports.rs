@@ -89,7 +89,10 @@ pub(crate) fn bring_in_project(
     if let Some(folder) = folder {
         for hamlet in hamlets::all(cx.db)? {
             if hamlet.is_living()
-                && hamlet.folder.as_deref() == Some(folder)
+                && hamlets::working(cx.db, &hamlet.id)?
+                    .first()
+                    .map(String::as_str)
+                    == Some(folder)
                 && hamlets::chiefs(cx.db, &hamlet.id)?
                     .contains(&chief)
             {

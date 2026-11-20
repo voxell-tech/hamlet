@@ -20,9 +20,8 @@ use crate::knowledge::{self, CHARACTER};
 use crate::realm::change::Done;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Settings;
+use crate::society::access::Access;
 use crate::society::agents::{self, AgentKind};
-use crate::society::hamlets;
-use crate::tools::hamlet_of;
 
 /// The charter every agent is given unless a chief wrote its own
 /// (C12).
@@ -71,15 +70,26 @@ pub(crate) fn sections(
         AgentKind::Worker => cx.layout.worker(agent.id),
         _ => knowledge::worktree(db, cx.layout, agent.id)?.path,
     };
-    let folder = folder_of(db, agent.id)?;
+    let at = crate::calls::place::of(db, cx.layout, agent.id)?;
+    let full = at.access.is_full();
+    let folders = at.place.folder.as_ref().map(|first| {
+        let all = std::iter::once(first)
+            .chain(&at.place.also)
+            .map(|folder| folder.display().to_string())
+            .collect::<Vec<_>>();
+        (all, at.access)
+    });
     let mut sections = vec![
         section("charter", charter(db)?),
-        section("machine", machine(cx, conversation, &worktree)?),
+        section(
+            "machine",
+            machine(cx, conversation, &worktree, full)?,
+        ),
     ];
-    if let Some((path, manual)) = &folder {
+    if let Some((paths, access)) = &folders {
         sections.push(section(
             "project",
-            project(path, *manual, &worktree),
+            project(paths, *access, &worktree),
         ));
     }
     if agent.kind != AgentKind::Worker {
@@ -149,35 +159,29 @@ impl Core<'_, '_> {
     }
 }
 
-/// The folder `agent` works on, and whether its hamlet's mode holds
-/// its work for approval first.
-fn folder_of(
-    db: &mut Db,
-    agent: hamlet_store::ids::AgentId,
-) -> Result<Option<(String, bool)>> {
-    let Some(hamlet) = hamlet_of(db, agent)? else {
-        return Ok(None);
-    };
-    let kept = hamlets::get(db, &hamlet)?;
-    Ok(kept
-        .folder
-        .map(|folder| (folder, kept.mode == hamlets::Mode::Manual)))
-}
-
 fn machine(
     cx: &Context<'_>,
     conversation: &Conversation,
     worktree: &Path,
+    full: bool,
 ) -> Result<String> {
+    // A remote workspace keeps its own policy, even under full
+    // access.
     let sandbox = match cx.confinement {
+        Confinement::Remote => "the remote workspace's",
+        _ if full => {
+            "none. A chief gave you full access: your commands are \
+             not confined and reach whatever the chief's account can"
+        }
         Confinement::Insecure => {
             "none. Commands are not confined: they reach whatever \
              the chief's account can"
         }
         Confinement::Sandbox { name } => name,
-        Confinement::Remote => "the remote workspace's",
     };
-    let net = if cx.settings.allow_net {
+    let net = if full {
+        "open".to_owned()
+    } else if cx.settings.allow_net {
         "on".to_owned()
     } else {
         "off unless a chief allows it; a command that needs it waits \
@@ -206,23 +210,41 @@ fn machine(
     ))
 }
 
-fn project(folder: &str, manual: bool, worktree: &Path) -> String {
+fn project(
+    folders: &[String],
+    access: Access,
+    worktree: &Path,
+) -> String {
+    let folder = &folders[0];
     let mut lines = vec![
-        format!(
-            "Your hamlet works on the folder {folder}. The work a \
-             chief requests is done there:"
-        ),
+        match folders {
+            [_] => format!(
+                "Your hamlet works on the folder {folder}. The work \
+                 a chief requests is done there:"
+            ),
+            _ => format!(
+                "Your hamlet works on these folders: {}. The first, \
+                 {folder}, is the project. The work a chief \
+                 requests is done in them:",
+                folders.join(", ")
+            ),
+        },
         format!(
             "- A command runs with {folder} as its working \
-             directory. It may write there and in your worktree, \
+             directory. It may write there{} and in your worktree, \
              and nowhere else. It can read the rest of the machine, \
              so the project's own tools run as they do for the \
-             chief."
+             chief.",
+            if folders.len() > 1 {
+                ", in the other folders"
+            } else {
+                ""
+            }
         ),
         "- `read`, `write` and `edit` take a path relative to the \
-         project, or a full path. `read`, `search` and `find` look \
-         at files without running a command; use them rather than \
-         cat, grep and find."
+         project, or a full path, which is how you reach the other \
+         folders. `read`, `search` and `find` look at files without \
+         running a command; use them rather than cat, grep and find."
             .into(),
         format!(
             "- Your worktree is {}. Keep your memory and skills \
@@ -230,6 +252,11 @@ fn project(folder: &str, manual: bool, worktree: &Path) -> String {
              `edit` their full path.",
             worktree.display()
         ),
+        "- A folder outside these is not yours to touch. If the \
+         work needs one, call `propose_folder` with its path and \
+         your reason: a chief answers, and it is added only if they \
+         agree."
+            .into(),
     ];
     if Path::new(folder).join(".git").exists() {
         lines.push(
@@ -240,17 +267,25 @@ fn project(folder: &str, manual: bool, worktree: &Path) -> String {
                 .into(),
         );
     }
-    if manual {
-        lines.push(
+    match access {
+        Access::Supervised => lines.push(
             "- A chief approves each edit and each command in the \
              project before it runs, so each one waits. `read`, \
              `search` and `find` never wait: learn what you need \
              with them, then make few, well-aimed edits and \
              commands."
                 .into(),
-        );
+        ),
+        Access::AcceptEdits => lines.push(
+            "- Your edits in the project run at once. A chief \
+             approves each command before it runs, so each one \
+             waits: prefer `read`, `search`, `find` and `edit`, and \
+             make few, well-aimed commands."
+                .into(),
+        ),
+        Access::Auto | Access::Full => {}
     }
-    if let Ok(project) = Folder::open(Path::new(folder)) {
+    if let Ok(project) = Folder::open(Path::new(folder.as_str())) {
         for name in INSTRUCTIONS {
             let Ok(bytes) = project.read(name) else {
                 continue;

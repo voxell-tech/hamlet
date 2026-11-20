@@ -1,4 +1,4 @@
-//! The folder a hamlet works on and its mode, on the hamlet's page.
+//! The folders a hamlet works on, on the hamlet's page.
 
 use std::path::Path;
 
@@ -12,13 +12,13 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
-use hamlet_client::realm::{Mode, Works};
+use hamlet_client::realm::Works;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
     ICON, Looks, action, bare, buttons, description,
-    description_rules, lettered, link_row, note, segmented_words,
+    description_rules, lettered, link_row, note,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -26,7 +26,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::overview::{heading_line, tell};
 use crate::roll::hamlets_moved;
-use crate::words;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
@@ -35,22 +34,11 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_observer(switched).add_observer(chosen);
 }
 
-/// Switches a hamlet's mode, or shows its page to choose a folder.
+/// Shows the hamlet's page, where its folders and permissions are.
 fn switched(switched: On<Switched>, mut commands: Commands) {
     let hamlet = switched.hamlet;
     commands.queue(move |world: &mut World| {
-        let Some(work) = world.get::<Works>(hamlet) else {
-            return;
-        };
-        if work.folder.is_none() {
-            select(world, Some(Thing::Common(hamlet)));
-            return;
-        }
-        let to = match work.mode {
-            Mode::Manual => Mode::Auto,
-            Mode::Auto => Mode::Manual,
-        };
-        set_mode(world, hamlet, to);
+        select(world, Some(Thing::Common(hamlet)));
     });
 }
 
@@ -62,7 +50,7 @@ fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
 }
 
 fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
-    tell(world, hamlet, format!("/folder {}", folder.display()));
+    tell(world, hamlet, format!("/folder add {}", folder.display()));
 }
 
 /// `part` of what `hamlet` works on, rebuilt when it changes.
@@ -81,54 +69,40 @@ fn of_works(
     .within(bare())
 }
 
-/// The folder `hamlet` works on and the ones it worked on before.
+/// The folders `hamlet` works on and the ones it worked on before.
 pub(crate) fn section(hamlet: Entity) -> impl View {
     of_works(hamlet, works_on)
-}
-
-/// Whether `hamlet`'s agents ask before each edit and command.
-pub(crate) fn approvals(hamlet: Entity) -> impl View {
-    of_works(hamlet, approvals_of)
 }
 
 fn works_on(hamlet: Entity, work: &Works) -> AnyView {
     let choose = action(
         Glyph::Folder,
-        match work.folder {
-            Some(_) => "Choose Another",
-            None => "Choose a Folder",
+        if work.folders.is_empty() {
+            "Choose a Folder"
+        } else {
+            "Add a Folder"
         },
         move |world| {
             world.trigger(ChooseFolder {
                 asker: hamlet,
-                title: "Choose the folder this hamlet works on"
-                    .into(),
+                title: "Choose a folder this hamlet works on".into(),
             });
         },
     )
     .tooltip(|| note("A path on the server's machine"))
     .boxed();
-    let (now, acts) = match &work.folder {
-        Some(folder) => (
-            label(folder.clone()).boxed(),
-            vec![
-                choose,
-                lettered("Clear")
-                    .variant(Variant::Default)
-                    .on_activate(move |world| {
-                        tell(
-                            world,
-                            hamlet,
-                            "/folder none".to_string(),
-                        );
-                    })
-                    .tooltip(|| note("Stop working on this folder"))
-                    .boxed(),
-            ],
-        ),
-        None => {
-            (description("No folder selected.").boxed(), vec![choose])
-        }
+    let now = if work.folders.is_empty() {
+        description("No folder selected.").boxed()
+    } else {
+        column(
+            work.folders
+                .iter()
+                .map(|folder| held_row(hamlet, folder.clone()))
+                .collect::<Vec<_>>(),
+        )
+        .gap(0.0)
+        .width(percent(100.0))
+        .boxed()
     };
     let earlier = work
         .before
@@ -141,34 +115,37 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
     } else {
         vec![column(earlier).gap(0.0).width(percent(100.0)).boxed()]
     };
-    bylaw(Glyph::Folder, "Works on", buttons(acts).boxed(), now, more)
+    bylaw(
+        Glyph::Folder,
+        "Works on",
+        buttons(vec![choose]).boxed(),
+        now,
+        more,
+    )
 }
 
-fn approvals_of(hamlet: Entity, work: &Works) -> AnyView {
-    let mode = work.mode;
-    bylaw(
-        Glyph::Shield,
-        "Approvals",
-        segmented_words(
-            [words::ASK_FIRST, words::NO_ASKING],
-            match mode {
-                Mode::Manual => 0,
-                Mode::Auto => 1,
-            },
-            move |world, chosen| {
-                let to = match chosen {
-                    0 => Mode::Manual,
-                    _ => Mode::Auto,
-                };
-                if to != mode {
-                    set_mode(world, hamlet, to);
-                }
-            },
-        )
-        .boxed(),
-        description(work.words.clone()).boxed(),
-        Vec::new(),
-    )
+/// A folder the hamlet works on, with the way to stop.
+fn held_row(hamlet: Entity, folder: String) -> AnyView {
+    let dropped = folder.clone();
+    row((
+        glyph(Glyph::Folder, ICON),
+        label(folder).rules(description_rules),
+        frame().grow(1.0),
+        lettered("Drop")
+            .variant(Variant::Default)
+            .on_activate(move |world| {
+                tell(
+                    world,
+                    hamlet,
+                    format!("/folder drop {dropped}"),
+                );
+            })
+            .tooltip(|| note("Stop working on this folder")),
+    ))
+    .gap(8.0)
+    .grow(1.0)
+    .align(AlignItems::Center)
+    .boxed()
 }
 
 /// A bylaw's name and `control`, what it is now, then `more`.
@@ -189,14 +166,6 @@ fn bylaw(
         column(parts).gap(space.gap)
     })
     .boxed()
-}
-
-fn set_mode(world: &mut World, hamlet: Entity, to: Mode) {
-    let word = match to {
-        Mode::Manual => "manual",
-        Mode::Auto => "auto",
-    };
-    tell(world, hamlet, format!("/mode {word}"));
 }
 
 /// A folder worked on before, pressed to work on it again.

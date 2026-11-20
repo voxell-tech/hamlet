@@ -362,7 +362,7 @@ pub(crate) const fn words(effort: Effort) -> &'static str {
 }
 
 /// How `agent` is named in a chief's command.
-fn address(world: &World, agent: Entity) -> String {
+pub(super) fn address(world: &World, agent: Entity) -> String {
     match world.get::<Kind>(agent).map(|kind| kind.0) {
         Some(protocol::AgentKind::Hand) => "hand".into(),
         _ => name_of(world, agent),

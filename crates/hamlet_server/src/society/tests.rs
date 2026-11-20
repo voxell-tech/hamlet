@@ -755,3 +755,73 @@ fn the_hand_does_what_a_chief_does_but_steer_itself() {
     assert!(!authority::may_reach(db, agent, the_hand).unwrap());
     assert!(!authority::may_steer(db, hand, the_hand).unwrap());
 }
+
+#[test]
+fn a_hamlet_works_on_folders_in_the_order_they_were_added() {
+    let mut realm = Realm::new();
+    let (docs, _) = found(&mut realm, "docs", "ada");
+    for folder in ["/tmp/b", "/tmp/a", "/tmp/c"] {
+        let docs = docs.clone();
+        realm
+            .chief(|cx| hamlets::add_folder(cx, &docs, folder, ""))
+            .unwrap();
+    }
+    let db = realm.db();
+    assert_eq!(
+        hamlets::working(db, &docs).unwrap(),
+        ["/tmp/b", "/tmp/a", "/tmp/c"]
+    );
+    // Adding one it works on already keeps its place.
+    let again = docs.clone();
+    realm
+        .chief(|cx| hamlets::add_folder(cx, &again, "/tmp/b", ""))
+        .unwrap();
+    // Dropping the first makes the next the project, and keeps it
+    // among those worked on before.
+    let dropping = docs.clone();
+    realm
+        .chief(|cx| hamlets::drop_folder(cx, &dropping, "/tmp/b"))
+        .unwrap();
+    let db = realm.db();
+    assert_eq!(
+        hamlets::working(db, &docs).unwrap(),
+        ["/tmp/a", "/tmp/c"]
+    );
+    assert_eq!(hamlets::folders(db, &docs).unwrap(), ["/tmp/b"]);
+    let dropping = docs.clone();
+    let refused = realm
+        .chief(|cx| hamlets::drop_folder(cx, &dropping, "/tmp/b"))
+        .unwrap_err();
+    assert!(matches!(refused, Rejection::NotWorkedOn { .. }));
+    // Replacing them all leaves the one.
+    let only = docs.clone();
+    realm
+        .chief(|cx| hamlets::set_folder(cx, &only, Some("/tmp/c")))
+        .unwrap();
+    assert_eq!(
+        hamlets::working(realm.db(), &docs).unwrap(),
+        ["/tmp/c"]
+    );
+}
+
+#[test]
+fn an_agent_starts_as_its_parent_is_but_never_with_full_access() {
+    use super::access::Access;
+    let mut realm = Realm::new();
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let db = realm.db();
+    assert_eq!(
+        hamlet_agents::get(db, lead).unwrap().access,
+        Access::Supervised
+    );
+    realm
+        .chief(|cx| hamlet_agents::set_access(cx, lead, Access::Full))
+        .unwrap();
+    let child = add(&mut realm, &docs, lead, new("bob")).unwrap();
+    let db = realm.db();
+    assert_eq!(
+        hamlet_agents::get(db, child.agent).unwrap().access,
+        Access::Auto
+    );
+    assert!(!hamlet_agents::any_supervised(db, &docs).unwrap());
+}

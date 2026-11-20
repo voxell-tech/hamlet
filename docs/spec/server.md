@@ -99,7 +99,8 @@ login on its own.
 where they run can change without the agent noticing. On a chief's own
 machine they run in the sandbox of C18: bubblewrap on Linux, Seatbelt on
 macOS. Windows has only insecure mode, and Linux and macOS have none
-(ADR 0008).
+(ADR 0008), but an agent a chief gave Full access runs its commands with
+no sandbox anywhere (ADR 0018).
 
 ## The realm's records and effects
 

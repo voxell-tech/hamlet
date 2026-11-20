@@ -375,7 +375,7 @@ async fn a_hamlets_folder_and_mode_reach_the_prompt() {
     std::fs::create_dir_all(&work).unwrap();
     std::fs::write(work.join("AGENTS.md"), "Use tabs.").unwrap();
     let folder = work.display().to_string();
-    s.chief.command(ada, &format!("/folder {folder}")).await;
+    s.chief.command(ada, &format!("/folder add {folder}")).await;
     let prompt = s.chief.prompt(ada).await;
     assert!(prompt.contains("Use tabs."), "{prompt}");
     assert!(prompt.contains(&folder), "{prompt}");

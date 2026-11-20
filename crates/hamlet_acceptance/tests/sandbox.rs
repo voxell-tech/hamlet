@@ -79,9 +79,12 @@ async fn confines_reads_writes_and_the_worktree_with_and_without_a_folder()
             .unwrap();
         if open {
             s.chief
-                .command(ada, &format!("/folder {}", work.display()))
+                .command(
+                    ada,
+                    &format!("/folder add {}", work.display()),
+                )
                 .await;
-            s.chief.command(ada, "/mode auto").await;
+            s.chief.command(ada, "/permissions agent#2 auto").await;
         }
         let now = chat(ada);
         s.chief.open(&now).await;

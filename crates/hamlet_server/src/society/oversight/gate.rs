@@ -163,6 +163,22 @@ pub(crate) fn call_text(call: &Call) -> String {
                 )
             }
         }
+        Call::Society {
+            tool: Society::ProposeFolder,
+            args,
+        } => {
+            let text = |key: &str| {
+                args.get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            format!(
+                "{}\n{}",
+                cut(&text("folder")),
+                cut(&text("reason"))
+            )
+        }
         Call::Society { tool, args } => {
             format!("{} {args}", tool.name())
         }
@@ -294,6 +310,11 @@ fn is_reserved(
 
 fn reach(call: &Call, standing: &Standing) -> Verdict {
     match call {
+        // A folder is always the chief's to give.
+        Call::Society {
+            tool: Society::ProposeFolder,
+            ..
+        } => Verdict::Hold(Danger::Folder),
         Call::Read | Call::Society { .. } | Call::Other { .. } => {
             Verdict::Run { net: false }
         }
@@ -329,8 +350,8 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
 }
 
 /// The rule on a program run for a call, by what it reaches. A call
-/// that acts waits for a chief whatever the mode, and once its tool
-/// is granted runs in manual mode too.
+/// that acts waits for a chief whatever its agent's permissions, and
+/// once its tool is granted runs even where they hold commands.
 fn program(standing: &Standing, reach: Reach) -> Verdict {
     if !standing.net && reach.net {
         Verdict::Hold(Danger::Network)

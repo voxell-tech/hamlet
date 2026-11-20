@@ -123,7 +123,7 @@ to give.
 ## What tools reach
 
 **C18.** Tools run in a sandbox. The built-in tools write only in the
-agent's worktree (a worker's scratch folder) and in the folder its hamlet
+agent's worktree (a worker's scratch folder) and in the folders its hamlet
 works on. A command can read the rest of the machine, with the chief's own
 `PATH` and `HOME`, so the chief's tools run, but never the rest of the
 realm's folder. The
@@ -141,7 +141,9 @@ the reach its entry grants in the same way, with its own folder writable. A serv
 sandbox does not start, unless it is a Windows server the chief starts in
 insecure mode (ADR 0008). Then commands and hand tools reach whatever the
 account running the server can, the built-in file tools keep the reach
-above, and the window warns for as long as it runs.
+above, and the window warns for as long as it runs. An agent a chief gave
+Full access (C21) also runs its commands with no sandbox, on any platform
+(ADR 0018).
 
 A command's leftovers, the processes left in its process group, end when
 the server stops; under bubblewrap, with their command. Ending them never
@@ -153,21 +155,35 @@ grants it to one (H11). A command that needs the network says so, and is
 held for a chief while its agent has none. In insecure mode nothing
 enforces this, and the switch decides only what waits for a chief.
 
-**C20.** A hamlet works on at most one folder at a time, and remembers the
-folders it worked on before. Every agent of the hamlet runs its commands
-there and may edit its files, and nothing of Hamlet's is put in it. The
-agent's memory and skills stay in its worktree, and its conversations in
-the harness's storage (C8).
+**C20.** A hamlet works on any number of folders, and remembers the ones it
+worked on before. The first it works on is its project: every agent's
+commands run there, and relative paths go there. Every agent of the hamlet
+may edit the files of all of them, and nothing of Hamlet's is put in them.
+The agent's memory and skills stay in its worktree, and its conversations
+in the harness's storage (C8). A chief adds and drops folders. An agent of
+the hamlet can propose one with `propose_folder`, giving the path and its
+reason: it waits for a chief whatever the agent's permissions, and the
+folder is added only if the chief allows it.
 
-**C21.** A hamlet that works on a folder is in one of two modes:
+**C21.** Each agent of a hamlet has permissions of its own, which only a
+chief sets. A new agent starts with its parent's, a lead with Supervised,
+and Full access is never handed down. They are named as T3 Code names its
+own:
 
-- **Manual**, the mode it starts in: each edit of the folder and each
-  command waits for a chief. Reading and edits of the agent's own
-  worktree are free.
-- **Auto**: agents edit and run without asking, and the sandbox is the
-  guard. In insecure mode nothing is.
+- **Supervised**, the first level: each edit of a folder and each command
+  waits for a chief. Reading and edits of the agent's own worktree are
+  free.
+- **Auto-accept edits**: edits of the folders run; each command waits.
+- **Auto**: edits and commands run, and the sandbox is the guard. The
+  network and the acts a chief reserved still wait.
+- **Full access**: edits and commands run with no sandbox and the network
+  open (ADR 0018). The acts a chief reserved and new folders still wait.
 
-The window names them **Ask first** and **Don't ask**.
+An agent that works on no folder is held by none of these for its edits and
+commands; the folders it proposes and the acts a chief reserved still wait,
+and its network is open or waits as above.
+The window shows a hamlet's clockwork as manual while any of its agents is
+Supervised or Auto-accept edits, and as auto otherwise.
 
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
 hamlet the Hand founds, the chief whose task the Hand was working on. The

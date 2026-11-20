@@ -47,8 +47,13 @@ pub(crate) const UNREADABLE: &str =
 pub struct Place {
     /// The agent's worktree, or a worker's scratch folder.
     pub worktree: PathBuf,
-    /// The folder its hamlet works on.
+    /// The first folder its hamlet works on, where commands run and
+    /// relative paths go.
     pub folder: Option<PathBuf>,
+    /// The other folders its hamlet works on.
+    pub also: Vec<PathBuf>,
+    /// Its commands run with no sandbox (full access).
+    pub unconfined: bool,
     /// The realm's folder, which the tools never read.
     pub realm: PathBuf,
     /// The folders they read and never write: the library, the tools
@@ -651,14 +656,25 @@ pub(crate) fn environment(
     place: &Place,
     network: Network,
 ) -> Result<Env, SetupError> {
+    // Full access runs commands with no sandbox, whose reach is the
+    // server account's own.
+    let sandbox = if place.unconfined {
+        Sandbox::unconfined()
+    } else {
+        *sandbox
+    };
+    let sandbox = &sandbox;
     // As Codex and Claude Code run commands: the machine to read but
     // the realm, and the chief's own environment, so the chief's
-    // tools and toolchains are found; writes in the worktree and the
-    // folder.
-    let mut rw = vec![place.worktree.clone()];
-    if let Some(folder) = &place.folder {
-        rw.insert(0, folder.clone());
-    }
+    // tools and toolchains are found; writes in the folders and the
+    // worktree.
+    let rw = place
+        .folder
+        .iter()
+        .chain(&place.also)
+        .cloned()
+        .chain([place.worktree.clone()])
+        .collect();
     let mut policy = Policy {
         ro: place.shared.clone(),
         rw,

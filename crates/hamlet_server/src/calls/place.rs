@@ -11,10 +11,10 @@ use hamlet_store::ids::{AgentId, HamletId};
 
 use crate::conversations::Kind;
 use crate::realm::layout::Layout;
+use crate::society::access::Access;
 use crate::society::agents::{self, AgentKind};
-use crate::society::hamlets::{self, Mode};
 use crate::society::oversight::gate::Caller;
-use crate::society::{hamlet_agents, workers};
+use crate::society::{hamlet_agents, hamlets, workers};
 use crate::tools::builtin::Place;
 use crate::tools::catalogue::{Offered, Society};
 
@@ -24,11 +24,36 @@ use crate::tools::catalogue::{Offered, Society};
 pub(crate) struct Workplace {
     pub caller: Caller,
     pub place: Place,
-    /// The hamlet whose limits and mode its calls are under.
+    /// The hamlet whose limits its calls are under.
     pub hamlet: Option<HamletId>,
-    /// Set when edits in the folder and commands wait for a chief's
-    /// answer (C21).
-    pub manual: bool,
+    /// How far its calls go without a chief's answer (C21).
+    pub access: Access,
+}
+
+impl Workplace {
+    /// Edits of the folders wait for a chief's answer (C21).
+    pub fn holds_edits(&self) -> bool {
+        self.place.folder.is_some() && self.access.holds_edits()
+    }
+
+    /// Commands wait for a chief's answer (C21).
+    pub fn holds_commands(&self) -> bool {
+        self.place.folder.is_some() && self.access.holds_commands()
+    }
+}
+
+/// Where `agent`'s tools run, given `access`: with the sandbox off
+/// for full access.
+fn placed(
+    mut place: Place,
+    folders: Vec<PathBuf>,
+    access: Access,
+) -> Place {
+    let mut folders = folders.into_iter();
+    place.folder = folders.next();
+    place.also = folders.collect();
+    place.unconfined = access.is_full();
+    place
 }
 
 /// The workplace of `agent`.
@@ -45,34 +70,48 @@ pub(crate) fn of(
             place: Place {
                 worktree: layout.hand(),
                 folder: None,
+                also: Vec::new(),
+                unconfined: false,
                 realm: layout.root().to_owned(),
                 shared,
             },
             hamlet: None,
-            manual: false,
+            access: Access::Auto,
         },
         AgentKind::Hamlet => {
             let hamlet_agent = hamlet_agents::get(db, agent)?;
-            let (folder, manual) = folder(db, &hamlet_agent.hamlet)?;
+            let folders = hamlets::working(db, &hamlet_agent.hamlet)?
+                .into_iter()
+                .map(PathBuf::from)
+                .collect();
+            let access = hamlet_agent.access;
             Workplace {
                 caller: Caller::Hamlet,
-                place: Place {
-                    worktree: layout.worktree(
-                        &hamlet_agent.hamlet,
-                        hamlet_agent.agent,
-                    ),
-                    folder,
-                    realm: layout.root().to_owned(),
-                    shared,
-                },
+                place: placed(
+                    Place {
+                        worktree: layout.worktree(
+                            &hamlet_agent.hamlet,
+                            hamlet_agent.agent,
+                        ),
+                        folder: None,
+                        also: Vec::new(),
+                        unconfined: false,
+                        realm: layout.root().to_owned(),
+                        shared,
+                    },
+                    folders,
+                    access,
+                ),
                 hamlet: Some(hamlet_agent.hamlet),
-                manual,
+                access,
             }
         }
         AgentKind::Worker => {
             let worker = workers::get(db, agent)?;
             let mut shared = shared;
             let mut hamlet = worker.hamlet.clone();
+            // A worker goes as far as the agent that started it.
+            let mut access = None;
             if let Some(starter) = worker.starter {
                 match agents::get(db, starter)?.kind {
                     AgentKind::Hamlet => {
@@ -82,26 +121,40 @@ pub(crate) fn of(
                             &starter.hamlet,
                             starter.agent,
                         ));
+                        access = Some(starter.access);
                         hamlet = hamlet.or(Some(starter.hamlet));
                     }
                     AgentKind::Hand => shared.push(layout.hand()),
                     AgentKind::Worker => {}
                 }
             }
-            let (folder, manual) = match &hamlet {
-                Some(hamlet) => folder(db, hamlet)?,
-                None => (None, false),
+            let folders = match &hamlet {
+                Some(hamlet) => hamlets::working(db, hamlet)?
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .collect(),
+                None => Vec::new(),
             };
+            let access = access.unwrap_or(match hamlet {
+                Some(_) => Access::Supervised,
+                None => Access::Auto,
+            });
             Workplace {
                 caller: Caller::Worker,
-                place: Place {
-                    worktree: layout.worker(agent),
-                    folder,
-                    realm: layout.root().to_owned(),
-                    shared,
-                },
+                place: placed(
+                    Place {
+                        worktree: layout.worker(agent),
+                        folder: None,
+                        also: Vec::new(),
+                        unconfined: false,
+                        realm: layout.root().to_owned(),
+                        shared,
+                    },
+                    folders,
+                    access,
+                ),
                 hamlet,
-                manual,
+                access,
             }
         }
     })
@@ -125,21 +178,11 @@ pub(crate) fn of_conversation(
         at.place.folder = Some(crate::knowledge::dreams::checkout(
             layout, dream.id,
         ));
-        at.manual = false;
+        at.place.also.clear();
+        at.place.unconfined = false;
+        at.access = Access::Auto;
     }
     Ok(at)
-}
-
-/// The folder `hamlet` works on, and whether its work there waits for
-/// a chief.
-fn folder(
-    db: &mut Db,
-    hamlet: &HamletId,
-) -> Result<(Option<PathBuf>, bool)> {
-    let kept = hamlets::get(db, hamlet)?;
-    let folder = kept.folder.map(PathBuf::from);
-    let manual = folder.is_some() && kept.mode == Mode::Manual;
-    Ok((folder, manual))
 }
 
 /// The tools a conversation of `agent` of `kind` offers, out of

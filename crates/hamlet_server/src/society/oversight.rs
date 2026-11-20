@@ -82,15 +82,18 @@ pub(crate) enum Danger {
     Unconfined,
     /// An act a chief keeps for itself (H22).
     Reserved,
-    /// An edit in the hamlet's folder in manual mode.
+    /// An edit in a hamlet's folder that the agent's permissions
+    /// hold.
     Edit,
-    /// A command in manual mode.
+    /// A command that the agent's permissions hold.
     Command,
     /// Files sent to another agent, over the cap of one send.
     Send,
     /// A call of an MCP tool that may change something outside the
     /// realm (C36).
     Act,
+    /// A folder an agent proposes for its hamlet to work on.
+    Folder,
 }
 hamlet_store::named_text!(Danger);
 
@@ -105,6 +108,7 @@ impl Danger {
             Self::Command => "wants to run",
             Self::Send => "wants to send files:",
             Self::Act => "wants to use",
+            Self::Folder => "wants the hamlet to work on the folder",
         }
     }
 
@@ -117,7 +121,7 @@ impl Danger {
                 Some(Lasting::Conversation)
             }
             Self::Network | Self::Unconfined => Some(Lasting::Grant),
-            Self::Reserved | Self::Send => None,
+            Self::Reserved | Self::Send | Self::Folder => None,
         }
     }
 
@@ -140,6 +144,7 @@ impl Danger {
             Self::Command => WaitDanger::Command,
             Self::Send => WaitDanger::Send,
             Self::Act => WaitDanger::Act,
+            Self::Folder => WaitDanger::Folder,
         }
     }
 }

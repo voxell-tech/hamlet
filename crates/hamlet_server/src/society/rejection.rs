@@ -346,8 +346,15 @@ pub(crate) enum Rejection {
     LimitsUnfit,
     #[error("Those settings do not fit their form.")]
     SettingsUnfit,
-    #[error("The mode is `manual` or `auto`.")]
-    NoMode,
+    #[error(
+        "The permissions are `supervised`, `accept-edits`, `auto` \
+         or `full`."
+    )]
+    NoAccess,
+    #[error("The hamlet does not work on `{path}`.")]
+    NotWorkedOn { path: String },
+    #[error("Only an agent of a hamlet has permissions of its own.")]
+    NoPermissionsHere,
     #[error("There is no effort `{level}`.")]
     NoEffort { level: String },
     #[error("You cannot stop yourself.")]

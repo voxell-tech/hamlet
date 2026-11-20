@@ -239,7 +239,7 @@ pub(crate) fn open_founded(world: &mut World) {
         chat::decree(
             world,
             &id,
-            format!("/folder {}", folder.display()),
+            format!("/folder add {}", folder.display()),
         );
     }
     if let Some(hub) = bring_following(world) {

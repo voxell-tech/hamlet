@@ -49,6 +49,9 @@ pub enum WaitDanger {
     /// realm.
     #[serde(rename = "act")]
     Act,
+    /// A folder an agent proposes for its hamlet to work on.
+    #[serde(rename = "folder")]
+    Folder,
 }
 
 #[derive(

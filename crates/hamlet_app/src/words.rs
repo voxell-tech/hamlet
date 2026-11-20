@@ -55,15 +55,41 @@ pub(crate) const EXISTING_PROFILE: &str =
     "Brings its memory and skills to the job, and can take home \
      what it learns.";
 
-/// A hamlet whose agents ask before each edit and command.
-pub(crate) const ASK_FIRST: &str = "Ask First";
+/// A hamlet some of whose agents wait for the chief.
+pub(crate) const MANUAL: &str = "Manual";
 
-/// A hamlet whose agents edit and run commands without asking.
-pub(crate) const NO_ASKING: &str = "Don't Ask";
+/// A hamlet whose agents edit and run commands without waiting.
+pub(crate) const AUTO: &str = "Auto";
 
-pub(crate) const APPROVALS: &str = "Whether this hamlet's agents \
-                                    ask you before they edit its \
-                                    folder or run a command.";
+/// What the manual clockwork says.
+pub(crate) const MANUAL_WORDS: &str =
+    "An agent of this hamlet waits for you before it edits a folder \
+     or runs a command. Set each agent's permissions from its chat.";
+
+/// What the auto clockwork says.
+pub(crate) const AUTO_WORDS: &str =
+    "Its agents edit the folders and run commands without waiting. \
+     The sandbox stays on for all but an agent with full access on \
+     this machine; a remote workspace keeps its own.";
+
+/// The levels of an agent's permissions, in T3 Code's words.
+pub(crate) const SUPERVISED: &str = "Supervised";
+pub(crate) const SUPERVISED_WORDS: &str =
+    "Ask before commands and file changes.";
+pub(crate) const ACCEPT_EDITS: &str = "Auto-accept edits";
+pub(crate) const ACCEPT_EDITS_WORDS: &str =
+    "Auto-approve edits, ask before other actions.";
+pub(crate) const AUTO_ACCESS: &str = "Auto";
+pub(crate) const AUTO_ACCESS_WORDS: &str =
+    "Commands and edits run in the sandbox. The network still asks.";
+pub(crate) const FULL_ACCESS: &str = "Full access";
+pub(crate) const FULL_ACCESS_WORDS: &str =
+    "Allow commands and edits without prompts, with no sandbox. A \
+     remote workspace keeps its sandbox and only opens the network.";
+
+pub(crate) const PERMISSIONS: &str =
+    "What this agent may do in the hamlet's folders before it asks \
+     you. A new folder always asks.";
 
 pub(crate) const HISTORY: &str =
     "What happened in the hamlet: who came and went, and why.";

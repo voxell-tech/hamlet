@@ -282,13 +282,14 @@ impl Core<'_, '_> {
         let standing = Standing {
             worktree_edit,
             net: allow_net
+                || at.access.is_full()
                 || gate::has_grant(
                     db,
                     agent,
                     &hamlet_protocol::client::Permission::Network,
                 )?,
-            holds_edits: at.manual && !edit,
-            holds_commands: at.manual && !command,
+            holds_edits: at.holds_edits() && !edit,
+            holds_commands: at.holds_commands() && !command,
             acts_granted: acts,
         };
         let gate =

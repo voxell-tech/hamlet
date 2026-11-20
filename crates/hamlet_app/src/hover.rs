@@ -224,37 +224,26 @@ impl Told<'_, '_> {
 
     /// The card of a hamlet's clockwork.
     fn of_clockwork(&self, hamlet: Entity) -> Card {
-        let mode = self
-            .works
-            .get(hamlet)
-            .ok()
-            .filter(|works| works.folder.is_some())
-            .map(|works| works.mode);
+        let mode = self.works.get(hamlet).ok().and_then(Works::mode);
         let (state, tone, purpose, hint) = match mode {
             None => (
                 "No folder",
                 Tone::Dim,
                 "It turns by itself while its agents work without \
-                 asking, once this hamlet works on a folder.",
+                 waiting, once this hamlet works on a folder.",
                 "Click for the hamlet's page",
             ),
             Some(Mode::Manual) => (
-                words::ASK_FIRST,
+                words::MANUAL,
                 Tone::Body,
-                self.works
-                    .get(hamlet)
-                    .map(|works| works.words.as_str())
-                    .unwrap_or_default(),
-                "Click to let its agents work without asking",
+                words::MANUAL_WORDS,
+                "Click for the hamlet's page",
             ),
             Some(Mode::Auto) => (
-                words::NO_ASKING,
+                words::AUTO,
                 Tone::Accent,
-                self.works
-                    .get(hamlet)
-                    .map(|works| works.words.as_str())
-                    .unwrap_or_default(),
-                "Click to have its agents ask first",
+                words::AUTO_WORDS,
+                "Click for the hamlet's page",
             ),
         };
         Card {
@@ -274,7 +263,7 @@ impl Told<'_, '_> {
             .works
             .get(hamlet)
             .ok()
-            .and_then(|works| works.folder.as_deref());
+            .and_then(|works| works.folder().map(String::as_str));
         let (state, tone, purpose) = match folder {
             Some(folder) => (
                 folder.to_string(),

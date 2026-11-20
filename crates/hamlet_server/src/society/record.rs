@@ -44,7 +44,7 @@ pub(crate) enum DecisionKind {
     ErasedHamlet,
     Tier,
     Folder,
-    Mode,
+    Access,
     Limits,
     ProfileMade,
     /// A newcomer let into the city.
@@ -233,6 +233,7 @@ impl DecisionKind {
             Self::Seated => "gave the office to",
             Self::Reparented => "moved under",
             Self::Model => "chose the model of",
+            Self::Access => "changed the permissions of",
             Self::Tools => "changed the tools of",
             Self::Allowance => "set the allowance of",
             Self::Channel => "opened a channel from",
