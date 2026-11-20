@@ -131,6 +131,8 @@ export interface Place {
     readonly folder?: string;
     /** Whether its hamlet runs in manual mode. */
     readonly manual: boolean;
+    /** Whether it is a mayor while another hamlet lives, so it may agree a road with another hamlet's mayor. */
+    readonly agrees_roads: boolean;
 }
 
 export interface Fill {
@@ -515,6 +517,7 @@ const PLACE = obj(
         tools_off: arr(obj({ name: str() }, OPEN)),
         folder: opt(str()),
         manual: opt(bool()),
+        agrees_roads: opt(bool()),
     },
     OPEN,
 );
@@ -841,6 +844,7 @@ function placeOf({
     tools_off,
     folder,
     manual,
+    agrees_roads,
 }: Static<typeof PLACE>): Place {
     return {
         version,
@@ -850,6 +854,7 @@ function placeOf({
         tools_off: tools_off.map(({ name }) => ({ name })),
         ...(folder === undefined ? {} : { folder }),
         manual: manual ?? false,
+        agrees_roads: agrees_roads ?? false,
     };
 }
 

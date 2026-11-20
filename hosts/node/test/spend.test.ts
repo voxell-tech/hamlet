@@ -438,6 +438,7 @@ test("two agents share one model access, and each asks and is charged as itself"
                 roads: [],
                 tools_off: [],
                 manual: false,
+                agrees_roads: false,
             },
             copies: {},
         },

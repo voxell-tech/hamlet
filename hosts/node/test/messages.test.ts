@@ -81,6 +81,12 @@ const HIRE: AgentInput = (() => {
     return { ...hire, place, copies: {} };
 })();
 
+/** A mayor while another hamlet lives, offered `agree_road`. */
+const MAYOR: AgentInput = (() => {
+    const { lead: _, ...place } = HIRE.place;
+    return { ...HIRE, place: { ...place, agrees_roads: true } };
+})();
+
 const LAST_WORDS = "Two of them";
 
 /** What a field read from the wrong place looks like in the words the model is given. */
@@ -1002,7 +1008,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/agree_road",
-        agent: HIRE,
+        agent: MAYOR,
         tool: [
             "agree_road",
             {
@@ -1018,7 +1024,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/agree_road.mayor_of",
-        agent: HIRE,
+        agent: MAYOR,
         tool: [
             "agree_road",
             {

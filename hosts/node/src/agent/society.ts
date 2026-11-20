@@ -14,6 +14,7 @@ import {
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { hasWordsOrCall } from "./compaction.ts";
+import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
 import { type Definition, TOOLS, WAITING } from "./society-tools.ts";
 import { callOut, failed, type Peers, words } from "./turn.ts";
@@ -91,30 +92,42 @@ const LEADS: readonly SocietyTool[] = [
 ];
 
 /**
- * The society tools of the Hand and of a hire, as today offers them in a
- * chief's chat. A hire is offered `agree_road`, which the realm refuses
- * unless it is a mayor.
+ * The society tools today offers the Hand, or a hire at `place`, in a
+ * chief's chat (`crates/hamlet_server/src/calls/place.rs`).
  */
-const OFFERED: Readonly<Record<"hand" | "hire", readonly SocietyTool[]>> = {
-    hand: [
+export function offeredSociety(
+    kind: "hand" | "hire",
+    place: Pick<Place, "agrees_roads">,
+): readonly SocietyTool[] {
+    if (kind === "hand") {
+        return [
+            ...EVERYONE,
+            ...LEADS,
+            "found",
+            "seat",
+            "read_record",
+            "read_profile",
+            "edit_profile",
+            "tag",
+            "revert",
+        ];
+    }
+    return [
         ...EVERYONE,
+        "request_road",
         ...LEADS,
-        "found",
-        "seat",
-        "read_record",
-        "read_profile",
-        "edit_profile",
-        "tag",
-        "revert",
-    ],
-    hire: [...EVERYONE, "request_road", ...LEADS, "agree_road"],
-};
+        ...(place.agrees_roads ? (["agree_road"] as const) : []),
+    ];
+}
 
 /** As today, a society tool is offered whatever a lead turned off. */
-export function society(peers: Peers, kind: "hand" | "hire"): Extension {
+export function society(
+    peers: Peers,
+    offered: readonly SocietyTool[],
+): Extension {
     return defineExtension({
         name: "hamlet.society",
-        tools: OFFERED[kind].map((act) => societyTool(peers, act)),
+        tools: offered.map((act) => societyTool(peers, act)),
         hooks: [
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),

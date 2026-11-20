@@ -93,7 +93,14 @@ const profile = actor({
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
-    place: { version: 1, hires: [], roads: [], tools_off: [], manual: false },
+    place: {
+        version: 1,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    },
     copies: {},
 };
 

@@ -6,6 +6,7 @@
  */
 import type { Context } from "@earendil-works/chord/context";
 import type {
+    AgentChange,
     ConversationCreateOptions,
     ConversationId,
     EntryDraft,
@@ -56,7 +57,14 @@ export function conversationFor(
                 const peer = input.from.agent;
                 return (
                     (await keptChat(c, kind, peer)) ??
-                    made(c, [kind, peer, 0], () => created(c, harness, context))
+                    made(c, [kind, peer, 0], () =>
+                        created(c, harness, context, (options) =>
+                            harness.createConversation(
+                                { ...options, agent: notObjecting(c) },
+                                context,
+                            ),
+                        ),
+                    )
                 );
             }
             case "answer":
@@ -70,6 +78,20 @@ export function conversationFor(
                 return (await named(input.conversation))?.id ?? chiefSession(c);
         }
     });
+}
+
+/** The change that leaves `object` out of a peer's chat: today offers it only in a chief's. */
+function notObjecting(c: AgentCall): AgentChange {
+    const society = generationOf(c)
+        .registry.snapshot()
+        .extension("hamlet.society");
+    return {
+        tools: {
+            remove: (society?.tools ?? []).filter(
+                ({ name }) => name === "object",
+            ),
+        },
+    };
 }
 
 export async function conversationOfChat(

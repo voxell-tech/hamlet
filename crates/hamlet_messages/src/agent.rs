@@ -217,6 +217,10 @@ pub struct Place {
     /// Whether its hamlet runs in manual mode.
     #[serde(default)]
     pub manual: bool,
+    /// Whether it is a mayor while another hamlet lives, so it may
+    /// agree a road with another hamlet's mayor.
+    #[serde(default)]
+    pub agrees_roads: bool,
 }
 
 impl Action for Place {

@@ -94,6 +94,7 @@ const HIRE: AgentInput = {
         tools_off: [{ name: "end" }, { name: "bash" }],
         folder: "/work",
         manual: false,
+        agrees_roads: false,
     },
     copies: {},
 };

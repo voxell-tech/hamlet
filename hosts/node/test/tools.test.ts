@@ -190,6 +190,7 @@ test("a relative path, and a left-out one, start from the project", async (t) =>
                 tools_off: [],
                 folder: "/work",
                 manual: false,
+                agrees_roads: false,
             },
             copies: {},
         },

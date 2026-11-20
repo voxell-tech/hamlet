@@ -216,6 +216,7 @@ test("a place sent to an errand offers it no tool", async (t) => {
         roads: [],
         tools_off: [],
         manual: false,
+        agrees_roads: false,
     };
     await agent.actions.place(agent.by(from.realm), place);
     copies.resolve({});

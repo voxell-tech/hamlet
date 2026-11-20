@@ -1117,6 +1117,7 @@ test("a hire's first line runs on the model and charter its create input holds, 
                 roads: [],
                 tools_off: [],
                 manual: false,
+                agrees_roads: false,
             },
             copies: {
                 charter: { version: 1, value: "Keep the docs whole." },
