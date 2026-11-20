@@ -23,8 +23,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_sandbox::scrub::{scrub_text, scrub_value};
 use hamlet_sandbox::{
-    Env, FileError, Leftovers, Policy, Sandbox, SetupError, base_env,
-    host_env,
+    Env, FileError, Leftovers, Policy, Sandbox, SetupError, host_env,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -652,27 +651,21 @@ pub(crate) fn environment(
     place: &Place,
     network: Network,
 ) -> Result<Env, SetupError> {
-    let mut policy = match &place.folder {
-        None => {
-            let mut env = base_env();
-            env.insert("HOME".into(), text(&place.worktree));
-            Policy {
-                ro: place.shared.clone(),
-                rw: vec![place.worktree.clone()],
-                env,
-                ..Policy::default()
-            }
-        }
-        // The machine to read but the realm, and the chief's own
-        // environment, so the project's tools are found.
-        Some(folder) => Policy {
-            ro: place.shared.clone(),
-            rw: vec![folder.clone(), place.worktree.clone()],
-            open: true,
-            hidden: vec![place.realm.clone()],
-            env: host_env(),
-            ..Policy::default()
-        },
+    // As Codex and Claude Code run commands: the machine to read but
+    // the realm, and the chief's own environment, so the chief's
+    // tools and toolchains are found; writes in the worktree and the
+    // folder.
+    let mut rw = vec![place.worktree.clone()];
+    if let Some(folder) = &place.folder {
+        rw.insert(0, folder.clone());
+    }
+    let mut policy = Policy {
+        ro: place.shared.clone(),
+        rw,
+        open: true,
+        hidden: vec![place.realm.clone()],
+        env: host_env(),
+        ..Policy::default()
     };
     policy.net = network.is_open();
     // A command is bounded by its time alone: a build can use many

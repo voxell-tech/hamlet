@@ -102,8 +102,9 @@ to every agent, and runs under the same sandbox and gate as the shells.
 
 **C18.** Tools run in a sandbox. The built-in tools write only in the
 agent's worktree (a worker's scratch folder) and in the folder its hamlet
-works on. With a folder, a command can read the rest of the machine, so the
-project's own tools run, but never the rest of the realm's folder. The
+works on. A command can read the rest of the machine, with the chief's own
+`PATH` and `HOME`, so the chief's tools run, but never the rest of the
+realm's folder. The
 library and the realm's tools folder are readable and never writable, and a
 worker also reads its starter's worktree.
 
