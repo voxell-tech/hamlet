@@ -78,6 +78,9 @@ pub struct Feed {
 
 /// A client for the feed and its files.
 pub fn client() -> reqwest::Result<Client> {
+    // TLS runs on ring, installed once for the process.
+    let _ =
+        rustls::crypto::ring::default_provider().install_default();
     Client::builder()
         .user_agent(concat!(
             "Hamlet/",

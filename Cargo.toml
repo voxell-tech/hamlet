@@ -90,12 +90,16 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 rfd = "0.17"
 ring = "0.17"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# TLS through rustls with ring, which each binary installs as its
+# crypto provider; not aws-lc-rs, which builds C.
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
 # The model providers' marks, drawn from their SVGs. No text or fonts.
 resvg = { version = "0.48.1", default-features = false }
 # The client of the MCP servers a chief lists: the protocol over a
-# server's standard input and output, nothing more.
-rmcp = { version = "3.11", default-features = false, features = ["client", "transport-async-rw"] }
+# server's standard input and output, or over streamable HTTP with
+# OAuth for a remote one.
+rmcp = { version = "3.11", default-features = false, features = ["client", "transport-async-rw", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"] }
 rustix = "1"
 # Hamlet's own version, pre-releases included, as updates compare it.
 semver = { version = "1", features = ["serde"] }

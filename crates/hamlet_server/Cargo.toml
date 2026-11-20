@@ -46,6 +46,7 @@ jsonschema = { version = "0.33", default-features = false }
 notify.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
 ring.workspace = true
 rmcp.workspace = true
 schemars.workspace = true
