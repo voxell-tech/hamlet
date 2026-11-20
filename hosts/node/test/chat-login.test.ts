@@ -219,6 +219,7 @@ test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-i
                 roads: [],
                 tools_off: [],
                 manual: false,
+                agrees_roads: false,
             },
             copies: {},
         },

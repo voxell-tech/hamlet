@@ -25,6 +25,7 @@ import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,
+    type Execute,
     editsOf,
     type FileTool,
     type FileToolArgs,
@@ -33,34 +34,41 @@ import {
     wrote,
 } from "./workspace-tools.ts";
 
+/** The project folder a place names, if any. */
+export type Folder = () => Promise<string | undefined>;
+
 /**
- * A path is own when it normalises, as today's `footing` does, into the root.
- * A relative path and a left-out one start from `from`.
+ * Where `path` leads, as today's `footing` normalises it. A relative path
+ * and a left-out one start from the project `folder`, else from the
+ * agent's own filesystem; a path is own when it lands in that filesystem.
  */
-function reached(
+export async function reached(
     files: AgentFilesystem,
-    from: string,
+    folder: Folder,
     path: string | undefined,
-): { readonly own: boolean; readonly path: string } {
+): Promise<{
+    readonly from: string;
+    readonly own: boolean;
+    readonly path: string;
+}> {
+    const from = (await folder()) ?? files.root;
     const normal = posix.normalize(
         path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`,
     );
     return {
+        from,
         own: normal === files.root || normal.startsWith(`${files.root}/`),
         path: normal,
     };
 }
 
-/** An own tool, given also the folder a relative path started from. */
-type Route<Args> = (
-    args: Args,
-    api: ToolExecutionApi,
-    context: Context,
-    from: string,
-) => Promise<ToolExecutionResult>;
+/** An own tool's call, with the folder its relative path started from. */
+type OwnCall<N extends FileTool> = AbsoluteFileCall<N> & {
+    readonly from: string;
+};
 
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Route<AbsoluteFileCall<N>>;
+    readonly [N in FileTool]: Execute<OwnCall<N>>;
 } {
     const { files } = peers;
     return {
@@ -100,21 +108,18 @@ function routes(peers: Peers): {
             });
         },
         write: (args, _api, context) => written(files, args, context),
-        search: (args, _api, context, from) =>
-            searched(files, from, args, context),
-        find: (args, _api, context, from) => found(files, from, args, context),
+        search: (args, _api, context) =>
+            searched(files, args.from, args, context),
+        find: (args, _api, context) => found(files, args.from, args, context),
     };
 }
 
 /**
- * A path starts from the project `folder` reads, else from the agent's own
- * filesystem. pi-durable applies every wrap after it has gathered every
+ * A path the agent's own filesystem holds goes to it, any other to the
+ * workspace. pi-durable applies every wrap after it has gathered every
  * tool, so the order of the two extensions does not matter.
  */
-export function ownFiles(
-    peers: Peers,
-    folder: () => Promise<string | undefined>,
-): Extension {
+export function ownFiles(peers: Peers, folder: Folder): Extension {
     const own = routes(peers);
     const wrapOf = <N extends FileTool>(name: N): Wrap => ({
         tool: name,
@@ -125,11 +130,17 @@ export function ownFiles(
                 api: ToolExecutionApi,
                 context: Context,
             ) => {
-                const from = (await folder()) ?? peers.files.root;
-                const at = reached(peers.files, from, args.path);
-                const resolved = { ...args, path: at.path };
+                const at = await reached(peers.files, folder, args.path);
+                const resolved: AbsoluteFileCall<N> = {
+                    ...args,
+                    path: at.path,
+                };
                 return at.own
-                    ? own[name](resolved, api, context, from).then(scrub)
+                    ? own[name](
+                          Object.assign({}, resolved, { from: at.from }),
+                          api,
+                          context,
+                      ).then(scrub)
                     : tool.execute(resolved, api, context);
             },
         }),
@@ -287,7 +298,7 @@ async function written(
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
-    return done.ok ? wrote(args.path) : failed(done.error.message);
+    return done.ok ? wrote(args.path, done.value) : failed(done.error.message);
 }
 
 async function searched(

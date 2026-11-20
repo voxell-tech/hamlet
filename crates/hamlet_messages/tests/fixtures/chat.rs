@@ -155,6 +155,7 @@ fn item(id: &str, kind: protocol::ItemKind, text: &str) -> ChatItem {
         kind,
         text: text.into(),
         author: None,
+        chief: None,
         images: Vec::new(),
         files: Vec::new(),
         rewindable: None,
@@ -472,6 +473,7 @@ fn event() -> ChatEvent {
             ChatOp::Add {
                 item: Box::new(ChatItem {
                     rewindable: Some(true),
+                    chief: Some("ada".into()),
                     images: images(),
                     files: files(),
                     ..item("i8", protocol::ItemKind::User, "Go on")

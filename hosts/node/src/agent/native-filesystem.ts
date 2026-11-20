@@ -81,9 +81,9 @@ export function openAgentFilesystem(
                 async () => new Uint8Array(await folder.read(path)),
             ),
         write: (path, content, context, executable) =>
-            call(path, context, async () => {
-                await folder.write(path, Buffer.from(content), executable);
-            }),
+            call(path, context, () =>
+                folder.write(path, Buffer.from(content), executable),
+            ),
         edit: (path, edits, context) =>
             call(path, context, async () => {
                 // Today refuses an empty `edits` before it looks for the file.

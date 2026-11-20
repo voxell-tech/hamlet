@@ -9,10 +9,10 @@ import type { Peers } from "./turn.ts";
 const INBOX = "inbox";
 
 /**
- * As `AttachedFile::CAP_BYTES`: a file is held whole before its write, so
- * a larger one is not fetched.
+ * As `AttachedFile::MOST_FILE`, the most a workspace sends of one file. A
+ * file is held whole before its write.
  */
-const MOST_HELD = 32 * 1024 * 1024;
+const MOST_HELD = 256 * 1024 * 1024;
 
 /** A file or folder saved, as the agent finds it. */
 interface Saved {
@@ -35,6 +35,8 @@ export async function received(
 ): Promise<string> {
     const saved = new Map<string, Saved>();
     const taken = new Map<string, Set<string>>();
+    // A path sent twice in one send keeps both, as today's `put_at`.
+    const written = new Set<string>();
     const savedAt = async (folder: string, top: string): Promise<Saved> => {
         const key = `${folder}/${top}`;
         const known = saved.get(key);
@@ -67,11 +69,16 @@ export async function received(
         );
         if (!Buffer.isBuffer(bytes)) return bytes;
         const at = await savedAt(`${INBOX}/${from}`, top);
-        const wrote = await peers.files.write(
-            [at.path, ...rest].join("/"),
-            bytes,
-            context,
-        );
+        const names = [...at.path.split("/"), ...rest];
+        let path = names.join("/");
+        for (let n = 2; written.has(path); n += 1) {
+            path = [
+                ...names.slice(0, -1),
+                numbered(names.at(-1) ?? "", n),
+            ].join("/");
+        }
+        written.add(path);
+        const wrote = await peers.files.write(path, bytes, context);
         if (!wrote.ok) return wrote.error;
         at.files += 1;
         at.bytes += bytes.length;
@@ -129,5 +136,16 @@ function sizeWords(bytes: number): string {
         size /= 1024;
         unit += 1;
     }
-    return `${size.toFixed(1)} ${units[unit]}`;
+    return `${oneDecimal(size)} ${units[unit]}`;
+}
+
+/**
+ * `value` to one decimal as Rust's `{:.1}` writes it. Only x.25 and x.75
+ * lie exactly half way, and Rust takes the even digit where `toFixed`
+ * takes the larger.
+ */
+function oneDecimal(value: number): string {
+    if ((value * 4) % 2 !== 1) return value.toFixed(1);
+    const below = Math.floor(value * 10);
+    return ((below % 2 === 0 ? below : below + 1) / 10).toFixed(1);
 }

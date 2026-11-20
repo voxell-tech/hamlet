@@ -74,10 +74,10 @@ import {
 } from "./messages/agent.ts";
 import { readShelves } from "./messages/library.ts";
 import { OWN_PROFILE, profileAt } from "./messages/profile.ts";
-import type { ToolName } from "./messages/realm.ts";
+import type { SocietyTool, ToolName } from "./messages/realm.ts";
 import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
-import { ownFiles } from "./own-files.ts";
+import { type Folder, ownFiles } from "./own-files.ts";
 import { received } from "./parcels.ts";
 import {
     type PromptSources,
@@ -87,7 +87,7 @@ import {
 } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
 import { conversationFor, current, migrateChats } from "./sessions.ts";
-import { society } from "./society.ts";
+import { offeredSociety, society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
 import { type Following, following, watching } from "./transcript.ts";
@@ -158,8 +158,8 @@ export type AgentDefinition = ActorDefinition<
 interface Offer {
     /** Whether the built-in or hand tool `name` is offered. */
     readonly builtIn: (name: string) => boolean;
-    /** Whose society tools are offered, with the timers and reflection; absent offers none. */
-    readonly society?: "hand" | "hire";
+    /** The society tools offered, with the timers and reflection; absent offers none. */
+    readonly society?: readonly SocietyTool[];
 }
 
 /**
@@ -184,7 +184,10 @@ function offerOf(row: Row): Offer | undefined {
         case "hand":
         case "hire": {
             const off = new Set(row.toolsOff.map(({ name }) => name));
-            return { builtIn: (name) => !off.has(name), society: row.kind };
+            return {
+                builtIn: (name) => !off.has(name),
+                society: offeredSociety(row.kind, row.place),
+            };
         }
     }
 }
@@ -222,8 +225,8 @@ function parts(
     const builtIn = builtIns.listed.map((extension) =>
         offered(extension, builtIns.offer),
     );
-    const { society: kind } = builtIns.offer;
-    if (kind === undefined) {
+    const { society: offeredTools } = builtIns.offer;
+    if (offeredTools === undefined) {
         return [
             promptPart(prompt),
             cutOffRule(tell),
@@ -237,10 +240,15 @@ function parts(
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers, kind),
+        society(peers, folderOf(prompt), offeredTools),
         timers(),
         saving(turnEnded),
     ];
+}
+
+/** The project folder the agent's place names now. */
+function folderOf(prompt: PromptSources): Folder {
+    return async () => (await prompt.where()).place.folder;
 }
 
 /** A turn that answered saves the filesystem to the branch. */
@@ -409,6 +417,7 @@ interface Row {
     readonly kind: AgentInput["kind"];
     readonly standingTask: RealmTask;
     readonly toolsOff: readonly ToolName[];
+    readonly place: Omit<Place, "version">;
     readonly brief: Brief | undefined;
 }
 
@@ -417,14 +426,16 @@ export async function rowAt(c: AgentContext): Promise<Row> {
         kind: AgentInput["kind"];
         task: string;
         tools_off: string;
+        place: string;
         brief: string | null;
-    }>("SELECT kind, task, tools_off, brief FROM agent WHERE id = 1");
+    }>("SELECT kind, task, tools_off, place, brief FROM agent WHERE id = 1");
     if (row === undefined)
         throw new Error("the agent has no row: it was not created");
     return {
         kind: row.kind,
         standingTask: row.task,
         toolsOff: JSON.parse(row.tools_off) as ToolName[],
+        place: JSON.parse(row.place) as Omit<Place, "version">,
         brief:
             row.brief === null ? undefined : (JSON.parse(row.brief) as Brief),
     };
@@ -550,10 +561,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             : {
                   listed: [
                       workspaceTools(peers),
-                      ownFiles(
-                          peers,
-                          async () => (await prompt.where()).place.folder,
-                      ),
+                      ownFiles(peers, folderOf(prompt)),
                   ],
                   offer,
               };
@@ -776,7 +784,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    const { registry, builtIns } = generationOf(c);
+    const { registry, builtIns, peers, prompt } = generationOf(c);
     if (kept.changes === 0 || builtIns === undefined) return;
     const offer = offerOf(await rowAt(c));
     if (offer === undefined) return;
@@ -785,6 +793,9 @@ async function place(c: AgentCall, message: Place): Promise<void> {
     // place says.
     for (const extension of builtIns.listed) {
         registry.install(offered(extension, offer));
+    }
+    if (offer.society !== undefined) {
+        registry.install(society(peers, folderOf(prompt), offer.society));
     }
 }
 

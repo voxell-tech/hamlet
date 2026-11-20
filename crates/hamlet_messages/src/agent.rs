@@ -136,6 +136,9 @@ pub enum Input {
         /// The note of the lead who reviewed the line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The name of the chief who said it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chief: Option<String>,
     },
     /// A chief's ruling, or news the realm tells the agent.
     Notice {
@@ -217,6 +220,10 @@ pub struct Place {
     /// Whether its hamlet runs in manual mode.
     #[serde(default)]
     pub manual: bool,
+    /// Whether it is a mayor while another hamlet lives, so it may
+    /// agree a road with another hamlet's mayor.
+    #[serde(default)]
+    pub agrees_roads: bool,
 }
 
 impl Action for Place {

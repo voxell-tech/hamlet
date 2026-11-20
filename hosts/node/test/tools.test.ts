@@ -190,6 +190,7 @@ test("a relative path, and a left-out one, start from the project", async (t) =>
                 tools_off: [],
                 folder: "/work",
                 manual: false,
+                agrees_roads: false,
             },
             copies: {},
         },
@@ -462,7 +463,7 @@ test("an own read answers as the workspace's read of the same file does", async 
     await agent.stop();
 });
 
-test("an own write and an own edit answer in today's words, the edit with the workspace's diff", async (t) => {
+test("an own write and an own edit answer in today's words, a write that makes its file says so, and the edit gives the workspace's diff", async (t) => {
     const { calls } = fakeCalls({});
     const path = `${ROOT}/memory/plan.md`;
     const agent = await wakeAgent(t, {
@@ -498,7 +499,8 @@ test("an own write and an own edit answer in today's words, the edit with the wo
         diagnostics: [],
     };
     assert.deepEqual(await toolResults(agent), [
-        wrote,
+        // The first write makes the file, as a workspace write that makes one says.
+        { ...wrote, details: { created: true } },
         wrote,
         {
             output: `Successfully replaced 2 block(s) in ${path}.`,
@@ -546,6 +548,7 @@ test("an own write and edit name their path as today does, without `.` parts or 
         output: `Successfully wrote to ${path}`,
         isError: false,
         diagnostics: [],
+        details: { created: true },
     });
     assert.equal(
         edited?.output,

@@ -131,7 +131,7 @@ export function placingOf(c: AgentContext, peers: Peers): Placing {
 
 const CHIEFS_CHAT: ReadPlace = { conversation: "chat" };
 
-/** What `conversation` is to the realm: a chat of the agent's, else another. */
+/** The kind `conversation` is to the realm: a chat of the agent's, else another. */
 async function readPlaceOf(
     c: AgentContext,
     conversation: ConversationId,

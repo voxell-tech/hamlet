@@ -21,6 +21,10 @@ pub(super) async fn of(
         Some(hamlet) => chiefs::hamlet(rows, &hamlet).await?,
         None => None,
     };
+    // A hamlet lives while it is kept: the realm removes none yet.
+    let agrees_roads =
+        hamlet.as_ref().is_some_and(|hamlet| hamlet.mayor == agent)
+            && chiefs::mayors(rows).await?.len() > 1;
     let (folder, mode) =
         hamlet.map(|hamlet| (hamlet.folder, hamlet.mode)).unzip();
     let folder = folder.flatten();
@@ -40,6 +44,7 @@ pub(super) async fn of(
         tools_off: tree::tools::off_for(rows, agent).await?,
         manual: folder.is_some() && mode == Some(Mode::Manual),
         folder,
+        agrees_roads,
     })
 }
 

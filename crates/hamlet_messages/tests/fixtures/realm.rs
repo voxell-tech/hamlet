@@ -1553,6 +1553,7 @@ fn place() -> Place {
         tools_off: vec![named_tool("found"), named_tool("bash")],
         folder: Some("/work/orchard".into()),
         manual: true,
+        agrees_roads: false,
     }
 }
 
@@ -1565,6 +1566,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         tools_off: Vec::new(),
         folder: None,
         manual: false,
+        agrees_roads: false,
     };
     for (name, kind, place, copies) in [
         ("hand", AgentKind::Hand, hands_place(), Default::default()),
@@ -1629,6 +1631,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: Vec::new(),
                 files: Vec::new(),
                 note: None,
+                chief: Some("ada".into()),
             },
         ),
         (
@@ -1639,6 +1642,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: Vec::new(),
                 files: Vec::new(),
                 note: Some("hire#2 reviewed this line: fine".into()),
+                chief: None,
             },
         ),
         (
@@ -1670,6 +1674,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: vec![image()],
                 files: vec![file()],
                 note: None,
+                chief: None,
             },
         ),
         (

@@ -88,6 +88,7 @@ test("a wrong caller is refused, and nothing is taken", async (t) => {
         roads: [],
         tools_off: [],
         manual: false,
+        agrees_roads: false,
     };
 
     await assert.rejects(
@@ -197,6 +198,7 @@ test("a place keeps only the fields the agent knows, also one a newer realm send
         roads: [],
         tools_off: [],
         manual: false,
+        agrees_roads: false,
     });
 
     assert.equal(
@@ -213,6 +215,7 @@ test("a place keeps only the fields the agent knows, also one a newer realm send
         roads: [],
         tools_off: [],
         manual: false,
+        agrees_roads: false,
     });
     await agent.stop();
 });

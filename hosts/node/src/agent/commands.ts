@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
+import { textOf } from "./chat-items.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
 import type {
@@ -45,7 +46,7 @@ import {
     session,
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
-import { holdFollowers, refused, textOf } from "./transcript.ts";
+import { holdFollowers, refused } from "./transcript.ts";
 import {
     callOf,
     conversationsOf,

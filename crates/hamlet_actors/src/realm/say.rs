@@ -149,6 +149,7 @@ fn line(say: &Say, task: TaskId) -> Submit {
             images: say.0.images.clone(),
             files: say.0.files.clone(),
             note: None,
+            chief: Some(record::By::Chief.name()),
         },
     }
 }

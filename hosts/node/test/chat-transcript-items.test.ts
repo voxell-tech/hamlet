@@ -5,8 +5,6 @@ import {
     type AssistantMessage,
     type FauxResponseStep,
     fauxAssistantMessage,
-    fauxToolCall,
-    type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { Calls } from "../src/actor/actor/mod.ts";
 import type {
@@ -105,6 +103,16 @@ test("a line's images and files show on its item, in its events and in its rewin
         }),
         { type: "rewound", text: "Look at these.", images, files },
     );
+});
+
+test("a chief's line shows the chief who said it, in the page and its events, as today", async (t) => {
+    const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
+    await send(agent, { type: "line", text: "Go on.", chief: "ada" });
+
+    const chiefOf = (items: readonly ChatItem[]) =>
+        items.filter((item) => item.kind === "user").map((item) => item.chief);
+    assert.deepEqual(chiefOf((await read(agent)).items), ["ada"]);
+    assert.deepEqual(chiefOf(added(agent)), ["ada"]);
 });
 
 test("a sender's item shows its name as the realm gives it", async (t) => {
@@ -294,61 +302,59 @@ test("a session's history is modified when its last entry was written", async (t
     );
 });
 
-/** An `ask_chief` call and its result, written into the chief's session. */
-async function asked(agent: Woken, result: string): Promise<void> {
-    const harness = await agent.harness();
-    const conversation = await conversationOfChat(agent.by(from.client), CHIEF);
-    assert.ok(conversation !== undefined);
-    const answer: ToolResultMessage = {
-        role: "toolResult",
-        toolCallId: "ask-1",
-        toolName: "ask_chief",
-        content: [{ type: "text", text: result }],
-        isError: false,
-        timestamp: 0,
-    };
-    await harness.commit(async (tx) => {
-        await tx.appendEntry(conversation, {
-            kind: "pi.assistant",
-            model: [
-                fauxAssistantMessage(
-                    [
-                        fauxToolCall(
-                            "ask_chief",
-                            { question: "Which colour?" },
-                            { id: "ask-1" },
-                        ),
-                    ],
-                    { stopReason: "toolUse" },
-                ),
-            ],
-        });
-        await tx.appendEntry(conversation, {
-            kind: "pi.tool-result",
-            model: [answer],
-        });
-    }, BACKGROUND_CONTEXT);
+/** A turn that asks the chief, and the realm's notice that closes the question. */
+async function askedChief(t: TestContext, notice: string): Promise<Woken> {
+    const agent = await wake(
+        t,
+        [
+            toolCall("ask_chief", {
+                questions: [{ question: "Which colour?" }],
+            }),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("On it."),
+        ],
+        fakeCalls({ realm: { ask_chief: () => ({ type: "done" }) } }).calls,
+    );
+    await send(agent, { type: "line", text: "Paint it." });
+    await send(agent, { type: "notice", text: notice });
+    return agent;
 }
 
 const answered = (items: readonly ChatItem[]) =>
     items.filter((item) => item.kind === "answered").map((item) => item.text);
 
 test("the chief's answer to an ask_chief shows as its own item, as today", async (t) => {
-    const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
-    await send(agent, { type: "line", text: "a" });
-    await asked(agent, "The chief answers:  Blue. ");
+    const agent = await askedChief(t, "The chief answers: Blue.");
 
-    assert.deepEqual(answered((await read(agent)).items), ["Blue."]);
+    const items = (await read(agent)).items;
+    assert.deepEqual(answered(items), ["Blue."]);
+    assert.ok(!items.some((item) => item.text === "The chief answers: Blue."));
     await until(() => answered(added(agent)).length > 0);
     assert.deepEqual(answered(added(agent)), ["Blue."]);
 });
 
-test("an ask_chief result that is not the chief's answer shows no answered item, as today", async (t) => {
-    const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
-    await send(agent, { type: "line", text: "a" });
-    await asked(agent, "The chief answers:   ");
+test("a picked answer shows the chief's words, and a dismissed question shows no answered item, as today", async (t) => {
+    const picked = await askedChief(
+        t,
+        "The chief answers:\nWhich colour? Blue",
+    );
+    assert.deepEqual(answered((await read(picked)).items), [
+        "Which colour? Blue",
+    ]);
+    await picked.stop();
 
-    const items = (await read(agent)).items;
-    assert.ok(items.some((item) => item.tool?.name === "ask_chief"));
+    const dismissed = await askedChief(
+        t,
+        "The chief did not answer; go on with what you know.",
+    );
+    const items = (await read(dismissed)).items;
     assert.deepEqual(answered(items), []);
+    assert.ok(
+        items.some(
+            (item) =>
+                item.kind === "notice" &&
+                item.text ===
+                    "The chief did not answer; go on with what you know.",
+        ),
+    );
 });

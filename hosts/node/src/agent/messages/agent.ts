@@ -71,6 +71,8 @@ export type Input =
           readonly files?: readonly Attached[];
           /** The note of the lead who reviewed the line. */
           readonly note?: string;
+          /** The name of the chief who said it. */
+          readonly chief?: string;
       }
     /** A chief's ruling, or news the realm tells the agent. */
     | {
@@ -131,6 +133,8 @@ export interface Place {
     readonly folder?: string;
     /** Whether its hamlet runs in manual mode. */
     readonly manual: boolean;
+    /** Whether it is a mayor while another hamlet lives, so it may agree a road with another hamlet's mayor. */
+    readonly agrees_roads: boolean;
 }
 
 export interface Fill {
@@ -305,6 +309,8 @@ export interface ChatItem {
     readonly kind: ItemKind;
     readonly text: string;
     readonly author?: string;
+    /** The name of the chief who said a chief's line. */
+    readonly chief?: string;
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
     readonly rewindable?: boolean;
@@ -515,6 +521,7 @@ const PLACE = obj(
         tools_off: arr(obj({ name: str() }, OPEN)),
         folder: opt(str()),
         manual: opt(bool()),
+        agrees_roads: opt(bool()),
     },
     OPEN,
 );
@@ -584,6 +591,7 @@ const INPUT = union([
             images: opt(arr(unknown())),
             files: opt(arr(unknown())),
             note: opt(str()),
+            chief: opt(str()),
         },
         OPEN,
     ),
@@ -841,6 +849,7 @@ function placeOf({
     tools_off,
     folder,
     manual,
+    agrees_roads,
 }: Static<typeof PLACE>): Place {
     return {
         version,
@@ -850,6 +859,7 @@ function placeOf({
         tools_off: tools_off.map(({ name }) => ({ name })),
         ...(folder === undefined ? {} : { folder }),
         manual: manual ?? false,
+        agrees_roads: agrees_roads ?? false,
     };
 }
 

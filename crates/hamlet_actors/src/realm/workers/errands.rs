@@ -428,6 +428,7 @@ fn outside() -> Place {
         tools_off: Vec::new(),
         folder: None,
         manual: false,
+        agrees_roads: false,
     }
 }
 

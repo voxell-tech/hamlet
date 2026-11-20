@@ -142,7 +142,9 @@ export type Admission = {
     readonly from?: Author;
     /** The note of the lead who reviewed a chief's line, at the end of its content. */
     readonly note?: string;
-    /** What a chief's line carried, as its item shows them. */
+    /** The name of the chief who said a line. */
+    readonly chief?: string;
+    /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
 } & (
@@ -179,6 +181,7 @@ export type Kept = {
     /** The compiler takes no interface as an entry's JSON data; a `Pick` of one it does. */
     from?: Pick<Author, keyof Author>;
     note?: string;
+    chief?: string;
     images?: Pick<ChatImage, keyof ChatImage>[];
     files?: Pick<ChatFile, keyof ChatFile>[];
 };
@@ -198,6 +201,7 @@ export function draftOf(
             : {}),
         ...(admission.from === undefined ? {} : { from: admission.from }),
         ...(admission.note === undefined ? {} : { note: admission.note }),
+        ...(admission.chief === undefined ? {} : { chief: admission.chief }),
         ...(admission.images === undefined || admission.images.length === 0
             ? {}
             : { images: [...admission.images] }),

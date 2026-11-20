@@ -131,6 +131,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     tools_off: Vec::new(),
                     folder: None,
                     manual: false,
+                    agrees_roads: false,
                 },
                 brief: None,
                 copies,

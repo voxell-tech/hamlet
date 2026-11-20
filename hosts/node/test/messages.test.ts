@@ -81,6 +81,12 @@ const HIRE: AgentInput = (() => {
     return { ...hire, place, copies: {} };
 })();
 
+/** A mayor while another hamlet lives, offered `agree_road`. */
+const MAYOR: AgentInput = (() => {
+    const { lead: _, ...place } = HIRE.place;
+    return { ...HIRE, place: { ...place, agrees_roads: true } };
+})();
+
 const LAST_WORDS = "Two of them";
 
 /** What a field read from the wrong place looks like in the words the model is given. */
@@ -1002,7 +1008,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/agree_road",
-        agent: HIRE,
+        agent: MAYOR,
         tool: [
             "agree_road",
             {
@@ -1018,7 +1024,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/agree_road.mayor_of",
-        agent: HIRE,
+        agent: MAYOR,
         tool: [
             "agree_road",
             {
@@ -1448,10 +1454,10 @@ const TAKEN = [
     "agent/submit.worker_answer",
 ] as const;
 
-/** What a taken call reports: a file held whole is not fetched past 32 MiB. */
+/** The report a taken call makes: a file held whole is not fetched past the workspace's 256 MiB. */
 const REPORTED: Partial<Record<(typeof TAKEN)[number], RegExp>> = {
     "agent/submit.letter.files":
-        /^from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 32\.0 MiB$/,
+        /^from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 256\.0 MiB$/,
 };
 
 const CREATED = [
@@ -2149,6 +2155,7 @@ test("the agent's chat events equal their fixtures, and its items, status, usage
     await send("input-3", {
         type: "line",
         text: "Again.",
+        chief: "ada",
         images: [{ id: "ab".repeat(32), at: 6 }, { id: "cd".repeat(32) }],
         files: [
             { id: "12".repeat(32), at: 0, name: "notes/plan.md", size: 2048 },

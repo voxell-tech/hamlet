@@ -105,7 +105,7 @@ export type Payer =
     | { readonly type: "realm" }
     | { readonly type: "hamlet"; readonly hamlet: HamletId };
 
-/** What a payer spent this period, against its budget's caps where it has them. */
+/** A payer's spend this period, against its budget's caps where it has them. */
 export interface Spend {
     readonly payer: Payer;
     readonly spent_micros: number;

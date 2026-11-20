@@ -68,6 +68,7 @@ const realm = actor({
         may_spend: () => ({ type: "done" }),
         charge: () => null,
         secrets: () => ({ version: 1, values: [] }),
+        read_place: () => ({ place: "# Your place\nYou are `hand`." }),
     },
 });
 
@@ -93,7 +94,14 @@ const profile = actor({
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
-    place: { version: 1, hires: [], roads: [], tools_off: [], manual: false },
+    place: {
+        version: 1,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    },
     copies: {},
 };
 

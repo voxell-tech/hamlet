@@ -7,8 +7,11 @@ import {
 } from "@earendil-works/pi-ai";
 import type { AgentInput } from "../src/agent/messages/agent.ts";
 import type { SocietyActs, SocietyTool } from "../src/agent/messages/realm.ts";
+import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
+    asked,
     cappedFiles,
+    FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
@@ -517,6 +520,65 @@ const HIRE: AgentInput = {
     copies: {},
 };
 
+/** A hire with no lead, a mayor, at `agrees_roads`. */
+function mayor(agrees_roads: boolean): AgentInput {
+    const { lead: _, ...place } = HIRE.place;
+    return { ...HIRE, place: { ...place, agrees_roads } };
+}
+
+/** A mayor while another hamlet lives, offered every tool a hire is. */
+const MAYOR = mayor(true);
+
+test("a letter's and a question's relative paths start from the project folder, else the agent's own, as the file tools' do", async (t) => {
+    const sentPaths: unknown[] = [];
+    for (const input of [HIRE, undefined]) {
+        const { calls, sent } = fakeCalls({
+            realm: {
+                tell: () => ({ type: "sent", to: shown(1) }),
+                ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
+            },
+        });
+        const paths = ["big.bin", "notes/../plan.md", "/work/notes.md"];
+        const agent = await wakeAgent(t, {
+            calls,
+            ...(input === undefined ? {} : { input }),
+            responses: [
+                toolCall("tell", { to: "mayor", text: "Here.", paths }, "c1"),
+                toolCall(
+                    "ask",
+                    { to: "mayor", question: "Right?", paths },
+                    "c2",
+                ),
+                fauxAssistantMessage("Sent."),
+            ],
+        });
+        await agent.actions.submit(
+            agent.by(from.realm),
+            line("input-1", "Send them."),
+        );
+        await agent.idle();
+        await agent.stop();
+        sentPaths.push(
+            ["tell", "ask"].map((name) =>
+                named(sent, name).map(
+                    ({ message }) =>
+                        (message as { act: { paths?: unknown } }).act.paths,
+                ),
+            ),
+        );
+    }
+
+    const at = (folder: string) => [
+        { path: `${folder}/big.bin` },
+        { path: `${folder}/plan.md` },
+        { path: "/work/notes.md" },
+    ];
+    assert.deepEqual(sentPaths, [
+        [[at("/work/orchard")], [at("/work/orchard")]],
+        [[at(FAKE_ROOT)], [at(FAKE_ROOT)]],
+    ]);
+});
+
 test("tell carries t<task id>, the turn's task and its conversation, and a refusal's words are the tool's result", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
@@ -820,6 +882,7 @@ test("a hire's place turns its built-in and hand tools off and back on, never a 
         roads: [],
         tools_off: off.map((name) => ({ name })),
         manual: false,
+        agrees_roads: false,
     });
     const first = await wakeAgent(t, {
         calls,
@@ -935,7 +998,7 @@ test("an input that arrives while the agent is busy waits, then has its own turn
 test("each society tool is offered with today's name, description and parameters, word for word", async (t) => {
     const names = TODAY.map((tool) => tool.name);
     const seen = new Map<string, Awaited<ReturnType<typeof schemas>>[number]>();
-    for (const input of [undefined, HIRE]) {
+    for (const input of [undefined, MAYOR]) {
         const agent = await wakeAgent(t, {
             calls: fakeCalls({}).calls,
             ...(input === undefined ? {} : { input }),
@@ -955,9 +1018,8 @@ test("each society tool is offered with today's name, description and parameters
 
 /**
  * Today's society tools by kind (`crates/hamlet_server/src/calls/place.rs`):
- * every agent's, a lead's, and the Hand's own; a hire's road tools. Today
- * offers `agree_road` only to a mayor while another hamlet lives, and
- * `object` only in a chief's chat; this agent offers both by kind.
+ * every agent's in a chief's chat, a lead's, and the Hand's own; a hire's
+ * road tools.
  */
 const EVERYONE = [
     "tell",
@@ -996,7 +1058,7 @@ const OFFERED_TO_THE_HAND = new Set([
 test("the Hand and a hire are each offered today's society tools for their kind, and a worker none", async (t) => {
     const kinds: [string, AgentInput | undefined, string[]][] = [
         ["hand", undefined, [...OFFERED_TO_THE_HAND]],
-        ["hire", HIRE, [...EVERYONE, "request_road", ...LEADS, "agree_road"]],
+        ["hire", HIRE, [...EVERYONE, "request_road", ...LEADS]],
         ["worker", fixture("agent/worker.input") as AgentInput, []],
     ];
     for (const [kind, input, expected] of kinds) {
@@ -1010,6 +1072,68 @@ test("the Hand and a hire are each offered today's society tools for their kind,
         await agent.stop();
         assert.deepEqual(society.sort(), [...expected].sort(), kind);
     }
+});
+
+test("a mayor is offered agree_road while another hamlet lives, as today, and a new place offers it again", async (t) => {
+    const agrees = async (agent: Woken) =>
+        (await offered(agent)).includes("agree_road");
+    for (const [input, expected] of [
+        [HIRE, false],
+        [mayor(false), false],
+        [MAYOR, true],
+    ] as const) {
+        const agent = await wakeAgent(t, { calls: fakeCalls({}).calls, input });
+        assert.equal(
+            await agrees(agent),
+            expected,
+            JSON.stringify(input.place),
+        );
+        await agent.stop();
+    }
+
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        input: mayor(false),
+    });
+    const { version, ...rest } = mayor(true).place;
+    await agent.actions.place(agent.by(from.realm), {
+        ...rest,
+        version: Number(version) + 1,
+    });
+    assert.equal(await agrees(agent), true);
+    await agent.stop();
+});
+
+test("object is offered in a chief's chat and not in a letter's conversation, as today", async (t) => {
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        input: HIRE,
+        responses: [asked([], "Read.")],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: { type: "letter", from: { agent: 12 }, text: "The tests pass" },
+    });
+    await agent.idle();
+    const harness = await agent.harness();
+    const letters = await conversationOfChat(agent.by(from.client), {
+        with: 7,
+        from: 12,
+    });
+    assert.ok(letters !== undefined, "the letter has a chat");
+    const offers = [
+        await harness.conversation(letters, context),
+        await harness.root(context),
+    ];
+    const objecting = [];
+    for (const conversation of offers) {
+        assert.ok(conversation !== undefined);
+        const { tools } = await conversation.agent(context);
+        objecting.push(tools.some((tool) => tool.name === "object"));
+    }
+    await agent.stop();
+
+    assert.deepEqual(objecting, [false, true]);
 });
 
 /** Gives each of `answers` in turn, one a call. */
@@ -1135,7 +1259,7 @@ test("a hire is told of a road agreed by one mayor, and of one both have agreed,
     const road = { mine: "hire#12", theirs: "hire#31" };
     const agent = await wakeAgent(t, {
         calls,
-        input: HIRE,
+        input: MAYOR,
         responses: [
             toolCall("agree_road", road, "a1"),
             toolCall("agree_road", road, "a2"),
@@ -1262,7 +1386,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
                 `${tool}.${parameter} is offered today`,
             );
     }
-    for (const input of [undefined, HIRE]) {
+    for (const input of [undefined, MAYOR]) {
         const probe = await wakeAgent(t, {
             calls: fakeCalls({}).calls,
             ...(input === undefined ? {} : { input }),

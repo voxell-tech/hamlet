@@ -216,6 +216,7 @@ test("a place sent to an errand offers it no tool", async (t) => {
         roads: [],
         tools_off: [],
         manual: false,
+        agrees_roads: false,
     };
     await agent.actions.place(agent.by(from.realm), place);
     copies.resolve({});
@@ -224,7 +225,7 @@ test("a place sent to an errand offers it no tool", async (t) => {
     assert.deepEqual(await offered(agent), []);
 });
 
-test("a notice, a worker's answer and a reviewed line's note are taken and shown as today", async (t) => {
+test("the chief's answer, a worker's answer and a reviewed line's note are taken and shown as today", async (t) => {
     const seen: Context[] = [];
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
@@ -272,7 +273,7 @@ test("a notice, a worker's answer and a reviewed line's note are taken and shown
         { kind: "user", text: "Write the tests", rewindable: true },
         { kind: "notice", text: "hire#2 reviewed this line: fine" },
         { kind: "assistant", text: "On it." },
-        { kind: "notice", text: "The chief answers: use the staging server" },
+        { kind: "answered", text: "use the staging server" },
         { kind: "assistant", text: "Using staging." },
         {
             kind: "user",
