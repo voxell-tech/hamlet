@@ -675,6 +675,10 @@ pub(crate) fn environment(
         },
     };
     policy.net = network.is_open();
+    // A command is bounded by its time alone: a build can use many
+    // cores for its whole hour.
+    policy.limits.cpu_secs = u64::MAX;
+    policy.limits.wall_secs = shell::WALL_SECS;
     std::fs::create_dir_all(&place.worktree)?;
     let cwd = place.folder.as_ref().unwrap_or(&place.worktree);
     Env::new(&text(cwd), policy, *sandbox)

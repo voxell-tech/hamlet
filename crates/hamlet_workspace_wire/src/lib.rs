@@ -21,6 +21,9 @@ pub const MAX_FILE: usize = 4 * 1024 * 1024;
 pub const MAX_BODY: usize = 12 * 1024 * 1024;
 /// Most bytes of output a command keeps.
 pub const MAX_OUTPUT: usize = 1024 * 1024;
+/// Longest a command runs, in milliseconds: an hour, as an agent's
+/// command on the server's machine.
+pub const EXEC_MS: u64 = 60 * 60 * 1000;
 /// Most bytes of file contents a tree listing reads.
 pub const TREE_BYTES: u64 = 512 * 1024 * 1024;
 /// Most entries a tree listing gives.

@@ -81,7 +81,7 @@ that would have had it.
 | `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
 | `write` | Creates or replaces a whole file and makes its parent folders |
 | `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found (Git Bash on Windows), `powershell` on Windows alone. Each runs in the hamlet's folder when it has one, else in the worktree, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found (Git Bash on Windows), `powershell` on Windows alone. Each runs in the hamlet's folder when it has one, else in the worktree, and says with a `network` flag whether it needs the network. Stops after an hour, or an earlier timeout, with no limit on its CPU time; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
