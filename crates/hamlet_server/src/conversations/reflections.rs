@@ -63,7 +63,8 @@ pub(crate) fn reflect(
 }
 
 /// Tells the conversation of `agent`, ended with a dream, to reflect
-/// before the dream if it has anything new to reflect on.
+/// before the dream if it has anything new to reflect on: a turn
+/// still being answered counts, as it is only counted once answered.
 pub(crate) fn before_last_dream(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -78,6 +79,7 @@ pub(crate) fn before_last_dream(
     let brought_in =
         import::table.find(id).count().get_result::<i64>(cx.db)? > 0;
     let unreflected = kept.unreflected > 0
+        || inputs::is_busy(cx.db, id)?
         || (brought_in && reflections_of(cx.db, agent)? == 0);
     if unreflected {
         request(cx, id, LAST_REFLECT)?;

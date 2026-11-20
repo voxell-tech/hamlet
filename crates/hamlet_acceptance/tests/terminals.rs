@@ -11,15 +11,23 @@ use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
 
-/// [`QUIET`] with the chief's terminals starting zsh, else `sh`.
+/// The prompt of the chief's shells, short enough that a line typed
+/// after it does not wrap.
+const PROMPT: &str = "ready> ";
+
+/// [`QUIET`] with the chief's terminals starting zsh, else `sh`,
+/// showing [`PROMPT`].
 fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
     let shell = ["/bin/zsh", "/usr/bin/zsh"]
         .into_iter()
         .find(|zsh| Path::new(zsh).is_file())
         .unwrap_or("/bin/sh");
-    // zsh reads the user's startup files from here, and finds none.
+    // zsh reads the user's startup files from here, after the
+    // system's, which set a prompt of their own.
     let startup = home.side().join("zsh");
     std::fs::create_dir_all(&startup).unwrap();
+    let rc = startup.join(".zshrc");
+    std::fs::write(&rc, format!("PS1='{PROMPT}'\n")).unwrap();
     let mut env = QUIET
         .iter()
         .map(|&(name, value)| (name, value.to_owned()))
@@ -27,10 +35,11 @@ fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
     env.push(("SHELL", shell.into()));
     env.push(("ZDOTDIR", startup.display().to_string()));
     if shell == "/bin/sh" {
-        // `sh` reads the startup files of `HOME` and `ENV`.
+        // `sh` reads the startup files of `HOME` and `ENV`, and sets
+        // its prompt from `ENV`'s alone.
         env.retain(|(name, _)| !matches!(*name, "HOME" | "ENV"));
         env.push(("HOME", startup.display().to_string()));
-        env.push(("ENV", String::new()));
+        env.push(("ENV", rc.display().to_string()));
     }
     env
 }
@@ -79,6 +88,8 @@ async fn shows(chief: &mut Client, id: &str, text: &str) {
         .await;
 }
 
+/// Opens a terminal and waits for its prompt: keys typed before it
+/// shows are not read as following it.
 async fn open(chief: &mut Client) -> String {
     let answer = chief
         .ask(|id| {
@@ -89,10 +100,12 @@ async fn open(chief: &mut Client) -> String {
             })
         })
         .await;
-    match answer {
+    let id = match answer {
         ServerMessage::Terminal(output) => output.terminal,
         other => panic!("an open got {other:?}"),
-    }
+    };
+    shows(chief, &id, PROMPT).await;
+    id
 }
 
 async fn type_in(chief: &mut Client, id: &str, text: &str) {
