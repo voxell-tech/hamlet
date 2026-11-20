@@ -133,7 +133,8 @@ async fn the_history_lists_the_decisions() {
     .await;
 
     let lines = read(&[
-        "- chief founded the hamlet under hire#2 (Mayor)",
+        "- chief founded the hamlet under hire#2 (Mayor): Mayor of \
+         Mill.",
         "- hire#2 (Mayor) hired hire#3 (Spade): Check the links",
         "- chief changed ",
         "- chief changed ",
@@ -143,7 +144,7 @@ async fn the_history_lists_the_decisions() {
     ]);
     assert_eq!(by_chief, lines);
     assert_eq!(by_hand, lines);
-    assert_eq!(realms, read(&[]));
+    assert_eq!(realms, read(&["Nothing is decided yet."]));
     assert_eq!(
         nowhere,
         Record::Refused {

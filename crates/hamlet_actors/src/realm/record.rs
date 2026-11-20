@@ -60,9 +60,10 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
-    /// One mayor's half of a road between hamlets, kept in the
-    /// hamlet of `a`.
+    /// A road between hamlets that both mayors agreed, as the second
+    /// agreed it, kept in `hamlet`.
     RoadAgreed {
+        hamlet: HamletId,
         a: AgentNumber,
         b: AgentNumber,
         by: By,
@@ -151,9 +152,20 @@ pub(super) async fn write(
             Entry::Unroad { a, b, by, why } => {
                 ("unroad", by, Fields::road(a, b, why))
             }
-            Entry::RoadAgreed { a, b, by, why } => {
-                ("road-agreed", by, Fields::road(a, b, why))
-            }
+            Entry::RoadAgreed {
+                hamlet,
+                a,
+                b,
+                by,
+                why,
+            } => (
+                "road-agreed",
+                by,
+                Fields {
+                    hamlet: Some(hamlet),
+                    ..Fields::road(a, b, why)
+                },
+            ),
             Entry::Tools { hire, by, why } => {
                 ("tools", by, Fields::of(hire, why))
             }
@@ -215,9 +227,9 @@ pub(super) async fn write(
                         .transpose()?
                         .map_or(BindParam::Null, BindParam::Text),
                     BindParam::Text(by.name()),
-                    fields
-                        .why
-                        .map_or(BindParam::Null, BindParam::Text),
+                    fields.why.map_or(BindParam::Null, |why| {
+                        BindParam::Text(writer.scrubbed(&why))
+                    }),
                     BindParam::Integer(writer.at().0),
                 ],
             )
@@ -311,7 +323,7 @@ impl<By: RealmWide> Act<By> for ReadRecord {
 }
 
 /// The decisions of `hamlet`, or the realm's own, oldest first, in
-/// words.
+/// words, or "Nothing is decided yet." when there are none.
 async fn lines(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -342,6 +354,11 @@ async fn lines(
             .map_or_else(String::new, |why| format!(": {why}"));
         lines.push(RecordLine {
             text: format!("- {who} {} {subject}{why}", done(&kind)),
+        });
+    }
+    if lines.is_empty() {
+        lines.push(RecordLine {
+            text: "Nothing is decided yet.".to_owned(),
         });
     }
     Ok(lines)

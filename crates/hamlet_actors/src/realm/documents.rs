@@ -147,7 +147,8 @@ pub(super) async fn apply(
                 .await?;
             Some(Part::Charter)
         }
-        Change::Card { model, card } => {
+        Change::Card { model, mut card } => {
+            card.note = writer.scrubbed(&card.note);
             let mut cards = catalogue(&writer.rows()).await?;
             let price = card.price.clone();
             let before = cards.insert(model.clone(), card);

@@ -5,7 +5,7 @@ use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
-    Ask, Asked, Done, End, FoundAnswer, HowEnded, Left, LetterId,
+    Ask, Done, End, Hire, HireAnswer, HowEnded, Left, LetterId,
     LetterRefusal, Named, Reply, ReplyRefusal, Sent, Standing, Tell,
     Waiting,
 };
@@ -14,10 +14,10 @@ use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, done_to, error_code,
-    found, founded, hamlet_with, hires, paid, purpose_of, say,
-    seen_submits, sent, shown, standing, submits_to, tell, to, tool,
-    until, words,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, chief_hires, done_to,
+    error_code, founded, hamlet_with, hire, hires, paid, purpose_of,
+    say, seen_submits, sent, shown, standing, submits_to, tell, to,
+    tool, until, words,
 };
 
 fn from(agent: AgentNumber) -> Author {
@@ -136,20 +136,23 @@ async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
 #[tokio::test(flavor = "multi_thread")]
 async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
  {
-    // mayors 2 and 3 are founded with no purpose. The Hand tells 2
-    // and 2 asks 3: the first line of each becomes its receiver's
-    // purpose, and the chief's line to 2 after it changes nothing.
-    let (realm, _) = hamlet_with(0).await;
-    let barn = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Barn"),
-        })
-        .await
-        .unwrap();
+    // the chief hires 3 and 4 with no purpose. The mayor tells 3 and
+    // asks 4: the first line of each becomes its
+    // receiver's purpose, and the chief's line to 3 after it changes
+    // nothing.
+    let (realm, hamlet) = hamlet_with(0).await;
+    let no_purpose = || Hire {
+        purpose: None,
+        ..hire(None)
+    };
+    let hired = [
+        chief_hires(&realm, &hamlet, no_purpose()).await,
+        chief_hires(&realm, &hamlet, no_purpose()).await,
+    ];
     realm.live(THREE).await;
+    realm.live(FOUR).await;
     let ask = Ask {
-        to: to(THREE),
+        to: to(FOUR),
         text: "Mind the barn?\nsoon".to_owned(),
         conversation: ConversationId("c1".to_owned()),
         paths: Vec::new(),
@@ -157,34 +160,36 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
 
     let told = realm
         .tool(
-            Hand::NUMBER,
+            MAYOR,
             &tool(
                 "t1",
-                tell(to(MAYOR), "\n Dig the well \nthen rest"),
+                tell(to(THREE), "\n Dig the well \nthen rest"),
             ),
         )
         .await
         .unwrap();
     let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
     let said = realm
-        .ask(&say(&RequestId::new(), MAYOR, "Paint the mill"))
+        .ask(&say(&RequestId::new(), THREE, "Paint the mill"))
         .await
         .unwrap();
 
-    assert!(matches!(
-        barn,
-        FoundAnswer::Founded { mayor: THREE, .. }
-    ));
-    assert_eq!(told, sent(MAYOR));
     assert!(
-        matches!(&asked, Waiting::Waiting { on, .. } if on.agent == THREE),
+        hired
+            .iter()
+            .all(|hired| matches!(hired, HireAnswer::Hired { .. })),
+        "{hired:?}"
+    );
+    assert_eq!(told, sent(THREE));
+    assert!(
+        matches!(&asked, Waiting::Waiting { on, .. } if on.agent == FOUR),
         "{asked:?}"
     );
     assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
     assert_eq!(
         (
-            purpose_of(&realm, MAYOR).await,
-            purpose_of(&realm, THREE).await
+            purpose_of(&realm, THREE).await,
+            purpose_of(&realm, FOUR).await
         ),
         (
             Some("Dig the well".to_owned()),

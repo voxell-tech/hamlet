@@ -125,7 +125,7 @@ async fn keep(
                 number(from),
                 number(to),
                 BindParam::Text(change::case_name(&way)?),
-                BindParam::Text(text),
+                BindParam::Text(writer.scrubbed(&text)),
                 task.map(TaskId::column)
                     .transpose()?
                     .unwrap_or(BindParam::Null),
@@ -149,7 +149,10 @@ async fn keep_answer(
         .execute(
             "UPDATE letter SET answer = ?2 WHERE id = ?1 AND answer \
              IS NULL",
-            vec![change::integer(question.0)?, BindParam::Text(text)],
+            vec![
+                change::integer(question.0)?,
+                BindParam::Text(writer.scrubbed(&text)),
+            ],
         )
         .await?;
     Ok(Affected::default())

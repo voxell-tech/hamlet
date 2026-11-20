@@ -184,18 +184,16 @@ async fn a_road_is_laid_when_both_mayors_agree() {
             b: shown(FIVE)
         })
     );
-    let agreed = [
-        "- hire#2 (Mayor) agreed a road from hire#3 (Hire 1): share \
-         files",
-        "- hire#4 (Mayor) agreed a road from hire#5 (Hire 1): trade",
-    ];
-    for (record, line) in records.iter().zip(agreed) {
+    for record in &records {
         let Record::Read { lines } = record else {
             panic!("a record: {record:?}");
         };
-        assert!(
-            lines.iter().any(|kept| kept.text == line),
-            "{line} missing from {lines:?}"
+        assert_eq!(
+            lines.last().map(|line| line.text.as_str()),
+            Some(
+                "- hire#4 (Mayor) agreed a road from hire#5 (Hire \
+                 1): trade"
+            )
         );
     }
     realm.host.shutdown().await.unwrap();
