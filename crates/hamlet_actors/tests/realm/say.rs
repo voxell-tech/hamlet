@@ -61,6 +61,7 @@ async fn a_repeated_say_opens_one_task_and_submits_again() {
             images: Vec::new(),
             files: Vec::new(),
             note: None,
+            chief: Some("chief".to_owned()),
         },
     };
     assert_eq!(submits_to(&realm, MAYOR), [submit.clone(), submit]);

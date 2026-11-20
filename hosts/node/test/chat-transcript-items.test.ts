@@ -105,6 +105,16 @@ test("a line's images and files show on its item, in its events and in its rewin
     );
 });
 
+test("a chief's line shows the chief who said it, in the page and its events, as today", async (t) => {
+    const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
+    await send(agent, { type: "line", text: "Go on.", chief: "ada" });
+
+    const chiefOf = (items: readonly ChatItem[]) =>
+        items.filter((item) => item.kind === "user").map((item) => item.chief);
+    assert.deepEqual(chiefOf((await read(agent)).items), ["ada"]);
+    assert.deepEqual(chiefOf(added(agent)), ["ada"]);
+});
+
 test("a sender's item shows its name as the realm gives it", async (t) => {
     const agent = await wake(
         t,

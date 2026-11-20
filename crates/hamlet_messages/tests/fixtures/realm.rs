@@ -1631,6 +1631,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: Vec::new(),
                 files: Vec::new(),
                 note: None,
+                chief: Some("ada".into()),
             },
         ),
         (
@@ -1641,6 +1642,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: Vec::new(),
                 files: Vec::new(),
                 note: Some("hire#2 reviewed this line: fine".into()),
+                chief: None,
             },
         ),
         (
@@ -1672,6 +1674,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 images: vec![image()],
                 files: vec![file()],
                 note: None,
+                chief: None,
             },
         ),
         (

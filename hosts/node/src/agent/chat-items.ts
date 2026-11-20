@@ -252,9 +252,10 @@ function itemsOf(entry: EntryRecord): Shown[] {
         case "hamlet.cut-off":
             return [];
         case "hamlet.line": {
-            const { note, images, files } = (entry.data ?? {}) as Kept;
+            const { note, chief, images, files } = (entry.data ?? {}) as Kept;
             const line = one("user", textOf(entry), {
                 rewindable: true,
+                ...(chief === undefined ? {} : { chief }),
                 ...(images === undefined ? {} : { images }),
                 ...(files === undefined ? {} : { files }),
             });

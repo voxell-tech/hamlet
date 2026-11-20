@@ -230,6 +230,9 @@ pub struct ChatItem {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// The name of the chief who said a chief's line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chief: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ChatImage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -2155,6 +2155,7 @@ test("the agent's chat events equal their fixtures, and its items, status, usage
     await send("input-3", {
         type: "line",
         text: "Again.",
+        chief: "ada",
         images: [{ id: "ab".repeat(32), at: 6 }, { id: "cd".repeat(32) }],
         files: [
             { id: "12".repeat(32), at: 0, name: "notes/plan.md", size: 2048 },

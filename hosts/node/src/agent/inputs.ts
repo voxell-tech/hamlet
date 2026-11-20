@@ -21,6 +21,7 @@ export function admissionOf(message: Submit, captions = ""): Admission {
             const line = {
                 ...base,
                 ...attachedOf(input),
+                ...(input.chief === undefined ? {} : { chief: input.chief }),
                 kind: "line" as const,
             };
             return input.note === undefined

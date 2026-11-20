@@ -71,6 +71,8 @@ export type Input =
           readonly files?: readonly Attached[];
           /** The note of the lead who reviewed the line. */
           readonly note?: string;
+          /** The name of the chief who said it. */
+          readonly chief?: string;
       }
     /** A chief's ruling, or news the realm tells the agent. */
     | {
@@ -307,6 +309,8 @@ export interface ChatItem {
     readonly kind: ItemKind;
     readonly text: string;
     readonly author?: string;
+    /** The name of the chief who said a chief's line. */
+    readonly chief?: string;
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
     readonly rewindable?: boolean;
@@ -587,6 +591,7 @@ const INPUT = union([
             images: opt(arr(unknown())),
             files: opt(arr(unknown())),
             note: opt(str()),
+            chief: opt(str()),
         },
         OPEN,
     ),
