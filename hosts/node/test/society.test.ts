@@ -790,7 +790,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
             ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
             request_road: () => ({ type: "done" }),
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
-            seat: () => ({ type: "done", agent: shown(22) }),
+            seat: () => ({ type: "done", agent: shown(22), hamlet: "h" }),
             hire: () => ({ type: "hired", agent: shown(22) }),
             end: () => ({ type: "done", agent: shown(22) }),
             lay_road: () => ({ type: "done", a: shown(1), b: shown(2) }),
@@ -1028,7 +1028,7 @@ async function seatAndHire(
 ): Promise<{ seat: unknown[]; hire: unknown[]; results: string[] }> {
     const { calls, sent } = fakeCalls({
         realm: {
-            seat: () => ({ type: "done", agent: shown(22) }),
+            seat: () => ({ type: "done", agent: shown(22), hamlet: "h" }),
             hire: () => ({ type: "hired", agent: shown(22) }),
         },
     });

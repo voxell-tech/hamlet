@@ -777,8 +777,16 @@ impl ChiefRequest for Seat {
 /// Only the Hand calls it.
 impl ToolCall for Seat {
     const TOOL: SocietyTool = SocietyTool::Seat;
-    type Answer = DoneTo<OnlyAHire>;
+    type Answer = Seated;
 }
+
+answer!(
+    /// The answer of a [`Seat`]: the hire seated and the hamlet it is
+    /// the mayor of.
+    Seated<OnlyAHire> {
+        Done { agent: AgentName, hamlet: HamletId },
+    }
+);
 
 /// The refusal of an act that needs a living hire.
 #[derive(

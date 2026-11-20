@@ -6,7 +6,7 @@ use hamlet_messages::realm::hamlets::{
 };
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, FoundAnswer, FoundRefusal, HamletId,
-    HamletRefusal, Seat,
+    HamletRefusal, Seat, Seated,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -14,8 +14,8 @@ use hamlet_messages::workspace::reach::{Mode, Project, Reach};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    MAYOR, Realm, THREE, found, hamlet_with, to, tool, until, words,
-    world,
+    MAYOR, Realm, THREE, found, hamlet_with, named_as, to, tool,
+    until, words, world,
 };
 
 pub(super) async fn chief<T: ChiefRequest>(
@@ -375,6 +375,27 @@ async fn a_bad_name_is_refused_in_todays_words() {
         .await;
     assert_eq!(name, "Mill");
     assert_eq!((trimmed, renamed.as_str()), (Done::Done, "Weir"));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_hears_the_new_mayor_and_its_hamlet() {
+    let (realm, hamlet) = hamlet_with(1).await;
+    let seat = Seat {
+        hire: to(THREE),
+        why: None,
+    };
+
+    let seated =
+        realm.tool(Hand::NUMBER, &tool("s1", seat)).await.unwrap();
+
+    assert_eq!(
+        seated,
+        Seated::Done {
+            agent: named_as(3, "hire#3 (Hire 1)"),
+            hamlet,
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }
 

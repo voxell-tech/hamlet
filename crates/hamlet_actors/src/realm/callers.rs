@@ -9,9 +9,9 @@ use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
-    AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, LeadRefusal,
-    ProfileId, Rank, Refusable, RoadDone, SecretList, Secrets,
-    Standing, Tool, ToolCall,
+    AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
+    LeadRefusal, OnlyAHire, ProfileId, Rank, Refusable, RoadDone,
+    Seated, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -200,11 +200,28 @@ impl Shown for Hand {
 }
 
 /// A sender whose powers reach every hamlet.
-pub(super) trait RealmWide: Decider + Shown {}
+pub(super) trait RealmWide: Decider + Shown {
+    /// The answer to seating a mayor.
+    type Seated: Refusable<Why = OnlyAHire> + Send + 'static;
 
-impl RealmWide for Client {}
+    fn seated(mayor: AgentName, hamlet: HamletId) -> Self::Seated;
+}
 
-impl RealmWide for Hand {}
+impl RealmWide for Client {
+    type Seated = Done<OnlyAHire>;
+
+    fn seated(_: AgentName, _: HamletId) -> Done<OnlyAHire> {
+        Done::Done
+    }
+}
+
+impl RealmWide for Hand {
+    type Seated = Seated;
+
+    fn seated(agent: AgentName, hamlet: HamletId) -> Seated {
+        Seated::Done { agent, hamlet }
+    }
+}
 
 /// A sender that can have a lead's powers over a hire (H41).
 pub(super) trait Lead: Decider + Shown {

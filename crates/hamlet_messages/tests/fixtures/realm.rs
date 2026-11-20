@@ -38,9 +38,9 @@ use hamlet_messages::realm::{
     LeadRefusal, Left, LetterId, LetterRefusal, Limit, Named,
     OnlyAHire, ProfileId, Rank, Refusable, Reply, ReplyRefusal,
     RequestRoad, RequestRoadRefusal, ReservedAct, Review, RoadDone,
-    Seat, Sent, SetLimits, SetTier, SetTools, SocietyTool, Standing,
-    TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal, Tool,
-    ToolName, Waiting,
+    Seat, Seated, Sent, SetLimits, SetTier, SetTools, SocietyTool,
+    Standing, TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal,
+    Tool, ToolName, Waiting,
 };
 use hamlet_messages::workspace::files::EditDiff;
 use hamlet_messages::workspace::reach::Need;
@@ -613,7 +613,16 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         }),
     );
     done(fixtures, "realm/chief_seat", only_a_hire());
-    done_to(fixtures, "realm/seat", only_a_hire());
+    let seated = Seated::Done {
+        agent: shown(HIRE),
+        hamlet: hamlet(),
+    };
+    answers(
+        fixtures,
+        "realm/seat",
+        [("done", seated)],
+        only_a_hire(),
+    );
 }
 
 fn the_letters(fixtures: &mut Fixtures) {

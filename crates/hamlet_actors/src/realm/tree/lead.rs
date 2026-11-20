@@ -426,9 +426,9 @@ impl<By: Lead> Act<By> for End {
 }
 
 impl<By: RealmWide> Act<By> for Seat {
-    type Output = By::OnAgent<OnlyAHire>;
+    type Output = By::Seated;
     type Loaded = Option<Lineage>;
-    type Done = AgentName;
+    type Done = (AgentName, HamletId);
 
     async fn load(
         &self,
@@ -442,7 +442,7 @@ impl<By: RealmWide> Act<By> for Seat {
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<AgentName, Self::Output> {
+    ) -> Decision<(AgentName, HamletId), Self::Output> {
         let refuse =
             |why| Decision::Answer(Self::Output::refused(why));
         let Some(lineage) = named else {
@@ -464,11 +464,12 @@ impl<By: RealmWide> Act<By> for Seat {
                 left: left.clone(),
             });
         }
+        let seated = (lineage.agent.name.clone(), hamlet.id.clone());
         if lineage.is_mayor() {
-            return Decision::Again(lineage.agent.name);
+            return Decision::Again(seated);
         }
         Decision::Change(
-            Decided::new(lineage.agent.name.clone())
+            Decided::new(seated)
                 // First: `seat` reads the old mayor from the hamlet.
                 .change(Change::Seat { mayor: hire })
                 .change(chiefs::Change::Mayor {
@@ -483,8 +484,12 @@ impl<By: RealmWide> Act<By> for Seat {
         )
     }
 
-    fn answer(&self, hire: AgentName, _made: &Made) -> Self::Output {
-        By::on_agent(hire)
+    fn answer(
+        &self,
+        (hire, hamlet): (AgentName, HamletId),
+        _made: &Made,
+    ) -> Self::Output {
+        By::seated(hire, hamlet)
     }
 }
 
@@ -999,7 +1004,10 @@ mod tests {
         );
         assert_eq!(
             decide(mayor_2()),
-            Decision::Again(record::bare(AgentNumber(2)))
+            Decision::Again((
+                record::bare(AgentNumber(2)),
+                HamletId("h".to_owned())
+            ))
         );
     }
 
