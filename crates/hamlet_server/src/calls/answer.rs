@@ -123,6 +123,28 @@ fn rule_wait(
     {
         let _ = crate::society::city::welcome(cx, profile, text)?;
     }
+    if wait.kind == WaitKind::McpServer
+        && let (Some(asked), Some(conversation)) =
+            (wait.asked()?, wait.conversation)
+    {
+        let name = &asked.name;
+        let told = if ruling == Ruling::Allow {
+            format!(
+                "The chief added the MCP server {name}; its tools \
+                 begin mcp__{name}__ once it starts."
+            )
+        } else {
+            format!(
+                "The chief did not add the MCP server {name}: {}",
+                if text.is_empty() {
+                    "no reason given"
+                } else {
+                    text
+                }
+            )
+        };
+        chats::notice(cx, conversation, &told)?;
+    }
     if wait.kind == WaitKind::Objection {
         super::objections::rule(cx.db, wait.id, ruling, cx.at)?;
         if ruling == Ruling::Withdraw
@@ -185,6 +207,17 @@ fn rule_calls(
         {
             gate::grant_session(cx.db, session, chief, danger)?;
         }
+        // A worker's conversation keeps it too, as its chat would.
+        if ruling == Ruling::Always
+            && wait.danger == Some(Danger::Act)
+        {
+            gate::grant_tool(
+                cx.db,
+                conversation.id,
+                chief,
+                &call.tool,
+            )?;
+        }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger
             && !struck.contains(&conversation.id)
@@ -246,6 +279,15 @@ impl Core<'_, '_> {
         let text =
             self.credentials.scrub_text(&text).trim().to_owned();
         let ruling = Ruling::of(choice);
+        // The server is added before the wait is settled, so a chief
+        // can answer again when it cannot be.
+        if wait.kind == WaitKind::McpServer
+            && ruling == Ruling::Allow
+            && let Some(asked) = wait.asked()?
+            && let Err(rejection) = self.add_asked(&asked)
+        {
+            return Ok(Err(rejection));
+        }
         let ruled = self.held_calls(&wait, ruling)?;
         let db = self.realm.store().connection();
         let by = match wait.agent {

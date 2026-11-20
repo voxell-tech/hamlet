@@ -18,6 +18,7 @@ the decisions that are hard to reverse.
 | [`realm.md`](realm.md) | The realm on disk |
 | [`cli.md`](cli.md) | The `hamlet` command |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach |
+| [`mcp.md`](mcp.md) | The MCP servers whose tools agents are offered |
 | [`prompt.md`](prompt.md) | What an agent is told every turn |
 | [`islands.md`](islands.md) | The islands, the harbor and the ground |
 | [`robots.md`](robots.md) | How the robots move |

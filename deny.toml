@@ -12,6 +12,10 @@ ignore = [
     # libsqlite3-sys 0.39, which Diesel 2.3.14 does not yet accept.
     # The server opens only the realm database it writes itself.
     { id = "RUSTSEC-2026-0459", reason = "Diesel caps libsqlite3-sys below 0.39; only the server's own database is opened" },
+    # chrono, unmaintained. rmcp, the MCP client, types its timestamps
+    # with it and has no release without it; dropped once
+    # modelcontextprotocol/rust-sdk#1474 is released.
+    { id = "RUSTSEC-2026-0543", reason = "rmcp pulls it in; no release without it" },
 ]
 
 [licenses]

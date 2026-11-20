@@ -144,6 +144,11 @@ _Avoid_: jail, container, workspace
 A Windows server started with `--insecure`: commands run without a sandbox.
 _Avoid_: unconfined, no-sandbox mode, unsafe mode
 
+**MCP server**:
+A program a chief lists in `mcp/servers.json`, which runs under the
+sandbox for as long as it is listed and whose tools agents are offered.
+_Avoid_: plugin, connector, extension
+
 **Leftover**:
 A process an agent's command started that outlives the command.
 _Avoid_: orphan, survivor, lingering process, background job, daemon

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Conversations of other programs found on this machine, read as Hamlet brings them in"
+description = "Conversations and MCP servers of other programs found on this machine, read as Hamlet brings them in"
 
 [lints]
 workspace = true
@@ -15,4 +15,6 @@ anyhow.workspace = true
 hamlet_protocol.workspace = true
 jiff.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
 zip.workspace = true

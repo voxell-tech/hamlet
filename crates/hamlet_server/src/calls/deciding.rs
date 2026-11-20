@@ -117,7 +117,11 @@ impl Core<'_, '_> {
             .added
             .iter()
             .find(|manifest| manifest.spec.name == call.tool)
-            .map(crate::tools::custom::Manifest::has_net);
+            .map(|manifest| gate::Reach {
+                net: manifest.has_net(),
+                acts: false,
+            })
+            .or_else(|| self.tools.mcp.reach_of(call.tool));
         let classified =
             gate::call_of(call.tool, &call.args(), added);
         match classified {
@@ -273,6 +277,8 @@ impl Core<'_, '_> {
             Some(session) => gate::session_granted(db, session)?,
             None => (false, false),
         };
+        let acts =
+            gate::tool_granted(db, call.conversation.id, call.tool)?;
         let standing = Standing {
             worktree_edit,
             net: allow_net
@@ -283,6 +289,7 @@ impl Core<'_, '_> {
                 )?,
             holds_edits: at.manual && !edit,
             holds_commands: at.manual && !command,
+            acts_granted: acts,
         };
         let gate =
             TurnGate::of(db, call.conversation.id, call.input)?;
@@ -328,6 +335,7 @@ impl Core<'_, '_> {
                             answers: danger.answers(),
                             questions: None,
                             setup: None,
+                            server: None,
                         },
                     )?;
                     held::hold(cx.db, &runtime, &key, wait, change)?;

@@ -533,6 +533,7 @@ fn settings_wire() -> Value {
         "newcomers": "hand", "character": "Curious.",
         "endpoints": [{"name": "local", "baseUrl": "http://localhost:8080", "key": false}],
         "unset": false, "link": {"state": "connected", "models": 1, "words": "Connected"},
+        "mcp": {"servers": [], "faults": [], "found": []},
         "workspace": {"url": null, "running": null}
     })
 }

@@ -196,6 +196,7 @@ impl Core<'_, '_> {
                     answers: vec![Choice::Go, Choice::Withdraw],
                     questions: None,
                     setup: None,
+                    server: None,
                 },
             )?;
             diesel::insert_into(objection::table)

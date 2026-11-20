@@ -76,6 +76,12 @@ impl Waiting {
                     self.shown
                 )
             }
+            protocol::WaitDetail::McpServer { .. } => {
+                format!(
+                    "{} asks for the MCP server `{clipped}`",
+                    self.shown
+                )
+            }
         }
     }
 }

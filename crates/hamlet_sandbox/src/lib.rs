@@ -13,7 +13,7 @@ use anyhow::bail;
 
 pub use self::env::{
     AllLeftovers, Env, ExecError, FileError, FileInfo, FileKind,
-    Launch, Leftovers, Ran, errno_name, status_word,
+    Launch, Leftovers, Piped, Ran, errno_name, status_word,
 };
 pub use self::policy::{
     LimitError, Policy, SetupError, host_env, is_within, policy_hash,

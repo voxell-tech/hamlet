@@ -59,7 +59,8 @@ pub(crate) fn plugin(app: &mut App) {
             move_worktrees,
         )
         .add_handler::<FromClient<protocol::Login>, _>(login)
-        .add_handler::<FromClient<protocol::Check>, _>(check);
+        .add_handler::<FromClient<protocol::Check>, _>(check)
+        .add_handler::<FromClient<protocol::Mcp>, _>(mcp);
 }
 
 /// An event of a client's connection.
@@ -180,6 +181,7 @@ fn write(
         ClientMessage::Terminal(m) => to(commands, client, m),
         ClientMessage::Login(m) => to(commands, client, m),
         ClientMessage::Check(m) => to(commands, client, m),
+        ClientMessage::Mcp(m) => to(commands, client, m),
     }
 }
 
@@ -205,6 +207,19 @@ fn check(
         .drain()
         .try_for_each(|FromClient { client, request }| {
             core.check(client, &request)?;
+            Ok(())
+        })
+}
+
+/// A chief's change to the list of MCP servers.
+fn mcp(
+    mut received: ResMut<Messages<FromClient<protocol::Mcp>>>,
+    mut core: Core,
+) -> Result {
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.mcp(client, request)?;
             Ok(())
         })
 }

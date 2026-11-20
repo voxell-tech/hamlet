@@ -92,6 +92,8 @@ pub enum Pane {
     Front,
     Endpoints,
     Models,
+    /// The MCP servers whose tools agents are offered.
+    Mcp,
     Agents,
     /// Where agents' commands run: this computer or a remote server.
     Workspace,
@@ -109,9 +111,10 @@ pub enum Pane {
 }
 
 impl Pane {
-    const PAGES: [Pane; 10] = [
+    const PAGES: [Pane; 11] = [
         Pane::Endpoints,
         Pane::Models,
+        Pane::Mcp,
         Pane::Agents,
         Pane::Workspace,
         Pane::Charter,
@@ -127,6 +130,7 @@ impl Pane {
             Pane::Front => "Settings",
             Pane::Endpoints => "Endpoints",
             Pane::Models => "Models",
+            Pane::Mcp => "MCP Servers",
             Pane::Agents => "Agent Behaviour",
             Pane::Workspace => "Workspace",
             Pane::Charter => "Charter",
@@ -143,6 +147,7 @@ impl Pane {
             Pane::Front => Glyph::Sliders,
             Pane::Endpoints => Glyph::Signal,
             Pane::Models => Glyph::Chip,
+            Pane::Mcp => Glyph::Bolt,
             Pane::Agents => Glyph::Robot,
             Pane::Workspace => Glyph::Shield,
             Pane::Charter => Glyph::Notes,
@@ -179,6 +184,13 @@ impl Pane {
             Pane::Models => shown::<Settings>(|s| {
                 crate::models::model_name(&s.0.model).to_string()
             }),
+            Pane::Mcp => {
+                shown::<Settings>(|s| match s.0.mcp.servers.len() {
+                    0 => "None".to_string(),
+                    1 => "1 server".to_string(),
+                    n => format!("{n} servers"),
+                })
+            }
             Pane::Agents => {
                 shown::<Settings>(|s| match s.0.reflect_every {
                     0 => "Reflection off".to_string(),
@@ -893,6 +905,7 @@ fn parts_of(pane: Pane) -> (AnyView, AnyView) {
     let body = match pane {
         Pane::Endpoints => crate::models::endpoints().boxed(),
         Pane::Models => crate::models::shelf().boxed(),
+        Pane::Mcp => crate::mcp::page().boxed(),
         Pane::Agents => agents().boxed(),
         Pane::Workspace => workspace::page().boxed(),
         Pane::Charter => charter_page().boxed(),

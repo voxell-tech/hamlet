@@ -514,10 +514,13 @@ skill out (`/unshelve`).
 - it is something the chief's limits reserve (H22), or one of the Hand's
   acts on what chiefs own (H37);
 - its hamlet is in manual mode and it is an edit of the folder or a
-  command, not an edit of the agent's own worktree (C21).
+  command, not an edit of the agent's own worktree (C21);
+- it is a call of an MCP tool that may change something outside the realm,
+  in any mode (C36).
 
-A chief answers: allow it once; allow edits or commands for the rest of the
-agent's conversation, which a rewind's fork does not inherit (C27); allow it
+A chief answers: allow it once; allow edits, commands or the calls of one
+MCP tool for the rest of the agent's conversation, which a rewind's fork
+does not inherit (C27); allow it
 always, which for the network or running unconfined is a lasting permission
 kept by the agent until taken back or the agent ends; or refuse. Every
 refused approval counts toward the turn's cap, whatever its danger. After
@@ -553,7 +556,7 @@ only the tools in its own row:
 
 | Who | Tools |
 |---|---|
-| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
+| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `request_mcp_server` (C36), `read_budget` (H8) |
 | Every agent of a hamlet | `propose_channel` |
 | A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `reparent_agent` (H41), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |

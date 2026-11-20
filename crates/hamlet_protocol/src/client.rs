@@ -16,6 +16,7 @@ mod hash_id;
 mod images;
 mod imports;
 mod limits;
+mod mcp;
 mod request_id;
 mod settings;
 mod state;
@@ -28,6 +29,7 @@ pub use files::*;
 pub use images::*;
 pub use imports::*;
 pub use limits::*;
+pub use mcp::*;
 pub use request_id::*;
 pub use settings::*;
 pub use state::*;
@@ -58,6 +60,7 @@ impl ClientMessage {
             | Self::Withdraw(Withdraw { id, .. })
             | Self::ImportProject(ImportProject { id, .. })
             | Self::Retry(Retry { id, .. })
+            | Self::Mcp(Mcp { id, .. })
             | Self::Edit(
                 Edit::Charter { id, .. }
                 | Edit::Character { id, .. }
@@ -169,6 +172,8 @@ pub enum ClientMessage {
     MoveWorktrees(MoveWorktrees),
     #[serde(rename = "terminal")]
     Terminal(Terminal),
+    #[serde(rename = "mcp")]
+    Mcp(Mcp),
 }
 
 #[derive(

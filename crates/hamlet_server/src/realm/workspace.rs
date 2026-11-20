@@ -42,6 +42,9 @@ pub(crate) struct Transport {
 
 impl Transport {
     pub fn new(connection: WorkspaceAddress) -> anyhow::Result<Self> {
+        // TLS runs on ring, installed once for the process.
+        let _ = rustls::crypto::ring::default_provider()
+            .install_default();
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())

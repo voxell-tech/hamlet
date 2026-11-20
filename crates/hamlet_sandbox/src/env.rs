@@ -17,6 +17,7 @@ use hamlet_os::fs::{
 use hamlet_os::process::{self, Tree};
 use hamlet_workspace_wire::Code;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio::time::Instant;
 
 use super::Sandbox;
@@ -160,6 +161,14 @@ pub enum ExecError {
     Spill(String),
 }
 
+/// A confined command that keeps running, with its pipes.
+pub struct Piped {
+    pub tree: Tree,
+    pub stdin: ChildStdin,
+    pub stdout: ChildStdout,
+    pub stderr: ChildStderr,
+}
+
 #[derive(Clone, Copy)]
 pub enum Launch<'a> {
     /// A shell's argv, which reads nothing.
@@ -257,6 +266,62 @@ impl Env {
             &self.cwd,
             &self.tmp,
         )
+    }
+
+    /// Starts `argv` confined to the policy for as long as it is
+    /// wanted, its input and outputs piped to the caller. The
+    /// policy's CPU and process limits hold for it, and no wall limit
+    /// does; it ends when the tree drops.
+    pub fn spawn_piped(
+        &self,
+        argv: &[String],
+    ) -> Result<Piped, ExecError> {
+        if let Some(refusal) = self.root_refusal() {
+            return Err(ExecError::Spawn(refusal.message));
+        }
+        let limits = &self.policy.limits;
+        let wrapped = process::limited(limits, argv);
+        if let Some(program) =
+            wrapped.first().filter(|word| !self.is_on_path(word))
+        {
+            return Err(ExecError::Spawn(format!(
+                "{program}: command not found"
+            )));
+        }
+        let confined = self.sandbox.command(
+            &self.policy,
+            &wrapped,
+            &self.cwd,
+            &self.tmp,
+        );
+        if fs::metadata(&self.cwd).is_err() {
+            return Err(ExecError::Spawn(format!(
+                "Working directory does not exist: {}",
+                self.cwd
+            )));
+        }
+        let program = &confined.argv[0];
+        let (tree, stdin, stdout, stderr) = Tree::spawn_piped(
+            process::Command {
+                argv: &confined.argv,
+                env: &confined.env,
+                cwd: &self.cwd,
+                stdin: Stdio::piped(),
+            },
+            limits,
+        )
+        .map_err(|error| {
+            ExecError::Spawn(format!(
+                "spawn {program} {}",
+                errno_name(&error)
+            ))
+        })?;
+        Ok(Piped {
+            tree,
+            stdin,
+            stdout,
+            stderr,
+        })
     }
 
     pub fn cwd(&self) -> &str {

@@ -1,5 +1,5 @@
-//! The settings, charter, workspace, sight and appearance gallery
-//! scenes.
+//! The settings, charter, workspace, MCP servers, sight and
+//! appearance gallery scenes.
 
 use bevy::ecs::world::World;
 use hamlet_app::settings;
@@ -25,6 +25,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::SettingsModels
             | Scene::Charter
             | Scene::Workspace
+            | Scene::Mcp
             | Scene::Sight
             | Scene::Appearance(_)
     ) {
@@ -63,6 +64,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             };
         world.insert_resource(settings::Pane::Workspace);
     }
+    if scene == Scene::Mcp {
+        world.resource_mut::<Settings>().0.mcp = mcp();
+        world.insert_resource(settings::Pane::Mcp);
+    }
     if scene == Scene::Sight {
         world.init_resource::<SkySettings>();
         world.init_resource::<VolumetricFogSettings>();
@@ -94,5 +99,98 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             HamletTheme::new(palette, &Measures::designed()),
         );
         world.insert_resource(settings::Pane::Appearance);
+    }
+}
+
+/// A server up with its tools, one to sign in to, and the servers
+/// other programs list.
+fn mcp() -> protocol::McpView {
+    let tool =
+        |name: &str, about: &str, acts: bool| protocol::McpToolView {
+            name: format!("mcp__github__{name}"),
+            tool: name.into(),
+            description: about.into(),
+            acts,
+        };
+    protocol::McpView {
+        servers: vec![
+            protocol::McpServerView {
+                name: "github".into(),
+                entry: protocol::McpEntry {
+                    command: vec![
+                        "/usr/local/bin/npx".into(),
+                        "-y".into(),
+                        "@modelcontextprotocol/server-github".into(),
+                    ],
+                    env: [(
+                        "GITHUB_PERSONAL_ACCESS_TOKEN".into(),
+                        None,
+                    )]
+                    .into(),
+                    net: true,
+                    ..protocol::McpEntry::default()
+                },
+                state: protocol::McpState::Up,
+                tools: vec![
+                    tool("search_issues", "Search issues.", false),
+                    tool(
+                        "get_pull_request",
+                        "Read a pull request.",
+                        false,
+                    ),
+                    tool("create_issue", "Open an issue.", true),
+                    tool(
+                        "merge_pull_request",
+                        "Merge a pull request.",
+                        true,
+                    ),
+                ],
+                sign_in: None,
+            },
+            protocol::McpServerView {
+                name: "linear".into(),
+                entry: protocol::McpEntry {
+                    url: Some(
+                        "https://mcp.linear.example/mcp".into(),
+                    ),
+                    net: true,
+                    ..protocol::McpEntry::default()
+                },
+                state: protocol::McpState::Down {
+                    reason: "it needs you to sign in".into(),
+                    again: 0,
+                },
+                tools: Vec::new(),
+                sign_in: None,
+            },
+        ],
+        faults: Vec::new(),
+        found: vec![
+            protocol::McpFound {
+                source: "Claude Desktop".into(),
+                name: "filesystem".into(),
+                entry: Some(protocol::McpEntry {
+                    command: vec![
+                        "/usr/local/bin/npx".into(),
+                        "-y".into(),
+                        "@modelcontextprotocol/server-filesystem"
+                            .into(),
+                    ],
+                    net: true,
+                    ..protocol::McpEntry::default()
+                }),
+                unrunnable: None,
+            },
+            protocol::McpFound {
+                source: "Cursor".into(),
+                name: "figma".into(),
+                entry: None,
+                unrunnable: Some(
+                    "it speaks the older SSE transport, and Hamlet \
+                     only streamable HTTP"
+                        .into(),
+                ),
+            },
+        ],
     }
 }

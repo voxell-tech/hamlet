@@ -701,6 +701,7 @@ impl Core<'_, '_> {
                 })
                 .collect(),
             link: settings.link.clone(),
+            mcp: self.tools.mcp.view(),
             model: settings.model.clone(),
             newcomers: settings.newcomers,
             reflect_every: i64::try_from(settings.reflect_every)

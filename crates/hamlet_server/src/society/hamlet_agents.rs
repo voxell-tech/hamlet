@@ -19,6 +19,7 @@ use super::rejection::Rejection;
 use super::{city, hamlets, tree};
 use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::jobs::{self, Job};
+use crate::tools::mcp;
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hamlet_agent)]
@@ -639,6 +640,22 @@ pub(crate) fn set_tools(
     Ok(Ok(()))
 }
 
+/// Whether the tools turned off, `off`, hold `tool`: by its name, or
+/// as a tool of an MCP server whose `mcp__<server>` is off.
+pub(crate) fn is_off(off: &[String], tool: &str) -> bool {
+    off.iter().any(|name| {
+        name == tool
+            || name.strip_prefix(mcp::PREFIX).is_some_and(|server| {
+                // A server's name has no `_`, so `mcp__<server>` is
+                // never a tool's.
+                !server.contains('_')
+                    && tool
+                        .strip_prefix(name.as_str())
+                        .is_some_and(|rest| rest.starts_with("__"))
+            })
+    })
+}
+
 /// The tools turned off for `id`.
 pub(crate) fn tools_off(
     db: &mut Db,
@@ -777,4 +794,19 @@ pub(crate) fn took_in(
         .set(hamlet_agent::base.eq(base))
         .execute(db)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_mcp_server_turned_off_takes_its_tools_and_no_others() {
+        let off = ["mcp__git".to_owned(), "bash".to_owned()];
+        assert!(is_off(&off, "bash"));
+        assert!(is_off(&off, "mcp__git__log"));
+        assert!(!is_off(&off, "mcp__github__log"));
+        let tool = ["mcp__a__b".to_owned()];
+        assert!(!is_off(&tool, "mcp__a__b__c"));
+    }
 }

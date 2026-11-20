@@ -17,7 +17,8 @@ for development. `Realm` is in `crates/hamlet_server/src/realm.rs` and
 | `hamlets/<hamlet id>/<agent id>/` | An agent's worktree: `memory/`, `skills/` and `inbox/` |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
-| `tools/` | Hand-added tool manifests and scripts, read once at server start |
+| `tools/` | Hand-added tool manifests and scripts, read at server start and again when they change |
+| `mcp/` | `servers.json`, the MCP servers' list, read at server start and again when it changes, and each server's own folder; outside agents' reach |
 | `terminals/<id>.json` | Each terminal's view and last output, outside agents' reach |
 | `images/`, `files/` | What chiefs sent, kept once under the hash of its bytes, out of agents' reach |
 | `dreams/` | The checkout of a profile's `main` a dream writes, out of agents' reach |

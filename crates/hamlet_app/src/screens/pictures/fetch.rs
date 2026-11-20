@@ -47,6 +47,9 @@ fn is_picture_type(kind: &str) -> bool {
 /// The bytes at `address`, if they are a picture no larger than
 /// `most` bytes.
 async fn bytes(address: &str, most: u64) -> Option<Vec<u8>> {
+    // TLS runs on ring, installed once for the process.
+    let _ =
+        rustls::crypto::ring::default_provider().install_default();
     let client = Client::builder()
         .timeout(PATIENCE)
         .user_agent(AGENT)

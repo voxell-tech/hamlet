@@ -109,6 +109,7 @@ messages and watch failures can answer with `fault` (see
 | `read` | Fetch one document or list; `read` or failure `reply` |
 | `move-worktrees` | Copy worktrees to the workspace chosen in Settings |
 | `terminal` | Open, type into, resize, watch, rename or close a terminal |
+| `mcp` | Add, change, remove or restart an MCP server, or find and import those other programs list |
 
 Limits a client must respect on `say`: at most 20 images, each within
 what the agent's model takes (a line with images is rejected when it
@@ -119,6 +120,12 @@ given to the model as content. Uploads: an image is at most 20 MiB (PNG,
 JPEG, WebP or GIF), a file at most 256 MiB, and an `import-project`
 file at most 16 MiB (50 files, 128 MiB together). `/compact` typed
 through `say` does what `compact` does.
+
+`mcp` carries an `act` discriminated by `do` (`put`, `remove`,
+`restart`, `sign-in`, `find`, `import`); see `mcp`. A `sign-in` puts the
+address to sign in at in the server's `signIn` once it is known. `state.settings.mcp` shows each
+server, its state and tools, and what `find` last found; an `env` value
+is never sent, and a `null` value in `put` keeps the one the entry has.
 
 `terminal` is discriminated by `op` (`open`, `input`, `rename`,
 `resize`, `watch`, `unwatch`, `close`); see `terminals`. `open` starts
@@ -235,7 +242,7 @@ against a chat's `turn` and `transcript` messages. A reset and its
 replacement transcript are sent together, with no message between them.
 
 A `Wait` has a `detail` discriminated by `kind`: `approval`, `fault`,
-`question`, `objection` or `newcomer` (see `waits`). A `check` replies in
+`question`, `objection`, `newcomer` or `mcp-server` (see `waits`). A `check` replies in
 words and changes the connection status in settings; a model check
 waits at most 90 s.
 

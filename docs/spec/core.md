@@ -98,6 +98,28 @@ society's tools, offered by role, are in [`hamlet.md`](hamlet.md).
 folder of the realm that agents can read and never write. Each is offered
 to every agent, and runs under the same sandbox and gate as the shells.
 
+**C36.** A chief can add the tools of MCP servers: `mcp/servers.json` in
+the realm, out of agents' reach, lists each server's program and the reach
+it declares, as a hand tool's manifest does. Each server runs for as long as
+it is listed, as a process of its own under the sandbox of C18 on the
+machine of the server, also when the agents' commands run in a remote
+workspace, and starts again with a growing delay when it ends. Each tool it
+lists is offered to every agent as `mcp__<server>__<tool>`, and stays
+offered while its server starts again; a chief or an agent's parent can
+turn one tool, or every tool of a server, off for that agent. A call runs once under its key after
+the gate has ruled on it, and gives its result with secrets taken out. A call of a tool its server
+does not say only reads waits for a chief (H11), unless the entry allows
+it; the entry can also make a tool that says it only reads wait. An entry that does not load,
+and a server that never started, are named in the prompt of every agent
+that would have had its tools (C15). A server cannot ask Hamlet for a
+model, folders or answers (ADR 0017). A chief adds, changes, restarts and
+removes servers in Settings and with `hamlet mcp`, and can bring in those
+other programs on the server's machine list. A server can also be reached
+over streamable HTTP by a url, signed in to with OAuth, its tokens kept by
+the server. An agent can ask a chief for
+a server; allowed, it is added with its environment's values for the chief
+to give.
+
 ## What tools reach
 
 **C18.** Tools run in a sandbox. The built-in tools write only in the
@@ -113,7 +135,8 @@ too. The chief accepts that risk permanently (ADR 0007).
 
 A tool added by hand has the reach its manifest grants instead of the
 shell's: its readable and writable paths, with its own folder read-only.
-Its manifest also sets its environment and limits. A server without a
+Its manifest also sets its environment and limits. An MCP server (C36) has
+the reach its entry grants in the same way, with its own folder writable. A server without a
 sandbox does not start, unless it is a Windows server the chief starts in
 insecure mode (ADR 0008). Then commands and hand tools reach whatever the
 account running the server can, the built-in file tools keep the reach

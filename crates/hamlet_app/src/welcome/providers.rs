@@ -501,7 +501,7 @@ pub(super) fn receive(
     Received::Login
 }
 
-fn is_browsable(text: &str) -> bool {
+pub(crate) fn is_browsable(text: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(text) else {
         return false;
     };

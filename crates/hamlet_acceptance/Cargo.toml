@@ -112,3 +112,12 @@ required-features = ["acceptance"]
 [[test]]
 name = "terminals"
 required-features = ["acceptance"]
+
+[[test]]
+name = "mcp"
+required-features = ["acceptance"]
+
+# The MCP server the `mcp` test lists.
+[[bin]]
+name = "mcp_echo"
+required-features = ["acceptance"]

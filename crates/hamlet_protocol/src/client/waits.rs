@@ -45,12 +45,20 @@ pub enum WaitDanger {
     /// Files an agent sends that are over what it may send alone.
     #[serde(rename = "send")]
     Send,
+    /// A call of an MCP tool that may change something outside the
+    /// realm.
+    #[serde(rename = "act")]
+    Act,
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "kind", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum WaitDetail {
     #[serde(rename = "approval")]
     Approval {
@@ -73,6 +81,13 @@ pub enum WaitDetail {
     /// the city.
     #[serde(rename = "newcomer")]
     Newcomer { profile: ProfileId },
+    /// An MCP server an agent asks a chief to add, as its entry would
+    /// be; `allow` adds it.
+    #[serde(rename = "mcp-server")]
+    McpServer {
+        name: String,
+        entry: crate::client::McpEntry,
+    },
 }
 
 /// A fault's cause a chief sets up once for every agent.

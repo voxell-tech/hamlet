@@ -6,7 +6,7 @@ use rustix::process::{
     Pid, Signal, WaitId, WaitIdOptions, WaitIdStatus,
     kill_process_group, waitid,
 };
-use tokio::process::{Child, ChildStderr, ChildStdout};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
 
 use crate::process::pty::{self, Size};
@@ -148,7 +148,8 @@ fn has_live_members(id: Pid) -> bool {
 pub(crate) fn spawn(
     command: Command<'_>,
     _limits: &Limits,
-) -> io::Result<(Group, ChildStdout, ChildStderr)> {
+) -> io::Result<(Group, Option<ChildStdin>, ChildStdout, ChildStderr)>
+{
     let exits = signal(SignalKind::child())?;
     let mut spawn = tokio::process::Command::new(&command.argv[0]);
     spawn
@@ -171,7 +172,8 @@ pub(crate) fn spawn(
     else {
         unreachable!("both outputs are piped");
     };
-    Ok((Group { id, leader, exits }, stdout, stderr))
+    let stdin = leader.stdin.take();
+    Ok((Group { id, leader, exits }, stdin, stdout, stderr))
 }
 
 pub(crate) fn limited(
