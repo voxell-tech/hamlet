@@ -16,7 +16,6 @@ pub(crate) enum Society {
     RequestMcpServer,
     ReadBudget,
     Object,
-    ProposeChannel,
     ProposeFolder,
     CreateProfile,
     MakeProfile,
@@ -176,7 +175,7 @@ impl Facts {
 }
 
 /// Every society tool, once.
-pub(crate) const FACTS: [Facts; 67] = {
+pub(crate) const FACTS: [Facts; 66] = {
     use Offered::{
         Chats, Everyone, HamletAgents, Hand, Leads, Parents,
     };
@@ -193,8 +192,6 @@ pub(crate) const FACTS: [Facts; 67] = {
         facts(S::RequestMcpServer, "request_mcp_server", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::ProposeChannel, "propose_channel", HamletAgents)
-            .doing(Doing::Await),
         facts(S::ProposeFolder, "propose_folder", HamletAgents)
             .doing(Doing::Await),
         facts(S::CreateProfile, "create_profile", Parents)

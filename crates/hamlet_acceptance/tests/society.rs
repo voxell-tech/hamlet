@@ -437,6 +437,12 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
 
 #[tokio::test]
 async fn two_leads_agree_a_channel_between_their_hamlets() {
+    let close = || {
+        call(
+            "close_channel",
+            json!({"a": "agent#4", "b": "agent#5", "reason": "done"}),
+        )
+    };
     let mut s = Session::start(
         Faux::new()
             .agent(
@@ -447,6 +453,8 @@ async fn two_leads_agree_a_channel_between_their_hamlets() {
                         json!({"mine": "agent#4", "theirs": "agent#5", "reason": "share files"}),
                     ),
                     words("Agreed."),
+                    close(),
+                    words("Not mine to close."),
                 ],
             )
             .agent(
@@ -458,12 +466,13 @@ async fn two_leads_agree_a_channel_between_their_hamlets() {
                     ),
                     words("Agreed too."),
                 ],
-            ),
+            )
+            .agent(4, [close(), words("Closed.")]),
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let bo = s.found("mill", "bo", "grind").await;
-    s.add_agent(ada, "cy", "dig").await;
+    let cy = s.add_agent(ada, "cy", "dig").await;
     s.add_agent(bo, "dee", "haul").await;
     let agreed = |c: &Client| {
         c.realm().hamlets.iter().any(|h| {
@@ -478,6 +487,23 @@ async fn two_leads_agree_a_channel_between_their_hamlets() {
     s.chief.tell(bo, "Agree the channel.").await;
     s.chief.shows(&chat(bo), "Agreed too.").await;
     s.chief.until("the channel opens", agreed).await;
+
+    // Only an end, or a parent over both, closes a channel.
+    s.chief.tell(ada, "Close it.").await;
+    s.chief.shows(&chat(ada), "Not mine to close.").await;
+    assert!(agreed(&s.chief));
+    assert_eq!(
+        failures(&s.chief, &chat(ada))
+            .into_iter()
+            .filter(|(_, failure)| failure.is_some())
+            .map(|(tool, _)| tool)
+            .collect::<Vec<_>>(),
+        ["close_channel"]
+    );
+    s.chief.open(&chat(cy)).await;
+    s.chief.tell(cy, "Close it.").await;
+    s.chief.shows(&chat(cy), "Closed.").await;
+    s.chief.until("the channel closes", |c| !agreed(c)).await;
 }
 
 #[tokio::test]

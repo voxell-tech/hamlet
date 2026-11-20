@@ -1,11 +1,11 @@
-//! An agent's messages, channel proposals and workers (H30, H31).
+//! An agent's messages and workers (H30, H31).
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::args::{Notify, ProposeChannel, Request, StartWorker};
+use super::args::{Notify, Request, StartWorker};
 use super::{Call, Step, rejected, said, task_chief};
 use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
@@ -20,7 +20,7 @@ use crate::realm::change::done;
 use crate::society::agents::{self, EndHow};
 use crate::society::rejection::Rejection;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{addresses, channels, hamlet_agents};
+use crate::society::{addresses, channels};
 use crate::tools::builtin::{Network, Outcome};
 use crate::tools::catalogue::Society;
 
@@ -50,40 +50,6 @@ impl Core<'_, '_> {
             &args.to,
             &args.text,
             &args.paths,
-        )
-    }
-
-    /// Proposes a channel to the caller's parent, as a notification
-    /// to it.
-    pub(in crate::calls) fn propose_channel(
-        &mut self,
-        call: &Call<'_>,
-        args: ProposeChannel,
-    ) -> Result<Step> {
-        let sender = call.conversation.agent;
-        let here = self.hamlet_of(sender)?;
-        let to = match self.named(&args.to, here.as_ref())? {
-            Ok(to) => to,
-            Err(rejection) => return Ok(Step::of(Err(rejection))),
-        };
-        let db = self.realm.store().connection();
-        let parent = match hamlet_agents::find(db, sender)? {
-            Some(found) => match found.parent {
-                Some(parent) => parent,
-                None => crate::society::hand::id(db)?,
-            },
-            None => return Ok(Step::of(Err(Rejection::ChannelEnds))),
-        };
-        let name = self.name(to)?;
-        let words =
-            format!("I propose a channel to {name}: {}", args.reason);
-        self.deliver(
-            call,
-            MessageKind::Notification,
-            parent,
-            "parent",
-            &words,
-            &[],
         )
     }
 
