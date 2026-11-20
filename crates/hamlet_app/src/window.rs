@@ -52,8 +52,8 @@ pub fn plugin(app: &mut App) {
         .add_systems(Last, limit_frames);
 }
 
-/// Whether the realm panel is in front, so that the window draws the
-/// world.
+/// Whether the realm panel is in front in a window that can be seen,
+/// so that the window draws the world.
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub(crate) enum WorldShown {
     #[default]
