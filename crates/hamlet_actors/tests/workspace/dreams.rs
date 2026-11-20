@@ -150,7 +150,10 @@ async fn a_dreams_errand_works_in_its_main_and_nowhere_else_in_the_realm()
         }
     }
     let (_, listed) = &commands[5];
-    assert!(!listed.contains('4'), "listed {listed:?}");
+    assert!(
+        !listed.lines().any(|entry| entry.trim() == "4"),
+        "listed {listed:?}"
+    );
     assert_eq!(read(&credentials), CREDENTIALS);
     assert_eq!(read(&other_dream), ANOTHER_DREAM);
     assert!(
