@@ -247,16 +247,18 @@ async fn a_timeout_stops_the_command_and_all_it_started() {
     let place = worktree(&scratch);
     let started = Instant::now();
 
+    // Long enough for a loaded Windows machine's bash to start the
+    // loop before the timeout.
     let stopped = call(
         &place,
         Network::Closed,
         "bash",
-        json!({"command": TICKING, "timeout": 1}),
+        json!({"command": TICKING, "timeout": 3}),
     )
     .await;
 
     assert!(started.elapsed() < Duration::from_secs(10));
-    assert_eq!(stopped.text, "started\n\n[timed out after 1s]");
+    assert_eq!(stopped.text, "started\n\n[timed out after 3s]");
     assert!(stopped.error);
     assert_eq!(stopped.details.unwrap()["exitCode"], json!(-1));
     let tick = place.worktree.join("tick.txt");
