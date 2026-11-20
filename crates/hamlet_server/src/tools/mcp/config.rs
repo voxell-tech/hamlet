@@ -278,8 +278,12 @@ pub(super) enum Unread {
     /// Not JSON; serde's words say where.
     #[error(transparent)]
     Json(serde_json::Error),
-    #[error("servers must be an object")]
+    #[error(r#"it must be an object, as {{"servers": {{...}}}}"#)]
     NotObject,
+    #[error(r#"it has no servers; {{"servers": {{}}}} lists none"#)]
+    NoServers,
+    #[error("it holds {0}, and only servers belongs in it")]
+    Unknown(String),
 }
 
 /// The list `servers.json` in the folder `folder` holds; none when
@@ -321,17 +325,20 @@ fn file(folder: &Path) -> Result<Value, Unread> {
         }
         Err(error) => return Err(Unread::Io(error)),
     };
-    let mut file =
+    let file =
         serde_json::from_str::<Value>(&data).map_err(Unread::Json)?;
-    let Some(object) = file.as_object_mut() else {
+    // A misspelled or misplaced list would stop every server, so it
+    // changes none.
+    let Some(object) = file.as_object() else {
         return Err(Unread::NotObject);
     };
-    match object
-        .entry("servers")
-        .or_insert_with(|| Value::Object(Map::new()))
-    {
-        Value::Object(_) => Ok(file),
-        _ => Err(Unread::NotObject),
+    if let Some(key) = object.keys().find(|key| *key != "servers") {
+        return Err(Unread::Unknown(key.clone()));
+    }
+    match object.get("servers") {
+        Some(Value::Object(_)) => Ok(file),
+        Some(_) => Err(Unread::NotObject),
+        None => Err(Unread::NoServers),
     }
 }
 
@@ -663,13 +670,32 @@ mod tests {
     }
 
     #[test]
+    fn a_list_that_is_not_all_servers_changes_none() {
+        let folder = std::env::temp_dir()
+            .join(format!("hamlet-mcp-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&folder).unwrap();
+        for (written, unread) in [
+            ("[]", "an object"),
+            (r#"{"servres": {}}"#, "servres"),
+            ("{}", "no servers"),
+        ] {
+            std::fs::write(folder.join(FILE), written).unwrap();
+            let Err(fault) = load(&folder) else {
+                panic!("{written} loads");
+            };
+            assert!(fault.to_string().contains(unread), "{fault}");
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
     fn a_change_keeps_what_a_client_is_not_shown() {
         let folder = std::env::temp_dir()
             .join(format!("hamlet-mcp-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(
             folder.join(FILE),
-            r#"{"note": "mine", "servers": {"mail": {
+            r#"{"servers": {"mail": {
                 "command": ["mail"],
                 "env": {"TOKEN": "a-long-token"},
                 "sandbox": {"limits": {"max_procs": 4}}
@@ -683,7 +709,6 @@ mod tests {
         entry.net = true;
         put(&folder, "mail", &entry).unwrap();
         let whole = file(&folder).unwrap();
-        assert_eq!(whole["note"], "mine");
         assert_eq!(
             whole["servers"]["mail"],
             json!({

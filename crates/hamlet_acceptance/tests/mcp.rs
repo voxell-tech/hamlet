@@ -3,13 +3,19 @@
 //! for a chief, its secrets kept out of what the model is given.
 
 use std::path::Path;
-use std::time::Duration;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::{
     Choice, Lasting, WaitDanger, WaitDetail,
 };
 use serde_json::json;
+
+/// Whether the realm offers the echo server's two tools.
+fn has_echo(chief: &Client) -> bool {
+    chief.realm().settings.mcp.servers.iter().any(|server| {
+        server.name == "echo" && server.tools.len() == 2
+    })
+}
 
 /// Whether a file under `folder` holds `text`.
 fn holds(folder: &Path, text: &str) -> bool {
@@ -60,10 +66,7 @@ async fn an_mcp_tool_runs_on_its_server_once_allowed_and_gives_its_result_withou
     )
     .await;
     // The tools are offered once the server lists them.
-    let listed = s.home.file("mcp/echo/listed");
-    while !listed.exists() {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    s.chief.until("the echo server's tools", has_echo).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
@@ -153,10 +156,7 @@ async fn a_server_an_agent_asks_for_is_listed_once_a_chief_allows_it()
     let list =
         serde_json::from_str::<serde_json::Value>(&list).unwrap();
     assert_eq!(list["servers"]["echo"]["env"]["TOKEN"], "");
-    let listed = s.home.file("mcp/echo/listed");
-    s.chief
-        .until("the server listed", |_| listed.exists())
-        .await;
+    s.chief.until("the echo server's tools", has_echo).await;
     s.chief
         .until("the agent told", |c| {
             c.texts(&now).iter().any(|text| {

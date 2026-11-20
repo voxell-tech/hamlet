@@ -66,6 +66,9 @@ const EXITING: Duration = Duration::from_secs(1);
 /// server's changes that ended.
 const LISTENS: usize = 3;
 
+/// The most characters of why a server stopped that are kept.
+const REASON: usize = 500;
+
 /// The most of one line of a server's error output that is kept.
 const ERROR_LINE: usize = 1024;
 
@@ -170,7 +173,12 @@ async fn keep(launch: Launch, inputs: InputSender) {
         if began.elapsed() >= STABLE {
             delay = FIRST_DELAY;
         }
-        let reason = scrub_text(&launch.secrets, &stop.to_string());
+        // A reason may hold the server's own words, of any length;
+        // it is named in prompts.
+        let reason = cut(
+            &scrub_text(&launch.secrets, &stop.to_string()),
+            REASON,
+        );
         let said = said.into_iter().collect::<Vec<_>>().join("\n");
         warn!(
             "MCP server {} stopped: {reason}; it starts again in \
@@ -398,7 +406,8 @@ impl Ran<'_> {
             },
         };
         let peer = client.peer().clone();
-        let mut subscription = listen(&peer).await;
+        let mut subscription =
+            listen(&peer, &self.launch.secrets).await;
         // A subscription that ends is opened again, a few times at
         // most, so a server cannot keep the session busy with it.
         let mut listens =
@@ -417,7 +426,8 @@ impl Ran<'_> {
             }
             if subscription.is_none() && listens > 0 {
                 listens -= 1;
-                subscription = listen(&peer).await;
+                subscription =
+                    listen(&peer, &self.launch.secrets).await;
             }
             if let Err(stop) = self.offer(&peer).await {
                 return stop;
@@ -502,7 +512,10 @@ async fn tools_of(peer: &Peer) -> Result<Vec<Tool>, Stop> {
 /// The subscription to the changes of the server's tools, on a
 /// version of the protocol that sends them only to one; none when the
 /// server sends them to every client, or never.
-async fn listen(peer: &Peer) -> Option<Subscription> {
+async fn listen(
+    peer: &Peer,
+    secrets: &[String],
+) -> Option<Subscription> {
     let info = peer.peer_info()?;
     let changes = info
         .capabilities
@@ -519,6 +532,8 @@ async fn listen(peer: &Peer) -> Option<Subscription> {
         .await
         .ok()?
         .inspect_err(|error| {
+            // The server's own words, which may hold its secrets.
+            let error = scrub_text(secrets, &error.to_string());
             debug!(
                 "an MCP server refused to tell its changes: {error}"
             );
@@ -542,6 +557,14 @@ async fn next(subscription: &mut Option<Subscription>) -> Option<()> {
 /// this is dropped.
 async fn closed(client: RunningService<RoleClient, Client>) {
     let _ = client.waiting().await;
+}
+
+/// `text` cut to `most` characters.
+fn cut(text: &str, most: usize) -> String {
+    match text.char_indices().nth(most) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_owned(),
+    }
 }
 
 /// The words of how a server's process ended.

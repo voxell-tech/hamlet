@@ -52,10 +52,11 @@ nowhere here, so it takes no `env`, `inherit_env` or `sandbox`.
 A server's name is 1 to 24 lowercase letters, digits and `-`. A key the
 entry does not know, or an entry that does not fit, is named in the prompt,
 and the other entries load. The file is read at server start and again when
-it changes: a server whose entry changed restarts, unless only
-`timeout_secs`, `allow` or `ask` changed, and one no longer listed stops. A file that is not
-JSON, such as one saved halfway through an edit, is named in the prompt and
-changes no server.
+it changes: a server whose entry changed restarts, its tools still offered
+meanwhile, unless only `timeout_secs`, `allow` or `ask` changed, and one no
+longer listed stops. A file that is not JSON, such as one saved halfway
+through an edit, or that holds anything but `servers`, is named in the
+prompt and changes no server.
 
 The `mcp` folder is in the realm, out of every agent's reach, so the tokens
 in the list are too. Each server has its own folder, `mcp/<name>/`, made

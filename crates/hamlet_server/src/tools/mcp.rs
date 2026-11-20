@@ -60,6 +60,9 @@ const NAME_LENGTH: usize = 64;
 /// The most tools of one server offered.
 const MOST_TOOLS: usize = 128;
 
+/// The most tools left out that the prompt names.
+const NAMED: usize = 10;
+
 /// The longest description of a tool offered, in characters.
 const DESCRIPTION: usize = 4096;
 
@@ -260,21 +263,30 @@ impl Mcp {
         };
         self.unloaded = listed.faults;
         let servers = listed.servers;
-        self.running.retain(|name, running| {
-            servers.get(name).is_some_and(|server| {
-                server.is_same_process(&running.server)
-            })
-        });
+        self.running.retain(|name, _| servers.contains_key(name));
         for (name, server) in servers {
-            if let Some(running) = self.running.get_mut(&name) {
+            if let Some(running) = self.running.get_mut(&name)
+                && running.server.is_same_process(&server)
+            {
                 running.server = server;
                 continue;
             }
             let Some((generation, session)) =
                 self.launch(&name, &server, layout, sandbox, inputs)
             else {
+                self.running.remove(&name);
                 continue;
             };
+            // A changed entry starts again, the tools it last listed
+            // still offered meanwhile, as when it ends.
+            if let Some(running) = self.running.get_mut(&name) {
+                running.session.abort();
+                running.session = session;
+                running.generation = generation;
+                running.server = server;
+                running.standing = Standing::Starting;
+                continue;
+            }
             self.running.insert(
                 name,
                 Running {
@@ -843,7 +855,7 @@ fn listed(
 ) -> (Vec<Listed>, Vec<String>) {
     let mut names = BTreeSet::new();
     let mut offered = Vec::new();
-    let mut uncompiled = Vec::new();
+    let mut uncompiled = BTreeSet::new();
     let mut more = 0;
     for tool in tools {
         if offered.len() == MOST_TOOLS {
@@ -855,7 +867,7 @@ fn listed(
         let name = tool_name(server, &tool.name);
         // Two tools that come to one name leave the later out.
         if !names.insert(name.clone()) {
-            uncompiled.push(name);
+            uncompiled.insert(name);
             continue;
         }
         let parameters = parameters(&tool.input_schema);
@@ -867,7 +879,7 @@ fn listed(
             ))
             .is_err()
         {
-            uncompiled.push(name);
+            uncompiled.insert(name);
             continue;
         }
         let description = tool
@@ -898,11 +910,24 @@ fn listed(
     }
     let mut left_out = Vec::new();
     if !uncompiled.is_empty() {
+        // A server can list any number of them: the prompt names a
+        // few.
+        let mut named = uncompiled
+            .iter()
+            .take(NAMED)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if uncompiled.len() > NAMED {
+            named.push_str(&format!(
+                " and {} more",
+                uncompiled.len() - NAMED
+            ));
+        }
         left_out.push(format!(
-            "the tools {} are left out, as their arguments' schema \
-             does not compile or is too long, or their name is \
-             another's",
-            uncompiled.join(", ")
+            "the tools {named} are left out, as their arguments' \
+             schema does not compile or is too long, or their name \
+             is another's"
         ));
     }
     if more > 0 {

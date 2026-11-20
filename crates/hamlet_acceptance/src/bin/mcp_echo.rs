@@ -1,7 +1,6 @@
 //! An MCP server for the suite, over its standard input and output:
 //! `echo` gives back its `text` and keeps it in the file `echoed`,
-//! and `token` gives its `TOKEN`. It leaves the file `listed` once it
-//! lists its tools. Its files are in its working folder.
+//! and `token` gives its `TOKEN`. Its file is in its working folder.
 
 use std::io::{BufRead, Write};
 
@@ -30,26 +29,22 @@ fn main() {
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "echo", "version": "0.1.0"},
             })),
-            "tools/list" => {
-                std::fs::write("listed", "")
-                    .expect("its folder is its own");
-                Ok(json!({"tools": [
-                    {
-                        "name": "echo",
-                        "description": "Gives back the text.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {"text": {"type": "string"}},
-                            "required": ["text"],
-                        },
+            "tools/list" => Ok(json!({"tools": [
+                {
+                    "name": "echo",
+                    "description": "Gives back the text.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
                     },
-                    {
-                        "name": "token",
-                        "inputSchema": {"type": "object"},
-                        "annotations": {"readOnlyHint": true},
-                    },
-                ]}))
-            }
+                },
+                {
+                    "name": "token",
+                    "inputSchema": {"type": "object"},
+                    "annotations": {"readOnlyHint": true},
+                },
+            ]})),
             "tools/call" => {
                 let text = match params["name"].as_str() {
                     Some("echo") => {

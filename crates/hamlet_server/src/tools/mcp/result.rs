@@ -5,7 +5,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use hamlet_protocol::client::ImageId;
-use hamlet_sandbox::scrub::scrub_text;
+use hamlet_sandbox::scrub::{scrub_text, scrub_value};
 use rmcp::model::{CallToolResult, ContentBlock, ResourceContents};
 use serde_json::{Map, Value};
 
@@ -62,11 +62,14 @@ pub(super) async fn outcome(
             _ => {}
         }
     }
-    // A server that gives structured content alone is read as JSON.
+    // A server that gives structured content alone is read as JSON,
+    // scrubbed before it is written: a secret with a quote in it is
+    // escaped once written.
     if parts.is_empty()
         && images.is_empty()
-        && let Some(structured) = result.structured_content
+        && let Some(mut structured) = result.structured_content
     {
+        scrub_value(secrets, &mut structured);
         parts.push(structured.to_string());
     }
     let whole = scrub_text(secrets, &parts.join("\n"));
@@ -149,17 +152,27 @@ mod tests {
             Content::text("two"),
         ]);
         result.structured_content = Some(serde_json::json!({"n": 1}));
-        let outcome = outcome(
+        let failed = outcome(
             result,
             &["a-long-secret".to_owned()],
             &Sight::blind(),
         )
         .await;
-        assert!(outcome.error);
+        assert!(failed.error);
         assert_eq!(
-            outcome.text,
+            failed.text,
             "token [REDACTED]\n[an image (image/png) left out: the \
              model takes no images]\ntwo"
         );
+        let mut structured = CallToolResult::success(Vec::new());
+        structured.structured_content =
+            Some(serde_json::json!({"key": "a \"quoted\" secret"}));
+        let given = outcome(
+            structured,
+            &["a \"quoted\" secret".to_owned()],
+            &Sight::blind(),
+        )
+        .await;
+        assert_eq!(given.text, r#"{"key":"[REDACTED]"}"#);
     }
 }
