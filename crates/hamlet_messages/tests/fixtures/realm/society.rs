@@ -26,7 +26,7 @@ use hamlet_messages::realm::hamlets::{
 use hamlet_messages::realm::oversight::{
     AskChief, AskChiefRefusal, Hold, Lapse, LapseReason, Object,
     ObjectRefusal, Offer, Permission, Question, Revoke,
-    RevokeRefusal,
+    RevokeRefusal, Revoked,
 };
 use hamlet_messages::realm::workers::{
     Ended, ErrandDone, SetAllowance, StartWorker, Started,
@@ -55,6 +55,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<Hold>(),
         named::<Permission>(),
         tagged::<RevokeRefusal>(),
+        tagged::<Revoked>(),
         tagged::<Started<WorkerRefusal>>(),
         tagged::<WorkerRefusal>(),
         tagged::<Ended>(),
@@ -126,31 +127,40 @@ fn the_oversight(fixtures: &mut Fixtures) {
             permission: Permission::Network,
         }),
     );
-    done(
+    let mira = || "hire#12 (Mira)".to_owned();
+    let network = Permission::Network;
+    answers(
         fixtures,
         "realm/chief_revoke",
-        vec![
+        [
             (
-                "no_such_agent",
-                RevokeRefusal::NoSuchAgent {
-                    address: "9".into(),
+                "revoked",
+                Revoked::Revoked {
+                    name: mira(),
+                    permission: network,
                 },
             ),
             (
                 "no_grant",
-                RevokeRefusal::NoGrant {
-                    name: "hire#12 (Mira)".into(),
-                    permission: Permission::Network,
+                Revoked::NoGrant {
+                    name: mira(),
+                    permission: network,
                 },
             ),
             (
                 "allowed_to_all",
-                RevokeRefusal::AllowedToAll {
-                    name: "hire#12 (Mira)".into(),
-                    permission: Permission::Network,
+                Revoked::AllowedToAll {
+                    name: mira(),
+                    permission: network,
                 },
             ),
         ],
+        vec![(
+            "no_such_agent",
+            RevokeRefusal::NoSuchAgent {
+                address: "9".into(),
+            },
+        )],
     );
     for (case, turn) in [
         ("retry", TaskTurn::Retry),

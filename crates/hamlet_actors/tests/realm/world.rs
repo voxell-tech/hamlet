@@ -12,7 +12,7 @@ use hamlet_messages::realm::client::{ReadWorld, SayAnswer};
 use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{
     AskChief, Lapse, LapseReason, Object, Permission, Question,
-    Revoke,
+    Revoke, Revoked,
 };
 use hamlet_messages::realm::parcels::{Measure, ParcelId};
 use hamlet_messages::realm::workers::{
@@ -531,7 +531,10 @@ async fn the_world_shows_grants_waits_and_workers() {
         (named, model, allowance),
         (done_to(THREE), Done::Done, Done::Done)
     );
-    assert_eq!(revoked, Done::Done);
+    assert!(
+        matches!(revoked, Revoked::Revoked { .. }),
+        "{revoked:?}"
+    );
     let three = agent(&shown, THREE).unwrap();
     assert_eq!(
         (
@@ -819,7 +822,10 @@ async fn an_unrelated_commit_leaves_the_world_as_it_was() {
     let after = realm.ask(&ReadWorld).await.unwrap();
 
     assert_eq!((told, asked_again), (sent(THREE), Done::Done));
-    assert!(matches!(revoked, Done::Refused { .. }), "{revoked:?}");
+    assert!(
+        matches!(revoked, Revoked::NoGrant { .. }),
+        "{revoked:?}"
+    );
     assert_eq!((before.grants.len(), before.waits.len()), (1, 1));
     assert_eq!(after, before);
     realm.host.shutdown().await.unwrap();

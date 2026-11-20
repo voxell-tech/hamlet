@@ -1,7 +1,7 @@
 use hamlet_messages::realm::choices::SetNickname;
 use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::oversight::{
-    Permission, Revoke, RevokeRefusal,
+    Permission, Revoke, Revoked,
 };
 use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::{
@@ -54,8 +54,8 @@ fn revoke(agent: AgentNumber) -> Asked<Revoke> {
     }
 }
 
-fn no_grant(name: &str) -> RevokeRefusal {
-    RevokeRefusal::NoGrant {
+fn no_grant(name: &str) -> Revoked {
+    Revoked::NoGrant {
         name: name.to_owned(),
         permission: Permission::Network,
     }
@@ -152,17 +152,18 @@ async fn a_revoke_raises_the_reach() {
             ..footing(Some(granted))
         }
     );
-    assert_eq!((revoked, again), (Done::Done, Done::Done));
+    let three = Revoked::Revoked {
+        name: "hire#3 (Hire 1)".to_owned(),
+        permission: Permission::Network,
+    };
+    assert_eq!((&revoked, &again), (&three, &three));
+    assert_eq!(
+        revoked.to_string(),
+        "hire#3 (Hire 1) may no longer use network."
+    );
     assert_eq!(
         (none_left, never_held),
-        (
-            Done::Refused {
-                why: no_grant("hire#3 (Hire 1)")
-            },
-            Done::Refused {
-                why: no_grant("hire#2 (Mayor)")
-            }
-        )
+        (no_grant("hire#3 (Hire 1)"), no_grant("hire#2 (Mayor)"))
     );
     assert_eq!(wanted(&realm, THREE).await, raised);
     realm.host.shutdown().await.unwrap();
@@ -280,17 +281,12 @@ async fn an_end_revokes_the_agents_grants() {
     let revoked = realm.ask(&revoke(THREE)).await.unwrap();
 
     assert_eq!(ended, done_to(THREE));
-    assert_eq!(
-        revoked,
-        Done::Refused {
-            why: no_grant("hire#3 (Hire 1)")
-        }
-    );
+    assert_eq!(revoked, no_grant("hire#3 (Hire 1)"));
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
+async fn a_revoke_of_no_grant_is_a_notice_in_todays_words() {
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
     realm
@@ -318,8 +314,15 @@ async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
     let everyone = realm.ask(&revoke(THREE)).await.unwrap();
     let nobody = realm.ask(&revoke(AgentNumber(77))).await.unwrap();
 
+    for notice in [&spade, &hand, &worker, &everyone] {
+        assert!(
+            !matches!(notice, Revoked::Refused { .. }),
+            "{notice:?}"
+        );
+    }
     assert_eq!(
-        [words(spade), words(hand), words(worker), words(everyone)],
+        [spade, hand, worker, everyone]
+            .map(|notice| notice.to_string()),
         [
             "hire#3 (Spade) holds no grant of network.",
             "hand holds no grant of network.",
@@ -375,11 +378,6 @@ async fn an_end_revokes_a_workers_grants() {
         .await;
     assert_eq!(open, 0);
     let revoked = realm.ask(&revoke(FOUR)).await.unwrap();
-    assert_eq!(
-        revoked,
-        Done::Refused {
-            why: no_grant("worker#4")
-        }
-    );
+    assert_eq!(revoked, no_grant("worker#4"));
     realm.host.shutdown().await.unwrap();
 }

@@ -1,6 +1,6 @@
-use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::client::{AnswerRefusal, ReadWorld};
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, LetterRefusal, NeedsChief, Sent, Waiting,
+    AgentRefusal, Ask, Done, LetterRefusal, NeedsChief, Sent, Waiting,
 };
 use hamlet_messages::workspace::ConversationId;
 use hamlet_protocol::client::Choice;
@@ -63,5 +63,26 @@ async fn a_hires_letter_on_its_withdrawn_task_is_refused() {
         "The chief withdrew the instruction, so this call did not \
          run."
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_to_no_wait_is_refused_in_todays_words() {
+    let (realm, _) = hamlet_with(0).await;
+
+    let answered = realm
+        .ask(&answer("w-none", Choice::Go, None))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        answered,
+        Done::Refused {
+            why: AnswerRefusal::NothingWaits {
+                wait: "w-none".to_owned()
+            }
+        }
+    );
+    assert_eq!(words(answered), "nothing waits here with that id");
     realm.host.shutdown().await.unwrap();
 }
