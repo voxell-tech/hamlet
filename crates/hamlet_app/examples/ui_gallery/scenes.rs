@@ -64,6 +64,7 @@ impl Plugin for GalleryPlugin {
             .init_resource::<hamlet_app::limits::Book>()
             .init_resource::<hamlet_app::models::Shelf>()
             .init_resource::<hamlet_app::models::Draft>()
+            .init_resource::<hamlet_app::mcp::McpPage>()
             .init_resource::<hamlet_app::limits::Part>()
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
@@ -224,6 +225,9 @@ pub enum Scene {
     Charter,
     /// The Settings panel at its Workspace page, a remote one chosen.
     Workspace,
+    /// The Settings panel at its MCP Servers page: one up, one to
+    /// sign in to, and those other programs list.
+    Mcp,
     /// The Settings panel at its Sight page, with its dials.
     Sight,
     /// The Settings panel at its Appearance page.

@@ -13,7 +13,7 @@ use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{FrameProps, label, row};
-use bevy_fynix::{ViewExt, derived, keyed, resource};
+use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
@@ -30,7 +30,6 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View};
 
 use crate::forms::{self, Asking, OpenForm};
-use crate::roll::moved;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<McpPage>()
@@ -44,7 +43,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// What the page asked the server and has no answer to, the words
 /// of the last that failed, and the entry the form opened with.
 #[derive(Resource, Default)]
-struct McpPage {
+pub struct McpPage {
     asked: HashSet<protocol::RequestId>,
     problem: Option<String>,
     /// The server the form changes, none when it adds one, and what
@@ -205,10 +204,9 @@ pub(crate) fn page() -> impl View {
              change something waits for you.",
         ),
         servers,
-        faults,
-        problem(),
-        form,
-        paste,
+        // What went wrong, and the forms, take no room when there is
+        // none.
+        close((faults, problem())),
         row((
             good_action(Glyph::Plus, "Add Server", |world| {
                 open(world, None, Vec::new());
@@ -218,21 +216,21 @@ pub(crate) fn page() -> impl View {
             }),
         ))
         .gap(8.0),
+        close((form, paste)),
         found,
     ))
 }
 
 /// The words of the last request that failed.
 fn problem() -> impl View {
-    note(
-        derived(|world: &World| {
-            world
-                .get_resource::<McpPage>()
-                .and_then(|page| page.problem.clone())
-                .unwrap_or_default()
-        })
-        .when(moved::<McpPage>()),
+    keyed(
+        resource::<McpPage, _>(|page| page.problem.clone()),
+        |problem| match problem {
+            Some(problem) => note(problem.clone()).boxed(),
+            None => close(()).boxed(),
+        },
     )
+    .within(bare())
 }
 
 /// Opens the form on `editing`, none to add a server, with `filled`.

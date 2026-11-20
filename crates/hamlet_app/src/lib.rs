@@ -16,7 +16,7 @@ mod hover;
 pub mod limits;
 pub mod lists;
 mod markdown;
-mod mcp;
+pub mod mcp;
 pub mod menu;
 pub mod models;
 mod naming;
