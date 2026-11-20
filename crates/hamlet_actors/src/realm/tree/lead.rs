@@ -529,15 +529,15 @@ pub(in crate::realm) async fn failed(
     }
     let left = Left {
         how: HowEnded::Failed,
-        why: Some(why),
+        why: Some(why.clone()),
     };
     let calls = match lineage.agent.lead {
         Some(lead) if super::left(rows, lead).await?.is_none() => {
-            let text = EndRefusal::Left {
+            let ended = EndRefusal::Left {
                 hire: lineage.agent.name.clone(),
                 left: left.clone(),
-            }
-            .to_string();
+            };
+            let text = format!("{ended}: {why}");
             Calls::after_answer(Delivery::Line {
                 to: lead,
                 submit: Submit {

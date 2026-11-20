@@ -61,11 +61,7 @@ pub enum LapseReason {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Hold {
-    #[error(
-        "task {} is held on an objection until a chief says go or \
-         withdraw",
-        task.0
-    )]
+    #[error("The chief is considering an objection.")]
     Objection { task: RealmTask },
     #[error(
         "The chief withdrew the instruction, so this call did not \
@@ -200,11 +196,11 @@ pub struct Offer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AskChiefRefusal {
-    #[error("no chief oversees this turn; go on with what you know")]
+    #[error("No chief oversees this turn; go on with what you know.")]
     NoChief,
     #[error(
-        "you have asked the chief {} this turn; go on with what you \
-         know",
+        "You have asked the chief {} this turn; go on with what you \
+         know.",
         times(*most)
     )]
     TooMany { most: u32 },
@@ -258,11 +254,11 @@ impl ToolCall for Object {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ObjectRefusal {
     #[error(
-        "only a chief's instruction can be objected to, in the turn \
-         that works on it"
+        "Only a chief's instruction can be objected to, in the turn \
+         that works on it."
     )]
     NotAChiefsLine,
-    #[error("say why you object")]
+    #[error("Say why you object.")]
     NoReason,
     #[error("you have objected to this instruction already")]
     AlreadyHeld,

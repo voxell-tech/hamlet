@@ -1681,9 +1681,7 @@ test("realm/secrets.answer's values are taken out of what a client reads", async
     await agent.stop();
 });
 
-test("a client's call is refused in its fixture's words", {
-    todo: "the agent words a refusal as today's server does, and `hamlet_messages` words it otherwise",
-}, async (t) => {
+test("a client's call is refused in its fixture's words", async (t) => {
     const agent = await chief(t, fakeCalls(COMMANDED).calls, ["One."]);
     await say(agent, "Go.");
     const by = agent.by(from.client);

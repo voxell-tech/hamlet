@@ -17,8 +17,8 @@ use hamlet_protocol::client::RequestId;
 use super::chiefs::chief;
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, chief_hires, done_to, found,
-    hamlet_with, hire, purpose_of, road_done, seen_submits, sent,
-    shown, submits_to, tell, to, tool, until, world,
+    hamlet_with, hire, named_as, purpose_of, road_done, seen_submits,
+    sent, shown, submits_to, tell, to, tool, until, world,
 };
 
 fn request_road(to: AgentNumber) -> RequestRoad {
@@ -548,9 +548,11 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     assert_eq!(
         [to_hand, across, itself, to_ended, to_none, to_own_lead],
         [
-            refused(LayRefusal::NotTwoHiresOfOneHamlet),
-            refused(LayRefusal::NotTwoHiresOfOneHamlet),
-            refused(LayRefusal::NotTwoHiresOfOneHamlet),
+            refused(LayRefusal::NotHires),
+            refused(LayRefusal::OtherHamlet {
+                hire: named_as(5, "hire#5 (Mayor)")
+            }),
+            refused(LayRefusal::SameEnds),
             refused(LayRefusal::Left {
                 hire: shown(FOUR),
                 left: Left {

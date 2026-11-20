@@ -303,9 +303,12 @@ impl<By: Lead> Act<By> for LayRoad {
                 });
             }
         };
+        if a.agent.agent == b.agent.agent {
+            return refuse(LayRefusal::SameEnds);
+        }
         if [a, b].iter().any(|end| end.agent.kind != AgentKind::Hire)
         {
-            return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
+            return refuse(LayRefusal::NotHires);
         }
         for end in [a, b] {
             if let Err(not_a_lead) = by.leads(end) {
@@ -315,9 +318,6 @@ impl<By: Lead> Act<By> for LayRoad {
             }
         }
         let (one, two) = (a.agent.agent, b.agent.agent);
-        if one == two {
-            return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
-        }
         for end in [a, b] {
             if let Status::Ended(left) = &end.agent.status {
                 return refuse(LayRefusal::Left {
@@ -330,7 +330,11 @@ impl<By: Lead> Act<By> for LayRoad {
             (Some(hamlet), Some(other)) if hamlet.id == other.id => {
                 hamlet
             }
-            _ => return refuse(LayRefusal::NotTwoHiresOfOneHamlet),
+            _ => {
+                return refuse(LayRefusal::OtherHamlet {
+                    hire: b.agent.name.clone(),
+                });
+            }
         };
         if laying.laid
             || a.agent.lead == Some(two)

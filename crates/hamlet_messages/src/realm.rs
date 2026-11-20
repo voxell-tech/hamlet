@@ -329,10 +329,7 @@ pub enum Standing {
 pub enum Gate {
     /// The realm keeps the request for a chief: it runs if one
     /// allows it, and the caller is told.
-    #[error(
-        "a chief must allow this; it runs when one does, and you \
-         are told"
-    )]
+    #[error("This call waits for a chief's answer.")]
     Reserved { wait: world::WaitId },
     /// A chief refused the same request on the caller's task, or
     /// every request for the network.
@@ -524,7 +521,7 @@ impl std::fmt::Display for AgentName {
     Deserialize,
     thiserror::Error,
 )]
-#[error("{how}{}", why.as_ref().map_or_else(String::new, |why| format!(": {why}")))]
+#[error("{how}")]
 pub struct Left {
     pub how: HowEnded,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -543,11 +540,11 @@ pub struct Left {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HowEnded {
-    #[error("ended by the chief")]
+    #[error("it was ended")]
     ByTheChief,
-    #[error("ended by `{lead}`")]
+    #[error("it was ended")]
     ByALead { lead: AgentName },
-    #[error("ended by the Hand")]
+    #[error("it was ended")]
     ByTheHand,
     /// A worker answered its starter.
     #[error("it answered its task")]
@@ -756,7 +753,7 @@ impl ToolCall for End {
 pub enum EndRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("the Hand cannot be ended")]
+    #[error("`hand` is not a hire")]
     TheHand,
     #[error("a mayor cannot be ended; seat another mayor first")]
     TheMayor,
@@ -865,15 +862,15 @@ answer!(
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LetterRefusal {
-    #[error("that is you")]
+    #[error("That is you.")]
     Yourself,
-    #[error("say what to send")]
+    #[error("Say what to send.")]
     Empty,
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
     #[error(
-        "you have no road to `{to}`; ask your lead for one with \
-         request_road"
+        "You have no road to {to}. Ask your lead for one with \
+         request_road."
     )]
     NoRoad { to: AgentName },
     #[error("no road yet to `{to}`: it is still being hired")]
@@ -961,8 +958,12 @@ answer!(
 pub enum LayRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("a road joins two hires of one hamlet")]
-    NotTwoHiresOfOneHamlet,
+    #[error("a road needs two different hires")]
+    SameEnds,
+    #[error("a road joins hires only")]
+    NotHires,
+    #[error("`{hire}` is in another hamlet")]
+    OtherHamlet { hire: AgentName },
     #[error("`{hire}` has left: {left}")]
     Left { hire: AgentName, left: Left },
     #[error("`{a}` and `{b}` already have a road")]
@@ -1110,7 +1111,7 @@ impl ToolCall for RequestRoad {
 pub enum RequestRoadRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("you have no lead to ask")]
+    #[error("a road joins hires only")]
     NoLead,
     #[error("your lead `{lead}` is still being hired")]
     StillHiring { lead: AgentName },

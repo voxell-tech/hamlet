@@ -813,9 +813,11 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
                     address: "hire#9".into(),
                 },
             ),
+            ("same_ends", LayRefusal::SameEnds),
+            ("not_hires", LayRefusal::NotHires),
             (
-                "not_two_hires_of_one_hamlet",
-                LayRefusal::NotTwoHiresOfOneHamlet,
+                "other_hamlet",
+                LayRefusal::OtherHamlet { hire: shown(MAYOR) },
             ),
             (
                 "left",

@@ -78,7 +78,7 @@ pub enum ResumeAnswer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResumeRefusal {
-    #[error("there is no session {number}")]
+    #[error("there is no past session {number} here")]
     NoSuchSession { number: u32 },
 }
 
@@ -100,10 +100,11 @@ from_client!(Retry, "retry", Done<RetryRefusal>);
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RetryRefusal {
-    #[error("a turn is running; stop it first")]
+    #[error("a turn is running here; stop it, then retry")]
     Running,
     #[error(
-        "the last turn was answered; there is nothing to carry on"
+        "the last message was answered, so there is nothing to \
+         carry on"
     )]
     Answered,
 }
@@ -140,13 +141,13 @@ pub enum RewindAnswer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RewindRefusal {
-    #[error("only a chief's own line can be taken back")]
+    #[error("That is not one of your lines in this conversation.")]
     NotAChiefLine,
-    #[error("no line {item} is in this session")]
+    #[error("That is not one of your lines in this conversation.")]
     NoSuchItem { item: String },
-    #[error("only the current session of a chief's chat goes back")]
+    #[error("Only the current session of a chief's chat goes back.")]
     NotCurrent,
-    #[error("work is running or waiting; stop it first")]
+    #[error("a turn is running here; stop it, then rewind")]
     Working,
 }
 
