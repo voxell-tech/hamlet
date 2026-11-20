@@ -17,7 +17,8 @@ use bevy_fynix::views::{
     row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+    resource,
 };
 use hamlet_client::realm::{
     self, Actions, HamletId, Profile, profile_address,
@@ -136,15 +137,14 @@ fn lead() -> impl View {
                 description(meaning),
                 dropdown(
                     shown,
-                    at,
-                    Glyph::Chevron.image(ICON),
-                    move |world, picked| {
+                    Binding::new(at, move |world, picked: usize| {
                         world.resource_mut::<Founding>().lead =
                             picked
                                 .checked_sub(1)
                                 .and_then(|at| found.get(at))
                                 .map(|(id, _)| *id);
-                    },
+                    }),
+                    Glyph::Chevron.image(ICON),
                 ),
             ))
             .boxed()

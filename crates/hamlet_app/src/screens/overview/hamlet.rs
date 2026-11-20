@@ -16,7 +16,8 @@ use bevy_fynix::views::{
     dropdown, frame, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, component, derived, every_frame, keyed, style,
+    Binding, ScopedExt, ViewExt, component, derived, every_frame,
+    keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
 use hamlet_realm::orders::Decree;
@@ -65,22 +66,24 @@ fn size(hamlet: Entity, id: String) -> AnyView {
         label("Size").tone(Tone::Faint).wrap(false),
         dropdown(
             names,
-            derived(move |world: &World| {
-                let tier = world
-                    .get::<Works>(hamlet)
-                    .map(|works| works.tier.to_string());
-                TIERS
-                    .iter()
-                    .position(|t| Some(*t) == tier.as_deref())
-                    .unwrap_or(TIERS.len())
-            })
-            .when(every_frame()),
+            Binding::new(
+                derived(move |world: &World| {
+                    let tier = world
+                        .get::<Works>(hamlet)
+                        .map(|works| works.tier.to_string());
+                    TIERS
+                        .iter()
+                        .position(|t| Some(*t) == tier.as_deref())
+                        .unwrap_or(TIERS.len())
+                })
+                .when(every_frame()),
+                move |world, chosen: usize| {
+                    if let Some(tier) = TIERS.get(chosen) {
+                        decree(world, &id, format!("/tier {tier}"));
+                    }
+                },
+            ),
             Glyph::Chevron.image(ICON),
-            move |world, chosen| {
-                if let Some(tier) = TIERS.get(chosen) {
-                    decree(world, &id, format!("/tier {tier}"));
-                }
-            },
         )
         .placeholder("Choose how many agents it holds"),
     ))

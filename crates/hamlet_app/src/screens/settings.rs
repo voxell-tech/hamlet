@@ -22,7 +22,7 @@ use bevy_fynix::views::{
     label, number_field, row, scroll, slider,
 };
 use bevy_fynix::{
-    Prop, ScopedExt, ViewExt, derived, keyed, resource,
+    Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
 };
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
@@ -324,14 +324,14 @@ fn agents() -> impl View {
         field(
             "Reflect every N turns",
             told(
-                number_field(
+                number_field(Binding::new(
                     resource::<Settings, _>(|s| s.0.reflect_every),
                     |world, turns| {
                         save(world, |set| {
                             set.reflect_every = Some(turns);
                         });
                     },
-                )
+                ))
                 .range(0i64, 1000i64)
                 .width(px(90.0))
                 .rules(text_input),
@@ -345,20 +345,23 @@ fn agents() -> impl View {
                     cx.build(
                         dropdown(
                             EFFORTS.map(|(_, name)| name),
-                            resource::<Settings, _>(|s| {
-                                EFFORTS
-                                    .iter()
-                                    .position(|(effort, _)| {
-                                        *effort == s.0.effort
-                                    })
-                                    .unwrap_or_default()
-                            }),
+                            Binding::new(
+                                resource::<Settings, _>(|s| {
+                                    EFFORTS
+                                        .iter()
+                                        .position(|(effort, _)| {
+                                            *effort == s.0.effort
+                                        })
+                                        .unwrap_or_default()
+                                }),
+                                |world, at: usize| {
+                                    save(world, |set| {
+                                        set.effort =
+                                            Some(EFFORTS[at].0);
+                                    });
+                                },
+                            ),
                             Glyph::Chevron.image(ICON),
-                            |world, at| {
-                                save(world, |set| {
-                                    set.effort = Some(EFFORTS[at].0);
-                                });
-                            },
                         )
                         .width(px(160.0)),
                     )
@@ -376,21 +379,23 @@ fn agents() -> impl View {
                     cx.build(
                         dropdown(
                             NEWCOMERS.map(|(_, name)| name),
-                            resource::<Settings, _>(|s| {
-                                NEWCOMERS
-                                    .iter()
-                                    .position(|(who, _)| {
-                                        *who == s.0.newcomers
-                                    })
-                                    .unwrap_or_default()
-                            }),
+                            Binding::new(
+                                resource::<Settings, _>(|s| {
+                                    NEWCOMERS
+                                        .iter()
+                                        .position(|(who, _)| {
+                                            *who == s.0.newcomers
+                                        })
+                                        .unwrap_or_default()
+                                }),
+                                |world, at: usize| {
+                                    save(world, |set| {
+                                        set.newcomers =
+                                            Some(NEWCOMERS[at].0);
+                                    });
+                                },
+                            ),
                             Glyph::Chevron.image(ICON),
-                            |world, at| {
-                                save(world, |set| {
-                                    set.newcomers =
-                                        Some(NEWCOMERS[at].0);
-                                });
-                            },
                         )
                         .width(px(160.0)),
                     )
@@ -777,14 +782,16 @@ fn level(
                     );
                 },
             ),
-            slider(resource::<SoundSettings, _>(at))
-                .on_change(move |world, to| {
+            slider(Binding::new(
+                resource::<SoundSettings, _>(at),
+                move |world, to| {
                     set(
                         &mut world.resource_mut::<SoundSettings>(),
                         to,
                     );
-                })
-                .grow(1.0),
+                },
+            ))
+            .grow(1.0),
         ))
         .gap(cx.theme().space.gap)
         .width(percent(100.0))

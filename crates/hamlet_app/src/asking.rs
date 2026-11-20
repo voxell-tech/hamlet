@@ -18,7 +18,7 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, component, keyed, resource, style,
+    Binding, ScopedExt, ViewExt, component, keyed, resource, style,
 };
 use hamlet_client::messages::{Answer, Answered};
 use hamlet_client::waits::{Choice, Rejected, Waiting};
@@ -361,9 +361,12 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
                 let space = &cx.theme().space;
                 row((
                     label(name).wrap(false).rules(note_rules),
-                    text_field(typed, move |world, text| {
-                        write(world, card, count, at, text);
-                    })
+                    text_field(Binding::new(
+                        typed,
+                        move |world, text| {
+                            write(world, card, count, at, text);
+                        },
+                    ))
                     .fills_width()
                     .rules(text_input)
                     .tagged(Variant::Input),

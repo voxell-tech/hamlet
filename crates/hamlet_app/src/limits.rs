@@ -14,7 +14,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, number_field, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
@@ -232,14 +232,14 @@ fn whole(
     most: i64,
 ) -> impl View {
     control(section, key, move || {
-        number_field(
+        number_field(Binding::new(
             resource::<Book, _>(move |book| {
                 book.limits.as_ref().map_or(0, get)
             }),
             move |world, value: i64| {
                 put(world, section, key, value.into());
             },
-        )
+        ))
         .range(0, most)
         .width(px(110.0))
         .rules(text_input)
@@ -253,7 +253,7 @@ fn cost(
     get: fn(&Limits) -> Option<f64>,
 ) -> impl View {
     control(section, key, move || {
-        number_field(
+        number_field(Binding::new(
             resource::<Book, _>(move |book| {
                 book.limits.as_ref().and_then(get).unwrap_or(0.0)
             }),
@@ -268,7 +268,7 @@ fn cost(
                     ),
                 );
             },
-        )
+        ))
         .range(0.0, 1_000_000.0)
         .step(0.05)
         .precision(2)
@@ -319,7 +319,7 @@ fn dollars<R: Resource>(
                 return bare().boxed();
             }
             let field = control("budget", "cost", move || {
-                number_field(
+                number_field(Binding::new(
                     resource::<R, _>(move |limits| {
                         read(limits).unwrap_or(DEFAULT_BUDGET)
                     }),
@@ -327,7 +327,7 @@ fn dollars<R: Resource>(
                     move |world, value: f64| {
                         set(world, (value > 0.0).then_some(value));
                     },
-                )
+                ))
                 .range(0.0, 1_000_000.0)
                 .step(0.05)
                 .precision(2)

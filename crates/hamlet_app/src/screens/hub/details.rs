@@ -9,7 +9,8 @@ use bevy_fynix::views::{
     frame, label, row, text_field,
 };
 use bevy_fynix::{
-    Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
+    Bevy, Binding, ScopedExt, ViewExt, ViewSeq, derived, every_frame,
+    keyed,
 };
 use hamlet_client::realm::{
     Account, Actions, Allowance, Bylaws, Channel, Kind, LivesIn,
@@ -158,17 +159,20 @@ fn read_only(text: String) -> AnyView {
 fn name_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
-    text_field(had.clone(), move |world, typed| {
-        let typed = typed.trim().to_string();
-        if typed != had {
-            crate::chat::command(
-                world,
-                format!("/name-agent {address} {typed}")
-                    .trim_end()
-                    .into(),
-            );
-        }
-    })
+    text_field(Binding::new(
+        had.clone(),
+        move |world, typed: String| {
+            let typed = typed.trim().to_string();
+            if typed != had {
+                crate::chat::command(
+                    world,
+                    format!("/name-agent {address} {typed}")
+                        .trim_end()
+                        .into(),
+                );
+            }
+        },
+    ))
     .width(px(FIELD))
     .rules(text_input)
     .boxed()
@@ -188,17 +192,20 @@ fn allowance_field(facts: &Facts) -> AnyView {
         .unwrap_or_default();
     let had = dollars(&shown).to_string();
     column((hinted(
-        text_field(shown, move |world, typed| {
-            let typed = dollars(&typed);
-            if typed != had {
-                let amount =
-                    if typed.is_empty() { "none" } else { typed };
-                crate::chat::command(
-                    world,
-                    format!("/allowance {address} {amount}"),
-                );
-            }
-        })
+        text_field(Binding::new(
+            shown,
+            move |world, typed: String| {
+                let typed = dollars(&typed);
+                if typed != had {
+                    let amount =
+                        if typed.is_empty() { "none" } else { typed };
+                    crate::chat::command(
+                        world,
+                        format!("/allowance {address} {amount}"),
+                    );
+                }
+            },
+        ))
         .rules(text_input),
         "No limit",
     ),))
@@ -225,9 +232,7 @@ fn version(facts: &Facts) -> AnyView {
         let theme = cx.theme();
         row((dropdown(
             words,
-            at,
-            Glyph::Chevron.image(ICON),
-            move |world, chosen| {
+            Binding::new(at, move |world, chosen: usize| {
                 if chosen != at
                     && let Some(to) = names.get(chosen)
                 {
@@ -236,7 +241,8 @@ fn version(facts: &Facts) -> AnyView {
                         format!("/pin {address} {to}"),
                     );
                 }
-            },
+            }),
+            Glyph::Chevron.image(ICON),
         )
         .width(px(FIELD))
         .fill(theme.palette.input)

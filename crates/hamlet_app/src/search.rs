@@ -10,8 +10,8 @@ use bevy::ecs::query::Changed;
 use bevy::ecs::system::{Commands, Query};
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{BehaviorExt, text_field};
+use bevy_fynix::{Binding, ScopedExt};
 use hamlet_ui::View;
 use hamlet_ui::styles::text_input;
 use hamlet_ui::widgets::hint;
@@ -48,7 +48,7 @@ pub(crate) fn search(
     write: impl Fn(&mut World, String) + Send + Sync + 'static,
 ) -> impl View {
     hint::search(
-        text_field(text, |_, _| {})
+        text_field(Binding::new(text, |_, _| {}))
             .rules(text_input)
             .tagged(Typed(Arc::new(write))),
         word,

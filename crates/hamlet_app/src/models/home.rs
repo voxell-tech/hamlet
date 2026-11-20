@@ -7,7 +7,9 @@ use bevy_fynix::views::{
     self, BehaviorExt, FrameProps, TooltipExt, column, label,
     number_field, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    Binding, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
@@ -160,32 +162,35 @@ fn price(name: &str, output: bool) -> AnyView {
                 .boxed();
             }
             let name = name.clone();
-            number_field(value, move |world, value: f64| {
-                let mut price = world
-                    .resource::<Shelf>()
-                    .models
-                    .iter()
-                    .find(|model| model.name == name)
-                    .and_then(|model| model.price.clone())
-                    .unwrap_or(protocol::Price {
-                        input: 0.0,
-                        output: 0.0,
-                    });
-                if output {
-                    price.output = value;
-                } else {
-                    price.input = value;
-                }
-                catalogue(
-                    world,
-                    &name,
-                    protocol::EditCatalogueSet {
-                        images: None,
-                        price: Some(Some(price)),
-                        note: None,
-                    },
-                );
-            })
+            number_field(Binding::new(
+                value,
+                move |world, value: f64| {
+                    let mut price = world
+                        .resource::<Shelf>()
+                        .models
+                        .iter()
+                        .find(|model| model.name == name)
+                        .and_then(|model| model.price.clone())
+                        .unwrap_or(protocol::Price {
+                            input: 0.0,
+                            output: 0.0,
+                        });
+                    if output {
+                        price.output = value;
+                    } else {
+                        price.input = value;
+                    }
+                    catalogue(
+                        world,
+                        &name,
+                        protocol::EditCatalogueSet {
+                            images: None,
+                            price: Some(Some(price)),
+                            note: None,
+                        },
+                    );
+                },
+            ))
             .range(0.0, 10_000.0)
             .step(0.05)
             .precision(2)
@@ -232,17 +237,20 @@ fn limit(
     let name = name.to_string();
     row((
         section(title),
-        number_field(value, move |world, value: f64| {
-            let mut input = world
-                .resource::<Shelf>()
-                .models
-                .iter()
-                .find(|model| model.name == name)
-                .and_then(|model| model.images.clone())
-                .unwrap_or_default();
-            set(&mut input, value);
-            save_images(world, &name, Some(input));
-        })
+        number_field(Binding::new(
+            value,
+            move |world, value: f64| {
+                let mut input = world
+                    .resource::<Shelf>()
+                    .models
+                    .iter()
+                    .find(|model| model.name == name)
+                    .and_then(|model| model.images.clone())
+                    .unwrap_or_default();
+                set(&mut input, value);
+                save_images(world, &name, Some(input));
+            },
+        ))
         .range(range.0, range.1)
         .step(step)
         .precision(decimals)

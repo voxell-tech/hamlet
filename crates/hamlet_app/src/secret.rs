@@ -22,7 +22,7 @@ use bevy::ui::{
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, overlay, row, text_field,
 };
-use bevy_fynix::{Prop, ScopedExt};
+use bevy_fynix::{Binding, Prop, ScopedExt};
 use hamlet_ui::View;
 use hamlet_ui::styles::text_input;
 use hamlet_ui::widgets::platform::{ClipInside, Mono};
@@ -43,7 +43,7 @@ pub(crate) fn secret_field(
     // The field takes the room; the stars lie over it, in a box made
     // the size of its text's, which cuts them where the text is cut.
     row((
-        text_field(value, on_commit)
+        text_field(Binding::new(value, on_commit))
             .grow(1.0)
             .rules(text_input)
             .tagged(Secret),

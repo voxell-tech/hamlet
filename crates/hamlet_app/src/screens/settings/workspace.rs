@@ -10,7 +10,7 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{frame, label, text_field};
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
@@ -238,12 +238,12 @@ fn remote() -> AnyView {
         parts((
             field(
                 "Server address",
-                text_field(
+                text_field(Binding::new(
                     resource::<Draft, _>(|draft| draft.url.clone()),
                     |world, url| {
                         world.resource_mut::<Draft>().url = url;
                     },
-                )
+                ))
                 .rules(text_input),
             ),
             field(

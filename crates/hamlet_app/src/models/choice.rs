@@ -4,7 +4,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy::ui::percent;
 use bevy_fynix::views::{FrameProps, column, dropdown};
-use bevy_fynix::{ViewExt, keyed};
+use bevy_fynix::{Binding, ViewExt, keyed};
 use hamlet_client::realm::{Bylaws, Settings};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{bare, close, description, group, section};
@@ -68,15 +68,14 @@ fn chooser(
                 .iter()
                 .map(|name| model_name(name).to_string())
                 .collect::<Vec<_>>(),
-            at,
-            Glyph::Chevron.image(hamlet_ui::styles::ICON),
-            move |world, chosen| {
+            Binding::new(at, move |world, chosen: usize| {
                 if let Some(picked) =
                     names.get(chosen).filter(|picked| **picked != was)
                 {
                     write(world, picked);
                 }
-            },
+            }),
+            Glyph::Chevron.image(hamlet_ui::styles::ICON),
         )
         .width(percent(100.0))
         .max_width(percent(100.0))

@@ -28,7 +28,8 @@ use bevy_fynix::views::{
     label, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+    resource,
 };
 use hamlet_client::realm;
 use hamlet_client::terminals::{self, Terminal, TerminalKind};
@@ -935,7 +936,7 @@ fn rename_field(
     terminal: Entity,
     name: String,
 ) -> AnyView {
-    text_field(name, move |world, name| {
+    text_field(Binding::new(name, move |world, name: String| {
         // Focus leaving before Enter drops the name.
         let entered = world
             .resource::<InputFocus>()
@@ -950,7 +951,7 @@ fn rename_field(
         terminals::rename(world, terminal, &name);
         world.resource_mut::<Renaming>().0 = None;
         world.resource_mut::<Handing>().0 = Some(panel.clone());
-    })
+    }))
     .fills_width()
     .rules(text_input)
     .tagged(RenameField)

@@ -13,7 +13,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, dropdown, label, row, slider,
 };
-use bevy_fynix::{ViewExt, derived, every_frame, resource};
+use bevy_fynix::{Binding, ViewExt, derived, every_frame, resource};
 use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
@@ -49,17 +49,19 @@ fn quality() -> impl View {
         cx.build(
             dropdown(
                 Quality::ALL.map(Quality::name),
-                resource::<Quality, _>(|q| {
-                    Quality::ALL
-                        .iter()
-                        .position(|a| a == q)
-                        .unwrap_or_default()
-                }),
+                Binding::new(
+                    resource::<Quality, _>(|q| {
+                        Quality::ALL
+                            .iter()
+                            .position(|a| a == q)
+                            .unwrap_or_default()
+                    }),
+                    |world, at: usize| {
+                        *world.resource_mut::<Quality>() =
+                            Quality::ALL[at];
+                    },
+                ),
                 Glyph::Chevron.image(hamlet_ui::styles::ICON),
-                |world, at| {
-                    *world.resource_mut::<Quality>() =
-                        Quality::ALL[at];
-                },
             )
             .width(percent(100.0))
             .max_width(percent(100.0)),
@@ -73,16 +75,21 @@ fn frame_cap() -> impl View {
         cx.build(
             dropdown(
                 FrameCap::ALL.map(FrameCap::name),
-                resource::<FrameCap, _>(|cap| {
-                    FrameCap::ALL
-                        .iter()
-                        .position(|a| a == cap)
-                        .unwrap_or_default()
-                }),
+                Binding::new(
+                    resource::<FrameCap, _>(|cap| {
+                        FrameCap::ALL
+                            .iter()
+                            .position(|a| a == cap)
+                            .unwrap_or_default()
+                    }),
+                    |world, at: usize| {
+                        window::set_frame_cap(
+                            world,
+                            FrameCap::ALL[at],
+                        );
+                    },
+                ),
                 Glyph::Chevron.image(hamlet_ui::styles::ICON),
-                |world, at| {
-                    window::set_frame_cap(world, FrameCap::ALL[at]);
-                },
             )
             .width(percent(100.0))
             .max_width(percent(100.0)),
@@ -215,17 +222,19 @@ fn number<R: Resource<Mutability = Mutable>>(
     unit: Unit,
 ) -> (AnyView, AnyView) {
     (
-        slider(resource::<R, _>(at))
-            .range(least, most)
-            .on_change(move |world, to| {
+        slider(Binding::new(
+            resource::<R, _>(at),
+            move |world, to| {
                 set(&mut world.resource_mut::<R>(), to);
-            })
-            // From nothing, so it takes the room the row has rather
-            // than pushing the row past the page.
-            .width(px(0.0))
-            .min_width(px(0.0))
-            .grow(1.0)
-            .boxed(),
+            },
+        ))
+        .range(least, most)
+        // From nothing, so it takes the room the row has rather
+        // than pushing the row past the page.
+        .width(px(0.0))
+        .min_width(px(0.0))
+        .grow(1.0)
+        .boxed(),
         value(label(resource::<R, _>(move |settings| {
             unit.write(at(settings))
         }))),

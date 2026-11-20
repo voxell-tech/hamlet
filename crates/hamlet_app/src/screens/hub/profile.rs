@@ -12,7 +12,8 @@ use bevy_fynix::views::{
     frame, label, menu_button, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, component, derived, every_frame, keyed,
+    Binding, ScopedExt, ViewExt, component, derived, every_frame,
+    keyed,
 };
 use hamlet_client::realm::{
     Actions, Learned, LivesIn, Pin, Profile, name_of, profile_address,
@@ -286,7 +287,7 @@ fn profile_at(world: &World, address: &str) -> Option<Entity> {
 }
 
 fn field(field: Field) -> impl View {
-    text_field(String::new(), |_, _| {})
+    text_field(Binding::new(String::new(), |_, _| {}))
         .grow(1.0)
         .min_width(px(0.0))
         .rules(text_input)
@@ -777,9 +778,7 @@ fn agents(shown: &Shown) -> AnyView {
             line.push(
                 dropdown(
                     words.clone(),
-                    now,
-                    Glyph::Chevron.image(ICON),
-                    move |world, chosen| {
+                    Binding::new(now, move |world, chosen: usize| {
                         if chosen != now
                             && let Some(to) = picked.get(chosen)
                         {
@@ -788,7 +787,8 @@ fn agents(shown: &Shown) -> AnyView {
                                 format!("/pin {address} {to}"),
                             );
                         }
-                    },
+                    }),
+                    Glyph::Chevron.image(ICON),
                 )
                 .boxed(),
             );
