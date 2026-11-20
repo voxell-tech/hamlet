@@ -68,6 +68,7 @@ const realm = actor({
         may_spend: () => ({ type: "done" }),
         charge: () => null,
         secrets: () => ({ version: 1, values: [] }),
+        read_place: () => ({ place: "# Your place\nYou are `hand`." }),
     },
 });
 
