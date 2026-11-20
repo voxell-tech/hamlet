@@ -110,7 +110,8 @@ pub(in crate::realm) enum Change {
     },
 }
 
-/// How hard a model thinks: the parts of a choice only a chief sets.
+/// The effort and fast mode of a model: the parts of a choice only a
+/// chief sets.
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) struct Thinking {
     pub effort: Option<Effort>,
