@@ -18,9 +18,10 @@ use hamlet_messages::workspace::reach::Mode;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::stand_ins::Callee;
 use super::{
-    FOUR, MAYOR, Realm, THREE, error_code, found, hamlet_with, hires,
-    say, shown, to, tool, until,
+    FOUR, MAYOR, Realm, THREE, error_code, found, founded,
+    hamlet_with, hires, say, shown, to, tool, until,
 };
 
 const HAND: &str =
@@ -159,6 +160,34 @@ async fn a_realm_with_no_hamlet_tells_the_hand_to_found_one() {
              `found_hamlet` when a chief's work needs a team."
         )
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_can_write_to_a_mayor_still_being_hired() {
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    realm.seen.hold(Callee::Branch);
+    founded(&realm).await;
+    until("the drive of the mayor waits on the held branch", || {
+        realm.seen.is_waiting(Callee::Branch, MAYOR)
+    })
+    .await;
+
+    let text = read(&realm, Hand::NUMBER, &chat()).await;
+
+    assert_eq!(
+        text.place,
+        lines(&[
+            &"# Your place",
+            &HAND,
+            &"You can write to and ask:",
+            &format!("- {}", name(MAYOR)),
+            &MESSAGES,
+            &OBJECT,
+        ])
+    );
+    realm.seen.release(Callee::Branch);
     realm.host.shutdown().await.unwrap();
 }
 

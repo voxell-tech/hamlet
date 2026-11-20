@@ -213,7 +213,7 @@ async fn ways(
     let lead = tree::lineage_of(rows, agent).await?.agent.lead;
     let up = lead
         .or_else(|| (agent != Hand::NUMBER).then_some(Hand::NUMBER));
-    let mut ways = roads::of(rows, agent).await?;
+    let mut ways = roads::named(rows, agent).await?;
     ways.sort_by_key(|&(other, way)| {
         let order = match way {
             Way::Tree => 0,
