@@ -178,7 +178,7 @@ pub(crate) fn tools(
             let off = hamlet_agents::tools_off(db, agent)?;
             let mut only = built_in
                 .into_iter()
-                .filter(|name| !off.contains(name))
+                .filter(|name| !hamlet_agents::is_off(&off, name))
                 .collect::<Vec<_>>();
             only.extend(Society::offered(Offered::Everyone));
             only.extend(Society::offered(Offered::HamletAgents));

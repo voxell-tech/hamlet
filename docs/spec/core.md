@@ -105,9 +105,12 @@ it is listed, as a process of its own under the sandbox of C18 on the
 machine of the server, also when the agents' commands run in a remote
 workspace, and starts again with a growing delay when it ends. Each tool it
 lists is offered to every agent as `mcp__<server>__<tool>`, and stays
-offered while its server starts again. A call runs once under its key after
+offered while its server starts again; a chief or an agent's parent can
+turn one tool, or every tool of a server, off for that agent. A call runs once under its key after
 the gate has ruled on it, never with more network than the ruling allows,
-and gives its result with secrets taken out. An entry that does not load,
+and gives its result with secrets taken out. A call of a tool its server
+does not say only reads waits for a chief (H11), unless the entry allows
+it; the entry can also make a tool that says it only reads wait. An entry that does not load,
 and a server that never started, are named in the prompt of every agent
 that would have had its tools (C15). A server cannot ask Hamlet for a
 model, folders or answers (ADR 0017).

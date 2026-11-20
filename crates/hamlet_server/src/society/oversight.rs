@@ -86,6 +86,9 @@ pub(crate) enum Danger {
     Command,
     /// Files sent to another agent, over the cap of one send.
     Send,
+    /// A call of an MCP tool that may change something outside the
+    /// realm (C36).
+    Act,
 }
 hamlet_store::named_text!(Danger);
 
@@ -99,14 +102,18 @@ impl Danger {
             Self::Edit => "wants to edit",
             Self::Command => "wants to run",
             Self::Send => "wants to send files:",
+            Self::Act => "wants to use",
         }
     }
 
-    /// What `always` lets go: an edit or a command for the rest of
-    /// the conversation, the network until it is revoked.
+    /// What `always` lets go: an edit, a command or the acts of one
+    /// tool for the rest of the conversation, the network until it is
+    /// revoked.
     pub fn lasting(self) -> Option<Lasting> {
         match self {
-            Self::Edit | Self::Command => Some(Lasting::Conversation),
+            Self::Edit | Self::Command | Self::Act => {
+                Some(Lasting::Conversation)
+            }
             Self::Network | Self::Unconfined => Some(Lasting::Grant),
             Self::Reserved | Self::Send => None,
         }
@@ -130,6 +137,7 @@ impl Danger {
             Self::Edit => WaitDanger::Edit,
             Self::Command => WaitDanger::Command,
             Self::Send => WaitDanger::Send,
+            Self::Act => WaitDanger::Act,
         }
     }
 }

@@ -45,6 +45,10 @@ pub enum WaitDanger {
     /// Files an agent sends that are over what it may send alone.
     #[serde(rename = "send")]
     Send,
+    /// A call of an MCP tool that may change something outside the
+    /// realm.
+    #[serde(rename = "act")]
+    Act,
 }
 
 #[derive(

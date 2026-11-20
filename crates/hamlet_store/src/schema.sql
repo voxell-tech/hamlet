@@ -609,7 +609,7 @@ CREATE TABLE wait (
         ('approval', 'fault', 'question', 'objection', 'newcomer')),
     danger TEXT CHECK (danger IS NULL OR danger IN
         ('network', 'unconfined', 'reserved', 'edit', 'command',
-         'send')),
+         'send', 'act')),
     agent INTEGER REFERENCES agent(id),
     -- The newcomer a `newcomer` wait asks about.
     profile INTEGER REFERENCES profile(id),
@@ -666,6 +666,14 @@ CREATE TABLE session_grant (
     edit INTEGER NOT NULL DEFAULT 0 CHECK (edit IN (0, 1)),
     command INTEGER NOT NULL DEFAULT 0 CHECK (command IN (0, 1)),
     PRIMARY KEY (conversation, chief)
+) STRICT, WITHOUT ROWID;
+
+-- MCP tools whose acts a chief allowed for the rest of a conversation.
+CREATE TABLE session_tool_grant (
+    conversation INTEGER NOT NULL REFERENCES conversation(id),
+    chief INTEGER NOT NULL REFERENCES chief(id),
+    tool TEXT NOT NULL,
+    PRIMARY KEY (conversation, chief, tool)
 ) STRICT, WITHOUT ROWID;
 
 -- A lasting permission a chief gave an agent, until taken back or the

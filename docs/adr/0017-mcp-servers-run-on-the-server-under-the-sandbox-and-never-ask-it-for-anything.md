@@ -39,7 +39,10 @@ the result a model is given.
   workspace, so it reaches the files of that machine's policy and never the
   worktree's remote copy.
 - A tool never runs twice: every MCP call is marked begun, since a server
-  may write and its `readOnlyHint` cannot be trusted.
+  may write and its `readOnlyHint` cannot be trusted to make a retry safe.
+- A server's `readOnlyHint` only decides whether a call waits for a chief,
+  and the chief's entry overrides it both ways: the chief chose the server,
+  and a tool that does not say it only reads always waits.
 - A server's reach is fixed while it runs, so a call the gate rules to run
   without the network does not run on a server that has it.
 - Supporting the streamable HTTP transport later is a feature of the same

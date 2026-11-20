@@ -117,8 +117,11 @@ impl Core<'_, '_> {
             .added
             .iter()
             .find(|manifest| manifest.spec.name == call.tool)
-            .map(crate::tools::custom::Manifest::has_net)
-            .or_else(|| self.tools.mcp.net_of(call.tool));
+            .map(|manifest| gate::Reach {
+                net: manifest.has_net(),
+                acts: false,
+            })
+            .or_else(|| self.tools.mcp.reach_of(call.tool));
         let classified =
             gate::call_of(call.tool, &call.args(), added);
         match classified {
@@ -270,10 +273,17 @@ impl Core<'_, '_> {
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         let limits = society::limits_of(db, at.hamlet.as_ref())?;
-        let (edit, command) = match chat_session(&call.conversation) {
-            Some(session) => gate::session_granted(db, session)?,
-            None => (false, false),
-        };
+        let (edit, command, acts) =
+            match chat_session(&call.conversation) {
+                Some(session) => {
+                    let (edit, command) =
+                        gate::session_granted(db, session)?;
+                    let acts =
+                        gate::tool_granted(db, session, call.tool)?;
+                    (edit, command, acts)
+                }
+                None => (false, false, false),
+            };
         let standing = Standing {
             worktree_edit,
             net: allow_net
@@ -284,6 +294,7 @@ impl Core<'_, '_> {
                 )?,
             holds_edits: at.manual && !edit,
             holds_commands: at.manual && !command,
+            acts_granted: acts,
         };
         let gate =
             TurnGate::of(db, call.conversation.id, call.input)?;

@@ -196,6 +196,7 @@ pub(crate) struct Holding {
     pub key: String,
     pub conversation: ConversationId,
     pub input: Option<String>,
+    pub tool: String,
 }
 
 /// The calls `on` holds.
@@ -210,14 +211,18 @@ pub(crate) fn holding(
             tool_call::key,
             tool_call::conversation,
             tool_call::input,
+            tool_call::tool,
         ))
-        .load::<(String, String, ConversationId, Option<String>)>(db)?
+        .load::<(String, String, ConversationId, Option<String>, String)>(
+            db,
+        )?
         .into_iter()
-        .map(|(runtime, key, conversation, input)| Holding {
+        .map(|(runtime, key, conversation, input, tool)| Holding {
             runtime,
             key,
             conversation,
             input,
+            tool,
         })
         .collect())
 }

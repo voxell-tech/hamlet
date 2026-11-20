@@ -43,7 +43,11 @@ fn main() {
                             "required": ["text"],
                         },
                     },
-                    {"name": "token", "inputSchema": {"type": "object"}},
+                    {
+                        "name": "token",
+                        "inputSchema": {"type": "object"},
+                        "annotations": {"readOnlyHint": true},
+                    },
                 ]}))
             }
             "tools/call" => {

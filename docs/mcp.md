@@ -41,12 +41,14 @@ given.
 | `sandbox.net` | Whether it reaches the network. |
 | `sandbox.limits` | `cpu_secs` and `max_procs`; a server runs for as long as it is listed, so its CPU limit is thirty days unless set. |
 | `timeout_secs` | How long a call may take; 120 when left out. |
+| `allow` | Tools, by the server's names, whose calls run without asking, though the server does not say they only read; `*` for every tool. |
+| `ask` | Tools whose calls always wait for a chief, though the server says they only read; `*` for every tool. |
 
 A server's name is 1 to 24 lowercase letters, digits and `-`. A key the
 entry does not know, or an entry that does not fit, is named in the prompt,
 and the other entries load. The file is read at server start and again when
 it changes: a server whose entry changed restarts, unless only
-`timeout_secs` changed, and one no longer listed stops. A file that is not
+`timeout_secs`, `allow` or `ask` changed, and one no longer listed stops. A file that is not
 JSON, such as one saved halfway through an edit, is named in the prompt and
 changes no server.
 
@@ -77,7 +79,10 @@ A tool of server `github` called `create_issue` is `mcp__github__create_issue`.
 A name with other characters, or longer than 64, is changed or shortened
 with a hash of the original, so two tools never share a name. No other
 tool's name begins with `mcp__`: a tool added by hand cannot take one. A
-server offers at most 128 tools. A tool whose arguments' schema does not
+server offers at most 128 tools. Every agent of a hamlet is offered every
+tool, and a chief or its parent turns tools off for it as any other tool,
+with `/tools <agent> -mcp__github` or `set_tools`: `mcp__<server>` names
+every tool of that server. A tool whose arguments' schema does not
 compile or is longer than 16 KiB is left out, and named in the prompt by
 the name a model would call it by. A description is cut at 4096
 characters.
@@ -89,10 +94,15 @@ elicitation are refused, and a call that asks for input fails.
 
 1. The gate classifies it as an added tool, as it does a tool added by
    hand: it holds for the chief when the server declares the network and
-   the agent has no network standing, and when the chat holds commands.
+   the agent has no network standing. A tool that may change something
+   outside the realm holds in every mode: one whose server does not mark
+   it `readOnlyHint`, unless `allow` names it, or one `ask` names. A name
+   in `ask` or `allow` decides before `*`. The chief may allow the tool
+   for the rest of the conversation. Any other call holds when the chat
+   holds commands.
 2. The call is marked begun before it runs, so a restart answers that it
-   was interrupted instead of running it twice; a server's `readOnlyHint`
-   is its own word and decides nothing.
+   was interrupted instead of running it twice, even for a tool that says
+   it only reads.
 3. A server runs with the reach its entry declares, so a call ruled to run
    without the network, to a server that has it, fails without being sent.
    Arguments that do not fit the tool's schema fail too.

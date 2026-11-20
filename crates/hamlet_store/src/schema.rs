@@ -476,6 +476,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    session_tool_grant (conversation, chief, tool) {
+        conversation -> BigInt,
+        chief -> BigInt,
+        tool -> Text,
+    }
+}
+
+diesel::table! {
     skill_offer (id) {
         id -> BigInt,
         agent -> BigInt,
@@ -649,6 +657,8 @@ diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
 diesel::joinable!(session_grant -> chief (chief));
 diesel::joinable!(session_grant -> conversation (conversation));
+diesel::joinable!(session_tool_grant -> chief (chief));
+diesel::joinable!(session_tool_grant -> conversation (conversation));
 diesel::joinable!(skill_offer -> agent (agent));
 diesel::joinable!(skill_offer -> task (task));
 diesel::joinable!(task -> agent (agent));
@@ -703,6 +713,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     review,
     runtime,
     session_grant,
+    session_tool_grant,
     skill_offer,
     task,
     tool_call,

@@ -206,7 +206,8 @@ pub(crate) struct SetModel {
     pub reason: String,
 }
 
-/// Turn built-in tools off or back on for an agent under you.
+/// Turn tools off or back on for an agent under you; `mcp__<server>`
+/// names every tool of an MCP server.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetTools {
     #[schemars(description = ADDRESS)]

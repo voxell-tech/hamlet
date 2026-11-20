@@ -1,12 +1,14 @@
 //! An MCP server listed in the realm: run under the sandbox in its
-//! own folder, its tools offered and called, its secrets kept out of
-//! what the model is given.
+//! own folder, its tools offered and called, a tool that acts waiting
+//! for a chief, its secrets kept out of what the model is given.
 
 use std::path::Path;
 use std::time::Duration;
 
 use hamlet_acceptance::*;
-use hamlet_testing::{calls, words};
+use hamlet_protocol::client::{
+    Choice, Lasting, WaitDanger, WaitDetail,
+};
 use serde_json::json;
 
 /// Whether a file under `folder` holds `text`.
@@ -26,7 +28,7 @@ fn holds(folder: &Path, text: &str) -> bool {
 }
 
 #[tokio::test]
-async fn an_mcp_tool_runs_on_its_server_and_gives_its_result_without_secrets()
+async fn an_mcp_tool_runs_on_its_server_once_allowed_and_gives_its_result_without_secrets()
  {
     let home = Home::new();
     let program = Path::new(env!("CARGO_BIN_EXE_mcp_echo"));
@@ -47,9 +49,10 @@ async fn an_mcp_tool_runs_on_its_server_and_gives_its_result_without_secrets()
             2,
             [
                 calls([
-                    ("mcp__echo__echo", json!({"text": "hello"})),
                     ("mcp__echo__token", json!({})),
+                    ("mcp__echo__echo", json!({"text": "hello"})),
                 ]),
+                call("mcp__echo__echo", json!({"text": "again"})),
                 words("Called."),
             ],
         ),
@@ -65,7 +68,25 @@ async fn an_mcp_tool_runs_on_its_server_and_gives_its_result_without_secrets()
     let now = chat(ada);
     s.chief.open(&now).await;
     s.chief.tell(ada, "Call the server.").await;
+    // A tool its server does not say only reads waits for a chief,
+    // and once allowed for the conversation asks no more.
+    let asked = s
+        .chief
+        .wait_for("the echo", |w| {
+            w.subject.contains("mcp__echo__echo")
+        })
+        .await;
+    let WaitDetail::Approval { danger, always, .. } = &asked.detail
+    else {
+        panic!("an approval: {asked:?}");
+    };
+    assert_eq!(*danger, WaitDanger::Act);
+    assert_eq!(*always, Some(Lasting::Conversation));
+    let echoed = s.home.file("mcp/echo/echoed");
+    assert!(!echoed.exists());
+    s.chief.choose(&asked.id, Choice::Always, None).await;
     s.chief.shows(&now, "Called.").await;
+    assert!(s.chief.waits().is_empty());
     let failures = s
         .chief
         .items(&now)
@@ -76,15 +97,12 @@ async fn an_mcp_tool_runs_on_its_server_and_gives_its_result_without_secrets()
     assert_eq!(
         failures,
         [
-            ("mcp__echo__echo".to_owned(), None),
             ("mcp__echo__token".to_owned(), None),
+            ("mcp__echo__echo".to_owned(), None),
+            ("mcp__echo__echo".to_owned(), None),
         ]
     );
-    assert_eq!(
-        std::fs::read_to_string(s.home.file("mcp/echo/echoed"))
-            .unwrap(),
-        "hello"
-    );
+    assert_eq!(std::fs::read_to_string(echoed).unwrap(), "again");
     // The harness keeps what its model was given.
     let harness = s.home.file("harnesses");
     assert!(holds(&harness, "[REDACTED]"));

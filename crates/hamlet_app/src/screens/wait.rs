@@ -394,6 +394,11 @@ fn scope(need: &Need) -> Option<String> {
         (Lasting::Conversation, WaitDanger::Edit) => {
             format!("{who}'s edits go ahead until it ends")
         }
+        (Lasting::Conversation, WaitDanger::Act) => {
+            format!(
+                "{who}'s calls of this tool go ahead until it ends"
+            )
+        }
         (Lasting::Conversation, _) => {
             format!("{who}'s commands go ahead until it ends")
         }

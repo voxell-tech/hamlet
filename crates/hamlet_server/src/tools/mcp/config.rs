@@ -18,6 +18,10 @@ pub(super) const FILE: &str = "servers.json";
 /// The longest a server's name is, so every tool's name fits.
 const NAME_LENGTH: usize = 24;
 
+/// The name in `allow` or `ask` that stands for every tool of a
+/// server.
+const EVERY: &str = "*";
+
 /// How long a call may take when the entry says nothing.
 const CALL_SECS: u64 = 120;
 
@@ -45,6 +49,8 @@ enum Unloaded {
     CommandEmpty,
     #[error("timeout_secs must be at least 1")]
     NoTimeout,
+    #[error("{0} is in both allow and ask")]
+    AllowedAndAsked(String),
     #[error(transparent)]
     Limit(#[from] LimitError),
 }
@@ -63,6 +69,14 @@ struct Written {
     #[serde(default)]
     sandbox: Reach,
     timeout_secs: Option<u64>,
+    /// Tools whose calls run without a chief's answer, though the
+    /// server does not say they only read.
+    #[serde(default)]
+    allow: Vec<String>,
+    /// Tools whose calls wait for a chief, though the server says
+    /// they only read.
+    #[serde(default)]
+    ask: Vec<String>,
 }
 
 /// The reach of a server beyond its own folder.
@@ -84,8 +98,7 @@ struct Limits {
     max_procs: Option<u64>,
 }
 
-/// A server as listed. Two are equal when nothing about how it runs
-/// differs.
+/// A server as listed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Server {
     pub command: Vec<String>,
@@ -97,6 +110,8 @@ pub(super) struct Server {
     cpu_secs: u64,
     max_procs: Option<u64>,
     pub timeout: Duration,
+    allow: Vec<String>,
+    ask: Vec<String>,
 }
 
 impl Server {
@@ -150,13 +165,31 @@ impl Server {
     }
 
     /// Whether `other` runs as this does; they may differ in how long
-    /// a call may take.
+    /// a call may take and which calls wait for a chief.
     pub(super) fn is_same_process(&self, other: &Self) -> bool {
         *self
             == Self {
                 timeout: self.timeout,
+                allow: self.allow.clone(),
+                ask: self.ask.clone(),
                 ..other.clone()
             }
+    }
+
+    /// Whether a call of its tool `tool` may change something outside
+    /// the realm, so that it waits for a chief. The entry's `ask` and
+    /// `allow` decide, by the tool's name before `*`; else the
+    /// server's word that it only reads, `read_only`.
+    pub(super) fn acts(&self, tool: &str, read_only: bool) -> bool {
+        for name in [tool, EVERY] {
+            if self.ask.iter().any(|asked| asked == name) {
+                return true;
+            }
+            if self.allow.iter().any(|allowed| allowed == name) {
+                return false;
+            }
+        }
+        !read_only
     }
 
     /// The variables of `inherit_env` the server's environment has.
@@ -238,6 +271,11 @@ fn parse(name: &str, entry: Value) -> Result<Server, Unloaded> {
     if written.timeout_secs == Some(0) {
         return Err(Unloaded::NoTimeout);
     }
+    if let Some(both) =
+        written.allow.iter().find(|tool| written.ask.contains(tool))
+    {
+        return Err(Unloaded::AllowedAndAsked(both.clone()));
+    }
     let server = Server {
         command: written.command,
         env: written.env,
@@ -250,6 +288,8 @@ fn parse(name: &str, entry: Value) -> Result<Server, Unloaded> {
         timeout: Duration::from_secs(
             written.timeout_secs.unwrap_or(CALL_SECS),
         ),
+        allow: written.allow,
+        ask: written.ask,
     };
     // A limit the sandbox refuses is a fault of the entry, found now.
     server.policy(&Layout::new(Path::new("/")), Path::new("/"))?;
@@ -290,14 +330,38 @@ mod tests {
                 "empty": {"command": []},
                 "wrong": {"command": "server"},
                 "typo": {"command": ["server"], "sandbox": {"nett": true}},
-                "zero": {"command": ["server"], "timeout_secs": 0}
+                "zero": {"command": ["server"], "timeout_secs": 0},
+                "both": {"command": ["server"], "allow": ["x"], "ask": ["x"]}
             }}"#,
         );
         assert_eq!(
             servers.keys().map(String::as_str).collect::<Vec<_>>(),
             ["good"]
         );
-        assert_eq!(faults.len(), 5);
+        assert_eq!(faults.len(), 6);
+    }
+
+    #[test]
+    fn a_tool_acts_unless_it_only_reads_and_the_entry_has_the_last_word()
+     {
+        let servers = loaded(
+            r#"{"servers": {"mail": {
+                "command": ["server"],
+                "allow": ["draft"],
+                "ask": ["*"]
+            }, "docs": {
+                "command": ["server"],
+                "allow": ["*"],
+                "ask": ["publish"]
+            }, "plain": {"command": ["server"]}}}"#,
+        )
+        .servers;
+        assert!(servers["plain"].acts("send", false));
+        assert!(!servers["plain"].acts("search", true));
+        assert!(servers["mail"].acts("search", true));
+        assert!(!servers["mail"].acts("draft", false));
+        assert!(!servers["docs"].acts("send", false));
+        assert!(servers["docs"].acts("publish", true));
     }
 
     #[test]

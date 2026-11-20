@@ -7,7 +7,7 @@ use hamlet_protocol::client::{AttachedFile, Permission};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
 use hamlet_store::schema::{
-    permission_grant, session_grant, turn_gate,
+    permission_grant, session_grant, session_tool_grant, turn_gate,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,12 +44,12 @@ pub(crate) enum Call {
         files: usize,
         bytes: u64,
     },
-    /// A tool added by hand (C17), with whether its manifest reaches
-    /// the network.
+    /// A tool added by hand (C17) or by an MCP server (C36), with
+    /// what it reaches.
     Added {
         name: String,
         args: Value,
-        net: bool,
+        reach: Reach,
     },
     Other {
         name: String,
@@ -57,12 +57,21 @@ pub(crate) enum Call {
     },
 }
 
+/// What a tool added by hand or by an MCP server reaches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Reach {
+    pub net: bool,
+    /// It may change something outside the realm, such as an issue
+    /// or a mail sent, so each call waits for a chief (C36).
+    pub acts: bool,
+}
+
 /// The call of `tool` with `args`; `added` when it is a tool added by
-/// hand, with its network.
+/// hand or by an MCP server, with what it reaches.
 pub(crate) fn call_of(
     tool: &str,
     args: &Value,
-    added: Option<bool>,
+    added: Option<Reach>,
 ) -> Call {
     let text = |key: &str| {
         args.get(key)
@@ -70,11 +79,11 @@ pub(crate) fn call_of(
             .unwrap_or_default()
             .to_owned()
     };
-    if let Some(net) = added {
+    if let Some(reach) = added {
         return Call::Added {
             name: tool.into(),
             args: args.clone(),
-            net,
+            reach,
         };
     }
     if let Some(dialect) = Dialect::of_tool(tool) {
@@ -205,6 +214,9 @@ pub(crate) struct Standing {
     pub net: bool,
     pub holds_edits: bool,
     pub holds_commands: bool,
+    /// A chief let the acts of the called tool go for the rest of
+    /// the conversation.
+    pub acts_granted: bool,
 }
 
 /// The outcome of a call: run, with or without the network; wait for
@@ -301,21 +313,33 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
                 Verdict::Run { net: false }
             }
         }
-        Call::Shell { net, .. } | Call::Added { net, .. } => {
-            let named = match call {
-                Call::Shell {
-                    dialect, command, ..
-                } => is_networked(*dialect, command),
-                _ => false,
-            };
-            if !standing.net && (*net || named) {
-                Verdict::Hold(Danger::Network)
-            } else if standing.holds_commands {
-                Verdict::Hold(Danger::Command)
-            } else {
-                Verdict::Run { net: standing.net }
-            }
-        }
+        Call::Shell {
+            dialect,
+            command,
+            net,
+        } => program(
+            standing,
+            Reach {
+                net: *net || is_networked(*dialect, command),
+                acts: false,
+            },
+        ),
+        Call::Added { reach, .. } => program(standing, *reach),
+    }
+}
+
+/// The rule on a program run for a call, by what it reaches. A call
+/// that acts waits for a chief whatever the mode, and once its tool
+/// is granted runs in manual mode too.
+fn program(standing: &Standing, reach: Reach) -> Verdict {
+    if !standing.net && reach.net {
+        Verdict::Hold(Danger::Network)
+    } else if reach.acts && !standing.acts_granted {
+        Verdict::Hold(Danger::Act)
+    } else if standing.holds_commands && !reach.acts {
+        Verdict::Hold(Danger::Command)
+    } else {
+        Verdict::Run { net: standing.net }
     }
 }
 
@@ -530,6 +554,40 @@ pub(crate) fn grant_session(
     Ok(())
 }
 
+/// Whether a chief let the acts of `tool` go for the rest of
+/// `conversation`.
+pub(crate) fn tool_granted(
+    db: &mut Db,
+    conversation: ConversationId,
+    tool: &str,
+) -> Result<bool> {
+    Ok(session_tool_grant::table
+        .filter(session_tool_grant::conversation.eq(conversation))
+        .filter(session_tool_grant::tool.eq(tool))
+        .count()
+        .get_result::<i64>(db)?
+        > 0)
+}
+
+/// Keeps that `chief` let the acts of `tool` go for the rest of
+/// `conversation`.
+pub(crate) fn grant_tool(
+    db: &mut Db,
+    conversation: ConversationId,
+    chief: ChiefId,
+    tool: &str,
+) -> Result<()> {
+    diesel::insert_into(session_tool_grant::table)
+        .values((
+            session_tool_grant::conversation.eq(conversation),
+            session_tool_grant::chief.eq(chief),
+            session_tool_grant::tool.eq(tool),
+        ))
+        .on_conflict_do_nothing()
+        .execute(db)?;
+    Ok(())
+}
+
 /// The word for `permission`, as the chief writes it and a grant
 /// keeps it.
 pub(crate) fn word(permission: &Permission) -> &'static str {
@@ -619,6 +677,32 @@ mod tests {
             Dialect::PowerShell,
             "Invoke-WebRequest x"
         ));
+    }
+
+    #[test]
+    fn a_call_that_acts_waits_until_its_tool_is_granted() {
+        let acts = Reach {
+            net: false,
+            acts: true,
+        };
+        let mut standing = Standing {
+            net: true,
+            ..Standing::default()
+        };
+        assert_eq!(
+            program(&standing, acts),
+            Verdict::Hold(Danger::Act)
+        );
+        assert_eq!(
+            program(&standing, Reach::default()),
+            Verdict::Run { net: true }
+        );
+        standing.holds_commands = true;
+        standing.acts_granted = true;
+        assert_eq!(
+            program(&standing, acts),
+            Verdict::Run { net: true }
+        );
     }
 
     #[test]

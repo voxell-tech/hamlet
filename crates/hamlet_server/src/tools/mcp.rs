@@ -39,6 +39,7 @@ use crate::core::ModelTools;
 use crate::realm::Realm;
 use crate::realm::layout::Layout;
 use crate::runtimes::Runtimes;
+use crate::society::oversight::gate::Reach;
 use crate::tools::builtin::{Network, Outcome, Sight};
 
 /// Every MCP tool's name begins so, and no other tool's does.
@@ -177,6 +178,8 @@ struct Listed {
     spec: ToolSpec,
     /// Its name on the server.
     tool: String,
+    /// The server says it only reads.
+    read_only: bool,
 }
 
 impl Mcp {
@@ -316,10 +319,13 @@ impl Mcp {
         faults
     }
 
-    /// Whether the server of the tool `name` reaches the network;
-    /// none when no MCP server offers it.
-    pub(crate) fn net_of(&self, name: &str) -> Option<bool> {
-        self.owner(name).map(|(_, running, _)| running.server.net)
+    /// What the tool `name` reaches; none when no MCP server offers
+    /// it.
+    pub(crate) fn reach_of(&self, name: &str) -> Option<Reach> {
+        self.owner(name).map(|(_, running, listed)| Reach {
+            net: running.server.net,
+            acts: running.server.acts(&listed.tool, listed.read_only),
+        })
     }
 
     /// How to call the tool `name`; none when no MCP server offers
@@ -404,6 +410,11 @@ fn listed(
                 replay: ToolSpecReplay::Unsafe,
                 retain: None,
             },
+            read_only: tool
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.read_only_hint)
+                == Some(true),
             tool: tool.name.into_owned(),
         });
     }
