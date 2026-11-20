@@ -74,6 +74,9 @@ pub mod fonts {
 
     /// Inter (SIL Open Font License), the interface typeface.
     pub const INTER: File = file!("fonts/InterVariable.ttf");
+    /// Inter's italic, a face of its own.
+    pub const INTER_ITALIC: File =
+        file!("fonts/InterVariable-Italic.ttf");
     /// Fraunces (SIL Open Font License), a soft serif for titles and
     /// names.
     pub const FRAUNCES: File = file!("fonts/FrauncesVariable.ttf");

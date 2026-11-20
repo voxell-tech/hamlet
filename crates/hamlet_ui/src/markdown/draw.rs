@@ -20,8 +20,8 @@ use bevy::ui::{
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    Atom, BehaviorExt, FrameProps, LineColor, Span as Run, column,
-    frame, label, row,
+    Atom, BehaviorExt, FrameProps, ItalicFaces, LineColor,
+    Span as Run, column, frame, label, row,
 };
 use bevy_fynix::{
     EntityCursor, ScopedExt, Signal, ViewExt, derived, each, keyed,
@@ -298,6 +298,11 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
             cx.world.entity_mut(root).insert(leading);
             let mono =
                 cx.world.get_resource::<Mono>().map(|m| m.0.clone());
+            let faces = cx
+                .world
+                .get_resource::<ItalicFaces>()
+                .map(|faces| ItalicFaces(faces.0.clone()))
+                .unwrap_or_default();
             for (span, anchor, address) in spans {
                 let Style {
                     bold,
@@ -309,12 +314,18 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                     Some(_) => Tone::Accent,
                     None => ink.tone,
                 };
+                let style = if italic {
+                    FontStyle::Italic
+                } else {
+                    FontStyle::Normal
+                };
+                let face = mono
+                    .clone()
+                    .filter(|_| code)
+                    .map(FontSource::from)
+                    .unwrap_or_default();
                 let font = TextFont {
-                    font: mono
-                        .clone()
-                        .filter(|_| code)
-                        .map(FontSource::from)
-                        .unwrap_or_default(),
+                    font: faces.face(face, style),
                     font_size: FontSize::Px(if code {
                         size - 1.0
                     } else {
@@ -325,11 +336,7 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                     } else {
                         FontWeight::NORMAL
                     },
-                    style: if italic {
-                        FontStyle::Italic
-                    } else {
-                        FontStyle::Normal
-                    },
+                    style,
                     ..TextFont::default()
                 };
                 let text = if code && setting == Setting::Page {

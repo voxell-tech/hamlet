@@ -42,10 +42,6 @@ pub(super) fn parts(text: &str) -> Vec<(bool, String)> {
         .collect()
 }
 
-pub(super) fn has_quote(text: &str) -> bool {
-    parts(text).iter().any(|(quoted, _)| *quoted)
-}
-
 /// `text` as quoted lines, each opened with `> `.
 pub(super) fn quoting(text: &str) -> String {
     text.trim_end()

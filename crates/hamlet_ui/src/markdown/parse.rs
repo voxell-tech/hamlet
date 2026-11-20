@@ -27,6 +27,9 @@ impl Default for Addresses {
 #[derive(Default)]
 struct Reader {
     addresses: Addresses,
+    /// Set when each line break is kept, as a chief's line keeps
+    /// them.
+    breaks: bool,
     blocks: Vec<Block>,
     quote: usize,
     /// The next number of each open list, `None` for bullets.
@@ -286,6 +289,7 @@ impl Reader {
             Event::Code(text)
             | Event::InlineMath(text)
             | Event::DisplayMath(text) => self.text(&text, true),
+            Event::SoftBreak if self.breaks => self.text("\n", false),
             Event::SoftBreak => self.text(" ", false),
             Event::HardBreak => self.text("\n", false),
             Event::Rule => {
@@ -319,11 +323,26 @@ pub(super) fn plain(text: &str, is_address: IsAddress) -> Vec<Span> {
 /// is read as far as it goes. Text that makes no block is one
 /// paragraph as written.
 pub fn parse(text: &str, is_address: IsAddress) -> Vec<Block> {
+    read(text, is_address, false)
+}
+
+/// [`parse`] for a line a chief typed, which keeps each line break
+/// as the field showed it.
+pub fn parse_typed(text: &str, is_address: IsAddress) -> Vec<Block> {
+    read(text, is_address, true)
+}
+
+fn read(
+    text: &str,
+    is_address: IsAddress,
+    breaks: bool,
+) -> Vec<Block> {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS;
     let mut reader = Reader {
         addresses: Addresses(is_address),
+        breaks,
         ..Reader::default()
     };
     for event in Parser::new_ext(text, options) {

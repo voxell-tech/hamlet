@@ -8,6 +8,7 @@
 mod chips;
 mod draw;
 mod links;
+mod marks;
 mod parse;
 
 use std::path::PathBuf;
@@ -24,7 +25,8 @@ pub use self::draw::{
     picture_words, rich, typed, typed_with, unsettle,
 };
 pub use self::links::agent_addresses;
-pub use self::parse::{Reading, hashed, parse};
+pub use self::marks::{Inks, marks};
+pub use self::parse::{Reading, hashed, parse, parse_typed};
 use crate::AnyView;
 
 pub fn plugin(app: &mut App) {
