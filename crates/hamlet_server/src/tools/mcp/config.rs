@@ -31,6 +31,11 @@ const CALL_SECS: u64 = 120;
 /// out common words.
 const SECRET_LENGTH: usize = 8;
 
+/// A realm's folder to check an entry against before its realm is
+/// known: absolute on every system.
+const SOME_REALM: &str =
+    if cfg!(windows) { "C:/realm" } else { "/realm" };
+
 /// The fault that keeps a server from loading.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum Unloaded {
@@ -651,7 +656,7 @@ pub(super) fn parse(
     };
     // A limit or a path the sandbox refuses is a fault of the entry,
     // found now; the realm's own paths are known once it runs.
-    let realm = Path::new("/realm");
+    let realm = Path::new(SOME_REALM);
     server
         .policy(&Layout::new(realm), &realm.join("mcp").join(name))?;
     Ok(server)
@@ -744,7 +749,7 @@ mod tests {
                 "remote-env": {"url": "https://mcp.example.com", "env": {"A": "b"}},
                 "plain": {"url": "http://example.com/mcp"},
                 "userinfo": {"url": "https://me:pass@mcp.example.com/mcp"},
-                "realm": {"command": ["s"], "sandbox": {"fs_ro": ["/realm"]}}
+                "realm": {"command": ["s"], "sandbox": {"fs_ro": ["../.."]}}
             }}"#,
         );
         assert_eq!(
@@ -856,31 +861,27 @@ mod tests {
             r#"{"servers": {"files": {
                 "command": ["server"],
                 "env": {"TOKEN": "a-long-token", "LOG": "warn"},
-                "sandbox": {"fs_ro": ["data"], "fs_rw": ["/srv/out"]}
+                "sandbox": {"fs_ro": ["data"], "fs_rw": ["../../../out"]}
             }}}"#,
         )
         .servers;
         let server = &servers["files"];
-        let home = Path::new("/realm/mcp/files");
+        let at =
+            |path: &str| PathBuf::from(format!("{SOME_REALM}{path}"));
+        let home = at("/mcp/files");
         let policy = server
-            .policy(&Layout::new(Path::new("/realm")), home)
+            .policy(&Layout::new(Path::new(SOME_REALM)), &home)
             .unwrap();
-        assert_eq!(
-            policy.ro,
-            [PathBuf::from("/realm/mcp/files/data")]
-        );
-        assert_eq!(
-            policy.rw,
-            [PathBuf::from("/srv/out"), home.to_owned()]
-        );
+        assert_eq!(policy.ro, [at("/mcp/files/data")]);
+        let out = Path::new(SOME_REALM).parent().unwrap().join("out");
+        assert_eq!(policy.rw, [out, home.clone()]);
         assert!(!policy.net);
         assert_eq!(policy.limits.cpu_secs, u64::MAX);
-        assert_eq!(policy.env["HOME"], "/realm/mcp/files");
-        assert!(
-            policy
-                .locked
-                .contains(&PathBuf::from("/realm/mcp/servers.json"))
+        assert_eq!(
+            policy.env["HOME"],
+            format!("{SOME_REALM}/mcp/files")
         );
+        assert!(policy.locked.contains(&at("/mcp/servers.json")));
         assert_eq!(server.secrets(), ["a-long-token"]);
     }
 }
