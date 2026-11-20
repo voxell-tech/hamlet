@@ -97,7 +97,11 @@ test(
                 await demo.ask("realm say 2 s1 tell 3: hello"),
                 /^taken\/s1 /,
             );
-            await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
+            await chatHolds(
+                demo,
+                2,
+                (item) => item.text === "Done: Sent to hire#3.",
+            );
             await heldOnce(demo, "hello");
             assert.equal(await demo.stop(), 0);
         });
@@ -169,7 +173,11 @@ test(
                 await demo.ask("realm say 2 s1 tell 3: once"),
                 /^taken\/s1 /,
             );
-            await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
+            await chatHolds(
+                demo,
+                2,
+                (item) => item.text === "Done: Sent to hire#3.",
+            );
             assert.notEqual(await demo.ask("pi pid"), before);
             await heldOnce(demo, "once");
             assert.equal(await demo.stop(), 0);
