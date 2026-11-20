@@ -527,6 +527,7 @@ fn the_dreams(fixtures: &mut Fixtures) {
             dream: dream(),
             done: true,
             summary: "Moved the notes on tests to memory".into(),
+            hire_name: Some("hire#3 (ada)".into()),
         },
     );
     for (arm, answer) in [

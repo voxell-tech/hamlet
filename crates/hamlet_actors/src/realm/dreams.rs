@@ -17,7 +17,7 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::workers::{BUILT_IN, Ended};
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
-use hamlet_messages::sender::Client;
+use hamlet_messages::sender::{Client, Hand};
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 
@@ -27,7 +27,9 @@ use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::tools::off_for;
 use super::workers::errands::{self, ErrandInput, Purpose};
-use super::{calls, documents, profiles, record, tasks, versions};
+use super::{
+    calls, documents, oversight, profiles, record, tasks, versions,
+};
 
 /// The most a dream may spend, in millionths of a dollar, as today's
 /// default.
@@ -45,11 +47,13 @@ pub(super) enum Change {
         profile: ProfileId,
         hire: Option<AgentNumber>,
     },
-    /// Errand `errand` dreams in `folder`, under the realm folder.
+    /// Errand `errand` dreams in `main`, and `hire` for a hire's
+    /// dream, the checkouts under the realm folder.
     Errand {
         dream: DreamId,
         errand: ErrandNumber,
-        folder: String,
+        main: String,
+        hire: Option<String>,
     },
     /// The dream is to end, `done` with `summary` or not, when its
     /// end was not decided.
@@ -93,16 +97,18 @@ pub(super) async fn apply(
         Change::Errand {
             dream,
             errand,
-            folder,
+            main,
+            hire,
         } => {
             writer
                 .execute(
-                    "UPDATE dream SET errand = ?2, folder = ?3 \
-                     WHERE id = ?1",
+                    "UPDATE dream SET errand = ?2, main_folder = \
+                     ?3, hire_folder = ?4 WHERE id = ?1",
                     vec![
                         id(dream),
                         integer(errand.get())?,
-                        BindParam::Text(folder),
+                        BindParam::Text(main),
+                        hire.map_or(BindParam::Null, BindParam::Text),
                     ],
                 )
                 .await?;
@@ -367,10 +373,7 @@ async fn start(
     let task = tasks::fresh(&rows).await?;
     let label = profiles::label_of(&rows, profile).await?;
     let home = &cx.realm.folder;
-    let folder = Path::new(main)
-        .parent()
-        .context("a dream's main is in no folder")?;
-    let main = home.join(main);
+    let checkout = home.join(main);
     let (instructions, agent, payer, model) = match hire {
         Some(hire) => {
             let hire_side = home.join(
@@ -401,7 +404,7 @@ async fn start(
                  change CHARACTER.md. When done, answer in one line \
                  what you brought home, or `Nothing to bring home.`",
                 hire_side.display(),
-                main.display()
+                checkout.display()
             );
             (instructions, hire, payer, model)
         }
@@ -415,7 +418,7 @@ async fn start(
                  and make each memory folder's MEMORY.md describe \
                  it. Do not change CHARACTER.md. Answer in one line \
                  what you changed, or `Nothing to tidy.`",
-                main.display()
+                checkout.display()
             );
             (instructions, n.agent(), Payer::Realm, None)
         }
@@ -439,7 +442,8 @@ async fn start(
         Change::Errand {
             dream,
             errand: n,
-            folder: folder.to_string_lossy().into_owned(),
+            main: main.to_owned(),
+            hire: side.map(str::to_owned),
         }
         .into(),
     ])
@@ -476,23 +480,29 @@ pub(super) fn ended(
     ]
 }
 
+/// The hire whose dream errand `n` runs, if it runs a hire's.
+pub(super) async fn hire_of(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+) -> Result<Option<AgentNumber>> {
+    Ok(rows
+        .value::<Option<u32>>(
+            "SELECT hire FROM dream WHERE errand = ?1",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .flatten()
+        .map(AgentNumber))
+}
+
 /// The built-in tools of errand `n`: each one its hire's lead has not
 /// turned off.
 pub(super) async fn tools(
     rows: &Rows<'_>,
     n: ErrandNumber,
 ) -> Result<Vec<BuiltIn>> {
-    let hire = rows
-        .value::<Option<u32>>(
-            "SELECT hire FROM dream WHERE errand = ?1",
-            vec![integer(n.get())?],
-        )
-        .await?
-        .with_context(|| {
-            format!("errand {} dreams no dream", n.get())
-        })?;
-    let off = match hire {
-        Some(hire) => off_for(rows, AgentNumber(hire)).await?,
+    let off = match hire_of(rows, n).await? {
+        Some(hire) => off_for(rows, hire).await?,
         None => Vec::new(),
     };
     Ok(BUILT_IN
@@ -504,35 +514,63 @@ pub(super) async fn tools(
         .collect())
 }
 
-/// The folder errand `n` dreams in, under `home`, while it has not
-/// ended.
+/// The checkouts errand `n` dreams in while it has not ended: main's
+/// and a hire's, under `home`, with the hire.
+async fn checkouts(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+    home: &Path,
+) -> Result<Option<(PathBuf, Option<PathBuf>, Option<AgentNumber>)>> {
+    Ok(rows
+        .row::<(String, Option<String>, Option<u32>)>(
+            "SELECT dream.main_folder, dream.hire_folder, \
+             dream.hire FROM dream JOIN errand ON errand.n = \
+             dream.errand WHERE dream.errand = ?1 AND errand.ended \
+             IS NULL",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .map(|(main, side, hire)| {
+            (
+                home.join(main),
+                side.map(|side| home.join(side)),
+                hire.map(AgentNumber),
+            )
+        }))
+}
+
+/// The folder errand `n` works in, its main's checkout under `home`,
+/// while it has not ended.
 pub(super) async fn folder(
     rows: &Rows<'_>,
     n: ErrandNumber,
     home: &Path,
 ) -> Result<Option<PathBuf>> {
-    Ok(rows
-        .value::<String>(
-            "SELECT dream.folder FROM dream JOIN errand ON errand.n \
-             = dream.errand WHERE dream.errand = ?1 AND \
-             errand.ended IS NULL",
-            vec![integer(n.get())?],
-        )
-        .await?
-        .map(|folder| home.join(folder)))
+    Ok(checkouts(rows, n, home).await?.map(|(main, ..)| main))
 }
 
-/// The reach of errand `n`: its dream's folder under `home` while it
-/// has not ended.
+/// The reach of errand `n` while it has not ended: its dream's
+/// checkouts under `home`, with the network of its hire, or of the
+/// Hand for a profile's dream.
 pub(super) async fn reach(
     rows: &Rows<'_>,
     n: ErrandNumber,
     home: &Path,
     secrets: SecretsVersion,
 ) -> Result<Reach> {
-    Ok(folder(rows, n, home).await?.map_or(Reach::Ended, |folder| {
-        Reach::Dream { folder, secrets }
-    }))
+    let Some((main, side, hire)) = checkouts(rows, n, home).await?
+    else {
+        return Ok(Reach::Ended);
+    };
+    let dreamer = hire.unwrap_or(Hand::NUMBER);
+    let network =
+        oversight::footing(rows, dreamer, secrets).await?.network;
+    Ok(Reach::Dream {
+        main,
+        hire: side,
+        network,
+        secrets,
+    })
 }
 
 /// Ends the dream row `n` at its profile, and returns the changes
@@ -543,18 +581,26 @@ pub(super) async fn end(
     EndStep::End: EndStep,
 ) -> Result<Vec<change::Change>> {
     let dream = DreamId(u32::try_from(n)?);
-    let (profile, done, summary) = cx
-        .rows()?
-        .row::<(u32, bool, String)>(
-            "SELECT profile, done, summary FROM dream WHERE id = ?1",
+    let rows = cx.rows()?;
+    let (profile, hire, done, summary) = rows
+        .row::<(u32, Option<u32>, bool, String)>(
+            "SELECT profile, hire, done, summary FROM dream WHERE \
+             id = ?1",
             vec![id(dream)],
         )
         .await?
         .with_context(|| format!("dream {n} has no end"))?;
+    let hire_name = match hire {
+        Some(hire) => {
+            Some(record::name_of(&rows, AgentNumber(hire)).await?)
+        }
+        None => None,
+    };
     let end = EndDream {
         dream,
         done,
         summary,
+        hire_name,
     };
     cx.peers()
         .call(&Profile(ProfileId(profile)), &end, When::AfterAnswer)

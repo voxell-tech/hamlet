@@ -239,6 +239,13 @@ fn check_out(
 ) -> Result<()> {
     let main_side = folder(dream, Some(MAIN_SIDE));
     writer.check_out(main, Path::new(&main_side), &skip)?;
+    // Git keeps no empty folder. With these, a relative `memory/` or
+    // `skills/` is main's, never the hire's beside it.
+    for part in ["memory", "skills"] {
+        std::fs::create_dir_all(
+            writer.home().join(&main_side).join(part),
+        )?;
+    }
     if let Some(tip) = hire_tip {
         let hire_side = folder(dream, Some(HIRE_SIDE));
         writer.check_out(tip, Path::new(&hire_side), &skip)?;
@@ -264,6 +271,7 @@ fn end(
         dream,
         done,
         summary,
+        hire_name,
     } = unit.message().clone();
     let found = row(&unit, dream)?
         .with_context(|| format!("there is no dream {}", dream.0))?;
@@ -276,7 +284,11 @@ fn end(
     };
     let mut writer = unit.write();
     let outcome = if done {
-        dreamt(&mut writer, &found, hire.as_ref(), &summary)?
+        let message = match &hire_name {
+            Some(name) => format!("Dream of {name}: {summary}"),
+            None => format!("Dream: {summary}"),
+        };
+        dreamt(&mut writer, &found, hire.as_ref(), &message)?
     } else {
         DreamEnd::Nothing
     };
@@ -292,18 +304,12 @@ fn dreamt(
     writer: &mut Writer<'_, Profile, EndDream>,
     found: &Dream,
     hire: Option<&Hire>,
-    summary: &str,
+    message: &str,
 ) -> Result<DreamEnd> {
-    let message = match hire {
-        Some(hire) => {
-            format!("Dream of hire#{}: {summary}", hire.agent.0)
-        }
-        None => format!("Dream: {summary}"),
-    };
     let main =
-        commit_side(writer, MAIN, found.main, MAIN_SIDE, &message)?;
+        commit_side(writer, MAIN, found.main, MAIN_SIDE, message)?;
     if let (Some(hire), Some(base)) = (hire, found.hire_tip) {
-        commit_side(writer, &hire.branch, base, HIRE_SIDE, &message)?;
+        commit_side(writer, &hire.branch, base, HIRE_SIDE, message)?;
         hires::take_in_main(writer, hire)?;
         let tip = writer
             .git()?
@@ -430,6 +436,7 @@ mod tests {
             dream: DreamId(3),
             done: true,
             summary: String::new(),
+            hire_name: Some("hire#7".to_owned()),
         }
     }
 
@@ -569,6 +576,51 @@ mod tests {
         assert_eq!(
             text.as_deref(),
             Some(&b"saved during the dream"[..])
+        );
+    }
+
+    #[test]
+    fn what_a_dream_writes_in_mains_memory_is_committed_on_main() {
+        let dir = Scratch::new("profile-dream-memory");
+        let (mut profile, repository) = dreaming(&dir);
+        let main = dir.join("dreams/3/main");
+        let made =
+            ["memory", "skills"].map(|part| main.join(part).is_dir());
+        std::fs::write(main.join("memory/relative.md"), "relative")
+            .unwrap();
+
+        profile
+            .once::<Profile, _, _>(realm(), end_3(), end)
+            .unwrap();
+        let tip = repository.tip(MAIN).unwrap().unwrap();
+        assert_eq!(made, [true, true]);
+        assert_eq!(
+            repository
+                .read(tip, "memory/relative.md")
+                .unwrap()
+                .as_deref(),
+            Some(&b"relative"[..])
+        );
+    }
+
+    #[test]
+    fn a_hires_dream_is_committed_in_the_name_the_realm_gives() {
+        let dir = Scratch::new("profile-dream-named");
+        let (mut profile, repository) = dreaming(&dir);
+        std::fs::write(dir.join("dreams/3/main/home.md"), "home")
+            .unwrap();
+        let named = EndDream {
+            summary: "Brought home the notes.".to_owned(),
+            hire_name: Some("hire#7 (ada)".to_owned()),
+            ..end_3()
+        };
+
+        profile.once::<Profile, _, _>(realm(), named, end).unwrap();
+        let tip = repository.tip(MAIN).unwrap().unwrap();
+        let last = repository.first_parents(tip, None, 1).unwrap();
+        assert_eq!(
+            last[0].message,
+            "Dream of hire#7 (ada): Brought home the notes."
         );
     }
 

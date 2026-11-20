@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
 
+use hamlet_messages::agent::chat::Count;
 use hamlet_messages::agent::{AgentInput, AgentKind, BuiltIn};
 use hamlet_messages::profile::{
     DreamId, DreamOpen, EndDream, PurgeAnswer,
@@ -8,47 +9,28 @@ use hamlet_messages::realm::budget::{Budget, Payer, SpendRefusal};
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, PurgeProfile,
 };
-use hamlet_messages::realm::workers::{BUILT_IN, Ended, ErrandDone};
+use hamlet_messages::realm::workers::{
+    BUILT_IN, Ended, ErrandDone, SetAllowance,
+};
 use hamlet_messages::realm::{
     Done, ProfileId, Refusable as _, SetTools, ToolName,
 };
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
-use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::profiles::{asked, create};
 use super::{
-    Callee, Realm, THREE, charge, hamlet_with, made, made_until,
-    may_spend, to, until,
+    Callee, HIRE_3, Realm, THREE, charge, dream_ends, errand,
+    hamlet_with, hire_3_ends, made, made_until, may_spend, of_hire,
+    standing, to, until,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's
 /// default.
 const DREAM_COST: u64 = 200_000;
-
-fn errand(n: u32) -> AgentNumber {
-    ErrandNumber::new(n).unwrap().agent()
-}
-
-fn of_hire(hire: AgentNumber) -> Dream {
-    Dream {
-        of: Dreamer::Hire { hire },
-    }
-}
-
-fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
-    realm.seen.dream_ends.lock().unwrap().clone()
-}
-
-fn ended(done: bool, summary: &str) -> EndDream {
-    EndDream {
-        dream: DreamId(1),
-        done,
-        summary: summary.to_owned(),
-    }
-}
 
 async fn errand_ends(realm: &Realm, n: u32, ended: Ended) {
     realm.tool(errand(n), &ErrandDone { ended }).await.unwrap();
@@ -81,12 +63,19 @@ fn built_ins() -> Vec<BuiltIn> {
 }
 
 /// The hire's dream runs as an errand with today's instructions over
-/// the two folders, works in the dream's folder before it is made,
-/// and ends the dream done with the first line of its answer.
+/// the two folders, works in main's with its hire's network before it
+/// is made, and ends the dream done with the first line of its
+/// answer.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
  {
     let (realm, _) = hamlet_with(1).await;
+    realm
+        .write(
+            "INSERT INTO grant (agent, permission, at) VALUES (3, \
+             'network', 0)",
+        )
+        .await;
 
     assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
     let made = made_until(&realm, errand(0)).await;
@@ -102,13 +91,13 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
     .await;
 
     assert_eq!(made.kind, AgentKind::Errand);
-    assert_eq!(made.place.folder, Some(folder.clone()));
+    assert_eq!(made.place.folder, Some(folder.join("main")));
     let brief = made.brief.unwrap();
     let label = "scholar#3 (Hire 1)";
     assert_eq!(
         brief.instructions,
         Some(format!(
-            "You are dreaming, between your work as `hire#3`, a \
+            "You are dreaming, between your work as `{HIRE_3}`, a \
              hire of the scholar `{label}`. Your lodge at {} holds \
              what you learned as this hire: your memory/ and \
              skills/. `{label}`'s shared knowledge, its main, is \
@@ -131,13 +120,15 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
     assert!(
         matches!(
             set_before_made.as_slice(),
-            [Reach::Dream { folder: set, .. }, ..] if *set == folder
+            [Reach::Dream { main, hire: Some(hire), network: true, .. }, ..]
+                if *main == folder.join("main")
+                    && *hire == folder.join("hire")
         ),
         "{set_before_made:?}"
     );
     assert_eq!(
         ends(&realm).await,
-        [ended(true, "Brought home the notes.")]
+        [hire_3_ends(1, true, "Brought home the notes.")]
     );
     until("the errand's reach ends", || {
         reaches(&realm, errand(0)).last() == Some(&Reach::Ended)
@@ -161,7 +152,7 @@ async fn a_failed_dream_errand_ends_the_dream_not_done() {
     )
     .await;
 
-    assert_eq!(ends(&realm).await, [ended(false, "")]);
+    assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
     realm.host.shutdown().await.unwrap();
 }
 
@@ -172,7 +163,7 @@ async fn a_dream_with_nothing_to_go_over_runs_no_errand() {
 
     assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
 
-    assert_eq!(ends(&realm).await, [ended(false, "")]);
+    assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
     assert!(made(&realm, errand(0)).is_none());
     realm.host.shutdown().await.unwrap();
 }
@@ -245,6 +236,38 @@ async fn a_dreams_errand_spends_no_more_than_a_dream_may() {
     realm.host.shutdown().await.unwrap();
 }
 
+/// The allowance of the dream's hire bounds what its errand spends,
+/// as it bounds the hire's own turns.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_allowance_is_spent_dreams_no_further() {
+    let (realm, _) = hamlet_with(1).await;
+    let own = standing(&realm, THREE);
+    let allowance = SetAllowance {
+        hire: to(THREE),
+        micros: Some(Count(10)),
+        why: None,
+    };
+    assert_eq!(chief(&realm, allowance).await, Done::Done);
+    realm.tool(THREE, &charge("c1", &own, 10, 1)).await.unwrap();
+
+    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    let task = made_until(&realm, errand(0)).await.task;
+    let dreamt = may_spend(&realm, errand(0), &task).await;
+
+    assert_eq!(
+        dreamt,
+        Done::Refused {
+            why: SpendRefusal::Budget(Budget::OverAllowance {
+                hire: THREE,
+                name: HIRE_3.to_owned(),
+                spent_micros: 10,
+                allowance_micros: 10,
+            }),
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
 /// A second dream and a purge of the dream's profile are refused
 /// while its errand runs, and a dream starts again once it ended.
 #[tokio::test(flavor = "multi_thread")]
@@ -303,7 +326,7 @@ async fn a_dream_that_cannot_be_prepared_ends_not_done() {
         .fail_for_good(Callee::PrepareDream, AgentNumber(3));
 
     assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
-    assert_eq!(ends(&realm).await, [ended(false, "")]);
+    assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
     let next = chief(&realm, of_hire(THREE)).await;
 
     assert_eq!(next, Done::Done);

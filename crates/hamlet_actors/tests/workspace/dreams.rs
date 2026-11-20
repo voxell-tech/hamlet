@@ -1,6 +1,6 @@
-//! A dream's errand works in its dream's folder inside the realm
-//! folder, reaches nothing else of the realm folder and never waits
-//! for a chief.
+//! A dream's errand works in its main's checkout inside the realm
+//! folder, writes its hire's, reaches nothing else of the realm
+//! folder and never waits for a chief.
 
 use std::path::Path;
 
@@ -34,6 +34,15 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.display())
 }
 
+fn dream(folder: &Path) -> Reach {
+    Reach::Dream {
+        main: folder.join("main"),
+        hire: Some(folder.join("hire")),
+        network: false,
+        secrets: SecretsVersion(1),
+    }
+}
+
 fn put(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
@@ -41,7 +50,7 @@ fn put(path: &Path, text: &str) {
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
+async fn a_dreams_errand_works_in_its_main_and_nowhere_else_in_the_realm()
  {
     let scratch = Scratch::new("workspace-dream");
     let dir = scratch.join("realm");
@@ -56,19 +65,16 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
     put(&notes, OTHER);
     put(&other_dream, ANOTHER_DREAM);
     let host = host(&dir).await;
-    realm_sets(
-        &host,
-        1,
-        Reach::Dream {
-            folder: folder.clone(),
-            secrets: SecretsVersion(1),
-        },
-    )
-    .await;
+    realm_sets(&host, 1, dream(&folder)).await;
 
     let moved = agent_runs(
         &host,
-        &run("m1", "mv hire/memory/kept.md main/memory/kept.md"),
+        &run("m1", "mv ../hire/memory/kept.md memory/kept.md"),
+    )
+    .await;
+    let relative = agent_runs(
+        &host,
+        &run("r1", "printf relative > memory/relative.md"),
     )
     .await;
     let networked = agent_runs(
@@ -129,6 +135,11 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
     assert_eq!(done(moved).exit, Exit::Code { code: 0 });
     assert_eq!(read(&folder.join("main/memory/kept.md")), "kept");
     assert!(!folder.join("hire/memory/kept.md").exists());
+    assert_eq!(done(relative).exit, Exit::Code { code: 0 });
+    assert_eq!(
+        read(&folder.join("main/memory/relative.md")),
+        "relative"
+    );
     assert_eq!(done(networked).exit, Exit::Code { code: 0 });
     for (script, output) in &commands {
         for words in [CREDENTIALS, OTHER, ANOTHER_DREAM] {
@@ -197,26 +208,17 @@ async fn a_dreams_folder_named_through_a_linked_realm_folder_works() {
     let scratch = Scratch::new("workspace-dream-linked");
     let real = scratch.join("var/realm");
     put(&real.join("dreams/3/hire/memory/kept.md"), "kept");
+    std::fs::create_dir_all(real.join("dreams/3/main")).unwrap();
     put(&real.join("credentials.json"), CREDENTIALS);
     let dir = scratch.join("realm");
     std::os::unix::fs::symlink(&real, &dir).unwrap();
     let folder = dir.join("dreams/3");
     let host = host(&dir).await;
-    realm_sets(
-        &host,
-        1,
-        Reach::Dream {
-            folder: folder.clone(),
-            secrets: SecretsVersion(1),
-        },
-    )
-    .await;
+    realm_sets(&host, 1, dream(&folder)).await;
 
-    let moved = agent_runs(
-        &host,
-        &run("m1", "mkdir -p main && mv hire/memory/kept.md main/"),
-    )
-    .await;
+    let moved =
+        agent_runs(&host, &run("m1", "mv ../hire/memory/kept.md ."))
+            .await;
     let wrote: ChangeAnswer<WriteRefusal> = ask(
         &host,
         &agent(AGENT),

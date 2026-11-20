@@ -22,17 +22,14 @@ use hamlet_messages::realm::{
     RequestRoad, SetTools, Standing, TakeUpRoad, ToolCall,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, ConversationId, RealmTask,
 };
 
 use super::{
-    Callee, MAYOR, Realm, THREE, charge, error_code, hamlet_with,
-    hire, made_until, may_spend, standing, tell, to, tool, until,
+    Callee, MAYOR, Realm, THREE, charge, errand, error_code,
+    hamlet_with, hire, made_until, may_spend, standing, tell, to,
+    tool, until,
 };
-
-fn errand(n: u32) -> AgentNumber {
-    ErrandNumber::new(n).unwrap().agent()
-}
 
 fn brief() -> Brief {
     Brief {

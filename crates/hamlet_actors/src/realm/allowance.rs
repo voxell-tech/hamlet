@@ -10,7 +10,7 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::workers::SetAllowance;
 use hamlet_messages::realm::{AgentRefusal, OnlyAHire, Refusable};
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, Numbered};
 
 use super::act::{Act, Decided, Decision, Unchanged};
 use super::callers::Lead;
@@ -19,7 +19,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::limits;
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
-use super::{record, tasks, workers};
+use super::{dreams, record, tasks, workers};
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -121,12 +121,16 @@ pub(super) async fn over(
     Ok(None)
 }
 
-/// The agent whose allowances bound `agent`: a worker's starter, and
-/// none for a chief's worker.
+/// The agent whose allowances bound `agent`: a worker's starter, a
+/// dream's errand's hire, and none for a chief's worker or another
+/// errand.
 async fn bounded(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<AgentNumber>> {
+    if let Numbered::Errand(n) = agent.numbered() {
+        return dreams::hire_of(rows, n).await;
+    }
     let starter = rows
         .value::<Option<u32>>(
             "SELECT starter FROM worker WHERE agent = ?1",
