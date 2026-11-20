@@ -11,6 +11,7 @@ import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     asked,
     cappedFiles,
+    FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
@@ -527,6 +528,56 @@ function mayor(agrees_roads: boolean): AgentInput {
 
 /** A mayor while another hamlet lives, offered every tool a hire is. */
 const MAYOR = mayor(true);
+
+test("a letter's and a question's relative paths start from the project folder, else the agent's own, as the file tools' do", async (t) => {
+    const sentPaths: unknown[] = [];
+    for (const input of [HIRE, undefined]) {
+        const { calls, sent } = fakeCalls({
+            realm: {
+                tell: () => ({ type: "sent", to: shown(1) }),
+                ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
+            },
+        });
+        const paths = ["big.bin", "notes/../plan.md", "/work/notes.md"];
+        const agent = await wakeAgent(t, {
+            calls,
+            ...(input === undefined ? {} : { input }),
+            responses: [
+                toolCall("tell", { to: "mayor", text: "Here.", paths }, "c1"),
+                toolCall(
+                    "ask",
+                    { to: "mayor", question: "Right?", paths },
+                    "c2",
+                ),
+                fauxAssistantMessage("Sent."),
+            ],
+        });
+        await agent.actions.submit(
+            agent.by(from.realm),
+            line("input-1", "Send them."),
+        );
+        await agent.idle();
+        await agent.stop();
+        sentPaths.push(
+            ["tell", "ask"].map((name) =>
+                named(sent, name).map(
+                    ({ message }) =>
+                        (message as { act: { paths?: unknown } }).act.paths,
+                ),
+            ),
+        );
+    }
+
+    const at = (folder: string) => [
+        { path: `${folder}/big.bin` },
+        { path: `${folder}/plan.md` },
+        { path: "/work/notes.md" },
+    ];
+    assert.deepEqual(sentPaths, [
+        [[at("/work/orchard")], [at("/work/orchard")]],
+        [[at(FAKE_ROOT)], [at(FAKE_ROOT)]],
+    ]);
+});
 
 test("tell carries t<task id>, the turn's task and its conversation, and a refusal's words are the tool's result", async (t) => {
     const { calls, sent } = fakeCalls({

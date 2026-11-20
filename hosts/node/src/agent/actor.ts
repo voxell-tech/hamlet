@@ -77,7 +77,7 @@ import { OWN_PROFILE, profileAt } from "./messages/profile.ts";
 import type { SocietyTool, ToolName } from "./messages/realm.ts";
 import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
-import { ownFiles } from "./own-files.ts";
+import { type Folder, ownFiles } from "./own-files.ts";
 import { received } from "./parcels.ts";
 import {
     type PromptSources,
@@ -240,10 +240,15 @@ function parts(
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers, offeredTools),
+        society(peers, folderOf(prompt), offeredTools),
         timers(),
         saving(turnEnded),
     ];
+}
+
+/** The project folder the agent's place names now. */
+function folderOf(prompt: PromptSources): Folder {
+    return async () => (await prompt.where()).place.folder;
 }
 
 /** A turn that answered saves the filesystem to the branch. */
@@ -556,10 +561,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             : {
                   listed: [
                       workspaceTools(peers),
-                      ownFiles(
-                          peers,
-                          async () => (await prompt.where()).place.folder,
-                      ),
+                      ownFiles(peers, folderOf(prompt)),
                   ],
                   offer,
               };
@@ -782,7 +784,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    const { registry, builtIns, peers } = generationOf(c);
+    const { registry, builtIns, peers, prompt } = generationOf(c);
     if (kept.changes === 0 || builtIns === undefined) return;
     const offer = offerOf(await rowAt(c));
     if (offer === undefined) return;
@@ -793,7 +795,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         registry.install(offered(extension, offer));
     }
     if (offer.society !== undefined) {
-        registry.install(society(peers, offer.society));
+        registry.install(society(peers, folderOf(prompt), offer.society));
     }
 }
 

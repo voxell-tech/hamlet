@@ -17,6 +17,7 @@ import type {
     ToolName,
 } from "./messages/realm.ts";
 import { type ProfileId, type Refused, U32_MAX } from "./messages/shared.ts";
+import { type Folder, reached } from "./own-files.ts";
 import {
     type ActOf,
     callOf,
@@ -31,6 +32,7 @@ export type Invalid = { readonly invalid: string };
 interface Calling {
     readonly peers: Peers;
     readonly api: Pick<ToolExecutionApi, "taskId">;
+    readonly folder: Folder;
 }
 
 export interface Definition<N extends SocietyTool> {
@@ -245,12 +247,17 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             { to: address, text: string("The letter."), paths: PATHS },
             ["to", "text"],
         ),
-        act: (args: { to: string; text: string; paths?: string[] }) =>
-            withNamed({ to: args.to }, ({ to }) => ({
+        act: async (
+            args: { to: string; text: string; paths?: string[] },
+            calling,
+        ) => {
+            const paths = await enclosed(args.paths, calling);
+            return withNamed({ to: args.to }, ({ to }) => ({
                 to,
                 text: args.text,
-                ...enclosed(args.paths),
-            })),
+                ...paths,
+            }));
+        },
         // As `sent` (`crates/hamlet_server/src/calls/society/letters.rs`).
         said: (answer) => `Sent to ${answer.to.name}.`,
     },
@@ -262,12 +269,17 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             { to: address, question: string("The question."), paths: PATHS },
             ["to", "question"],
         ),
-        act: (args: { to: string; question: string; paths?: string[] }) =>
-            withNamed({ to: args.to }, ({ to }) => ({
+        act: async (
+            args: { to: string; question: string; paths?: string[] },
+            calling,
+        ) => {
+            const paths = await enclosed(args.paths, calling);
+            return withNamed({ to: args.to }, ({ to }) => ({
                 to,
                 text: args.question,
-                ...enclosed(args.paths),
-            })),
+                ...paths,
+            }));
+        },
         said: (answer) => `Waiting for ${answer.on.name}'s answer.`,
     },
     request_road: {
@@ -921,11 +933,15 @@ function nearest(spend: Spend): string {
     return shown ?? money(spend.spent_micros);
 }
 
-/** The model's `paths`, as the files a letter sends. */
-function enclosed(paths: readonly string[] | undefined): {
-    paths?: { path: string }[];
-} {
-    const given = (paths ?? []).map((path) => ({ path }));
+/** The model's `paths`, resolved as the file tools resolve theirs, as the files a letter sends. */
+async function enclosed(
+    paths: readonly string[] | undefined,
+    { peers, folder }: Calling,
+): Promise<{ paths?: { path: string }[] }> {
+    const given = [];
+    for (const path of paths ?? []) {
+        given.push({ path: (await reached(peers.files, folder, path)).path });
+    }
     return given.length === 0 ? {} : { paths: given };
 }
 

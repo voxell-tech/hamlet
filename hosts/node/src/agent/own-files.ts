@@ -34,19 +34,29 @@ import {
     wrote,
 } from "./workspace-tools.ts";
 
+/** The project folder a place names, if any. */
+export type Folder = () => Promise<string | undefined>;
+
 /**
- * A path is own when it normalises, as today's `footing` does, into the root.
- * A relative path and a left-out one start from `from`.
+ * Where `path` leads, as today's `footing` normalises it. A relative path
+ * and a left-out one start from the project `folder`, else from the
+ * agent's own filesystem; a path is own when it lands in that filesystem.
  */
-function reached(
+export async function reached(
     files: AgentFilesystem,
-    from: string,
+    folder: Folder,
     path: string | undefined,
-): { readonly own: boolean; readonly path: string } {
+): Promise<{
+    readonly from: string;
+    readonly own: boolean;
+    readonly path: string;
+}> {
+    const from = (await folder()) ?? files.root;
     const normal = posix.normalize(
         path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`,
     );
     return {
+        from,
         own: normal === files.root || normal.startsWith(`${files.root}/`),
         path: normal,
     };
@@ -105,14 +115,11 @@ function routes(peers: Peers): {
 }
 
 /**
- * A path starts from the project `folder` reads, else from the agent's own
- * filesystem. pi-durable applies every wrap after it has gathered every
+ * A path the agent's own filesystem holds goes to it, any other to the
+ * workspace. pi-durable applies every wrap after it has gathered every
  * tool, so the order of the two extensions does not matter.
  */
-export function ownFiles(
-    peers: Peers,
-    folder: () => Promise<string | undefined>,
-): Extension {
+export function ownFiles(peers: Peers, folder: Folder): Extension {
     const own = routes(peers);
     const wrapOf = <N extends FileTool>(name: N): Wrap => ({
         tool: name,
@@ -123,15 +130,14 @@ export function ownFiles(
                 api: ToolExecutionApi,
                 context: Context,
             ) => {
-                const from = (await folder()) ?? peers.files.root;
-                const at = reached(peers.files, from, args.path);
+                const at = await reached(peers.files, folder, args.path);
                 const resolved: AbsoluteFileCall<N> = {
                     ...args,
                     path: at.path,
                 };
                 return at.own
                     ? own[name](
-                          Object.assign({}, resolved, { from }),
+                          Object.assign({}, resolved, { from: at.from }),
                           api,
                           context,
                       ).then(scrub)

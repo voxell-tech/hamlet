@@ -16,11 +16,13 @@ import {
 import { hasWordsOrCall } from "./compaction.ts";
 import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
+import type { Folder } from "./own-files.ts";
 import { type Definition, TOOLS, WAITING } from "./society-tools.ts";
 import { callOut, failed, type Peers, words } from "./turn.ts";
 
 function societyTool<N extends SocietyTool>(
     peers: Peers,
+    folder: Folder,
     act: N,
 ): ToolRegistration {
     const definition: Definition<N> = TOOLS[act];
@@ -30,7 +32,11 @@ function societyTool<N extends SocietyTool>(
         parameters: definition.parameters,
         replay: "safe",
         execute: async (args, api, context) => {
-            const made = await definition.act(args as never, { peers, api });
+            const made = await definition.act(args as never, {
+                peers,
+                api,
+                folder,
+            });
             if ("invalid" in made) return failed(made.invalid);
             return callOut(
                 peers,
@@ -123,11 +129,12 @@ export function offeredSociety(
 /** As today, a society tool is offered whatever a lead turned off. */
 export function society(
     peers: Peers,
+    folder: Folder,
     offered: readonly SocietyTool[],
 ): Extension {
     return defineExtension({
         name: "hamlet.society",
-        tools: offered.map((act) => societyTool(peers, act)),
+        tools: offered.map((act) => societyTool(peers, folder, act)),
         hooks: [
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),
