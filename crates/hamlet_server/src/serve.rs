@@ -2,10 +2,11 @@
 //! published address, then the ordered close (S3).
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use hamlet_protocol::client::Confinement;
 use hamlet_sandbox::{Isolation, Sandbox};
 use serde_json::json;
 use tokio::net::TcpListener;
@@ -25,7 +26,7 @@ const STOPPING: Duration = Duration::from_secs(30);
 const ROTATING: Duration = Duration::from_secs(15);
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
-                     <n>] [--faux <file>] [--insecure]";
+                     <n>] [--faux <file>] [--insecure] [--actors]";
 
 /// How the server is started.
 pub struct Options {
@@ -33,6 +34,8 @@ pub struct Options {
     pub port: u16,
     pub faux: Option<PathBuf>,
     pub isolation: Isolation,
+    /// Whether the realm and its agents run as actors.
+    pub actors: bool,
 }
 
 impl Options {
@@ -45,10 +48,12 @@ impl Options {
         let mut port = 7313;
         let mut faux = None;
         let mut isolation = Isolation::Sandboxed;
+        let mut actors = false;
         while let Some(flag) = args.next() {
             let mut value = || args.next().context(USAGE);
             match flag.to_str() {
                 Some("--insecure") => isolation = insecure()?,
+                Some("--actors") => actors = with_actors()?,
                 Some("--home") => home = Some(value()?.into()),
                 Some("--port") => {
                     port = value()?
@@ -72,6 +77,7 @@ impl Options {
             port,
             faux,
             isolation,
+            actors,
         })
     }
 }
@@ -91,8 +97,19 @@ fn insecure() -> Result<Isolation> {
     )
 }
 
+/// `--actors`, which only a Unix build takes.
+#[cfg(unix)]
+fn with_actors() -> Result<bool> {
+    Ok(true)
+}
+
+#[cfg(not(unix))]
+fn with_actors() -> Result<bool> {
+    bail!("The actors do not run on this platform.")
+}
+
 /// The published address, removed when the server stops.
-struct Published(PathBuf);
+pub(crate) struct Published(PathBuf);
 
 impl Drop for Published {
     fn drop(&mut self) {
@@ -100,9 +117,42 @@ impl Drop for Published {
     }
 }
 
+/// Publishes the address `url` a client reaches the server at in the
+/// file `path`, until the returned value drops.
+pub(crate) fn publish(
+    path: PathBuf,
+    url: &str,
+    confinement: &Confinement,
+) -> Result<Published> {
+    let started = chrono::Utc::now()
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let address = json!({
+        "url": url,
+        "pid": std::process::id(),
+        "started": started,
+        "confinement": confinement,
+    });
+    write_whole(&path, &serde_json::to_vec(&address)?)?;
+    Ok(Published(path))
+}
+
+/// Tells whoever started the server which realm it holds and where
+/// it serves.
+#[expect(
+    clippy::print_stderr,
+    reason = "the banner is the server's output for whoever started \
+              it"
+)]
+pub(crate) fn announce(root: &Path, url: &str) {
+    eprintln!(
+        "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
+        hamlet_os::fs::path::text(root)
+    );
+}
+
 /// The chief's name (C7): `HAMLET_USER` when set, else the account
 /// the server runs as, else "chief".
-fn chief_name() -> String {
+pub(crate) fn chief_name() -> String {
     ["HAMLET_USER", "USER", "USERNAME", "LOGNAME"]
         .iter()
         .find_map(|name| {
@@ -113,12 +163,11 @@ fn chief_name() -> String {
 
 /// Serves until SIGTERM or Ctrl-C, closing every client before
 /// letting the realm go.
-#[expect(
-    clippy::print_stderr,
-    reason = "the banner is the server's output for whoever started \
-              it"
-)]
 pub async fn serve(options: Options) -> Result<()> {
+    #[cfg(unix)]
+    if options.actors {
+        return crate::front::serve(options).await;
+    }
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
     let sandbox = Sandbox::open(options.isolation)?;
@@ -146,21 +195,12 @@ pub async fn serve(options: Options) -> Result<()> {
     .await?;
     let url = format!("ws://{}", listener.local_addr()?);
     inbox.listen(listener);
-    let published = core.realm.layout().server();
-    let started = chrono::Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let address = json!({
-        "url": url,
-        "pid": std::process::id(),
-        "started": started,
-        "confinement": core.confinement(),
-    });
-    write_whole(&published, &serde_json::to_vec(&address)?)?;
-    let published = Published(published);
-    eprintln!(
-        "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        hamlet_os::fs::path::text(core.realm.layout().root())
-    );
+    let published = publish(
+        core.realm.layout().server(),
+        &url,
+        &core.confinement(),
+    )?;
+    announce(core.realm.layout().root(), &url);
     let served = async {
         loop {
             core.step(&mut inbox, Duration::from_secs(60)).await?;
@@ -212,7 +252,7 @@ pub(crate) struct Signals {
 }
 
 impl Signals {
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         #[cfg(unix)]
         {
             use tokio::signal::unix::{SignalKind, signal};
