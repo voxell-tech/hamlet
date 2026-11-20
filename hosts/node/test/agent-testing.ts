@@ -33,6 +33,7 @@ import {
     type AgentHandlers,
     agentActor,
 } from "../src/agent/actor.ts";
+import { textOf } from "../src/agent/chat-items.ts";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import type { AgentInput } from "../src/agent/messages/agent.ts";
 import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
@@ -49,7 +50,6 @@ import {
 } from "../src/agent/messages/workspace.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
-import { textOf } from "../src/agent/transcript.ts";
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";
 import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
 

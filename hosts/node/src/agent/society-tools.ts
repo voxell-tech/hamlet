@@ -3,6 +3,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { inParts } from "./branch.ts";
+import { money } from "./chat-items.ts";
 import { LOOKED } from "./filesystem.ts";
 import type { OfferAnswer } from "./messages/library.ts";
 import type { Piece, Revision } from "./messages/profile.ts";
@@ -16,7 +17,6 @@ import type {
     ToolName,
 } from "./messages/realm.ts";
 import { type ProfileId, type Refused, U32_MAX } from "./messages/shared.ts";
-import { money } from "./transcript.ts";
 import {
     type ActOf,
     callOf,
