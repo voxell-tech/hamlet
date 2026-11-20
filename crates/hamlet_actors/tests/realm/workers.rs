@@ -6,6 +6,7 @@ use hamlet_messages::agent::{
 use hamlet_messages::realm::budget::{
     BudgetRead, OpenTask, Payer, ReadBudget, TaskOpened, TaskTurn,
 };
+use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
@@ -18,6 +19,7 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
@@ -207,6 +209,38 @@ async fn a_worker_answers_its_starter_once_and_ends() {
         *reach == Reach::Ended
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_runs_on_its_starters_model() {
+    let (realm, _) = hamlet_with(1).await;
+    let chosen = chief(
+        &realm,
+        SetModel {
+            of: ModelOf::Hire { hire: to(THREE) },
+            model: Some("faux::faux-2".to_owned()),
+            effort: Some(Effort::High),
+            fast: None,
+            why: None,
+        },
+    )
+    .await;
+
+    started_by_three(&realm, "w").await;
+    let input = made_until(&realm, FOUR).await;
+
+    assert_eq!(chosen, Done::Done);
+    assert_eq!(
+        input.brief.and_then(|brief| brief.model).as_deref(),
+        Some("faux::faux-2")
+    );
+    assert_eq!(
+        input
+            .copies
+            .model
+            .map(|model| (model.value.model, model.value.effort)),
+        Some(("faux::faux-2".to_owned(), Some(Effort::High)))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

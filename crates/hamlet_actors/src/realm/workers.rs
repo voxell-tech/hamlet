@@ -183,6 +183,22 @@ struct Row {
     answer: Option<String>,
 }
 
+/// The hire or the Hand that started `agent`, when it is a worker
+/// one of them started.
+pub(super) async fn starter_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<AgentNumber>> {
+    Ok(rows
+        .value::<Option<u32>>(
+            "SELECT starter FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .flatten()
+        .map(AgentNumber))
+}
+
 async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
     let (starter, task, brief, tools, ended, answer) = rows
         .row::<(
@@ -334,7 +350,9 @@ pub(super) async fn run(
                         .into_iter()
                         .map(|name| BuiltIn { name })
                         .collect(),
-                    model: None,
+                    model: documents::model(&rows, agent)
+                        .await?
+                        .map(|chosen| chosen.model),
                 }),
                 copies: documents::for_agent(&rows, agent).await?,
             };
