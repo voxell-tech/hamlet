@@ -21,10 +21,12 @@ pub(super) async fn of(
         Some(hamlet) => chiefs::hamlet(rows, &hamlet).await?,
         None => None,
     };
-    // A hamlet lives while it is kept: the realm removes none yet.
-    let agrees_roads =
-        hamlet.as_ref().is_some_and(|hamlet| hamlet.mayor == agent)
-            && chiefs::mayors(rows).await?.len() > 1;
+    let agrees_roads = match &hamlet {
+        Some(found) if found.mayor == agent => {
+            chiefs::another_lives(rows, &found.id).await?
+        }
+        _ => false,
+    };
     let (folder, mode) =
         hamlet.map(|hamlet| (hamlet.folder, hamlet.mode)).unzip();
     let folder = folder.flatten();
@@ -56,6 +58,27 @@ mod tests {
     use super::*;
 
     const HIRE: AgentNumber = AgentNumber(3);
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_mayor_agrees_roads_only_while_another_hamlet_lives() {
+        let started = Started::new().await;
+        let mill = HamletId("mill".to_owned());
+        started.found(&mill, AgentNumber(2)).await;
+        started.hire(&mill, HIRE, Some(AgentNumber(2))).await;
+        let agrees = |agent| {
+            let rows = started.rows();
+            async move { of(&rows, agent).await.unwrap().agrees_roads }
+        };
+        assert!(!agrees(AgentNumber(2)).await);
+
+        started
+            .found(&HamletId("pond".to_owned()), AgentNumber(4))
+            .await;
+        assert!(agrees(AgentNumber(2)).await);
+        assert!(agrees(AgentNumber(4)).await);
+        assert!(!agrees(HIRE).await);
+        started.stop().await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_place_is_never_older_than_its_version() {
