@@ -44,9 +44,9 @@ use hamlet_messages::workspace::refusal::{
 use hamlet_messages::workspace::{
     AddedTool, AgentNumber, Answer, AnswerTaken, CallId, Cancel,
     CancelAgent, Cancelled, ChiefAnswer, CommandEnd, CommandId,
-    CommandStatus, ConversationId, Cut, Exit, Fault, InForce, Lapse,
-    ListTools, Program, ReachVersion, RealmTask, Run, RunAnswer,
-    RunEnd, SetReach, ToolList, Which,
+    CommandStatus, Confinement, ConversationId, Cut, Exit, Fault,
+    InForce, Lapse, ListTools, Program, ReachVersion, RealmTask, Run,
+    RunAnswer, RunEnd, SetReach, ToolList, Which,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -85,6 +85,7 @@ fn enums() -> Vec<Cases> {
         tagged::<WaitEnd>(),
         tagged::<ReachChanged<ReachRefusal>>(),
         tagged::<Stale>(),
+        tagged::<Confinement>(),
         named::<Lapse>(),
         named::<Need>(),
         named::<Mode>(),
@@ -737,6 +738,15 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             }),
         );
     }
+    fixtures.args(
+        "workspace/set_reach.dream",
+        &set_reach(Reach::Dream {
+            main: "/realm/dreams/1/main".into(),
+            hire: Some("/realm/dreams/1/hire".into()),
+            network: true,
+            secrets: SecretsVersion(2),
+        }),
+    );
     fixtures
         .args("workspace/set_reach.ended", &set_reach(Reach::Ended));
     fixtures.args(
@@ -782,20 +792,35 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
         },
     );
     fixtures.args("workspace/list_tools", &ListTools);
+    let listed = |confinement| {
+        ToolList {
+        tools: vec![AddedTool {
+            name: "word_count".into(),
+            description: "Counts the words of a file".into(),
+            parameters: r#"{"type":"object","properties":{"path":{"type":"string"}}}"#.into(),
+        }],
+        faults: vec![Fault {
+            folder: "/realm/tools/broken".into(),
+            words: "manifest.json is not valid JSON".into(),
+        }],
+        confinement,
+    }
+    };
     fixtures.answer(
         "workspace/list_tools",
-        &ToolList {
-            tools: vec![AddedTool {
-                name: "word_count".into(),
-                description: "Counts the words of a file".into(),
-                parameters: r#"{"type":"object","properties":{"path":{"type":"string"}}}"#.into(),
-            }],
-            faults: vec![Fault {
-                folder: "/realm/tools/broken".into(),
-                words: "manifest.json is not valid JSON".into(),
-            }],
-        },
+        &listed(Confinement::Sandbox {
+            name: "bwrap".into(),
+        }),
     );
+    for (case, confinement) in [
+        ("insecure", Confinement::Insecure),
+        ("remote", Confinement::Remote),
+    ] {
+        fixtures.answer(
+            &format!("workspace/list_tools.{case}"),
+            &listed(confinement),
+        );
+    }
     fixtures.args("workspace/write_file", &asked_write());
     fixtures.args("workspace/edit_file", &asked_edit());
 }
@@ -850,6 +875,15 @@ fn the_stored_rows(fixtures: &mut Fixtures) {
                 project: None,
                 ..footing()
             },
+        },
+    );
+    fixtures.stored(
+        "reach.dream",
+        &Reach::Dream {
+            main: "/realm/dreams/1/main".into(),
+            hire: Some("/realm/dreams/1/hire".into()),
+            network: true,
+            secrets: SecretsVersion(2),
         },
     );
     fixtures.stored("reach.ended", &Reach::Ended);

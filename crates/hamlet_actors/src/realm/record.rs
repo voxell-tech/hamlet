@@ -1,7 +1,7 @@
 //! The `decision` table: the record of what was decided, by whom
 //! and why (H17), and its reader.
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
@@ -9,16 +9,16 @@ use hamlet_messages::realm::hamlets::{
     ReadRecord, Record, RecordLine,
 };
 use hamlet_messages::realm::{
-    HamletId, HamletRefusal, Refusable, Tier,
+    AgentName, HamletId, HamletRefusal, Refusable, Tier,
 };
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_sandbox::scrub::scrub_text;
 
-use super::act::{Act, Decision, Unchanged};
+use super::act::{Act, Decision, Reading, Unchanged};
 use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
-use super::tree::choices;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -34,10 +34,11 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
+    /// A hire made, kept with no reason, as today
+    /// (`crates/hamlet_server/src/society/hires.rs:144`).
     Hired {
         hire: AgentNumber,
         by: By,
-        why: Option<String>,
     },
     Ended {
         hire: AgentNumber,
@@ -61,9 +62,10 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
-    /// One mayor's half of a road between hamlets, kept in the
-    /// hamlet of `a`.
+    /// A road between hamlets that both mayors agreed, as the second
+    /// agreed it, kept in `hamlet`.
     RoadAgreed {
+        hamlet: HamletId,
         a: AgentNumber,
         b: AgentNumber,
         by: By,
@@ -137,8 +139,8 @@ pub(super) async fn write(
                     ..Fields::of(mayor, why)
                 },
             ),
-            Entry::Hired { hire, by, why } => {
-                ("hired", by, Fields::of(hire, why))
+            Entry::Hired { hire, by } => {
+                ("hired", by, Fields::of(hire, None))
             }
             Entry::Ended { hire, by, why } => {
                 ("ended", by, Fields::of(hire, why))
@@ -152,9 +154,20 @@ pub(super) async fn write(
             Entry::Unroad { a, b, by, why } => {
                 ("unroad", by, Fields::road(a, b, why))
             }
-            Entry::RoadAgreed { a, b, by, why } => {
-                ("road-agreed", by, Fields::road(a, b, why))
-            }
+            Entry::RoadAgreed {
+                hamlet,
+                a,
+                b,
+                by,
+                why,
+            } => (
+                "road-agreed",
+                by,
+                Fields {
+                    hamlet: Some(hamlet),
+                    ..Fields::road(a, b, why)
+                },
+            ),
             Entry::Tools { hire, by, why } => {
                 ("tools", by, Fields::of(hire, why))
             }
@@ -216,9 +229,9 @@ pub(super) async fn write(
                         .transpose()?
                         .map_or(BindParam::Null, BindParam::Text),
                     BindParam::Text(by.name()),
-                    fields
-                        .why
-                        .map_or(BindParam::Null, BindParam::Text),
+                    fields.why.map_or(BindParam::Null, |why| {
+                        BindParam::Text(writer.scrubbed(&why))
+                    }),
                     BindParam::Integer(writer.at().0),
                 ],
             )
@@ -276,7 +289,7 @@ impl By {
 
 const CHIEF: &str = "chief";
 
-impl<By: RealmWide> Act<By> for ReadRecord {
+impl<By: RealmWide> Act<By> for Reading<ReadRecord> {
     type Output = Record;
     type Loaded = Record;
     type Done = Unchanged;
@@ -286,7 +299,8 @@ impl<By: RealmWide> Act<By> for ReadRecord {
         _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Record> {
-        if let Some(hamlet) = &self.hamlet
+        let hamlet = self.read.hamlet.as_ref();
+        if let Some(hamlet) = hamlet
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
             return Ok(Record::refused(
@@ -294,7 +308,7 @@ impl<By: RealmWide> Act<By> for ReadRecord {
             ));
         }
         Ok(Record::Read {
-            lines: lines(rows, self.hamlet.as_ref()).await?,
+            lines: lines(rows, hamlet, &self.secrets).await?,
         })
     }
 
@@ -312,10 +326,12 @@ impl<By: RealmWide> Act<By> for ReadRecord {
 }
 
 /// The decisions of `hamlet`, or the realm's own, oldest first, in
-/// words.
+/// words with `secrets` removed, or "Nothing is decided yet." when
+/// there are none.
 async fn lines(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
+    secrets: &[String],
 ) -> Result<Vec<RecordLine>> {
     let kept = rows
         .rows::<(String, Option<u32>, String, Option<String>)>(
@@ -330,17 +346,26 @@ async fn lines(
     for (kind, agent, by, why) in kept {
         let who = match by.as_str() {
             CHIEF => CHIEF.to_owned(),
-            agent => name_of(rows, numbered(agent)?).await?,
+            agent => agent_name(rows, numbered(agent)?).await?.name,
         };
         let subject = match agent {
-            Some(agent) => name_of(rows, AgentNumber(agent)).await?,
+            Some(agent) => {
+                agent_name(rows, AgentNumber(agent)).await?.name
+            }
             None => String::new(),
         };
         let why = why
             .filter(|why| !why.is_empty())
-            .map_or_else(String::new, |why| format!(": {why}"));
+            .map_or_else(String::new, |why| {
+                format!(": {}", scrub_text(secrets, &why))
+            });
         lines.push(RecordLine {
             text: format!("- {who} {} {subject}{why}", done(&kind)),
+        });
+    }
+    if lines.is_empty() {
+        lines.push(RecordLine {
+            text: "Nothing is decided yet.".to_owned(),
         });
     }
     Ok(lines)
@@ -353,31 +378,84 @@ fn numbered(by: &str) -> Result<AgentNumber> {
     }
 }
 
+/// `agent` as chiefs and agents are shown it: its address, and beside
+/// it a hire's nickname or else its profile's name, or a worker's
+/// nickname, as in `hire#3 (Mira)`.
+pub(super) async fn agent_name(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<AgentName> {
+    let (kind, nickname, profile) = rows
+        .row::<(String, Option<String>, Option<String>)>(
+            "SELECT agent.kind, nickname.name, profile.name FROM \
+             agent LEFT JOIN nickname ON nickname.agent = agent.id \
+             LEFT JOIN hire ON hire.agent = agent.id LEFT JOIN \
+             profile ON profile.id = hire.profile WHERE agent.id = \
+             ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .with_context(|| format!("agent {} has no row", agent.0))?;
+    let kind = change::from_case_name(kind)?;
+    let address = address_of(agent, kind)?;
+    let beside = match kind {
+        AgentKind::Hire => nickname.or(profile),
+        AgentKind::Worker => nickname,
+        AgentKind::Hand | AgentKind::Errand => None,
+    };
+    let name = match beside {
+        Some(beside) => format!("{address} ({beside})"),
+        None => address,
+    };
+    Ok(AgentName { agent, name })
+}
+
 /// `agent`'s address, as in `hire#3`.
 pub(super) async fn address(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<String> {
+    address_of(agent, super::tree::kind_of(rows, agent).await?)
+}
+
+fn address_of(agent: AgentNumber, kind: AgentKind) -> Result<String> {
     let n = agent.0;
-    Ok(match super::tree::kind_of(rows, agent).await? {
+    Ok(match kind {
         AgentKind::Hand => "hand".to_owned(),
         AgentKind::Hire => format!("hire#{n}"),
-        AgentKind::Worker => format!("worker#{n}"),
+        AgentKind::Worker => new_worker(agent).name,
         AgentKind::Errand => bail!("errand {n} has no address"),
     })
 }
 
-/// How `agent` is shown to chiefs and agents: its address, with its
-/// nickname beside it when it has one, as in `hire#3 (Spade)`.
-pub(super) async fn name_of(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<String> {
-    let address = address(rows, agent).await?;
-    Ok(match choices::nickname(rows, agent).await? {
-        Some(nickname) => format!("{address} ({nickname})"),
-        None => address,
-    })
+/// A hire just made of a profile named `profile`.
+pub(super) fn new_hire(
+    hire: AgentNumber,
+    profile: &str,
+) -> AgentName {
+    AgentName {
+        agent: hire,
+        name: format!("hire#{} ({profile})", hire.0),
+    }
+}
+
+/// `agent` shown by its address alone, as `hand` or `hire#3`.
+#[cfg(test)]
+pub(super) fn bare(agent: AgentNumber) -> AgentName {
+    let name = if agent == hamlet_messages::sender::Hand::NUMBER {
+        "hand".to_owned()
+    } else {
+        format!("hire#{}", agent.0)
+    };
+    AgentName { agent, name }
+}
+
+/// A worker just started, which no one has nicknamed yet.
+pub(super) fn new_worker(worker: AgentNumber) -> AgentName {
+    AgentName {
+        agent: worker,
+        name: format!("worker#{}", worker.0),
+    }
 }
 
 /// What a decision of `kind` did, after who made it.
@@ -386,10 +464,6 @@ fn done(kind: &str) -> &'static str {
         "founded" => "founded the hamlet under",
         "hired" => "hired",
         "ended" => "ended",
-        "merged" => "merged",
-        "split" => "split",
-        "restored" => "restored",
-        "erased" => "erased",
         "seated" => "gave the office to",
         "model" => "chose the model of",
         "tools" => "changed the tools of",
@@ -397,12 +471,38 @@ fn done(kind: &str) -> &'static str {
         "road" => "laid a road from",
         "unroad" => "took up a road from",
         "road-agreed" => "agreed a road from",
-        "road-refused" => "refused a road for",
-        "pinned" => "pinned",
         "nicknamed" => "nicknamed",
-        "scholar-named" => "renamed",
         _ => "changed",
     }
+}
+
+/// The decisions of `hamlet` made at or after `since`, in ms since
+/// the Unix epoch, oldest first, in words with `secrets` removed: its
+/// latest decisions, as many as were made since.
+pub(super) async fn since(
+    rows: &Rows<'_>,
+    hamlet: &HamletId,
+    since: i64,
+    secrets: &[String],
+) -> Result<Vec<String>> {
+    let made = rows
+        .value::<u64>(
+            "SELECT COUNT(*) FROM decision WHERE hamlet = ?1 AND at \
+             >= ?2",
+            vec![
+                BindParam::Text(hamlet.0.clone()),
+                BindParam::Integer(since),
+            ],
+        )
+        .await?
+        .unwrap_or(0);
+    let mut lines = lines(rows, Some(hamlet), secrets).await?;
+    let made = usize::try_from(made)?.min(lines.len());
+    Ok(lines
+        .split_off(lines.len() - made)
+        .into_iter()
+        .map(|line| line.text)
+        .collect())
 }
 
 #[cfg(test)]

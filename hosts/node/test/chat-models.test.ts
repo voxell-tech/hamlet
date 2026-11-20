@@ -17,12 +17,14 @@ import {
     type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
-import { type Copies, type ModelChoice, u32 } from "../src/agent/messages.ts";
+import type { Copies, ModelChoice } from "../src/agent/messages/agent.ts";
+import { u32 } from "../src/agent/messages/shared.ts";
 import {
     agentModels,
     checkModel,
     keysOf,
     modelList,
+    scrub,
 } from "../src/agent/models.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import type { BareRealm, Peers } from "../src/agent/turn.ts";
@@ -1109,7 +1111,14 @@ test("a hire's first line runs on the model and charter its create input holds, 
         input: {
             kind: "hire",
             task: "standing-7",
-            place: { version: 1, hires: [], roads: [], tools_off: [] },
+            place: {
+                version: 1,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                manual: false,
+                agrees_roads: false,
+            },
             copies: {
                 charter: { version: 1, value: "Keep the docs whole." },
                 ...choosing(1, { model: "loopback::large" }),
@@ -1227,4 +1236,10 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
         );
     }
     await agent.stop();
+});
+
+test("a scrub replaces the secret that begins first, and the longest of those that begin at one place, as today", () => {
+    // As `crates/hamlet_sandbox/src/scrub.rs` `Scrubber::replace`.
+    assert.equal(scrub("abcde", ["bcde", "ab"]), "[REDACTED]cde");
+    assert.equal(scrub("abcde", ["ab", "abc"]), "[REDACTED]de");
 });

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { SecretList } from "../src/agent/messages.ts";
+import type { SecretList } from "../src/agent/messages/realm.ts";
 import { fakeCalls, from, named, wakeAgent } from "./agent-testing.ts";
 
 test("a stop ends a turn whose model call waits for a secret list the realm has not answered", async (t) => {

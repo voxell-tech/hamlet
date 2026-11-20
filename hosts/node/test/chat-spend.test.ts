@@ -6,11 +6,12 @@ import {
     fauxAssistantMessage,
     type Message,
 } from "@earendil-works/pi-ai";
-import type { Done, TurnFailed } from "../src/agent/messages.ts";
+import type { Done, TurnFailed } from "../src/agent/messages/realm.ts";
 import {
     fakeCalls,
     from,
     named,
+    notices,
     until,
     type Woken,
     wakeAgent,
@@ -47,12 +48,6 @@ async function say(agent: Woken, n: number, text: string): Promise<void> {
         input: { type: "line", text },
     });
     await agent.idle();
-}
-
-async function notices(agent: Woken): Promise<{ text: string; at: number }[]> {
-    return (await agent.entries())
-        .filter((entry) => entry.kind === "hamlet.notice")
-        .map((entry) => entry.data as { text: string; at: number });
 }
 
 async function rootRef(agent: Woken): Promise<string> {

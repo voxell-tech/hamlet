@@ -314,6 +314,7 @@ mod tests {
                 dream: DreamId(1),
                 done: true,
                 summary: String::new(),
+                hire_name: None,
             }),
         ]
     }

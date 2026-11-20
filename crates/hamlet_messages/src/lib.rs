@@ -187,9 +187,9 @@ macro_rules! union {
 
 /// An answer: its arms, and `refused` with a `$why`. Written
 /// `Name<W = Why>`, the answer takes any refusal `W`, `Why` when left
-/// out.
+/// out; written `Name<W>`, it names none.
 macro_rules! answer {
-    ($(#[$doc:meta])* $name:ident<W = $why:ty> { $($arms:tt)* }) => {
+    ($(#[$doc:meta])* $name:ident<W $(= $why:ty)?> { $($arms:tt)* }) => {
         $(#[$doc])*
         #[derive(
             Clone, Debug, PartialEq, Eq, ::serde::Serialize,
@@ -203,7 +203,7 @@ macro_rules! answer {
                 deserialize = "W: ::serde::Deserialize<'de>"
             )
         )]
-        pub enum $name<W = $why> {
+        pub enum $name<W $(= $why)?> {
             $($arms)*
             #[serde(serialize_with = "crate::worded")]
             Refused { why: W },

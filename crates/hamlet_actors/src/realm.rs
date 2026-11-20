@@ -21,6 +21,7 @@ mod parcels;
 mod peer;
 mod place;
 mod profiles;
+mod prompt;
 mod reach;
 mod record;
 mod reviews;
@@ -38,6 +39,7 @@ mod workers;
 mod world;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -69,6 +71,7 @@ use hamlet_messages::realm::profiles::{
     AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
     TagProfile,
 };
+use hamlet_messages::realm::prompt::ReadPlace;
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
@@ -159,6 +162,8 @@ fn not_started(error: anyhow::Error) -> anyhow::Error {
 }
 
 struct Realm {
+    /// The realm folder, absolute.
+    folder: PathBuf,
     peers: peer::Peers,
     world: world::Held,
     secrets: secrets::Held,
@@ -259,6 +264,7 @@ impl Actor for Realm {
         Asked<Dream>,
         Unreserved<Tool<AskLibrarian>>,
         librarian::Submitting,
+        ReadPlace,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -269,6 +275,7 @@ impl Actor for Realm {
             let host = HostRef::of(ctx.inner())?;
             ctx.sql().exec(SCHEMA).await?;
             Ok(Self {
+                folder: std::path::absolute(host.folder())?,
                 hiring_wait: host
                     .value::<Options>()
                     .map_or(HIRING_WAIT, |options| {
@@ -307,7 +314,7 @@ impl Actor for Realm {
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
         async {
-            parcels::sweep(&self, &ctx).await?;
+            parcels::store::sweep(&self, &ctx).await?;
             let rows = change::Rows::outside(&ctx)?;
             steps::undone(&rows, &self.drives)
                 .await?

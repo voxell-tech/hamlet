@@ -10,7 +10,7 @@ import {
 import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentFilesystem } from "../../src/agent/filesystem.ts";
-import type { FilesAnswer, Piece } from "../../src/agent/messages.ts";
+import type { FilesAnswer, Piece } from "../../src/agent/messages/profile.ts";
 import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
 import { fakeCalls, from, until, wakeAgent } from "../agent-testing.ts";
 import { context, fixture, scratchFolder } from "../testing.ts";

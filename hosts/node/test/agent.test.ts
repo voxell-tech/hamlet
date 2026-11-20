@@ -82,7 +82,14 @@ test("a wrong caller is refused, and nothing is taken", async (t) => {
             },
         },
     };
-    const here = { version: 2, hires: [], roads: [], tools_off: [] };
+    const here = {
+        version: 2,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    };
 
     await assert.rejects(
         agent.actions.submit(agent.by(from.workspace), line),
@@ -186,7 +193,13 @@ test("a place keeps only the fields the agent knows, also one a newer realm send
             (await agent.c.db.get<{ place: string }>("SELECT place FROM agent"))
                 ?.place ?? "",
         ) as unknown;
-    assert.deepEqual(await kept(), { hires: [2], roads: [], tools_off: [] });
+    assert.deepEqual(await kept(), {
+        hires: [2],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    });
 
     assert.equal(
         await agent.actions.place(agent.by(from.realm), {
@@ -201,6 +214,8 @@ test("a place keeps only the fields the agent knows, also one a newer realm send
         hires: [2],
         roads: [],
         tools_off: [],
+        manual: false,
+        agrees_roads: false,
     });
     await agent.stop();
 });
@@ -318,6 +333,7 @@ test("a wake whose harness does not open still lists the hand tools, and the nex
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
             run: () => ({ type: "running", command: 9 }),
         },

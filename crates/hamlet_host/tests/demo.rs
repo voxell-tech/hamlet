@@ -10,6 +10,8 @@ use hamlet_messages::bytes::Base64;
 use hamlet_testing::{Scratch, names_in, strip_overrides};
 use tell::{TellAny, Told};
 
+#[path = "../examples/demo/pid.rs"]
+mod pid;
 #[path = "../examples/demo/tell.rs"]
 mod tell;
 
@@ -194,4 +196,24 @@ fn a_tells_bytes_cross_as_text() {
             encoded.len()
         );
     }
+}
+
+/// A Node host's pid file read while it is written, empty or with
+/// only its first digit, is read again until it holds the whole pid.
+#[tokio::test]
+async fn a_pid_file_read_while_it_is_written_is_read_again_until_whole()
+ {
+    let home = Scratch::new("demo-pid-file");
+    let file = home.join(pid::PID_FILE);
+    std::fs::write(&file, "").unwrap();
+    let me = std::process::id();
+    let writer = tokio::spawn(async move {
+        let step = Duration::from_millis(200);
+        tokio::time::sleep(step).await;
+        std::fs::write(&file, &me.to_string()[..1]).unwrap();
+        tokio::time::sleep(step).await;
+        std::fs::write(&file, format!("{me}\n")).unwrap();
+    });
+    assert_eq!(pid::live_pid(&home, PATIENCE).await.unwrap(), me);
+    writer.await.unwrap();
 }

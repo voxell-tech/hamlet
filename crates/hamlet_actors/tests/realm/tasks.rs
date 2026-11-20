@@ -7,7 +7,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::asking::{chief_task, given, objection, open_waits};
 use super::{
     MAYOR, THREE, answer, error_code, hamlet_with, may_spend, paid,
-    tell, to, tool, until,
+    sent, tell, to, tool, until,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -88,7 +88,7 @@ async fn a_task_a_held_letter_carries_is_spent_on_only_once_delivered()
     .await;
     let once_delivered = may_spend(&realm, MAYOR, &task).await;
 
-    assert_eq!(told, Done::Done);
+    assert_eq!(told, sent(MAYOR));
     assert_eq!(
         while_held,
         Done::Refused {

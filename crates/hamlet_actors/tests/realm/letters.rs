@@ -5,21 +5,47 @@ use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
-    Ask, Asked, Done, End, FoundAnswer, HowEnded, Left, LetterId,
-    LetterRefusal, Named, Reply, ReplyRefusal, Standing, Tell,
+    Ask, Done, End, Hire, HireAnswer, HowEnded, Left, LetterId,
+    LetterRefusal, Named, Reply, ReplyRefusal, Sent, Standing, Tell,
+    Waiting,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
-    founded, hamlet_with, hires, paid, purpose_of, say, seen_submits,
-    standing, submits_to, tell, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, chief_hires, done_to, error_code,
+    founded, hamlet_with, hire, hires, paid, purpose_of, say,
+    seen_submits, sent, shown, standing, submits_to, tell, to, tool,
+    until, words,
 };
 
 fn from(agent: AgentNumber) -> Author {
-    Author { agent, name: None }
+    Author {
+        agent,
+        name: Some(shown(agent).name),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_from_the_hand_names_the_hand() {
+    let (realm, _) = hamlet_with(0).await;
+
+    realm
+        .tool(Hand::NUMBER, &tool("t1", tell(to(MAYOR), "hello")))
+        .await
+        .unwrap();
+    let given = seen_submits(&realm, MAYOR, 1).await;
+
+    assert_eq!(
+        given[0].input,
+        Input::Letter {
+            from: from(Hand::NUMBER),
+            text: "hello".to_owned(),
+            files: Vec::new(),
+        }
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -62,7 +88,10 @@ async fn a_repeated_tell_keeps_one_letter() {
         })
         .await;
 
-    assert_eq!([first, again], [Done::Done, Done::Done]);
+    assert_eq!(
+        [first, again],
+        [self::sent(THREE), self::sent(THREE)]
+    );
     assert_eq!(error_code(reused), "message.id_reused");
     assert_eq!(
         letters,
@@ -98,8 +127,8 @@ async fn a_tell_with_no_road_is_refused() {
     let four_to_three =
         realm.tool(FOUR, &tool("t1", tell(to(THREE), "hi"))).await;
 
-    let no_road = |to| Done::Refused {
-        why: Act(LetterRefusal::NoRoad { to }),
+    let no_road = |to| Sent::Refused {
+        why: Act(LetterRefusal::NoRoad { to: shown(to) }),
     };
     assert_eq!(three_to_four.unwrap(), no_road(FOUR));
     assert_eq!(four_to_three.unwrap(), no_road(THREE));
@@ -121,8 +150,8 @@ async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
 
     assert_eq!(
         told.unwrap(),
-        Done::Refused {
-            why: Act(LetterRefusal::NoRoad { to: FOUR })
+        Sent::Refused {
+            why: Act(LetterRefusal::NoRoad { to: shown(FOUR) })
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -131,20 +160,23 @@ async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
 #[tokio::test(flavor = "multi_thread")]
 async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
  {
-    // mayors 2 and 3 are founded with no purpose. The Hand tells 2
-    // and 2 asks 3: the first line of each becomes its receiver's
-    // purpose, and the chief's line to 2 after it changes nothing.
-    let (realm, _) = hamlet_with(0).await;
-    let barn = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Barn"),
-        })
-        .await
-        .unwrap();
+    // the chief hires 3 and 4 with no purpose. The mayor tells 3 and
+    // asks 4: the first line of each becomes its
+    // receiver's purpose, and the chief's line to 3 after it changes
+    // nothing.
+    let (realm, hamlet) = hamlet_with(0).await;
+    let no_purpose = || Hire {
+        purpose: None,
+        ..hire(None)
+    };
+    let hired = [
+        chief_hires(&realm, &hamlet, no_purpose()).await,
+        chief_hires(&realm, &hamlet, no_purpose()).await,
+    ];
     realm.live(THREE).await;
+    realm.live(FOUR).await;
     let ask = Ask {
-        to: to(THREE),
+        to: to(FOUR),
         text: "Mind the barn?\nsoon".to_owned(),
         conversation: ConversationId("c1".to_owned()),
         paths: Vec::new(),
@@ -152,30 +184,36 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
 
     let told = realm
         .tool(
-            Hand::NUMBER,
+            MAYOR,
             &tool(
                 "t1",
-                tell(to(MAYOR), "\n Dig the well \nthen rest"),
+                tell(to(THREE), "\n Dig the well \nthen rest"),
             ),
         )
         .await
         .unwrap();
     let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
     let said = realm
-        .ask(&say(&RequestId::new(), MAYOR, "Paint the mill"))
+        .ask(&say(&RequestId::new(), THREE, "Paint the mill"))
         .await
         .unwrap();
 
-    assert!(matches!(
-        barn,
-        FoundAnswer::Founded { mayor: THREE, .. }
-    ));
-    assert_eq!((told, asked), (Done::Done, Done::Done));
+    assert!(
+        hired
+            .iter()
+            .all(|hired| matches!(hired, HireAnswer::Hired { .. })),
+        "{hired:?}"
+    );
+    assert_eq!(told, sent(THREE));
+    assert!(
+        matches!(&asked, Waiting::Waiting { on, .. } if on.agent == FOUR),
+        "{asked:?}"
+    );
     assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
     assert_eq!(
         (
-            purpose_of(&realm, MAYOR).await,
-            purpose_of(&realm, THREE).await
+            purpose_of(&realm, THREE).await,
+            purpose_of(&realm, FOUR).await
         ),
         (
             Some("Dig the well".to_owned()),
@@ -209,31 +247,33 @@ async fn a_tell_is_refused_for_its_ends() {
     let to_ended = told(THREE, "t3", tell(to(FOUR), "hi")).await;
     let from_ended = told(FOUR, "t3", tell(to(THREE), "hi")).await;
 
-    let refused = |why| Done::Refused { why: Act(why) };
+    let refused = |why| Sent::Refused { why: Act(why) };
     assert_eq!(to_self, refused(LetterRefusal::Yourself));
     assert_eq!(empty, refused(LetterRefusal::Empty));
     assert_eq!(
         [to_hand, to_mayor],
         [
-            refused(LetterRefusal::NoRoad { to: Hand::NUMBER }),
-            refused(LetterRefusal::NoRoad { to: MAYOR })
+            refused(LetterRefusal::NoRoad {
+                to: shown(Hand::NUMBER)
+            }),
+            refused(LetterRefusal::NoRoad { to: shown(MAYOR) })
         ]
     );
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(FOUR));
     let left = Left {
-        how: HowEnded::ByALead { lead: THREE },
+        how: HowEnded::ByALead { lead: shown(THREE) },
         why: Some("done".to_owned()),
     };
     assert_eq!(
         to_ended,
         refused(LetterRefusal::Left {
-            to: FOUR,
+            to: shown(FOUR),
             left: left.clone()
         })
     );
     assert_eq!(
         from_ended,
-        Done::Refused {
+        Sent::Refused {
             why: Stood(Standing::YouLeft {
                 how: left.how,
                 why: left.why
@@ -273,11 +313,11 @@ async fn a_tell_to_a_hire_still_hiring_waits_for_its_steps() {
 
     assert_eq!(
         held,
-        Done::Refused {
-            why: Act(LetterRefusal::StillHiring { to: THREE })
+        Sent::Refused {
+            why: Act(LetterRefusal::StillHiring { to: shown(THREE) })
         }
     );
-    assert_eq!(sent, Done::Done);
+    assert_eq!(sent, self::sent(THREE));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -322,7 +362,13 @@ async fn an_answer_reaches_the_asker_once() {
         .await;
     let answers = seen_submits(&realm, MAYOR, 2).await;
 
-    assert_eq!(asked, Done::Done);
+    assert_eq!(
+        asked,
+        Waiting::Waiting {
+            on: shown(THREE),
+            question: *letter,
+        }
+    );
     assert_eq!((asker, text.as_str()), (&from(MAYOR), "why?"));
     assert_eq!(
         [first.unwrap(), second.unwrap()],
@@ -398,7 +444,7 @@ async fn two_letters_to_one_hire_reach_it_in_the_order_told() {
     realm.seen.release(Callee::Submit);
     let seen = format!("{:?}", seen_submits(&realm, THREE, 2).await);
 
-    assert_eq!((first, second), (Done::Done, Done::Done));
+    assert_eq!((first, second), (sent(THREE), sent(THREE)));
     let (dig, rest) =
         (seen.find("dig the well"), seen.find("then rest"));
     assert!(dig.is_some() && dig < rest, "{seen}");

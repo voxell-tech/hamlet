@@ -9,7 +9,8 @@ use anyhow::{Context as _, Result};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Brief, BuiltIn, Input, InputId, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, Input, InputId,
+    Submit,
 };
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::oversight::Permission;
@@ -21,9 +22,9 @@ use hamlet_messages::realm::{
     ToolName,
 };
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Called, Carried, Decided, Decision, ToolAct};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
@@ -45,6 +46,8 @@ pub(super) struct Worker {
     /// The task its turn is charged to, and its answer comes back
     /// under.
     task: TaskId,
+    /// The starter's conversation its answer goes to.
+    conversation: Option<ConversationId>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -81,16 +84,20 @@ async fn start(writer: &Writer<'_>, worker: Worker) -> Result<()> {
     writer
         .execute(
             "INSERT INTO worker (agent, starter, hamlet, brief, \
-             tools, task, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             tools, task, conversation, at) VALUES (?1, ?2, ?3, ?4, \
+             ?5, ?6, ?7, ?8)",
             vec![
                 number(worker.agent),
                 worker.starter.map_or(BindParam::Null, number),
                 worker.hamlet.map_or(BindParam::Null, |id| {
                     BindParam::Text(id.0)
                 }),
-                BindParam::Text(worker.brief),
+                BindParam::Text(writer.scrubbed(&worker.brief)),
                 BindParam::Text(serde_json::to_string(&tools)?),
                 worker.task.column()?,
+                worker.conversation.map_or(BindParam::Null, |id| {
+                    BindParam::Text(id.0)
+                }),
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -110,7 +117,7 @@ async fn end(
              = ?1 AND ended IS NULL",
             vec![
                 number(agent),
-                BindParam::Text(serde_json::to_string(&how)?),
+                BindParam::Text(tree::kept_how(&how)?),
                 answer.map_or(BindParam::Null, BindParam::Text),
             ],
         )
@@ -180,20 +187,38 @@ struct Row {
     tools: Vec<String>,
     ended: Option<HowEnded>,
     answer: Option<String>,
+    conversation: Option<ConversationId>,
+}
+
+/// The hire or the Hand that started `agent`, when it is a worker
+/// one of them started.
+pub(super) async fn starter_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<AgentNumber>> {
+    Ok(rows
+        .value::<Option<u32>>(
+            "SELECT starter FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .flatten()
+        .map(AgentNumber))
 }
 
 async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
-    let (starter, task, brief, tools, ended, answer) = rows
-        .row::<(
+    let (starter, task, brief, tools, ended, answer, conversation) =
+        rows.row::<(
             Option<u32>,
             TaskId,
             String,
             String,
             Option<String>,
             Option<String>,
+            Option<String>,
         )>(
-            "SELECT starter, task, brief, tools, ended, answer FROM \
-             worker WHERE agent = ?1",
+            "SELECT starter, task, brief, tools, ended, answer, \
+             conversation FROM worker WHERE agent = ?1",
             vec![number(agent)],
         )
         .await?
@@ -203,10 +228,12 @@ async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
         task,
         brief,
         tools: serde_json::from_str(&tools)?,
-        ended: ended
-            .map(|how| serde_json::from_str(&how))
-            .transpose()?,
+        ended: match ended {
+            Some(ended) => Some(tree::read_how(rows, &ended).await?),
+            None => None,
+        },
         answer,
+        conversation: conversation.map(ConversationId),
     })
 }
 
@@ -218,7 +245,8 @@ pub(super) async fn answer(
     ctx: &Ctx<Realm>,
     worker: AgentNumber,
 ) -> Result<()> {
-    let row = row_of(&Rows::outside(ctx)?, worker).await?;
+    let rows = Rows::outside(ctx)?;
+    let row = row_of(&rows, worker).await?;
     let Some(starter) = row.starter else {
         return Ok(());
     };
@@ -229,8 +257,14 @@ pub(super) async fn answer(
         id: InputId(format!("worker/{}", worker.0)),
         task: Some(row.task.on_the_wire()),
         input: Input::WorkerAnswer {
-            worker,
+            from: Author {
+                agent: worker,
+                name: Some(
+                    record::agent_name(&rows, worker).await?.name,
+                ),
+            },
             text: words(how, row.answer),
+            conversation: row.conversation,
         },
     };
     realm
@@ -325,7 +359,9 @@ pub(super) async fn run(
                         .into_iter()
                         .map(|name| BuiltIn { name })
                         .collect(),
-                    model: None,
+                    model: documents::model(&rows, agent)
+                        .await?
+                        .map(|chosen| chosen.model),
                 }),
                 copies: documents::for_agent(&rows, agent).await?,
             };
@@ -389,7 +425,18 @@ pub(super) enum ByAgent {
     },
 }
 
-impl Act<Agent> for StartWorker {
+impl ToolAct<Agent> for StartWorker {
+    type Run = Carried<Self>;
+
+    fn run(self, called: &Called) -> Carried<Self> {
+        Carried {
+            called: called.clone(),
+            act: self,
+        }
+    }
+}
+
+impl Act<Agent> for Carried<StartWorker> {
     type Output = Started<AgentRefusal<WorkerRefusal>>;
     type Loaded = ByAgent;
     type Done = AgentNumber;
@@ -403,7 +450,7 @@ impl Act<Agent> for StartWorker {
         if starter.agent.kind == AgentKind::Worker {
             return Ok(ByAgent::AWorker);
         }
-        let named = match &self.task {
+        let named = match &self.act.task {
             Some(task) => tasks::named(rows, by.0, task).await?,
             None => None,
         };
@@ -413,7 +460,7 @@ impl Act<Agent> for StartWorker {
         };
         Ok(ByAgent::Starter {
             worker: tree::fresh(rows).await?,
-            name: record::name_of(rows, by.0).await?,
+            name: record::agent_name(rows, by.0).await?.name,
             hamlet: starter.hamlet.map(|hamlet| hamlet.id),
             off: tree::tools::off_for(rows, by.0).await?,
             task,
@@ -438,11 +485,11 @@ impl Act<Agent> for StartWorker {
         else {
             return refuse(WorkerRefusal::AWorker);
         };
-        let brief = match checked(self, &name, &off) {
+        let brief = match checked(&self.act, &name, &off) {
             Ok(brief) => brief,
             Err(why) => return refuse(why),
         };
-        if self.hamlet.is_some() {
+        if self.act.hamlet.is_some() {
             return refuse(WorkerRefusal::HamletFromAnAgent);
         }
         Decision::Change(started(Worker {
@@ -450,8 +497,9 @@ impl Act<Agent> for StartWorker {
             starter: Some(by.0),
             hamlet,
             brief,
-            tools: self.tools.clone(),
+            tools: self.act.tools.clone(),
             task,
+            conversation: self.called.conversation.clone(),
         }))
     }
 
@@ -460,7 +508,9 @@ impl Act<Agent> for StartWorker {
         worker: AgentNumber,
         _made: &Made,
     ) -> Self::Output {
-        Started::Started { worker }
+        Started::Started {
+            worker: record::new_worker(worker),
+        }
     }
 }
 
@@ -524,6 +574,7 @@ impl Act<Client> for StartWorker {
                 brief,
                 tools: self.tools.clone(),
                 task: loaded.task,
+                conversation: None,
             })
             .change(tasks::Change::Open {
                 task: loaded.task,
@@ -539,7 +590,9 @@ impl Act<Client> for StartWorker {
         worker: AgentNumber,
         _made: &Made,
     ) -> Self::Output {
-        Started::Started { worker }
+        Started::Started {
+            worker: record::new_worker(worker),
+        }
     }
 }
 

@@ -7,8 +7,8 @@ use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LayRoad,
-    LeadRefusal, Limit, NeedsChief, ReservedAct, SetLimits,
-    TakeUpRoad, Tool,
+    LeadRefusal, Limit, NeedsChief, Refusable, ReservedAct,
+    SetLimits, TakeUpRoad, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -19,7 +19,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::asking::chief_task;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    needs, seen_submits, submits_to, to, tool,
+    needs, seen_submits, submits_to, to, tool, worker_shown,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -40,10 +40,10 @@ async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
     assert_eq!(set, Done::Done);
 }
 
-fn kept<R>(wait: u64) -> Done<LeadRefusal<R>> {
-    Done::Refused {
-        why: LeadRefusal::Gate(Gate::Reserved { wait: WaitId(wait) }),
-    }
+fn kept<A: Refusable<Why = LeadRefusal<R>>, R>(wait: u64) -> A {
+    A::refused(LeadRefusal::Gate(Gate::Reserved {
+        wait: WaitId(wait),
+    }))
 }
 
 /// `act` called in a turn of conversation `c`, on `task`.
@@ -305,7 +305,8 @@ async fn an_unreserved_tool_runs_at_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_allowed_reserved_hire_is_decided_and_told() {
+async fn an_allowed_reserved_hire_is_decided_and_told_with_the_hires_name()
+ {
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let task = chief_task(&realm, MAYOR).await;
@@ -317,7 +318,10 @@ async fn an_allowed_reserved_hire_is_decided_and_told() {
         .unwrap();
     realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
 
-    assert_eq!(notices(&realm, MAYOR).await, ["Hired hire#3."]);
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["Hired hire#3 (Hire 1)."]
+    );
     let told = submits_to(&realm, MAYOR)
         .into_iter()
         .filter_map(|submit| match submit.input {
@@ -366,7 +370,10 @@ async fn an_allowed_reserved_end_ends_the_hire() {
         decisions(&realm).await[decided.len()..],
         ["ended".to_owned()]
     );
-    assert_eq!(notices(&realm, MAYOR).await, ["Ended hire#3."]);
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["Ended hire#3 (Hire 1)."]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -406,8 +413,10 @@ async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
     assert_eq!(
         notices(&realm, MAYOR).await,
         [
-            "Laid a road between hire#3 and hire#4.",
-            "Took up the road between hire#3 and hire#4.",
+            "Laid a road between hire#3 (Hire 1) and hire#4 (Hire \
+             2).",
+            "Took up the road between hire#3 (Hire 1) and hire#4 \
+             (Hire 2).",
         ]
     );
     realm.host.shutdown().await.unwrap();
@@ -440,8 +449,9 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
     assert_eq!(choice, "allow");
     let told = notices(&realm, MAYOR).await;
     assert!(
-        told.iter()
-            .any(|told| told.starts_with("`hire#3` has left")),
+        told.iter().any(
+            |told| told.starts_with("`hire#3 (Hire 1)` has left")
+        ),
         "{told:?}"
     );
     realm.host.shutdown().await.unwrap();
@@ -469,7 +479,12 @@ async fn a_workers_act_is_never_reserved() {
 
     let hiring = realm.tool(THREE, &tool("c1", hire(None))).await;
 
-    assert_eq!(started, Started::Started { worker: THREE });
+    assert_eq!(
+        started,
+        Started::Started {
+            worker: worker_shown(THREE)
+        }
+    );
     let hiring = hiring.unwrap();
     assert!(
         !matches!(

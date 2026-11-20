@@ -6,6 +6,7 @@
  */
 import type { Context } from "@earendil-works/chord/context";
 import type {
+    AgentChange,
     ConversationCreateOptions,
     ConversationId,
     EntryDraft,
@@ -14,7 +15,7 @@ import type {
 import type { RawAccess } from "../actor/db/mod.ts";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
-import type { ChatRef, Input, RequestId } from "./messages.ts";
+import type { ChatRef, Input, RequestId } from "./messages/agent.ts";
 import { onCopiedModel } from "./models.ts";
 import { conversationOf } from "./turn.ts";
 
@@ -41,9 +42,7 @@ export function conversationFor(
     c: AgentCall,
     input: Input,
 ): Promise<ConversationId> {
-    if (input.type === "line" || input.type === "worker_answer") {
-        return chiefSession(c);
-    }
+    if (input.type === "line") return chiefSession(c);
     return withHarness(c, generationOf(c).options, async (harness, context) => {
         const named = async (ref: string | undefined) => {
             const id = ref === undefined ? undefined : conversationOf(ref);
@@ -58,7 +57,14 @@ export function conversationFor(
                 const peer = input.from.agent;
                 return (
                     (await keptChat(c, kind, peer)) ??
-                    made(c, [kind, peer, 0], () => created(c, harness, context))
+                    made(c, [kind, peer, 0], () =>
+                        created(c, harness, context, (options) =>
+                            harness.createConversation(
+                                { ...options, agent: notObjecting(c) },
+                                context,
+                            ),
+                        ),
+                    )
                 );
             }
             case "answer":
@@ -68,9 +74,24 @@ export function conversationFor(
                 ).id;
             // One the realm names no conversation for is the chief's.
             case "notice":
+            case "worker_answer":
                 return (await named(input.conversation))?.id ?? chiefSession(c);
         }
     });
+}
+
+/** The change that leaves `object` out of a peer's chat: today offers it only in a chief's. */
+function notObjecting(c: AgentCall): AgentChange {
+    const society = generationOf(c)
+        .registry.snapshot()
+        .extension("hamlet.society");
+    return {
+        tools: {
+            remove: (society?.tools ?? []).filter(
+                ({ name }) => name === "object",
+            ),
+        },
+    };
 }
 
 export async function conversationOfChat(

@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS task (
 	origin TEXT NOT NULL,
 	agent INTEGER,
 	payer TEXT NOT NULL,
+	text TEXT,
 	at INTEGER NOT NULL) STRICT;
 
 -- letters.rs
@@ -225,6 +226,7 @@ CREATE TABLE IF NOT EXISTS worker (
 	brief TEXT NOT NULL,
 	tools TEXT NOT NULL,
 	task INTEGER NOT NULL,
+	conversation TEXT,
 	ended TEXT,
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;
@@ -265,7 +267,6 @@ CREATE TABLE IF NOT EXISTS agreement (
 	a INTEGER NOT NULL,
 	b INTEGER NOT NULL,
 	by INTEGER NOT NULL,
-	why TEXT,
 	at INTEGER NOT NULL,
 	PRIMARY KEY (a, b, by),
 	CHECK (a < b)) STRICT;
@@ -304,7 +305,12 @@ CREATE TABLE IF NOT EXISTS dream (
 	id INTEGER PRIMARY KEY,
 	profile INTEGER NOT NULL,
 	hire INTEGER,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	errand INTEGER,
+	main_folder TEXT,
+	hire_folder TEXT,
+	done INTEGER,
+	summary TEXT) STRICT;
 
 -- librarian.rs
 CREATE TABLE IF NOT EXISTS librarian (

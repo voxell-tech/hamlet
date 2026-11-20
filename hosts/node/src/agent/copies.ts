@@ -11,10 +11,10 @@ import {
     type Copies,
     type ModelChoice,
     read,
-    type Skill,
     type Versioned,
-    type ReadCopies as Versions,
-} from "./messages.ts";
+} from "./messages/agent.ts";
+import type { Skill } from "./messages/library.ts";
+import type { ReadCopies as Versions } from "./messages/realm.ts";
 import type { Peers } from "./turn.ts";
 
 export async function migrateCopies(

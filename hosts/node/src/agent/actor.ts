@@ -1,23 +1,16 @@
 // Not `pi()`: its built-in actions check no sender, and it reserves `submit`.
-import {
-    BACKGROUND_CONTEXT,
-    type Context,
-} from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
-    type Conversation,
     type ConversationId,
-    type Cursor,
     createRegistry,
     defineExtension,
-    type EntryId,
     type Extension,
     GenerationTask,
     type Harness,
     type HarnessSettings,
     hook,
     type Registry,
-    type SettledSubmissionRecord,
 } from "@earendil-works/pi-durable";
 import {
     type ActionCaller,
@@ -43,6 +36,7 @@ import {
 } from "../pi/runtime.ts";
 import { migratePiTables } from "../pi/storage.ts";
 import { type Branch, branchOf, migrateBranch } from "./branch.ts";
+import { briefTurn } from "./brief.ts";
 import { type ChatHandlers, chatActions } from "./chat.ts";
 import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
@@ -60,51 +54,54 @@ import {
     tellingFailed,
 } from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
+import { admissionOf } from "./inputs.ts";
 import type { SignIns } from "./login.ts";
 import {
     type AgentActions,
     type AgentInput,
     type Brief,
     type Copies,
-    type Ended,
     type Fill,
     type Finished,
     type Moved,
-    OWN_PROFILE,
     type Place,
-    type ProfileId,
-    profileAt,
-    type RealmTask,
     type Removal,
     type RemovePath,
     read,
-    readAnswer,
     SENDERS,
     type ShelvesChanged,
     type Submit,
-    type ToolName,
-} from "./messages.ts";
+} from "./messages/agent.ts";
+import { readShelves } from "./messages/library.ts";
+import { OWN_PROFILE, profileAt } from "./messages/profile.ts";
+import type { SocietyTool, ToolName } from "./messages/realm.ts";
+import type { ProfileId, RealmTask } from "./messages/shared.ts";
 import { agentModels, configured, secretsRefreshed } from "./models.ts";
-import { ownFiles } from "./own-files.ts";
-import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
+import { type Folder, ownFiles } from "./own-files.ts";
+import { received } from "./parcels.ts";
+import {
+    type PromptSources,
+    placingOf,
+    promptPart,
+    promptSources,
+} from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
 import { conversationFor, current, migrateChats } from "./sessions.ts";
-import { society } from "./society.ts";
+import { offeredSociety, society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
 import { type Following, following, watching } from "./transcript.ts";
 import {
-    type Admission,
     Closing,
     conversationsOf,
     draftOf,
     isBusy,
     libraryCalls,
-    NOTE_BREAK,
     type Peers,
     peersOf,
     reasonOf,
     taskOf,
+    toolLister,
     turnsOf,
     type WithHarness,
 } from "./turn.ts";
@@ -161,32 +158,36 @@ export type AgentDefinition = ActorDefinition<
 interface Offer {
     /** Whether the built-in or hand tool `name` is offered. */
     readonly builtIn: (name: string) => boolean;
-    /** Whether the society's tools, the timers and reflection are offered. */
-    readonly society: boolean;
+    /** The society tools offered, with the timers and reflection; absent offers none. */
+    readonly society?: readonly SocietyTool[];
 }
 
 /**
  * What an agent of its kind is offered, as today decides it
- * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
- * (`undefined`), a worker the built-in tools its brief names, or all of them
- * when it names none, and a Hand or a hire every tool but the built-in and
- * hand tools its lead turned off.
+ * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand the built-in
+ * tools its brief names, or no tool (`undefined`) when it names none, a worker
+ * the built-in tools its brief names, or all of them when it names none, and a
+ * Hand or a hire every tool but the built-in and hand tools its lead turned
+ * off.
  */
 function offerOf(row: Row): Offer | undefined {
     switch (row.kind) {
-        case "errand":
-            return undefined;
+        case "errand": {
+            const given = new Set(row.brief?.tools?.map(({ name }) => name));
+            if (given.size === 0) return undefined;
+            return { builtIn: (name) => given.has(name) };
+        }
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
-            return {
-                builtIn: (name) => given.size === 0 || given.has(name),
-                society: false,
-            };
+            return { builtIn: (name) => given.size === 0 || given.has(name) };
         }
         case "hand":
         case "hire": {
             const off = new Set(row.toolsOff.map(({ name }) => name));
-            return { builtIn: (name) => !off.has(name), society: true };
+            return {
+                builtIn: (name) => !off.has(name),
+                society: offeredSociety(row.kind, row.place),
+            };
         }
     }
 }
@@ -224,7 +225,8 @@ function parts(
     const builtIn = builtIns.listed.map((extension) =>
         offered(extension, builtIns.offer),
     );
-    if (!builtIns.offer.society) {
+    const { society: offeredTools } = builtIns.offer;
+    if (offeredTools === undefined) {
         return [
             promptPart(prompt),
             cutOffRule(tell),
@@ -238,10 +240,15 @@ function parts(
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers),
+        society(peers, folderOf(prompt), offeredTools),
         timers(),
         saving(turnEnded),
     ];
+}
+
+/** The project folder the agent's place names now. */
+function folderOf(prompt: PromptSources): Folder {
+    return async () => (await prompt.where()).place.folder;
 }
 
 /** A turn that answered saves the filesystem to the branch. */
@@ -410,6 +417,7 @@ interface Row {
     readonly kind: AgentInput["kind"];
     readonly standingTask: RealmTask;
     readonly toolsOff: readonly ToolName[];
+    readonly place: Omit<Place, "version">;
     readonly brief: Brief | undefined;
 }
 
@@ -418,14 +426,16 @@ export async function rowAt(c: AgentContext): Promise<Row> {
         kind: AgentInput["kind"];
         task: string;
         tools_off: string;
+        place: string;
         brief: string | null;
-    }>("SELECT kind, task, tools_off, brief FROM agent WHERE id = 1");
+    }>("SELECT kind, task, tools_off, place, brief FROM agent WHERE id = 1");
     if (row === undefined)
         throw new Error("the agent has no row: it was not created");
     return {
         kind: row.kind,
         standingTask: row.task,
         toolsOff: JSON.parse(row.tools_off) as ToolName[],
+        place: JSON.parse(row.place) as Omit<Place, "version">,
         brief:
             row.brief === null ? undefined : (JSON.parse(row.brief) as Brief),
     };
@@ -481,6 +491,11 @@ export interface Generation {
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
     /**
+     * Admits letters and questions with files one after another, so two
+     * never take one name and a repeat finds the first admitted.
+     */
+    readonly receiving: <T>(work: () => Promise<T>) => Promise<T>;
+    /**
      * Settles once the last retry sent, queued or under way, is admitted
      * or has failed. A stop waits for it, so it stops the retry's turn too.
      */
@@ -523,8 +538,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     );
     const errand =
         row.kind === "errand" ? (row.brief?.instructions ?? "") : undefined;
+    const placing = placingOf(c, peers);
+    const tools = toolLister(peers);
     const prompt: PromptSources = {
-        ...promptSources(c, copies, peers),
+        ...promptSources(c, copies, peers, placing, tools),
         ...(config.library === undefined ? {} : { library: config.library }),
         ...(errand === undefined ? {} : { errand }),
     };
@@ -541,7 +558,13 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const builtIns: BuiltIns | undefined =
         offer === undefined
             ? undefined
-            : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
+            : {
+                  listed: [
+                      workspaceTools(peers),
+                      ownFiles(peers, folderOf(prompt)),
+                  ],
+                  offer,
+              };
     for (const part of parts(
         builtIns,
         turnEnded,
@@ -556,7 +579,11 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     const options: PiOptions = {
         registry,
-        models: gated(agentModels(config.models, copies, peers), peers),
+        models: gated(
+            agentModels(config.models, copies, peers),
+            peers,
+            placing,
+        ),
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
         env: () => undefined,
@@ -583,6 +610,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         branch,
         following: follow,
         inTurn: oneAfterAnother(),
+        receiving: oneAfterAnother(),
         retrying: undefined,
         ...(builtIns === undefined ? {} : { builtIns }),
     };
@@ -592,7 +620,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
     if (builtIns !== undefined) {
-        void handTools(peers).then(
+        void handTools(peers, tools).then(
             (extension) => {
                 builtIns.listed.push(extension);
                 registry.install(offered(extension, builtIns.offer));
@@ -649,120 +677,6 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
 }
 
-/** pi-durable admits it once: the brief is the root conversation's one input. */
-const BRIEF_ID = "brief";
-
-/**
- * Each wake admits a worker's or an errand's one turn again under `BRIEF_ID`,
- * so a call a kill cut off is made again and the turn never runs twice.
- */
-async function briefTurn(
-    c: AgentContext,
-    options: PiOptions,
-    peers: Peers,
-    kind: "worker" | "errand",
-    brief: Brief,
-    task: RealmTask,
-): Promise<void> {
-    const settled = await withHarness(
-        c,
-        options,
-        async (harness, context, waiting) => {
-            const root = await harness.root(context);
-            const submission = await root.submit(
-                draftOf({ kind, id: BRIEF_ID, content: brief.text, task }),
-                context,
-            );
-            const settled = await waiting(() => submission.wait(context));
-            // A short cut-off is asked again once its input settled (C28).
-            await waiting(() => root.waitForIdle(context));
-            return settled;
-        },
-    );
-    // A call of its own, so the agent does not sleep before the realm is told.
-    await withHarness(c, options, async (harness, context) => {
-        const last = await lastOf(
-            await harness.root(context),
-            settled.entry,
-            context,
-        );
-        const ended = endedOf(kind, settled, last);
-        await (kind === "worker"
-            ? peers.reach.worker_done({ ended })
-            : peers.reach.errand_done({ ended }));
-    });
-}
-
-/**
- * As `crates/hamlet_server/src/talk/errands.rs:117-136` and
- * `talk/follow.rs:68-78` end an errand's and a worker's turn.
- */
-function endedOf(
-    kind: "worker" | "errand",
-    settled: SettledSubmissionRecord,
-    last: Last,
-): Ended {
-    const failed = (why: string): Ended => ({ type: "failed", why });
-    if (settled.status === "done") {
-        if (last.words !== undefined)
-            return { type: "answered", text: last.words };
-        return failed(
-            last.notice ??
-                (kind === "errand"
-                    ? "the errand gave no answer"
-                    : "its turn failed"),
-        );
-    }
-    if (settled.reason === "aborted") return failed("its turn was stopped");
-    return failed(
-        typeof settled.detail === "string" ? settled.detail : settled.reason,
-    );
-}
-
-interface Last {
-    /**
-     * As `crates/hamlet_server/src/talk/items.rs:66-106`: the text of the
-     * last answer that has any, its blocks joined by lines and trimmed.
-     */
-    readonly words?: string;
-    readonly notice?: string;
-}
-
-async function lastOf(
-    conversation: Conversation,
-    since: EntryId | undefined,
-    context: Context,
-): Promise<Last> {
-    let notice: string | undefined;
-    let cursor: Cursor | undefined;
-    do {
-        const page = await conversation.entries(
-            {
-                order: "descending",
-                ...(since === undefined ? {} : { minEntryId: since }),
-            },
-            100,
-            cursor,
-            context,
-        );
-        for (const entry of page.items) {
-            if (entry.kind === "hamlet.notice") {
-                notice ??= (entry.data as { text?: string } | undefined)?.text;
-                continue;
-            }
-            const message = entry.model?.[0];
-            if (message?.role !== "assistant") continue;
-            const text = message.content
-                .flatMap((part) => (part.type === "text" ? [part.text] : []))
-                .join("\n")
-                .trim();
-            if (text !== "") return { words: text };
-        }
-        cursor = page.next;
-    } while (cursor !== undefined);
-    return notice === undefined ? {} : { notice };
-}
-
 function oneAfterAnother(): Generation["inTurn"] {
     let last: Promise<unknown> = Promise.resolve();
     return (work) => {
@@ -800,7 +714,7 @@ const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
 
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
-    const { options, inTurn } = generationOf(c);
+    const { options, inTurn, receiving, peers } = generationOf(c);
     const admit = async () => {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
@@ -808,13 +722,31 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             if (conversation === undefined) {
                 throw new Error(`the agent has no conversation ${id}`);
             }
-            await conversation.submit(
-                draftOf(
-                    admissionOf(message),
-                    message.input.type === "line" ? "steer" : undefined,
-                ),
-                context,
-            );
+            const { input } = message;
+            const admitted = (captions: string) =>
+                conversation.submit(
+                    draftOf(
+                        admissionOf(message, captions),
+                        input.type === "line" ? "steer" : undefined,
+                    ),
+                    context,
+                );
+            const files =
+                input.type === "letter" || input.type === "question"
+                    ? (input.files ?? [])
+                    : [];
+            if (files.length === 0) return admitted("");
+            await receiving(async () => {
+                // A repeat of a submit it took saves nothing again.
+                const again =
+                    (await harness.commit(
+                        (tx) => tx.submissionByRequest(id, message.id),
+                        context,
+                    )) !== undefined;
+                await admitted(
+                    again ? "" : await received(peers, files, context),
+                );
+            });
         });
     };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
@@ -852,7 +784,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    const { registry, builtIns } = generationOf(c);
+    const { registry, builtIns, peers, prompt } = generationOf(c);
     if (kept.changes === 0 || builtIns === undefined) return;
     const offer = offerOf(await rowAt(c));
     if (offer === undefined) return;
@@ -861,6 +793,9 @@ async function place(c: AgentCall, message: Place): Promise<void> {
     // place says.
     for (const extension of builtIns.listed) {
         registry.install(offered(extension, offer));
+    }
+    if (offer.society !== undefined) {
+        registry.install(society(peers, folderOf(prompt), offer.society));
     }
 }
 
@@ -894,9 +829,7 @@ async function shelvesRead(c: AgentContext, peers: Peers): Promise<void> {
     const seen = await c.db.get<{ version: number }>(
         "SELECT version FROM copy WHERE name = 'shelves'",
     );
-    const list = readAnswer.shelves(
-        await libraryCalls(peers).shelves(seen?.version),
-    );
+    const list = readShelves(await libraryCalls(peers).shelves(seen?.version));
     await keep(c, { shelves: { version: list.version, value: list.skills } });
 }
 
@@ -914,60 +847,4 @@ async function copies(c: AgentCall, message: Copies): Promise<void> {
 
 async function wakeTimers(c: AgentCall): Promise<void> {
     await withHarness(c, generationOf(c).options, () => resumeDueSleeps(c));
-}
-
-function admissionOf(message: Submit): Admission {
-    const { input } = message;
-    const base = {
-        id: message.id,
-        ...(message.task === undefined ? {} : { task: message.task }),
-    };
-    const from = (author: { agent: number; name?: string }) =>
-        author.name === undefined
-            ? `\`hire#${author.agent}\``
-            : `${author.name} (\`hire#${author.agent}\`)`;
-    switch (input.type) {
-        case "line":
-            return input.note === undefined
-                ? { ...base, kind: "line", content: input.text }
-                : {
-                      ...base,
-                      kind: "line",
-                      note: input.note,
-                      content: `${input.text}${NOTE_BREAK}${input.note}`,
-                  };
-        case "notice":
-            return { ...base, kind: "notice", content: input.text };
-        // As `crates/hamlet_server/src/talk/letters.rs:334` words it, with
-        // the worker as `society/addresses.rs:182` names it.
-        case "worker_answer":
-            return {
-                ...base,
-                kind: "worker-answer",
-                from: { agent: input.worker },
-                content: `worker#${input.worker} answers: ${input.text}`,
-            };
-        case "letter":
-            return {
-                ...base,
-                kind: "letter",
-                from: input.from,
-                content: `A letter from ${from(input.from)}:\n\n${input.text}`,
-            };
-        case "question":
-            return {
-                ...base,
-                kind: "question",
-                from: input.from,
-                question: input.letter,
-                content: `A question from ${from(input.from)}. Your answer to this turn is sent back as the reply:\n\n${input.text}`,
-            };
-        case "answer":
-            return {
-                ...base,
-                kind: "answer",
-                from: input.from,
-                content: `${from(input.from)} answers your question:\n\n${input.text}`,
-            };
-    }
 }

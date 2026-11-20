@@ -3,22 +3,34 @@ use std::sync::Arc;
 
 use hamlet_actor_error::ActorError;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::Input;
+use hamlet_messages::realm::choices::SetNickname;
 use hamlet_messages::realm::documents::{
-    EditSettings, Endpoint, RemoteWorkspace, Setting, SettingRefusal,
+    CardSetting, EditCatalogue, EditSettings, Endpoint,
+    RemoteWorkspace, Setting, SettingRefusal,
 };
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin, Settings,
 };
+use hamlet_messages::realm::oversight::{AskChief, Question};
+use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::SecretsVersion;
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use hamlet_protocol::client::{Choice, RequestId};
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
+use super::asking::chief_task;
 use super::chiefs::chief;
-use super::{MAYOR, Realm, Seen, THREE, hamlet_with, open, until};
+use super::stand_ins::{Seen, open};
+use super::{
+    MAYOR, Realm, THREE, answer, hamlet_with, made_until, say,
+    seen_submits, submits_to, tell, to, tool, until,
+};
 
 fn file(realm: &Realm) -> PathBuf {
     realm.scratch.join("credentials.json")
@@ -665,4 +677,232 @@ async fn a_credential_an_agent_keeps_is_in_the_realms_list_of_secrets()
         );
     }
     realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kept_key_shows_as_removed_in_the_record_a_letter_and_a_note()
+ {
+    const KEY: &str = "sk-made-up-0451";
+    let (realm, hamlet) = hamlet_with(1).await;
+    keep(&realm, "cloudflare", key(KEY)).await;
+    let with_key = format!("use {KEY} for it");
+    let removed = "use [REDACTED] for it";
+
+    let renamed = chief(
+        &realm,
+        SetNickname {
+            hire: to(THREE),
+            name: Some("Spade".to_owned()),
+            why: Some(with_key.clone()),
+        },
+    )
+    .await;
+    realm
+        .tool(MAYOR, &tool("t1", tell(to(THREE), &with_key)))
+        .await
+        .unwrap();
+    let noted = chief(
+        &realm,
+        EditCatalogue {
+            model: "faux::faux-1".to_owned(),
+            set: vec![CardSetting::Note {
+                note: with_key.clone(),
+            }],
+        },
+    )
+    .await;
+    let record = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await;
+    let told = seen_submits(&realm, THREE, 1).await;
+    let catalogue = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT value FROM document WHERE name = 'catalogue'",
+                [],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+        })
+        .await;
+
+    assert_eq!((renamed, noted), (Done::Done, Done::Done));
+    let Record::Read { lines } = record else {
+        panic!("a record: {record:?}");
+    };
+    assert_eq!(
+        lines.last().map(|line| line.text.as_str()),
+        Some(
+            format!("- chief nicknamed hire#3 (Spade): {removed}")
+                .as_str()
+        )
+    );
+    assert!(
+        matches!(&told[0].input, Input::Letter { text, .. } if text == removed),
+        "{told:?}"
+    );
+    let holds = |text: &str| {
+        catalogue
+            .windows(text.len())
+            .any(|window| window == text.as_bytes())
+    };
+    assert!(holds(removed) && !holds(KEY));
+}
+
+const KEPT: &str = "sk-made-up-0452";
+
+fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
+    submits_to(realm, agent)
+        .into_iter()
+        .filter_map(|submit| match submit.input {
+            Input::Notice { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_answer_reaches_the_agent_with_a_kept_key_removed() {
+    let (realm, _) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+    let task = chief_task(&realm, Hand::NUMBER).await;
+    let ask = AskChief {
+        task,
+        conversation: ConversationId("c".to_owned()),
+        message: None,
+        questions: vec![Question {
+            question: "Which key?".to_owned(),
+            description: None,
+            options: Vec::new(),
+            text_input: true,
+        }],
+    };
+    realm.tool(Hand::NUMBER, &tool("a1", ask)).await.unwrap();
+
+    let reply = format!("use {KEPT} please");
+    let ruled = realm
+        .ask(&answer("1", Choice::Reply, Some(&reply)))
+        .await
+        .unwrap();
+    until("the Hand is told", || {
+        !notices(&realm, Hand::NUMBER).is_empty()
+    })
+    .await;
+    let kept = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT ruling FROM wait WHERE id = 1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+        })
+        .await;
+
+    assert_eq!(ruled, Done::Done);
+    assert_eq!(
+        notices(&realm, Hand::NUMBER),
+        ["The chief answers: use [REDACTED] please"]
+    );
+    assert_eq!(kept.as_deref(), Some("use [REDACTED] please"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_line_reaches_the_agent_and_its_task_with_a_kept_key_removed()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    realm
+        .ask(&say(
+            &RequestId::new(),
+            MAYOR,
+            &format!("deploy with {KEPT}"),
+        ))
+        .await
+        .unwrap();
+    let given = seen_submits(&realm, MAYOR, 1).await;
+    let kept = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT text FROM task WHERE text IS NOT NULL",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+
+    assert!(
+        matches!(&given[0].input, Input::Line { text, .. } if text == "deploy with [REDACTED]"),
+        "{given:?}"
+    );
+    assert_eq!(kept, "deploy with [REDACTED]");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_worker_brief_reaches_the_worker_with_a_kept_key_removed()
+ {
+    let (realm, hamlet) = hamlet_with(0).await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    let started = chief(
+        &realm,
+        StartWorker {
+            brief: format!("count with {KEPT}"),
+            hamlet: Some(hamlet),
+            tools: Vec::new(),
+            task: None,
+        },
+    )
+    .await;
+    let input = made_until(&realm, THREE).await;
+
+    assert!(
+        matches!(started, Started::Started { .. }),
+        "{started:?}"
+    );
+    assert_eq!(
+        input.brief.map(|brief| brief.text).as_deref(),
+        Some("count with [REDACTED]")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_kept_after_a_reason_is_removed_from_the_record_read() {
+    let (realm, hamlet) = hamlet_with(1).await;
+    let renamed = chief(
+        &realm,
+        SetNickname {
+            hire: to(THREE),
+            name: Some("Spade".to_owned()),
+            why: Some(format!("use {KEPT} for it")),
+        },
+    )
+    .await;
+    keep(&realm, "anthropic", key(KEPT)).await;
+
+    let read = ReadRecord {
+        hamlet: Some(hamlet),
+    };
+    let by_the_hand = realm
+        .tool(Hand::NUMBER, &tool("r1", read.clone()))
+        .await
+        .unwrap();
+    let by_a_chief = chief(&realm, read).await;
+
+    assert_eq!(renamed, Done::Done);
+    for record in [by_the_hand, by_a_chief] {
+        let Record::Read { lines } = record else {
+            panic!("a record: {record:?}");
+        };
+        assert_eq!(
+            lines.last().map(|line| line.text.as_str()),
+            Some(
+                "- chief nicknamed hire#3 (Spade): use [REDACTED] \
+                 for it"
+            )
+        );
+    }
 }

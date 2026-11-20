@@ -15,21 +15,21 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
+import { textOf } from "./chat-items.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
-import {
-    type ClientActions,
-    type LapseReason,
-    type LetterId,
-    type NewSession,
-    type Resume,
-    type ResumeAnswer,
-    type Retry,
-    type RetryAnswer,
-    type Rewind,
-    type RewindAnswer,
-    u32,
-} from "./messages.ts";
+import type {
+    ClientActions,
+    NewSession,
+    Resume,
+    ResumeAnswer,
+    Retry,
+    RetryAnswer,
+    Rewind,
+    RewindAnswer,
+} from "./messages/agent.ts";
+import type { LapseReason } from "./messages/realm.ts";
+import { type LetterId, u32 } from "./messages/shared.ts";
 import {
     reflectBeforeLeaving,
     reflectIn,
@@ -46,7 +46,7 @@ import {
     session,
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
-import { holdFollowers, refused, textOf } from "./transcript.ts";
+import { holdFollowers, refused } from "./transcript.ts";
 import {
     callOf,
     conversationsOf,
@@ -312,23 +312,16 @@ async function refusedRetry(
     const live = await harness.snapshot(LiveDoc, conversation, context);
     if (live?.run !== undefined) return "running";
     if (live?.runFailure !== undefined) return undefined;
+    // As today, only a session whose last entry is an answer was answered;
+    // an answer with nothing in it failed its turn (C29).
     const kept = await harness.conversation(conversation, context);
-    let cursor: Cursor | undefined;
-    do {
-        const page = await kept?.entries({}, 100, cursor, context);
-        const answer = page?.items.find(
-            (entry) => entry.kind === "pi.assistant",
-        );
-        if (answer !== undefined) {
-            const message = answer.model?.[0] as AssistantMessage | undefined;
-            // An answer with nothing in it failed its turn (C29).
-            return message !== undefined && stands(message)
-                ? "answered"
-                : undefined;
-        }
-        cursor = page?.next;
-    } while (cursor !== undefined);
-    return undefined;
+    const [last] =
+        (await kept?.entries({}, 1, undefined, context))?.items ?? [];
+    const answer =
+        last?.kind === "pi.assistant"
+            ? (last.model?.[0] as AssistantMessage | undefined)
+            : undefined;
+    return answer !== undefined && stands(answer) ? "answered" : undefined;
 }
 
 /**
@@ -380,7 +373,7 @@ export async function rewind(
             return made.id;
         });
         await moveTo(c, from, fork);
-        return { type: "rewound", text: found.text };
+        return found.rewound;
     });
 }
 
@@ -413,7 +406,13 @@ async function lineAt(
     conversation: ConversationId,
     at: EntryId,
     context: Context,
-): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
+): Promise<
+    | RewindRefusal
+    | {
+          rewound: Extract<RewindAnswer, { type: "rewound" }>;
+          before: EntryId | undefined;
+      }
+> {
     if (
         (await isBusy(harness, conversation, context)) ||
         (await hasUnendedCall(harness, conversation, context))
@@ -425,7 +424,16 @@ async function lineAt(
     const [line, before] = page?.items ?? [];
     if (line?.id !== at) return "no_such_item";
     if (line.kind !== "hamlet.line") return "not_a_chief_line";
-    return { text: textOf(line), before: before?.id };
+    const { images, files } = (line.data ?? {}) as Kept;
+    return {
+        rewound: {
+            type: "rewound",
+            text: textOf(line),
+            ...(images === undefined ? {} : { images }),
+            ...(files === undefined ? {} : { files }),
+        },
+        before: before?.id,
+    };
 }
 
 async function hasUnendedCall(

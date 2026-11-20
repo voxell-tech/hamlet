@@ -73,30 +73,7 @@ test(
 );
 
 test(
-    "a TypeScript agent's call to the realm reads message.wrong_caller as its stored fixture holds it, metadata included, across both hops",
-    SKIP,
-    async () => {
-        await inFolder(async (dir) => {
-            const demo = startDemo(dir);
-            await demo.ask("make 1");
-            const read = answer(
-                await demo.ask("tell 1 ask realm local heard 1"),
-                "agent/1/ask",
-            );
-            await stopped(demo, await nodePid(demo, 1));
-            assert.deepEqual(read, {
-                error: {
-                    ...REFUSED_TELL,
-                    message: REFUSED_TELL.message.replace("'tell'", "'heard'"),
-                    metadata: { ...REFUSED_TELL.metadata, action: "heard" },
-                },
-            });
-        });
-    },
-);
-
-test(
-    "an agent's call of the realm's tell reads message.wrong_caller, so the realm calls no agent for it",
+    "an agent's call of the realm's tell reads message.wrong_caller as its stored fixture holds it, metadata included, across both hops, so the realm calls no agent for it",
     SKIP,
     async () => {
         await inFolder(async (dir) => {

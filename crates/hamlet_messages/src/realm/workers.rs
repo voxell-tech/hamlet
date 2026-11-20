@@ -5,12 +5,13 @@ use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AgentRefusal, ChiefRequest, Done, HamletId, LeadRefusal, Named,
-    OnlyAHire, Refusable, SocietyTool, ToolCall, ToolName,
+    AgentName, AgentRefusal, ChiefRequest, Done, DoneTo, HamletId,
+    LeadRefusal, Named, OnlyAHire, Refusable, SocietyTool, ToolCall,
+    ToolName,
 };
 use crate::address::{Agent, Realm};
 use crate::agent::chat::Count;
-use crate::workspace::{AgentNumber, RealmTask};
+use crate::workspace::RealmTask;
 use crate::{Message, worded};
 
 /// The built-in tools a worker may be given: its file tools and its
@@ -63,7 +64,7 @@ impl ToolCall for StartWorker {
 )]
 pub enum Started<W> {
     Started {
-        worker: AgentNumber,
+        worker: AgentName,
     },
     #[serde(serialize_with = "worded")]
     Refused {
@@ -161,5 +162,5 @@ impl ChiefRequest for SetAllowance {
 
 impl ToolCall for SetAllowance {
     const TOOL: SocietyTool = SocietyTool::SetAllowance;
-    type Answer = Done<LeadRefusal<OnlyAHire>>;
+    type Answer = DoneTo<LeadRefusal<OnlyAHire>>;
 }

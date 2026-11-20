@@ -81,7 +81,7 @@ pub struct Brief {
     pub instructions: Option<String>,
     /// The turn's input.
     pub text: String,
-    /// The built-in tools it may use. Empty is its starter's for a
+    /// The built-in tools it may use. Empty is every built-in for a
     /// worker, and none for an errand.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<BuiltIn>,
@@ -136,6 +136,9 @@ pub enum Input {
         /// The note of the lead who reviewed the line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// The name of the chief who said it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chief: Option<String>,
     },
     /// A chief's ruling, or news the realm tells the agent.
     Notice {
@@ -143,8 +146,14 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         conversation: Option<ConversationId>,
     },
-    /// The answer of a worker the agent started.
-    WorkerAnswer { worker: AgentNumber, text: String },
+    /// The answer of a worker the agent started, for the conversation
+    /// it was started from; absent when its start named none.
+    WorkerAnswer {
+        from: Author,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation: Option<ConversationId>,
+    },
     Letter {
         from: Author,
         text: String,
@@ -208,6 +217,13 @@ pub struct Place {
     /// relative path starts; absent when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<PathBuf>,
+    /// Whether its hamlet runs in manual mode.
+    #[serde(default)]
+    pub manual: bool,
+    /// Whether it is a mayor while another hamlet lives, so it may
+    /// agree a road with another hamlet's mayor.
+    #[serde(default)]
+    pub agrees_roads: bool,
 }
 
 impl Action for Place {

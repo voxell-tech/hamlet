@@ -1,49 +1,32 @@
 /**
- * What a client reads and follows: entries as chat items, a chat's page,
- * the history of sessions, and the `chat` events, numbered within the
- * wake's epoch.
+ * A client's following of the chats: a chat's page, the history of
+ * sessions, and the `chat` events, numbered within the wake's epoch.
  */
-import { isDeepStrictEqual } from "node:util";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type {
-    AssistantMessage,
-    ToolResultMessage,
-} from "@earendil-works/pi-ai";
-import {
-    type CommitChange,
-    type ConversationId,
-    type ConversationView,
-    type Cursor,
-    type EntryRecord,
-    type Harness,
-    InboxDoc,
-    type InboxState,
-    LiveDoc,
-    type LiveState,
-    UsageDoc,
-    type UsageState,
+    CommitChange,
+    ConversationId,
+    ConversationView,
+    Cursor,
+    EntryId,
+    Harness,
 } from "@earendil-works/pi-durable";
 import { UserError } from "../actor/actor/mod.ts";
 import { piRuntime, withHarness } from "../pi/runtime.ts";
 import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
-import { clip, editOf } from "./change.ts";
-import {
-    type Author,
-    type ChatEvent,
-    type ChatItem,
-    type ChatOp,
-    type ChatPage,
-    type ChatRef,
-    type ClientActions,
-    type ItemKind,
-    type Open,
-    type Session,
-    type Usage,
-    u32,
-} from "./messages.ts";
-import { scrub, secretsLoaded, withheld } from "./models.ts";
+import { Fold, textOf, timeOf } from "./chat-items.ts";
+import type {
+    ChatEvent,
+    ChatItem,
+    ChatOp,
+    ChatPage,
+    ChatRef,
+    ClientActions,
+    Open,
+    Session,
+} from "./messages/agent.ts";
+import { scrub, secretsLoaded } from "./models.ts";
 import { chiefSession, conversationOfChat, current } from "./sessions.ts";
-import { type Kept, NOTE_BREAK } from "./turn.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */
 export interface Following {
@@ -297,6 +280,8 @@ function foldOf(
             },
             BACKGROUND_CONTEXT,
         );
+        const { before } = observation.value;
+        if (before !== undefined) await counted(at.harness, id, before, fold);
         if (at.made.has(id)) take(observation.value);
         else fold.view(observation.value);
         for (const view of early) take(view);
@@ -307,6 +292,27 @@ function foldOf(
     // A failed attach is tried again by the next read.
     made.catch(() => at.folds.delete(id));
     return made;
+}
+
+/** Counts into `fold` the answers of `id` up to `before`, which its view leaves out. */
+async function counted(
+    harness: Harness,
+    id: ConversationId,
+    before: EntryId,
+    fold: Fold,
+): Promise<void> {
+    const kept = await harness.conversation(id, BACKGROUND_CONTEXT);
+    let cursor: Cursor | undefined;
+    do {
+        const page = await kept?.entries(
+            { order: "ascending", maxEntryId: before },
+            500,
+            cursor,
+            BACKGROUND_CONTEXT,
+        );
+        for (const entry of page?.items ?? []) fold.counted(entry);
+        cursor = page?.next;
+    } while (cursor !== undefined);
 }
 
 async function sent(
@@ -463,373 +469,6 @@ export function refused(words: string): UserError {
     return new UserError(words, { code: "refused" });
 }
 
-interface Shown {
-    readonly block: number;
-    readonly item: ChatItem;
-    readonly call?: string;
-}
-
-/**
- * Turns a conversation's entries and the answer being written into ops on
- * its items, as `crates/hamlet_server/src/clients/fold.rs` folds them. It
- * keeps only the answer being written and the calls not yet answered, so a
- * watch holds no text for the whole wake.
- */
-class Fold {
-    readonly #calls = new Map<string, ChatItem>();
-    readonly #live = new Map<number, ChatItem>();
-    #seen = -1;
-    #lastInput = 0;
-    working = false;
-    pending = 0;
-    usage: Usage = usageOf(undefined, 0);
-
-    streamed(): ChatItem[] {
-        return [...this.#live.values()];
-    }
-
-    view(view: ConversationView): ChatOp[] {
-        const ops: ChatOp[] = [];
-        for (const entry of view.entries) {
-            if (Number(entry.id) > this.#seen) ops.push(...this.entry(entry));
-        }
-        const live = view.docs[LiveDoc.definition.kind] as
-            | LiveState
-            | undefined;
-        ops.push(
-            ...this.#partial(
-                live?.generation?.message as AssistantMessage | undefined,
-            ),
-        );
-        const inbox = view.docs[InboxDoc.definition.kind] as
-            | InboxState
-            | undefined;
-        const working = live?.run !== undefined;
-        const pending =
-            inbox?.items.filter((item) => item.mode !== "write").length ?? 0;
-        if (working !== this.working || pending !== this.pending) {
-            this.working = working;
-            this.pending = pending;
-            ops.push({ type: "status", working, pending });
-        }
-        const usage = usageOf(
-            view.docs[UsageDoc.definition.kind] as UsageState | undefined,
-            this.#lastInput,
-        );
-        if (!isDeepStrictEqual(usage, this.usage)) {
-            this.usage = usage;
-            ops.push({ type: "usage", usage });
-        }
-        return ops;
-    }
-
-    entry(entry: EntryRecord): ChatOp[] {
-        this.#seen = Math.max(this.#seen, Number(entry.id));
-        if (entry.kind === "pi.tool-result") return this.#ended(entry);
-        const answer = entry.kind === "pi.assistant";
-        const ops = itemsOf(entry).map(({ block, item, call }) => {
-            if (call !== undefined) this.#calls.set(call, item);
-            return added(item, answer ? this.#live.get(block)?.id : undefined);
-        });
-        if (answer) {
-            this.#live.clear();
-            const message = entry.model?.[0] as AssistantMessage | undefined;
-            this.#lastInput = message?.usage.input ?? this.#lastInput;
-        }
-        return ops;
-    }
-
-    #ended(entry: EntryRecord): ChatOp[] {
-        const result = entry.model?.[0] as ToolResultMessage | undefined;
-        const item =
-            result === undefined
-                ? undefined
-                : this.#calls.get(result.toolCallId);
-        if (result === undefined || item?.tool === undefined) return [];
-        this.#calls.delete(result.toolCallId);
-        const text = result.content
-            .map((part) => (part.type === "text" ? part.text : ""))
-            .join("");
-        return [
-            added({
-                ...item,
-                tool: {
-                    ...item.tool,
-                    exit: result.isError ? 1 : 0,
-                    ...(result.durationMs === undefined
-                        ? {}
-                        : { ms: u32(result.durationMs) }),
-                    ...(result.isError ? { failure: failureOf(text) } : {}),
-                },
-            }),
-        ];
-    }
-
-    #partial(message: AssistantMessage | undefined): ChatOp[] {
-        if (message === undefined) return [];
-        const ops: ChatOp[] = [];
-        const at = Math.floor(message.timestamp / 1000);
-        for (const { block, item: whole } of blocksOf(
-            message.content,
-            (block) => `live:${block}`,
-            at,
-        )) {
-            if (whole.tool !== undefined) continue;
-            const scrubbed = scrub(whole);
-            // A secret may yet be streaming in.
-            const item = { ...scrubbed, text: withheld(scrubbed.text) };
-            const shown = this.#live.get(block);
-            if (shown !== undefined && item.text === shown.text) continue;
-            this.#live.set(block, item);
-            ops.push(
-                shown !== undefined && item.text.startsWith(shown.text)
-                    ? {
-                          type: "append",
-                          item: item.id,
-                          at: Buffer.byteLength(shown.text),
-                          text: item.text.slice(shown.text.length),
-                      }
-                    : { type: "add", item },
-            );
-        }
-        return ops;
-    }
-}
-
-/**
- * Every item a client reads goes through here or `#partial`, which scrub it,
- * so an `append`'s offset counts the text a client holds.
- */
-function added(item: ChatItem, replaces?: string): ChatOp {
-    return {
-        type: "add",
-        item: scrub(item),
-        ...(replaces === undefined ? {} : { replaces }),
-    };
-}
-
-/** The words a chat shows where earlier entries were summarised (`clients/fold.rs`). */
-const SUMMARY_NOTICE =
-    "The conversation grew longer than the model can hold, so the earlier part of it was summarised.";
-
-/** The items an entry shows; a tool's result shows in its call's item. */
-function itemsOf(entry: EntryRecord): Shown[] {
-    const at = timeOf(entry);
-    const one = (
-        kind: ItemKind,
-        text: string,
-        more: Partial<ChatItem> = {},
-    ): Shown[] => [
-        { block: 0, item: { id: `${entry.id}:0`, at, kind, text, ...more } },
-    ];
-    switch (entry.kind) {
-        case "pi.assistant": {
-            const message = entry.model?.[0] as AssistantMessage | undefined;
-            if (message === undefined) return [];
-            const id = (block: number) => `${entry.id}:${block}`;
-            const shown = blocksOf(message.content, id, at);
-            if (
-                message.stopReason === "error" ||
-                message.stopReason === "aborted"
-            ) {
-                const block = message.content.length;
-                shown.push({
-                    block,
-                    item: {
-                        id: id(block),
-                        at,
-                        kind: "error",
-                        text: message.errorMessage ?? message.stopReason,
-                    },
-                });
-            }
-            return shown;
-        }
-        case "pi.compaction":
-            return one("notice", SUMMARY_NOTICE);
-        // A notice the realm told the model is an input; one for people
-        // alone keeps its text in its data.
-        case "hamlet.notice":
-            return one(
-                "notice",
-                (entry.data as { text?: string } | undefined)?.text ??
-                    textOf(entry),
-            );
-        case "hamlet.reflection":
-            return one("notice", "reflection");
-        case "hamlet.retry":
-            return one("notice", textOf(entry));
-        // The ask-again of a short cut-off (C28) shows as its summary's notice.
-        case "hamlet.cut-off":
-            return [];
-        case "hamlet.line": {
-            const line = one("user", textOf(entry), { rewindable: true });
-            const { note } = (entry.data ?? {}) as Kept;
-            return note === undefined
-                ? line
-                : [
-                      ...line,
-                      {
-                          block: 1,
-                          item: {
-                              id: `${entry.id}:1`,
-                              at,
-                              kind: "notice",
-                              text: note,
-                          },
-                      },
-                  ];
-        }
-        case "hamlet.worker-answer": {
-            const { from } = (entry.data ?? {}) as Kept;
-            return one(
-                "user",
-                textOf(entry),
-                from === undefined ? {} : { author: `worker#${from.agent}` },
-            );
-        }
-        case "hamlet.letter":
-        case "hamlet.question":
-        case "hamlet.answer": {
-            const { from } = (entry.data ?? {}) as Kept;
-            return one(
-                "user",
-                textOf(entry),
-                from === undefined ? {} : { author: authorOf(from) },
-            );
-        }
-        default:
-            return entry.kind === "pi.user" || entry.kind.startsWith("hamlet.")
-                ? one("user", textOf(entry))
-                : [];
-    }
-}
-
-/** As `crates/hamlet_server/src/society/addresses.rs`'s `name_of` shows a hire. */
-function authorOf(from: Author): string {
-    const address = `hire#${from.agent}`;
-    return from.name === undefined ? address : `${address} (${from.name})`;
-}
-
-function blocksOf(
-    content: AssistantMessage["content"],
-    id: (block: number) => string,
-    at: number,
-): Shown[] {
-    const shown: Shown[] = [];
-    for (const [block, part] of content.entries()) {
-        const item = { id: id(block), at };
-        if (part.type === "toolCall") {
-            shown.push({
-                block,
-                call: part.id,
-                item: {
-                    ...item,
-                    kind: "tool",
-                    text: "",
-                    tool: toolOf(part.name, part.arguments),
-                },
-            });
-        } else if (part.type === "text" && part.text.trim() !== "") {
-            shown.push({
-                block,
-                item: { ...item, kind: "assistant", text: part.text },
-            });
-        } else if (part.type === "thinking" && part.thinking.trim() !== "") {
-            shown.push({
-                block,
-                item: { ...item, kind: "reasoning", text: part.thinking },
-            });
-        }
-    }
-    return shown;
-}
-
-function timeOf(entry: EntryRecord): number {
-    const message = entry.model?.[0];
-    if (message !== undefined) return Math.floor(message.timestamp / 1000);
-    const at = (entry.data as { at?: unknown } | undefined)?.at;
-    return typeof at === "number" ? at : 0;
-}
-
-/** Characters of a tool's arguments an item shows (`clients/fold.rs`). */
-const SUMMARY = 200;
-
-function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
-    const change = name === "edit" ? editOf(args) : undefined;
-    return {
-        name,
-        summary: clip(
-            JSON.stringify(args, (_key, value: unknown) =>
-                value !== null &&
-                typeof value === "object" &&
-                !Array.isArray(value)
-                    ? Object.fromEntries(
-                          Object.entries(value).sort(([a], [b]) =>
-                              a < b ? -1 : a > b ? 1 : 0,
-                          ),
-                      )
-                    : value,
-            ) ?? "null",
-            SUMMARY,
-        ),
-        ...(change === undefined ? {} : { change }),
-    };
-}
-
-/** The first line of a failed call's text that says something (`clients/fold.rs`). */
-function failureOf(text: string): string {
-    const line =
-        text
-            .replaceAll("<harness>\n", "")
-            .replaceAll("</harness>\n", "")
-            .replaceAll("<harness>", "")
-            .replaceAll("</harness>", "")
-            .split("\n")
-            .map((part) => (part.startsWith("[error] ") ? part.slice(8) : part))
-            .find((part) => part.trim() !== "") ?? "";
-    return line.startsWith("Error: ") ? line.slice(7) : line;
-}
-
-/**
- * The conversation's spend, from pi-durable's ledger. It counts no calls
- * and no time, which today's server read from its own records.
- */
-function usageOf(state: UsageState | undefined, lastInput: number): Usage {
-    let input = 0;
-    let cached = 0;
-    let output = 0;
-    let reasoning = 0;
-    let dollars = 0;
-    for (const used of Object.values(state?.models ?? {})) {
-        input += used.input;
-        cached += used.cacheRead;
-        output += used.output;
-        reasoning += used.reasoning ?? 0;
-        dollars += used.cost.total;
-    }
-    const micros = Math.round(dollars * 1_000_000);
-    return {
-        calls: "0",
-        unreported: "0",
-        input: `${input}`,
-        cached: `${cached}`,
-        output: `${output}`,
-        reasoning: `${reasoning}`,
-        ms: "0",
-        micros: `${micros}`,
-        last_input: `${lastInput}`,
-        summary: `${input} in, ${output} out, ${money(micros)}`,
-    };
-}
-
-/** As `crates/hamlet_server/src/spend.rs` shows money. */
-function money(micros: number): string {
-    if (micros >= 1 && micros < 10_000) return "<$0.01";
-    const cents = Math.floor((micros + 5_000) / 10_000);
-    return `$${Math.floor(cents / 100)}.${`${cents % 100}`.padStart(2, "0")}`;
-}
-
 /**
  * The chief's sessions, newest first, each titled by its first line, as
  * `crates/hamlet_server/src/clients/documents.rs` lists them. A session
@@ -866,12 +505,7 @@ export async function readHistory(
                     context,
                 );
                 for (const entry of page.items) {
-                    for (const message of entry.model ?? []) {
-                        modified = Math.max(
-                            modified,
-                            Math.floor(message.timestamp / 1000),
-                        );
-                    }
+                    modified = Math.max(modified, timeOf(entry));
                     if (entry.kind === "hamlet.line") {
                         messages += 1;
                         const text = textOf(entry);
@@ -897,24 +531,6 @@ export async function readHistory(
         }
         return { sessions };
     });
-}
-
-/** An entry's words; a reviewed line's are the chief's own, without the lead's note. */
-export function textOf(entry: EntryRecord): string {
-    const text = (entry.model ?? [])
-        .flatMap((message) =>
-            typeof message.content === "string"
-                ? [message.content]
-                : message.content.flatMap((part) =>
-                      part.type === "text" ? [part.text] : [],
-                  ),
-        )
-        .join("");
-    const { note } = (entry.data ?? {}) as Kept;
-    const noted = note === undefined ? undefined : `${NOTE_BREAK}${note}`;
-    return noted !== undefined && text.endsWith(noted)
-        ? text.slice(0, -noted.length)
-        : text;
 }
 
 function titleOf(line: string): string {

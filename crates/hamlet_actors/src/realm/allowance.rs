@@ -10,9 +10,9 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::workers::SetAllowance;
 use hamlet_messages::realm::{
-    AgentRefusal, Done, OnlyAHire, Refusable,
+    AgentName, AgentRefusal, OnlyAHire, Refusable,
 };
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, Numbered};
 
 use super::act::{Act, Decided, Decision, Unchanged};
 use super::callers::Lead;
@@ -21,7 +21,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::limits;
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
-use super::{record, tasks, workers};
+use super::{dreams, record, tasks, workers};
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -114,7 +114,9 @@ pub(super) async fn over(
         if spent_micros >= allowance_micros {
             return Ok(Some(Budget::OverAllowance {
                 hire: hire.agent,
-                name: record::name_of(rows, hire.agent).await?,
+                name: record::agent_name(rows, hire.agent)
+                    .await?
+                    .name,
                 spent_micros,
                 allowance_micros,
             }));
@@ -123,12 +125,16 @@ pub(super) async fn over(
     Ok(None)
 }
 
-/// The agent whose allowances bound `agent`: a worker's starter, and
-/// none for a chief's worker.
+/// The agent whose allowances bound `agent`: a worker's starter, a
+/// dream's errand's hire, and none for a chief's worker or another
+/// errand.
 async fn bounded(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<AgentNumber>> {
+    if let Numbered::Errand(n) = agent.numbered() {
+        return dreams::hire_of(rows, n).await;
+    }
     let starter = rows
         .value::<Option<u32>>(
             "SELECT starter FROM worker WHERE agent = ?1",
@@ -198,46 +204,50 @@ async fn charged(
 }
 
 impl<By: Lead> Act<By> for SetAllowance {
-    type Output = Done<By::Why<OnlyAHire>>;
-    type Loaded = Option<(Lineage, String)>;
-    type Done = ();
+    type Output = By::OnAgent<By::Why<OnlyAHire>>;
+    type Loaded = Option<Lineage>;
+    type Done = AgentName;
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        tree::shown(rows, tree::named(rows, by, &self.hire).await?)
-            .await
+        tree::named(rows, by, &self.hire).await
     }
 
     fn decide(
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<(), Self::Output> {
-        let refuse =
-            |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some((lineage, name)) = named else {
+    ) -> Decision<AgentName, Self::Output> {
+        let refuse = |why| {
+            Decision::Answer(Self::Output::refused(By::refused(why)))
+        };
+        let Some(lineage) = named else {
             return refuse(OnlyAHire::NoSuchAgent {
                 address: self.hire.to_string(),
             });
         };
         if lineage.agent.kind != AgentKind::Hire {
-            return refuse(OnlyAHire::NotAHire { name });
+            return refuse(OnlyAHire::NotAHire {
+                name: lineage.agent.name.name.clone(),
+            });
         }
         let hire = lineage.agent.agent;
-        if let Err(not_a_lead) = by.leads(&lineage, hire) {
-            return Decision::Answer(Done::refused(not_a_lead));
+        if let Err(not_a_lead) = by.leads(&lineage) {
+            return Decision::Answer(Self::Output::refused(
+                not_a_lead,
+            ));
         }
         if let Status::Ended(left) = &lineage.agent.status {
             return refuse(OnlyAHire::Left {
-                hire,
+                hire: lineage.agent.name.clone(),
                 left: left.clone(),
             });
         }
         Decision::Change(
-            Decided::new(())
+            Decided::new(lineage.agent.name.clone())
                 .change(Change::Set {
                     hire,
                     micros: self.micros.map(|micros| {
@@ -254,8 +264,8 @@ impl<By: Lead> Act<By> for SetAllowance {
         )
     }
 
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+    fn answer(&self, hire: AgentName, _made: &Made) -> Self::Output {
+        By::on_agent(hire)
     }
 }
 

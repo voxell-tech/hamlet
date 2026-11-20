@@ -13,13 +13,9 @@ import type {
     HarnessSettings,
 } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type {
-    Finished,
-    Input,
-    OpenTask,
-    ReadAnswer,
-    TaskOpened,
-} from "../src/agent/messages.ts";
+import type { Finished, Input } from "../src/agent/messages/agent.ts";
+import type { OpenTask, TaskOpened } from "../src/agent/messages/realm.ts";
+import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
@@ -953,7 +949,7 @@ test("a letter to a busy agent waits for the next run", async (t) => {
 
     assert.deepEqual((await said(agent, await lettersOf(agent))).slice(-3), [
         "Read.",
-        "A letter from Ada (`hire#12`):\n\nThanks",
+        "Thanks",
         "Thanks.",
     ]);
 });
@@ -1183,7 +1179,15 @@ test("a command a restart cut off is told once, the model reads that it may have
 test("a rewind while a question has no answer goes ahead, and the answer lands in the session it left", async (t) => {
     const agent = await wake(
         t,
-        fakes({ realm: { ask: () => ({ type: "done" }) } }).calls,
+        fakes({
+            realm: {
+                ask: () => ({
+                    type: "waiting",
+                    on: { agent: 12, name: "hire#12" },
+                    question: 1,
+                }),
+            },
+        }).calls,
         [
             toolCall("ask", { to: "hire#12", question: "Which file?" }),
             fauxAssistantMessage("Asked Ada."),

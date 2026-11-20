@@ -18,6 +18,7 @@ use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::sender::{Hand, Scrubber, sender};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
+use hamlet_sandbox::scrub::scrub_text;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -142,6 +143,16 @@ impl Held {
 
     pub fn version(&self) -> SecretsVersion {
         self.held().stored.version
+    }
+
+    /// Every secret the realm holds, longest first.
+    pub fn secrets(&self) -> Vec<String> {
+        self.list().values
+    }
+
+    /// `text` with every secret the realm holds removed.
+    pub fn scrubbed(&self, text: &str) -> String {
+        scrub_text(&self.secrets(), text)
     }
 
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may
@@ -412,7 +423,12 @@ impl Handler<KeepCredential> for Realm {
         let tx = change::Transaction::begin(&ctx).await?;
         let raises = raises(&tx.rows()).await?;
         self.secrets.keep(&keep, by)?;
-        commit(&self, &ctx, tx, raises).await
+        let write = change::Write::<()> {
+            changes: raises,
+            entries: Vec::new(),
+            marker: None,
+        };
+        commit(&self, &ctx, tx, write).await
     }
 }
 
@@ -429,17 +445,12 @@ pub(super) async fn raises(
 }
 
 /// Commits `changes` in `tx`, and makes the pushes they raise.
-pub(super) async fn commit(
+pub(super) async fn commit<D: Serialize>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     tx: change::Transaction,
-    changes: Vec<change::Change>,
+    write: change::Write<'_, D>,
 ) -> Result<()> {
-    let write = change::Write::<()> {
-        changes,
-        entries: Vec::new(),
-        marker: None,
-    };
     let pushes = tx.commit(realm, write).await?;
     ctx.register_task(calls::after_answer(
         realm.clone(),
@@ -540,7 +551,8 @@ mod tests {
                 (started.realm.clone(), started.ctx.clone());
             let read = tokio::spawn(async move {
                 let rows = Rows::outside(&ctx)?;
-                reach::of(&rows, HIRE, &realm.secrets).await
+                reach::of(&rows, HIRE, &realm.secrets, &realm.folder)
+                    .await
             });
             let tx = change::Transaction::begin(&started.ctx)
                 .await
@@ -558,7 +570,12 @@ mod tests {
                 .secrets
                 .keep(&keep, Agent(Hand::NUMBER))
                 .unwrap();
-            commit(&started.realm, &started.ctx, tx, raises)
+            let write = change::Write::<()> {
+                changes: raises,
+                entries: Vec::new(),
+                marker: None,
+            };
+            commit(&started.realm, &started.ctx, tx, write)
                 .await
                 .unwrap();
             let set = read.await.unwrap().unwrap();

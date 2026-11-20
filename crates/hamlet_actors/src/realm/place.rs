@@ -3,6 +3,7 @@ mod push;
 use anyhow::Result;
 use hamlet_messages::agent::{Place, PlaceVersion};
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::reach::Mode;
 pub(super) use push::send;
 
 use super::change::Rows;
@@ -16,12 +17,19 @@ pub(super) async fn of(
     let version = PlaceVersion(versions::place(rows, agent).await?);
     let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
-    let folder = match chiefs::hamlet::of_agent(rows, agent).await? {
-        Some(hamlet) => chiefs::hamlet(rows, &hamlet)
-            .await?
-            .and_then(|hamlet| hamlet.folder),
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => chiefs::hamlet(rows, &hamlet).await?,
         None => None,
     };
+    let agrees_roads = match &hamlet {
+        Some(found) if found.mayor == agent => {
+            chiefs::another_lives(rows, &found.id).await?
+        }
+        _ => false,
+    };
+    let (folder, mode) =
+        hamlet.map(|hamlet| (hamlet.folder, hamlet.mode)).unzip();
+    let folder = folder.flatten();
     let (hires, roads) = roads::of(rows, agent)
         .await?
         .into_iter()
@@ -36,7 +44,9 @@ pub(super) async fn of(
         hires,
         roads,
         tools_off: tree::tools::off_for(rows, agent).await?,
+        manual: folder.is_some() && mode == Some(Mode::Manual),
         folder,
+        agrees_roads,
     })
 }
 
@@ -48,6 +58,27 @@ mod tests {
     use super::*;
 
     const HIRE: AgentNumber = AgentNumber(3);
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_mayor_agrees_roads_only_while_another_hamlet_lives() {
+        let started = Started::new().await;
+        let mill = HamletId("mill".to_owned());
+        started.found(&mill, AgentNumber(2)).await;
+        started.hire(&mill, HIRE, Some(AgentNumber(2))).await;
+        let agrees = |agent| {
+            let rows = started.rows();
+            async move { of(&rows, agent).await.unwrap().agrees_roads }
+        };
+        assert!(!agrees(AgentNumber(2)).await);
+
+        started
+            .found(&HamletId("pond".to_owned()), AgentNumber(4))
+            .await;
+        assert!(agrees(AgentNumber(2)).await);
+        assert!(agrees(AgentNumber(4)).await);
+        assert!(!agrees(HIRE).await);
+        started.stop().await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_place_is_never_older_than_its_version() {

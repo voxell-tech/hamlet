@@ -26,7 +26,8 @@ use super::super::act::{Act, Decided, Decision};
 use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::tasks::{Origin, TaskId};
-use super::super::waits::{self, Raised, Ruling};
+use super::super::waits::answer::Ruling;
+use super::super::waits::{self, Raised};
 use super::super::{Realm, letters, parcels, record, reviews, tree};
 
 #[derive(Debug, PartialEq)]
@@ -675,7 +676,7 @@ impl Act<Agent> for Object {
         let Some(reason) = trimmed(Some(&self.reason)) else {
             return Ok(Err(ObjectRefusal::NoReason));
         };
-        let name = record::name_of(rows, by.0).await?;
+        let name = record::agent_name(rows, by.0).await?.name;
         let opening = Opening {
             wait: waits::next(rows).await?,
             raised: Raised {

@@ -155,6 +155,7 @@ fn item(id: &str, kind: protocol::ItemKind, text: &str) -> ChatItem {
         kind,
         text: text.into(),
         author: None,
+        chief: None,
         images: Vec::new(),
         files: Vec::new(),
         rewindable: None,
@@ -202,7 +203,6 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     for (case, why) in [
         ("running", RetryRefusal::Running),
         ("answered", RetryRefusal::Answered),
-        ("no_turn", RetryRefusal::NoTurn),
     ] {
         fixtures.answer(
             &format!("agent/retry.refused.{case}"),
@@ -472,10 +472,27 @@ fn event() -> ChatEvent {
         ops: vec![
             ChatOp::Add {
                 item: Box::new(ChatItem {
-                    author: Some("hire#3".into()),
                     rewindable: Some(true),
+                    chief: Some("ada".into()),
+                    images: images(),
+                    files: files(),
                     ..item("i8", protocol::ItemKind::User, "Go on")
                 }),
+                replaces: None,
+            },
+            ChatOp::Add {
+                item: Box::new(ChatItem {
+                    author: Some("hire#3 (Ada)".into()),
+                    ..item("i8b", protocol::ItemKind::User, "Hello.")
+                }),
+                replaces: None,
+            },
+            ChatOp::Add {
+                item: Box::new(item(
+                    "i8c",
+                    protocol::ItemKind::Assistant,
+                    "Going on.",
+                )),
                 replaces: Some("p1".into()),
             },
             ChatOp::Append {

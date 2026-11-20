@@ -4,17 +4,16 @@ use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{Done, Tool};
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, CallId, ConversationId, RealmTask,
 };
 
+use super::stand_ins::{
+    Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, SKILL_MD,
+};
 use super::{
-    Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, Realm, SKILL_MD,
-    THREE, hamlet_with, made_until, seen_submits, standing, until,
+    Realm, THREE, errand, hamlet_with, made_until, seen_submits,
+    standing, until,
 };
-
-fn errand(n: u32) -> AgentNumber {
-    ErrandNumber::new(n).unwrap().agent()
-}
 
 fn in_conversation<T>(call: &str, act: T) -> Tool<T> {
     Tool {
@@ -82,7 +81,7 @@ async fn the_librarians_answer_reaches_the_asker_after_the_call() {
              say so."
         ))
     );
-    assert_eq!(brief.text, "hire#3 asks: Which skill digs?");
+    assert_eq!(brief.text, "hire#3 (Hire 1) asks: Which skill digs?");
     ended(
         &realm,
         0,
@@ -175,8 +174,9 @@ async fn the_librarians_verdict_reaches_the_library_then_the_offerer()
     assert_eq!(
         brief.text,
         format!(
-            "hire#3 offers the skill `well`: for digging\n\nIts \
-             files: SKILL.md, dig.sh\n\nIts SKILL.md:\n{SKILL_MD}"
+            "hire#3 (Hire 1) offers the skill `well`: for \
+             digging\n\nIts files: SKILL.md, dig.sh\n\nIts \
+             SKILL.md:\n{SKILL_MD}"
         )
     );
     ended(

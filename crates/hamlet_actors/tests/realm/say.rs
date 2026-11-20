@@ -8,10 +8,10 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::asking::{chief_task, given, objection, open_waits};
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, error_code,
-    founded, hamlet_with, paid, say, submits_to, tell, to, tool,
-    until,
+    FOUR, MAYOR, Realm, THREE, answer, error_code, founded,
+    hamlet_with, paid, say, shown, submits_to, tell, to, tool, until,
 };
 
 async fn mayor_held_at_its_branch(realm: &Realm) {
@@ -61,6 +61,7 @@ async fn a_repeated_say_opens_one_task_and_submits_again() {
             images: Vec::new(),
             files: Vec::new(),
             note: None,
+            chief: Some("chief".to_owned()),
         },
     };
     assert_eq!(submits_to(&realm, MAYOR), [submit.clone(), submit]);
@@ -119,7 +120,9 @@ async fn a_say_to_a_hiring_hire_waits_for_its_steps() {
     assert_eq!(
         answer,
         SayAnswer::Refused {
-            why: SayRefusal::StillHiring { agent: MAYOR }
+            why: SayRefusal::StillHiring {
+                agent: shown(MAYOR)
+            }
         }
     );
     assert!(submits_to(&realm, MAYOR).is_empty());

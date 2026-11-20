@@ -6,8 +6,8 @@ use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, HamletId, Named,
-    Refusable,
+    AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed,
+    HamletId, Named, Refusable,
 };
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,6 @@ pub(super) enum Change {
         a: AgentNumber,
         b: AgentNumber,
         by: AgentNumber,
-        why: Option<String>,
     },
     /// The road between `a` and `b` is laid: its agreements are
     /// spent.
@@ -39,18 +38,16 @@ pub(super) async fn apply(
     change: Change,
 ) -> Result<Affected> {
     match change {
-        Change::Agree { a, b, by, why } => {
+        Change::Agree { a, b, by } => {
             let mut params = laid::key(a, b);
             params.extend([
                 number(by),
-                why.map_or(BindParam::Null, BindParam::Text),
                 BindParam::Integer(writer.at().0),
             ]);
             writer
                 .execute(
-                    "INSERT INTO agreement (a, b, by, why, at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO \
-                     NOTHING",
+                    "INSERT INTO agreement (a, b, by, at) VALUES \
+                     (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
                     params,
                 )
                 .await?;
@@ -74,14 +71,8 @@ pub(super) struct Agreeing {
     ends: Result<(Lineage, Lineage), Named>,
     allowed: bool,
     has_road: bool,
-    /// The half the mayor of the other end's hamlet agreed already.
-    agreed_there: Option<Half>,
-}
-
-/// One mayor's agreement.
-pub(super) struct Half {
-    by: AgentNumber,
-    why: Option<String>,
+    /// Whether the mayor of the other end's hamlet agreed already.
+    agreed_there: bool,
 }
 
 impl Agreeing {
@@ -101,7 +92,7 @@ impl Agreeing {
             ends: Err(mine.clone()),
             allowed: limits::roads_between(rows).await?,
             has_road: false,
-            agreed_there: None,
+            agreed_there: false,
         };
         let Some(mine) = tree::named(rows, by, mine).await? else {
             return Ok(agreeing);
@@ -125,29 +116,26 @@ impl Agreeing {
             let mut params = laid::key(a, b);
             params.push(BindParam::Text(own.0.clone()));
             agreeing.agreed_there = rows
-                .row::<(u32, Option<String>)>(
-                    "SELECT agreement.by, agreement.why FROM \
-                     agreement JOIN hire ON hire.agent = \
-                     agreement.by WHERE agreement.a = ?1 AND \
-                     agreement.b = ?2 AND hire.hamlet != ?3",
+                .value::<u32>(
+                    "SELECT agreement.by FROM agreement JOIN hire \
+                     ON hire.agent = agreement.by WHERE agreement.a \
+                     = ?1 AND agreement.b = ?2 AND hire.hamlet != ?3",
                     params,
                 )
                 .await?
-                .map(|(by, why)| Half {
-                    by: AgentNumber(by),
-                    why,
-                });
+                .is_some();
         }
         agreeing.ends = Ok((mine, theirs));
         Ok(agreeing)
     }
 }
 
-/// What a mayor's half came to.
+/// What a mayor's half of the road between `mine` and `theirs` came
+/// to.
 #[derive(Serialize, Deserialize)]
 pub(super) enum Outcome {
-    Waiting,
-    Laid,
+    Waiting { mine: AgentName, theirs: AgentName },
+    Laid { mine: AgentName, theirs: AgentName },
 }
 
 impl Act<Agent> for AgreeRoad {
@@ -211,50 +199,47 @@ impl Act<Agent> for AgreeRoad {
             return refuse(AgreeRefusal::NotAMayor);
         }
         let (a, b) = (mine.agent.agent, theirs.agent.agent);
+        let names =
+            (mine.agent.name.clone(), theirs.agent.name.clone());
         if agreeing.has_road {
+            let (a, b) = names;
             return refuse(AgreeRefusal::RoadExists { a, b });
         }
-        let Some(first) = agreeing.agreed_there else {
+        let (mine, theirs) = names;
+        if !agreeing.agreed_there {
             return Decision::Change(
-                Decided::new(Outcome::Waiting).change(
-                    Change::Agree {
-                        a,
-                        b,
-                        by: by.0,
-                        why: self.why.clone(),
-                    },
-                ),
+                Decided::new(Outcome::Waiting { mine, theirs })
+                    .change(Change::Agree { a, b, by: by.0 }),
             );
+        }
+        let agreed = |hamlet: &HamletId| record::Entry::RoadAgreed {
+            hamlet: hamlet.clone(),
+            a,
+            b,
+            by: by.by(),
+            why: self.why.clone(),
         };
-        let (here, there) =
-            if hamlets[0] == own { (a, b) } else { (b, a) };
         Decision::Change(
-            Decided::new(Outcome::Laid)
+            Decided::new(Outcome::Laid { mine, theirs })
                 .change(laid::Change::Agreed {
                     a,
                     b,
                     hamlet: own.clone(),
                 })
                 .change(Change::Spent { a, b })
-                .record(record::Entry::RoadAgreed {
-                    a: here,
-                    b: there,
-                    by: by.by(),
-                    why: self.why.clone(),
-                })
-                .record(record::Entry::RoadAgreed {
-                    a: there,
-                    b: here,
-                    by: record::By::Agent(first.by),
-                    why: first.why,
-                }),
+                .record(agreed(hamlets[0]))
+                .record(agreed(hamlets[1])),
         )
     }
 
     fn answer(&self, done: Outcome, _made: &Made) -> Self::Output {
         match done {
-            Outcome::Waiting => Agreed::Waiting,
-            Outcome::Laid => Agreed::Laid,
+            Outcome::Waiting { mine, theirs } => {
+                Agreed::Waiting { mine, theirs }
+            }
+            Outcome::Laid { mine, theirs } => {
+                Agreed::Laid { mine, theirs }
+            }
         }
     }
 }

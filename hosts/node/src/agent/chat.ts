@@ -17,7 +17,7 @@ import {
     rewind,
     stop,
 } from "./commands.ts";
-import { type ClientActions, readClient } from "./messages.ts";
+import { type ClientActions, readClient } from "./messages/agent.ts";
 import { agentKeys, checkModel, modelList, secretsLoaded } from "./models.ts";
 import { renderPrompt } from "./prompt.ts";
 import { readChat, readHistory } from "./transcript.ts";

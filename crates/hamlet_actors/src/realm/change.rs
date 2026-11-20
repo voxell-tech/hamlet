@@ -20,8 +20,8 @@ use super::workers::errands;
 use super::{
     Realm, allowance, budget, chiefs, documents, dreams, laid,
     letters, librarian, marker, oversight, parcels, profiles, record,
-    reviews, settings, society, steps, tasks, tree, versions, waits,
-    workers, world,
+    reviews, secrets, settings, society, steps, tasks, tree,
+    versions, waits, workers, world,
 };
 
 #[derive(Debug, PartialEq)]
@@ -306,6 +306,7 @@ columns!(
     (A a, B b, C c, D d),
     (A a, B b, C c, D d, E e),
     (A a, B b, C c, D d, E e, F f),
+    (A a, B b, C c, D d, E e, F f, G g),
 );
 
 pub(super) fn integer<N>(n: N) -> Result<BindParam>
@@ -346,6 +347,7 @@ fn read_only(sql: &str) -> Result<()> {
 pub(super) struct Writer<'a> {
     statements: &'a handle::Statements,
     at: At,
+    secrets: &'a secrets::Held,
 }
 
 impl Writer<'_> {
@@ -368,6 +370,12 @@ impl Writer<'_> {
 
     pub fn at(&self) -> At {
         self.at
+    }
+
+    /// `text` with every secret the realm holds removed, as the realm
+    /// keeps a text a model reads.
+    pub fn scrubbed(&self, text: &str) -> String {
+        self.secrets.scrubbed(text)
     }
 }
 
@@ -505,6 +513,7 @@ impl Transaction {
         let writer = Writer {
             statements: &self.statements,
             at: self.at,
+            secrets: &realm.secrets,
         };
         let written = async {
             let mut affected = Affected::default();

@@ -32,6 +32,8 @@ pub(super) enum Kind {
     Review,
     Parcel,
     Dream,
+    /// A dream's end, after its errand.
+    DreamEnd,
     Verdict,
     DropParts,
 }
@@ -286,7 +288,7 @@ where
             return None;
         };
         if peer::refused(&error) {
-            return Some(error.root_cause().to_string());
+            return Some(peer::words(&error));
         }
         wait =
             Some(wait.map_or(FIRST_RETRY, |wait| {
@@ -317,7 +319,8 @@ async fn end_failed(
         }
         Kind::Review => (reviews::failed(row.n)?, Calls::none()),
         Kind::Parcel => parcels::failed(&rows, row.n).await?,
-        Kind::Dream | Kind::Verdict | Kind::DropParts => {
+        Kind::Dream => (dreams::failed(row.n)?, Calls::none()),
+        Kind::DreamEnd | Kind::Verdict | Kind::DropParts => {
             (vec![Change::Close { row }.into()], Calls::none())
         }
     };
@@ -370,6 +373,12 @@ async fn walk_row(
         Kind::Dream => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 dreams::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::DreamEnd => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                dreams::end(cx, row.n, step).await
             })
             .await
         }

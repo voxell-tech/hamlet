@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -8,22 +9,34 @@ use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
-use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
+use hamlet_messages::workspace::{
+    AgentNumber, InForce, Numbered, SetReach,
+};
 
 use super::change::{self, Rows, number};
 use super::peer::When;
-use super::{Realm, chiefs, oversight, secrets, tree, versions};
+use super::{
+    Realm, chiefs, dreams, oversight, secrets, tree, versions,
+};
 
 /// `agent`'s reach as the rows give it now, under its wanted version,
 /// asking for the secrets `secrets` holds then; `Reach::Ended` for an
-/// agent that ended.
+/// agent that ended. `folder` is the realm folder.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
     secrets: &secrets::Held,
+    folder: &Path,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
     let secrets = secrets.version();
+    if let Numbered::Errand(n) = agent.numbered() {
+        return Ok(SetReach {
+            agent,
+            version,
+            reach: dreams::reach(rows, n, folder, secrets).await?,
+        });
+    }
     let worker = rows
         .row::<(Option<u32>, Option<String>)>(
             "SELECT starter, hamlet FROM worker WHERE agent = ?1",
@@ -90,7 +103,13 @@ pub(super) async fn push(
     ctx: &Ctx<Realm>,
     agent: AgentNumber,
 ) -> Result<()> {
-    let set = of(&Rows::outside(ctx)?, agent, &realm.secrets).await?;
+    let set = of(
+        &Rows::outside(ctx)?,
+        agent,
+        &realm.secrets,
+        &realm.folder,
+    )
+    .await?;
     let InForce { version } = realm
         .peers
         .call(&Workspace, &set, When::AfterAnswer)
@@ -135,7 +154,8 @@ mod tests {
                 .race(
                     |ctx| async move {
                         let rows = Rows::outside(&ctx)?;
-                        of(&rows, HIRE, &realm.secrets).await
+                        of(&rows, HIRE, &realm.secrets, &realm.folder)
+                            .await
                     },
                     &[
                         &end,

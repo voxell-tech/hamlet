@@ -49,7 +49,10 @@
 //!     <text ...>
 //! demo agent <n> ask <call> <to> <text ...>
 //!                    send a letter or a question as agent <n>'s call
-//!                    <call>, to `hand`, `mayor` or `hire#<k>`
+//!                    <call>, to `hand`, `mayor` or `hire#<k>`; a
+//!                    letter with the files at the absolute paths
+//!                    <p>, in agent <n>'s hamlet's folder, which its
+//!                    receiver finds in its inbox
 //! demo agent <n> reply <question> <text ...>
 //!                    answer the question <question>
 //! demo agent <n> ask-chief <call> <task> <question ...>
@@ -158,7 +161,7 @@ use hamlet_messages::realm::{
     AgentRefusal, AgreeRoad, Agreed, Ask, ChiefRequest, Done,
     Enclosed, End, Found, FoundAnswer, HamletId, Hire, HireAnswer,
     LayRoad, LetterId, LetterRefusal, Limit, Named, ProfileId, Reply,
-    Review, SetLimits, Tell, Tier, Tool,
+    Review, Sent, SetLimits, Tell, Tier, Tool, Waiting,
 };
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_messages::workspace::{
@@ -284,7 +287,7 @@ async fn as_chief(
             .await?
             {
                 HireAnswer::Hired { agent } => {
-                    writeln!(out, "hired/{call} {}", agent.0)?;
+                    writeln!(out, "hired/{call} {}", agent.agent.0)?;
                 }
                 HireAnswer::Refused { why } => refused(call, &why)?,
             }
@@ -586,8 +589,8 @@ async fn as_agent(
             )
             .await?
             {
-                Done::Done => writeln!(out, "sent/{call} 1")?,
-                Done::Refused { why } => refused(call, &why)?,
+                Sent::Sent { .. } => writeln!(out, "sent/{call} 1")?,
+                Sent::Refused { why } => refused(call, &why)?,
             }
         }
         [verb, call, task, question @ ..]
@@ -650,7 +653,11 @@ async fn as_agent(
             .await?
             {
                 Started::Started { worker } => {
-                    writeln!(out, "started/{call} {}", worker.0)?;
+                    writeln!(
+                        out,
+                        "started/{call} {}",
+                        worker.agent.0
+                    )?;
                 }
                 Started::Refused { why } => refused(call, &why)?,
             }
@@ -784,8 +791,12 @@ async fn as_agent(
             )
             .await?
             {
-                Agreed::Waiting => writeln!(out, "waiting/{call} 1")?,
-                Agreed::Laid => writeln!(out, "laid/{call} 1")?,
+                Agreed::Waiting { .. } => {
+                    writeln!(out, "waiting/{call} 1")?;
+                }
+                Agreed::Laid { .. } => {
+                    writeln!(out, "laid/{call} 1")?;
+                }
                 Agreed::Refused { why } => refused(call, &why)?,
             }
         }
@@ -829,8 +840,10 @@ async fn as_agent(
             )
             .await?
             {
-                Done::Done => writeln!(out, "sent/{call} 1")?,
-                Done::Refused { why } => refused(call, &why)?,
+                Waiting::Waiting { .. } => {
+                    writeln!(out, "sent/{call} 1")?;
+                }
+                Waiting::Refused { why } => refused(call, &why)?,
             }
         }
         [verb, question, text @ ..] if verb == "reply" => {
@@ -885,7 +898,7 @@ async fn as_agent(
             for letter in 1..=count {
                 let call = format!("letter-{letter}");
                 let text = format!("letter {letter}");
-                if let Done::Refused { why } =
+                if let Sent::Refused { why } =
                     tell(host, me, &call, named(to)?, text).await?
                 {
                     bail!("{call} was refused: {why}");
@@ -1116,7 +1129,7 @@ async fn tell(
     call: &str,
     to: Named,
     text: String,
-) -> Result<Done<AgentRefusal<LetterRefusal>>> {
+) -> Result<Sent<AgentRefusal<LetterRefusal>>> {
     let tell = Tell {
         to,
         text,

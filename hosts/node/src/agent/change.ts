@@ -2,7 +2,7 @@
  * An edit's change as a chat shows it, a port of
  * `crates/hamlet_server/src/work/cut.rs`'s diff.
  */
-import type { ToolChange } from "./messages.ts";
+import type { ToolChange } from "./messages/agent.ts";
 
 /** The most lines of an edit's change kept, and characters of a line (`work/cut.rs`). */
 const KEPT = 200;
@@ -32,7 +32,29 @@ export function editOf(args: unknown): ToolChange | undefined {
         old.push(edit.oldText);
         now.push(edit.newText);
     }
-    const lines = compare(old.join("\n"), now.join("\n"));
+    return changeBetween(path, old.join("\n"), now.join("\n"), false);
+}
+
+/** A write's change when it made its file, as `work/cut.rs`'s `change_of`. */
+export function madeOf(args: unknown): ToolChange | undefined {
+    const { path, content } = (args ?? {}) as {
+        path?: unknown;
+        content?: unknown;
+    };
+    if (typeof path !== "string" || typeof content !== "string") {
+        return undefined;
+    }
+    return changeBetween(path, "", content, true);
+}
+
+/** The change of `old` into `now` at `path` (`work/cut.rs`). */
+function changeBetween(
+    path: string,
+    old: string,
+    now: string,
+    created: boolean,
+): ToolChange {
+    const lines = compare(old, now);
     const first = lines.findIndex(([mark]) => mark !== "same");
     const last = lines.findLastIndex(([mark]) => mark !== "same");
     const shown =
@@ -44,18 +66,19 @@ export function editOf(args: unknown): ToolChange | undefined {
     const count = (n: number) => (n === 1 ? "1 line" : `${n} lines`);
     return {
         path: clip(path, WIDE),
-        created: false,
+        created,
         added,
         removed,
         total: shown.length,
-        count:
-            added === 0 && removed === 0
-                ? "No line changed"
-                : removed === 0
-                  ? `${count(added)} added`
-                  : added === 0
-                    ? `${count(removed)} removed`
-                    : `${count(added)} added, ${removed} removed`,
+        count: created
+            ? `New file, ${count(added)}`
+            : added === 0 && removed === 0
+              ? "No line changed"
+              : removed === 0
+                ? `${count(added)} added`
+                : added === 0
+                  ? `${count(removed)} removed`
+                  : `${count(added)} added, ${removed} removed`,
         lines: shown
             .slice(0, KEPT)
             .map(([mark, text]) => ({ mark, text: clip(text, WIDE) })),

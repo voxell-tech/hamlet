@@ -22,20 +22,6 @@ pub enum Payer {
     Hamlet { hamlet: HamletId },
 }
 
-impl std::fmt::Display for Payer {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::Realm => f.write_str("the realm"),
-            Self::Hamlet { hamlet } => {
-                write!(f, "the hamlet `{}`", hamlet.0)
-            }
-        }
-    }
-}
-
 /// One limit of a payer's budget, as a chief sets it (H8).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -49,6 +35,10 @@ pub enum BudgetLimit {
     Time {
         ms: u64,
     },
+    /// Takes the cost cap away.
+    NoCost,
+    /// Takes the time cap away.
+    NoTime,
     Period {
         period: Period,
     },
@@ -115,9 +105,10 @@ pub enum Budget {
     #[error("the realm holds no such task")]
     NoSuchTask,
     #[error(
-        "the budget of {payer} has run out: {spent_micros} of \
-         {budget_micros} millionths of a dollar spent; a chief \
-         starts it again with /reset-budget"
+        "{} of {} is spent. A chief can raise it, or start its period \
+         again with /reset-budget.",
+        budget_of(payer),
+        money(*budget_micros)
     )]
     OverCost {
         payer: Payer,
@@ -125,9 +116,9 @@ pub enum Budget {
         budget_micros: u64,
     },
     #[error(
-        "the model time of {payer} has run out: {spent_ms} of \
-         {budget_ms} ms spent; a chief starts it again with \
-         /reset-budget"
+        "{} of {} of model time is spent.",
+        budget_of(payer),
+        duration(*budget_ms)
     )]
     OverTime {
         payer: Payer,
@@ -146,6 +137,28 @@ pub enum Budget {
         spent_micros: u64,
         allowance_micros: u64,
     },
+}
+
+/// The budget of `payer`, as its spending's refusal opens.
+fn budget_of(payer: &Payer) -> String {
+    match payer {
+        Payer::Realm => "The realm's budget".to_owned(),
+        Payer::Hamlet { hamlet } => {
+            format!("The hamlet `{}`'s budget", hamlet.0)
+        }
+    }
+}
+
+/// `ms` in seconds, minutes, or hours and minutes, as `1h 05m`.
+fn duration(ms: u64) -> String {
+    let seconds = ms / 1000;
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3600 {
+        format!("{}m", seconds / 60)
+    } else {
+        format!("{}h {:02}m", seconds / 3600, seconds % 3600 / 60)
+    }
 }
 
 /// `micros` in dollars to the cent, as `$1.23`, or `<$0.01` for less

@@ -19,6 +19,17 @@ pub enum Reach {
         starter: Option<AgentNumber>,
         footing: Footing,
     },
+    /// A dream's errand, which works in `main`, the checkout of its
+    /// profile's main inside the realm folder, also writes `hire`,
+    /// the checkout of a hire's branch, and never waits for a chief.
+    Dream {
+        main: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hire: Option<PathBuf>,
+        /// Its hire's network, or the Hand's for a profile's dream.
+        network: bool,
+        secrets: SecretsVersion,
+    },
     /// The agent ended. Its row stays, so an older reach that arrives
     /// late cannot bring it back.
     Ended,
@@ -114,13 +125,32 @@ pub(crate) fn needs_words(needs: &[Need]) -> String {
 }
 
 impl Reach {
-    /// The footing of a reach that has not ended.
+    /// The footing of an agent's or a worker's reach.
     pub fn footing(&self) -> Option<&Footing> {
         match self {
             Self::Agent(footing) | Self::Worker { footing, .. } => {
                 Some(footing)
             }
-            Self::Ended => None,
+            Self::Dream { .. } | Self::Ended => None,
+        }
+    }
+
+    /// Whether its programs reach the network without asking.
+    pub fn network(&self) -> bool {
+        match self {
+            Self::Dream { network, .. } => *network,
+            _ => {
+                self.footing().is_some_and(|footing| footing.network)
+            }
+        }
+    }
+
+    /// The version of the realm's secrets in force, for a reach that
+    /// has not ended.
+    pub fn secrets(&self) -> Option<SecretsVersion> {
+        match self {
+            Self::Dream { secrets, .. } => Some(*secrets),
+            _ => self.footing().map(|footing| footing.secrets),
         }
     }
 }

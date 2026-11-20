@@ -13,24 +13,23 @@ import {
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { omitUndefined } from "../actor/common/utils.ts";
+import type { Outcome } from "./messages/agent.ts";
+import { type Refused, u32 } from "./messages/shared.ts";
 import {
     type Change,
     type ChangeEnd,
     type Need,
-    type Outcome,
     type Program,
     type ReadAnswer,
-    type Refused,
     type RunEnd,
     type Text,
-    u32,
+    type ToolList,
     WORKSPACE,
-} from "./messages.ts";
+} from "./messages/workspace.ts";
 import {
     callOut,
     failed,
     interrupted,
-    listTools,
     MAY_HAVE_RUN,
     type Peers,
     thrown,
@@ -334,8 +333,10 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
     }
 }
 
-export function wrote(path: string): ToolExecutionResult {
-    return words(`Successfully wrote to ${path}`);
+/** A write's words; one that `created` its file says so to the transcript. */
+export function wrote(path: string, created = false): ToolExecutionResult {
+    const result = words(`Successfully wrote to ${path}`);
+    return created ? { ...result, details: { created } } : result;
 }
 
 /** Today's edit words (`crates/hamlet_server/src/work/tools/files.rs`). */
@@ -380,7 +381,7 @@ export function readResult(
  */
 function changed(end: ChangeEnd, blocks?: number): ToolExecutionResult {
     if (end.type !== "changed") return failed(end.words);
-    if (end.diff === undefined) return wrote(end.path);
+    if (end.diff === undefined) return wrote(end.path, end.created);
     return blocks === undefined
         ? words(`Changed ${end.path}.\n${end.diff.diff}`)
         : replaced(end.path, blocks, end.diff);
@@ -572,8 +573,11 @@ export function workspaceTools(peers: Peers): Extension {
     });
 }
 
-export async function handTools(peers: Peers): Promise<Extension> {
-    const list = await listTools(peers);
+export async function handTools(
+    peers: Peers,
+    tools: () => Promise<ToolList>,
+): Promise<Extension> {
+    const list = await tools();
     return defineExtension({
         name: "hamlet.hand-tools",
         tools: list.tools.map((tool) =>

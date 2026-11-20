@@ -318,7 +318,7 @@ impl Handler<ListTools> for Workspace {
         listed: ListTools,
     ) -> Result<ToolList> {
         sender(&ctx, &listed)?;
-        Ok(tools::list(&self.home))
+        Ok(tools::list(&self.home, self.sandbox))
     }
 }
 
@@ -1076,7 +1076,7 @@ impl Handler<SetReach> for Workspace {
                     );
                 }
             }
-            Some(Reach::Agent(_)) | None => {}
+            Some(Reach::Agent(_) | Reach::Dream { .. }) | None => {}
         }
         Ok(InForce { version: in_force })
     }

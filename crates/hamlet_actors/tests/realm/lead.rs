@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank, Tool,
+    Asked, Done, DoneTo, End, EndRefusal, FoundAnswer, HamletId,
+    Hire, HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left,
+    Named, Rank, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -12,9 +12,10 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, chief_hires, error_code, found, founded,
-    hire, hired, paid, standing, tool, until,
+    MAYOR, Realm, chief_hires, done_to, error_code, found, founded,
+    hire, hired, named_as, paid, shown, standing, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -34,7 +35,7 @@ fn end(agent: u32) -> End {
 
 fn not_a_lead<R>(agent: u32) -> LeadRefusal<R> {
     LeadRefusal::Rank(Rank::NotALead {
-        hire: AgentNumber(agent),
+        hire: shown(AgentNumber(agent)),
     })
 }
 
@@ -79,9 +80,9 @@ async fn a_lead_hires_and_ends_only_under_itself() {
     );
     assert_eq!(
         four_ends.unwrap(),
-        Done::Refused { why: not_a_lead(3) }
+        DoneTo::Refused { why: not_a_lead(3) }
     );
-    assert_eq!(three_ends.unwrap(), Done::Done);
+    assert_eq!(three_ends.unwrap(), done_to(AgentNumber(4)));
     assert!(!ended_in_workspace(&realm, AgentNumber(3)));
     realm.host.shutdown().await.unwrap();
 }
@@ -152,7 +153,7 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         other,
         Done::Refused {
             why: EndRefusal::Left {
-                hire: AgentNumber(3),
+                hire: shown(AgentNumber(3)),
                 left,
             }
         }
@@ -197,7 +198,8 @@ async fn a_repeated_end_sends_the_end_again() {
     .await;
 
     assert_eq!(hired_3.unwrap(), hired(3));
-    assert_eq!([ended, again], [Done::Done, Done::Done]);
+    let three = done_to(AgentNumber(3));
+    assert_eq!([ended, again], [three.clone(), three]);
     assert!(!after_the_failure);
     realm.host.shutdown().await.unwrap();
 }
@@ -480,7 +482,7 @@ async fn a_lead_in_another_hamlet_is_refused() {
         "{pond:?}"
     );
     let other = HireRefusal::OtherHamlet {
-        lead: AgentNumber(3),
+        lead: named_as(3, "hire#3 (Mayor)"),
     };
     assert_eq!(
         by_the_chief,
@@ -489,15 +491,20 @@ async fn a_lead_in_another_hamlet_is_refused() {
     assert_eq!(by_the_hand.unwrap(), refused_to_an_agent(other));
     assert_eq!(
         by_the_mayor.unwrap(),
-        HireAnswer::Refused { why: not_a_lead(3) }
+        HireAnswer::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: named_as(3, "hire#3 (Mayor)"),
+            })
+        }
     );
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hire_under_the_hand_names_no_agent() {
-    // a hire under the Hand, by the chief, the Hand and mayor 2: each
-    // is refused `NoSuchAgent`.
+async fn a_hire_under_the_hand_is_refused_as_not_under_a_hire() {
+    // a hire under the Hand: the chief and the Hand hear that the
+    // Hand is not a hire, and mayor 2, which does not lead the Hand,
+    // hears `NotALead`, as today's `may_lead`.
     let realm = Realm::start().await;
     let hamlet = founded(&realm).await;
     let under_the_hand = Hire {
@@ -513,22 +520,24 @@ async fn a_hire_under_the_hand_names_no_agent() {
         .tool(MAYOR, &tool("h2", hire(Some(Named::Hand))))
         .await;
 
+    let not_a_hire = HireRefusal::NotAHire {
+        name: "hand".to_owned(),
+    };
     assert_eq!(
         by_the_chief,
         HireAnswer::Refused {
-            why: HireRefusal::NoSuchAgent {
-                address: "hand".to_owned()
-            }
+            why: not_a_hire.clone()
         }
     );
-    for answer in [by_the_hand, by_the_mayor] {
-        assert_eq!(
-            answer.unwrap(),
-            refused_to_an_agent(HireRefusal::NoSuchAgent {
-                address: "hand".to_owned()
+    assert_eq!(by_the_hand.unwrap(), refused_to_an_agent(not_a_hire));
+    assert_eq!(
+        by_the_mayor.unwrap(),
+        HireAnswer::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: named_as(1, "hand"),
             })
-        );
-    }
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }
 

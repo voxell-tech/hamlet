@@ -185,9 +185,10 @@ pub const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "realm-objection",
-        about: "a hire objects to a chief's line, its mayor's \
-                letter on that task is kept, and the host is killed \
-                at a random time after; after each restart the \
+        about: "a hire's model objects to a chief's line with the \
+                hire's own `object` tool, its mayor's letter on \
+                that task is kept, and the host is killed at a \
+                random time after; after each restart the \
                 objection's wait is open and the hire's spending \
                 held, one go at the second ends it and lets the \
                 hire spend, a second go finds nothing waiting, and \
@@ -199,9 +200,9 @@ pub const SCENARIOS: &[Scenario] = &[
             "realm hire 2 h1 write the docs",
             "realm live 3",
             "pi pid",
-            "realm say 3 l1 tidy the index",
-            "until 3 1 assistant: Heard: tidy the index",
-            "agent 3 object o1 line:3 better left alone",
+            "realm say 3 l1 object: better left alone",
+            "until 3 1 object result: The chief is considering an \
+             objection.",
         ],
         trigger: "agent 2 tell t1 hire#3 task=line:3 the file is in \
                   /tmp",
@@ -221,7 +222,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 "realm answer 1 go",
                 "agent 3 await letter 1",
                 "until 3 1 assistant: Heard: The chief rules",
-                "until 3 1 assistant: Heard: A letter",
+                "until 3 1 assistant: Heard: the file is in /tmp",
                 "agent 3 may-spend line:3",
                 "pi pid",
             ],

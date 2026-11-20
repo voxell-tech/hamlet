@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
-import type { Exit } from "../src/agent/messages.ts";
+import type { Exit } from "../src/agent/messages/workspace.ts";
 import { remember } from "../src/agent/models.ts";
 import {
     FAKE_ROOT,
@@ -170,12 +170,11 @@ test("a relative path, and a left-out one, start from the agent's filesystem", a
     await agent.stop();
 });
 
-test("a relative path starts from the project", {
-    todo: "the file tools start a relative path from the agent's own filesystem (`own-files.ts` `start`)",
-}, async (t) => {
+test("a relative path, and a left-out one, start from the project", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
             read_file: () => ({ type: "text", text: "notes", notes: [] }),
+            search: () => ({ type: "text", text: "no match", notes: [] }),
         },
     });
     const agent = await wakeAgent(t, {
@@ -190,11 +189,14 @@ test("a relative path starts from the project", {
                 roads: [],
                 tools_off: [],
                 folder: "/work",
+                manual: false,
+                agrees_roads: false,
             },
             copies: {},
         },
         responses: [
             toolCall("read", { path: "notes.md" }, "c1"),
+            toolCall("search", { pattern: "TODO" }, "c2"),
             fauxAssistantMessage("Read it."),
         ],
     });
@@ -205,8 +207,20 @@ test("a relative path starts from the project", {
     assert.deepEqual(
         named(sent, "read_file")
             .map(({ message }) => message as { path: string })
-            .filter((read) => !/\/(AGENTS|CLAUDE)\.md$/.test(read.path)),
+            // The prompt reads the project's instructions and its `.git`.
+            .filter(
+                (read) =>
+                    !/\/(AGENTS\.md|CLAUDE\.md|\.git|\.git\/HEAD)$/.test(
+                        read.path,
+                    ),
+            ),
         [{ path: "/work/notes.md" }],
+    );
+    assert.deepEqual(
+        named(sent, "search").map(
+            ({ message }) => (message as { under: string }).under,
+        ),
+        ["/work"],
     );
 });
 
@@ -449,7 +463,7 @@ test("an own read answers as the workspace's read of the same file does", async 
     await agent.stop();
 });
 
-test("an own write and an own edit answer in today's words, the edit with the workspace's diff", async (t) => {
+test("an own write and an own edit answer in today's words, a write that makes its file says so, and the edit gives the workspace's diff", async (t) => {
     const { calls } = fakeCalls({});
     const path = `${ROOT}/memory/plan.md`;
     const agent = await wakeAgent(t, {
@@ -485,7 +499,8 @@ test("an own write and an own edit answer in today's words, the edit with the wo
         diagnostics: [],
     };
     assert.deepEqual(await toolResults(agent), [
-        wrote,
+        // The first write makes the file, as a workspace write that makes one says.
+        { ...wrote, details: { created: true } },
         wrote,
         {
             output: `Successfully replaced 2 block(s) in ${path}.`,
@@ -533,6 +548,7 @@ test("an own write and edit name their path as today does, without `.` parts or 
         output: `Successfully wrote to ${path}`,
         isError: false,
         diagnostics: [],
+        details: { created: true },
     });
     assert.equal(
         edited?.output,
@@ -870,6 +886,7 @@ test("a tool a chief added by hand is listed after the wake and runs under its c
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
             run: () => ({ type: "running", command: 9 }),
         },
@@ -1068,6 +1085,7 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
                     },
                 ],
                 faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
             }),
             run: (message) => {
                 const { program } = message;
@@ -1198,6 +1216,7 @@ test("a workspace write and edit answer in today's words, in the call and later"
             output: "Successfully wrote to /work/a.md",
             isError: false,
             diagnostics: [],
+            details: { created: true },
         },
         {
             output: "Successfully replaced 2 block(s) in /work/a.md.",

@@ -15,21 +15,21 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    Done, End, Gate, HireAnswer, LayRoad, Named, SocietyTool,
-    TakeUpRoad,
+    AgentName, DoneTo, End, Gate, HireAnswer, LayRoad, Named,
+    RoadDone, SocietyTool, TakeUpRoad,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::super::act::{Act, Called, Decided, Decision};
+use super::super::act::{Act, Called, Carried, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
-use super::super::profiles::{self, Asking};
 use super::super::tasks::TaskId;
-use super::super::waits::{self, Kind, Raised, Ruling};
-use super::super::{Realm, record, tree};
+use super::super::waits::answer::Ruling;
+use super::super::waits::{self, Kind, Raised};
+use super::super::{Realm, profiles, record, tree};
 
 /// A reservable act, as its wait's `detail` keeps it: written by
 /// [`Keeping`], whose `tool` names the case.
@@ -40,9 +40,9 @@ enum Held {
     End(End),
     LayRoad(LayRoad),
     TakeUpRoad(TakeUpRoad),
-    EditProfile(Asking<EditProfile>),
-    Tag(Asking<TagProfile>),
-    Revert(Asking<RevertProfile>),
+    EditProfile(Carried<EditProfile>),
+    Tag(Carried<TagProfile>),
+    Revert(Carried<RevertProfile>),
 }
 
 impl Held {
@@ -85,14 +85,14 @@ impl Held {
                     "take_up_road"
                 }
             }
-            Self::EditProfile(Asking { act, .. }) => {
+            Self::EditProfile(Carried { act, .. }) => {
                 arg("content", Some(act.text.clone()));
                 arg("message", act.message.clone());
                 arg("path", Some(act.path.clone()));
                 arg("scholar", Some(profiles::address(act.profile)));
                 "edit_scholar"
             }
-            Self::Tag(Asking { act, .. }) => {
+            Self::Tag(Carried { act, .. }) => {
                 arg(
                     "note",
                     Some(act.note.clone())
@@ -102,7 +102,7 @@ impl Held {
                 arg("tag", Some(act.version.0.clone()));
                 "tag"
             }
-            Self::Revert(Asking { act, .. }) => {
+            Self::Revert(Carried { act, .. }) => {
                 arg("commit", Some(revision(&act.what)));
                 arg("reason", act.reason.clone());
                 arg("scholar", Some(profiles::address(act.profile)));
@@ -262,10 +262,19 @@ pub(in crate::realm) async fn ruling(
     }
     let (by, held) = held(rows, wait).await?;
     let mut ruling = match held {
-        Held::Hire(act) => replay(rows, &by, act).await?,
-        Held::End(act) => replay(rows, &by, act).await?,
-        Held::LayRoad(act) => replay(rows, &by, act).await?,
-        Held::TakeUpRoad(act) => replay(rows, &by, act).await?,
+        Held::Hire(act) => {
+            replay(rows, &by, act, |hired: &AgentName| {
+                Some(format!("Hired {}.", hired.name))
+            })
+            .await?
+        }
+        Held::End(act) => replay(rows, &by, act, |_| None).await?,
+        Held::LayRoad(act) => {
+            replay(rows, &by, act, |_| None).await?
+        }
+        Held::TakeUpRoad(act) => {
+            replay(rows, &by, act, |_| None).await?
+        }
         Held::EditProfile(_) | Held::Tag(_) | Held::Revert(_) => {
             return Ok(Ruling {
                 deferred: true,
@@ -306,12 +315,14 @@ pub(in crate::realm) async fn carry_out(
     }
 }
 
-/// What `act` decides now as `by`: its changes and decisions, or the
-/// words of the refusal it meets.
+/// The decision of `act` now as `by`: its changes and decisions, with
+/// the words `told` gives of what it made, or the words of the
+/// refusal it meets.
 async fn replay<A>(
     rows: &Rows<'_>,
     by: &Agent,
     act: A,
+    told: impl FnOnce(&A::Done) -> Option<String>,
 ) -> Result<Ruling>
 where
     A: Act<Agent>,
@@ -320,6 +331,7 @@ where
     let loaded = act.load(by, rows).await?;
     Ok(match act.decide(by, loaded) {
         Decision::Change(decided) => Ruling {
+            told: told(&decided.done),
             changes: decided.changes,
             entries: decided.entries,
             ..Ruling::default()
@@ -340,12 +352,13 @@ async fn ran(
     rows: &Rows<'_>,
     entries: &[record::Entry],
 ) -> Result<Option<String>> {
-    let name = async |agent| record::name_of(rows, agent).await;
+    let name = async |agent| {
+        record::agent_name(rows, agent)
+            .await
+            .map(|shown| shown.name)
+    };
     for entry in entries {
         return Ok(Some(match entry {
-            record::Entry::Hired { hire, .. } => {
-                format!("Hired hire#{}.", hire.0)
-            }
             record::Entry::Ended { hire, .. } => {
                 format!("Ended {}.", name(*hire).await?)
             }
@@ -370,20 +383,17 @@ trait Refused {
     fn words(self) -> Option<String>;
 }
 
-impl<W: Display> Refused for Done<W> {
-    fn words(self) -> Option<String> {
-        match self {
-            Self::Done => None,
-            Self::Refused { why } => Some(why.to_string()),
+macro_rules! refused {
+    ($($answer:ident),+) => {$(
+        impl<W: Display> Refused for $answer<W> {
+            fn words(self) -> Option<String> {
+                match self {
+                    Self::Refused { why } => Some(why.to_string()),
+                    _ => None,
+                }
+            }
         }
-    }
+    )+};
 }
 
-impl<W: Display> Refused for HireAnswer<W> {
-    fn words(self) -> Option<String> {
-        match self {
-            Self::Hired { .. } => None,
-            Self::Refused { why } => Some(why.to_string()),
-        }
-    }
-}
+refused!(DoneTo, RoadDone, HireAnswer);

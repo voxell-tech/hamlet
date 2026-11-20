@@ -33,16 +33,9 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import {
-    type Checked,
-    type CredentialAnswer,
-    type Effort,
-    type Kept,
-    type ListedModel,
-    type OauthLogin,
-    type Price,
-    u32,
-} from "./messages.ts";
+import type { Checked, Effort, ListedModel, Price } from "./messages/agent.ts";
+import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
+import { u32 } from "./messages/shared.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
@@ -109,19 +102,30 @@ export function rememberKept(kept: Kept): void {
 }
 
 /**
- * `value` with every secret the host holds, and each of `also`, replaced,
- * longest first.
+ * `value` with every secret the host holds, and each of `also`, replaced
+ * from the left: at each place the longest secret that begins there, as
+ * `crates/hamlet_sandbox/src/scrub.rs` replaces them.
  */
 export function scrub<T>(value: T, also: readonly string[] = []): T {
     const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
         (a, b) => b.length - a.length,
     );
     if (secrets.length === 0) return value;
-    const clean = (text: string) =>
-        secrets.reduce(
-            (cleaned, secret) => cleaned.split(secret).join("[REDACTED]"),
-            text,
-        );
+    const clean = (text: string) => {
+        let out = "";
+        let at = 0;
+        while (at < text.length) {
+            const secret = secrets.find((word) => text.startsWith(word, at));
+            if (secret === undefined) {
+                out += text[at];
+                at += 1;
+            } else {
+                out += "[REDACTED]";
+                at += secret.length;
+            }
+        }
+        return out;
+    };
     return JSON.parse(
         JSON.stringify(value, (_key, item: unknown) => {
             if (typeof item === "string") return clean(item);
@@ -497,6 +501,9 @@ class Scrubbed extends AssistantMessageEventStream {
     ): AssistantMessageEvent {
         const event = scrub(source);
         if (event.type === "error") withheldIn(event.error);
+        if (event.type === "done" && isCutOff(event.message)) {
+            withheldIn(event.message);
+        }
         if (!("partial" in event)) return event;
         withheldIn(
             event.partial,
@@ -532,7 +539,11 @@ class Scrubbed extends AssistantMessageEventStream {
 
 /** An answer whose text may end in part of a key. */
 function isCutOff(message: AssistantMessage): boolean {
-    return message.stopReason === "error" || message.stopReason === "aborted";
+    return (
+        message.stopReason === "error" ||
+        message.stopReason === "aborted" ||
+        message.stopReason === "length"
+    );
 }
 
 function withheldIn(message: AssistantMessage, ended?: number): void {
@@ -541,6 +552,12 @@ function withheldIn(message: AssistantMessage, ended?: number): void {
         if (block.type === "text") block.text = withheld(block.text);
         else if (block.type === "thinking") {
             block.thinking = withheld(block.thinking);
+        } else {
+            block.arguments = JSON.parse(
+                JSON.stringify(block.arguments, (_key, value: unknown) =>
+                    typeof value === "string" ? withheld(value) : value,
+                ),
+            );
         }
     }
 }

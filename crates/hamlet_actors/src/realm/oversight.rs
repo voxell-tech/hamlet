@@ -8,9 +8,8 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use hamlet_actor::BindParam;
-use hamlet_messages::realm::Done;
 use hamlet_messages::realm::oversight::{
-    Permission, Revoke, RevokeRefusal,
+    Permission, Revoke, RevokeRefusal, Revoked,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::reach::{
@@ -222,9 +221,11 @@ async fn trust(
 }
 
 pub(super) enum Holding {
-    Grant,
-    /// No grant: the agent's name, and whether the settings give the
-    /// permission to every agent.
+    Grant {
+        name: String,
+    },
+    /// No grant, and whether the settings give the permission to
+    /// every agent.
     Nothing {
         name: String,
         to_all: bool,
@@ -233,9 +234,9 @@ pub(super) enum Holding {
 }
 
 impl Act<Client> for Revoke {
-    type Output = Done<RevokeRefusal>;
+    type Output = Revoked;
     type Loaded = Holding;
-    type Done = ();
+    type Done = String;
 
     async fn load(
         &self,
@@ -245,29 +246,27 @@ impl Act<Client> for Revoke {
         if errands::standing(rows, self.agent).await?.is_some() {
             return Ok(Holding::NoAgent);
         }
+        let name = record::agent_name(rows, self.agent).await?.name;
         if holds(rows, self.agent, self.permission).await? {
-            return Ok(Holding::Grant);
+            return Ok(Holding::Grant { name });
         }
         let to_all = match self.permission {
             Permission::Network => {
                 settings::read(rows).await?.allow_net
             }
         };
-        Ok(Holding::Nothing {
-            name: record::name_of(rows, self.agent).await?,
-            to_all,
-        })
+        Ok(Holding::Nothing { name, to_all })
     }
 
     fn decide(
         &self,
         _by: &Client,
         holding: Holding,
-    ) -> Decision<(), Self::Output> {
+    ) -> Decision<String, Self::Output> {
         let permission = self.permission;
-        let why = match holding {
-            Holding::Grant => {
-                return Decision::Change(Decided::new(()).change(
+        Decision::Answer(match holding {
+            Holding::Grant { name } => {
+                return Decision::Change(Decided::new(name).change(
                     Change::Revoke {
                         agent: self.agent,
                         permission,
@@ -277,19 +276,23 @@ impl Act<Client> for Revoke {
             Holding::Nothing {
                 name,
                 to_all: false,
-            } => RevokeRefusal::NoGrant { name, permission },
+            } => Revoked::NoGrant { name, permission },
             Holding::Nothing { name, to_all: true } => {
-                RevokeRefusal::AllowedToAll { name, permission }
+                Revoked::AllowedToAll { name, permission }
             }
-            Holding::NoAgent => RevokeRefusal::NoSuchAgent {
-                address: self.agent.0.to_string(),
+            Holding::NoAgent => Revoked::Refused {
+                why: RevokeRefusal::NoSuchAgent {
+                    address: self.agent.0.to_string(),
+                },
             },
-        };
-        Decision::Answer(Done::Refused { why })
+        })
     }
 
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+    fn answer(&self, name: String, _made: &Made) -> Self::Output {
+        Revoked::Revoked {
+            name,
+            permission: self.permission,
+        }
     }
 }
 
@@ -349,9 +352,14 @@ mod tests {
         started: &Started,
         agent: AgentNumber,
     ) -> SetReach {
-        reach::of(&started.rows(), agent, &started.realm.secrets)
-            .await
-            .unwrap()
+        reach::of(
+            &started.rows(),
+            agent,
+            &started.realm.secrets,
+            &started.realm.folder,
+        )
+        .await
+        .unwrap()
     }
 
     fn footing_of(set: SetReach) -> Footing {

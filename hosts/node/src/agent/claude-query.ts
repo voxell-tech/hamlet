@@ -41,7 +41,7 @@ import {
 import { deleteSession } from "cc-session-io";
 import { environment, type Program, rememberLogin } from "./claude.ts";
 import { importSession, TOOL_PREFIX, userContent } from "./claude-history.ts";
-import { scrub } from "./models.ts";
+import { scrub, withheld } from "./models.ts";
 import { emptyAnswer } from "./spend.ts";
 import { reasonOf } from "./turn.ts";
 
@@ -207,8 +207,7 @@ class Run {
                 model: model.id,
                 ...thinking(model, options?.reasoning),
                 ...(resume === undefined ? {} : { resume }),
-                stderr: (data) =>
-                    process.stderr.write(`claude: ${scrub(data)}`),
+                stderr: relayed(),
             },
         });
         this.#attach(reply);
@@ -729,4 +728,18 @@ class Input implements AsyncIterable<SDKUserMessage> {
             this.#wake = undefined;
         }
     }
+}
+
+/**
+ * Writes the program's stderr to the host's, scrubbed; a tail that could
+ * begin a secret waits for the chunk after it.
+ */
+function relayed(): (data: string) => void {
+    let held = "";
+    return (data) => {
+        const text = scrub(held + data);
+        const shown = withheld(text);
+        held = text.slice(shown.length);
+        if (shown !== "") process.stderr.write(`claude: ${shown}`);
+    };
 }

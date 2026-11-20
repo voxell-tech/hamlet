@@ -6,15 +6,19 @@ use hamlet_host::Caller;
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Party, Profile, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
+use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Gate, LeadRefusal, ProfileId, Rank,
-    Refusable, SecretList, Secrets, Standing, Tool, ToolCall,
+    AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
+    LeadRefusal, OnlyAHire, ProfileId, Rank, Refusable, RoadDone,
+    Seated, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
 };
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, Numbered};
 use serde::{Deserialize, Serialize};
 
 use super::act::{self, Act, Look, ToolAct};
@@ -111,15 +115,117 @@ impl Decider for Hand {
     }
 }
 
+/// How a sender is answered for an act on an agent or a road: a chief
+/// is told it was done, and an agent which agents it acted on.
+pub(super) trait Shown {
+    type OnAgent<W>: Refusable<Why = W> + Send + 'static
+    where
+        W: Send + 'static;
+    type OnRoad<W>: Refusable<Why = W> + Send + 'static
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(
+        agent: AgentName,
+    ) -> Self::OnAgent<W>;
+
+    fn on_road<W: Send + 'static>(
+        a: AgentName,
+        b: AgentName,
+    ) -> Self::OnRoad<W>;
+}
+
+impl Shown for Client {
+    type OnAgent<W>
+        = Done<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = Done<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(_: AgentName) -> Done<W> {
+        Done::Done
+    }
+
+    fn on_road<W: Send + 'static>(
+        _: AgentName,
+        _: AgentName,
+    ) -> Done<W> {
+        Done::Done
+    }
+}
+
+impl Shown for Agent {
+    type OnAgent<W>
+        = DoneTo<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = RoadDone<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(agent: AgentName) -> DoneTo<W> {
+        DoneTo::Done { agent }
+    }
+
+    fn on_road<W: Send + 'static>(
+        a: AgentName,
+        b: AgentName,
+    ) -> RoadDone<W> {
+        RoadDone::Done { a, b }
+    }
+}
+
+impl Shown for Hand {
+    type OnAgent<W>
+        = DoneTo<W>
+    where
+        W: Send + 'static;
+    type OnRoad<W>
+        = RoadDone<W>
+    where
+        W: Send + 'static;
+
+    fn on_agent<W: Send + 'static>(agent: AgentName) -> DoneTo<W> {
+        Agent::on_agent(agent)
+    }
+
+    fn on_road<W: Send + 'static>(
+        a: AgentName,
+        b: AgentName,
+    ) -> RoadDone<W> {
+        Agent::on_road(a, b)
+    }
+}
+
 /// A sender whose powers reach every hamlet.
-pub(super) trait RealmWide: Decider {}
+pub(super) trait RealmWide: Decider + Shown {
+    type Seated: Refusable<Why = OnlyAHire> + Send + 'static;
 
-impl RealmWide for Client {}
+    fn seated(mayor: AgentName, hamlet: HamletId) -> Self::Seated;
+}
 
-impl RealmWide for Hand {}
+impl RealmWide for Client {
+    type Seated = Done<OnlyAHire>;
+
+    fn seated(_: AgentName, _: HamletId) -> Done<OnlyAHire> {
+        Done::Done
+    }
+}
+
+impl RealmWide for Hand {
+    type Seated = Seated;
+
+    fn seated(agent: AgentName, hamlet: HamletId) -> Seated {
+        Seated::Done { agent, hamlet }
+    }
+}
 
 /// A sender that can have a lead's powers over a hire (H41).
-pub(super) trait Lead: Decider {
+pub(super) trait Lead: Decider + Shown {
     /// A refusal `R` as this kind of sender is answered with it.
     type Why<R>: Send + 'static
     where
@@ -128,10 +234,13 @@ pub(super) trait Lead: Decider {
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,
-        hire: AgentNumber,
     ) -> Result<(), Self::Why<R>>;
 
     fn refused<R: Send + 'static>(refusal: R) -> Self::Why<R>;
+
+    /// The answer to setting a hamlet's model, which only a chief
+    /// does.
+    fn hamlet_model() -> Self::OnAgent<Self::Why<ChoiceRefusal>>;
 }
 
 impl Lead for Client {
@@ -140,16 +249,16 @@ impl Lead for Client {
     where
         R: Send + 'static;
 
-    fn leads<R: Send + 'static>(
-        &self,
-        _: &Lineage,
-        _: AgentNumber,
-    ) -> Result<(), R> {
+    fn leads<R: Send + 'static>(&self, _: &Lineage) -> Result<(), R> {
         Ok(())
     }
 
     fn refused<R: Send + 'static>(refusal: R) -> R {
         refusal
+    }
+
+    fn hamlet_model() -> Done<ChoiceRefusal> {
+        Done::Done
     }
 }
 
@@ -162,17 +271,24 @@ impl Lead for Agent {
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,
-        hire: AgentNumber,
     ) -> Result<(), LeadRefusal<R>> {
         if lineage.is_led_by(self.0) {
             Ok(())
         } else {
-            Err(LeadRefusal::Rank(Rank::NotALead { hire }))
+            Err(LeadRefusal::Rank(Rank::NotALead {
+                hire: lineage.agent.name.clone(),
+            }))
         }
     }
 
     fn refused<R: Send + 'static>(refusal: R) -> LeadRefusal<R> {
         LeadRefusal::Act(refusal)
+    }
+
+    fn hamlet_model() -> DoneTo<LeadRefusal<ChoiceRefusal>> {
+        DoneTo::refused(LeadRefusal::Act(
+            ChoiceRefusal::HamletFromAnAgent,
+        ))
     }
 }
 
@@ -345,15 +461,67 @@ impl Handler<Secrets> for Realm {
     }
 }
 
+impl Handler<Asked<ReadRecord>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<ReadRecord>,
+    ) -> Result<Record> {
+        let by = sender(&ctx, &asked)?;
+        let reading = act::Reading {
+            read: asked.act,
+            secrets: self.secrets.secrets(),
+        };
+        let name = <Asked<ReadRecord> as Action>::NAME;
+        act::run(&self, &ctx, by, None, name, reading).await
+    }
+}
+
+impl Handler<ByHand<Tool<ReadRecord>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        hand: ByHand<Tool<ReadRecord>>,
+    ) -> Result<Record> {
+        let by = sender(&ctx, &hand)?;
+        let reading = act::Reading {
+            read: hand.0.act,
+            secrets: self.secrets.secrets(),
+        };
+        let name = <Tool<ReadRecord> as Action>::NAME;
+        act::run(&self, &ctx, by, None, name, reading).await
+    }
+}
+
 impl Handler<Say> for Realm {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        say: Say,
+        mut say: Say,
     ) -> Result<<Say as Action>::Output> {
         let by = sender(&ctx, &say)?;
+        say.0.text = self.secrets.scrubbed(&say.0.text);
         let id = marker::Id::Request(say.0.id.clone());
         act::run(&self, &ctx, by, Some(id), Say::NAME, say).await
+    }
+}
+
+impl Handler<ReadPlace> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        read: ReadPlace,
+    ) -> Result<PlaceText> {
+        let by = sender(&ctx, &read)?;
+        if let Numbered::Errand(_) = by.0.numbered() {
+            return refuse(ReadPlace::NAME, by);
+        }
+        let reading = act::Reading {
+            read,
+            secrets: self.secrets.secrets(),
+        };
+        act::run(&self, &ctx, by, None, ReadPlace::NAME, reading)
+            .await
     }
 }
 

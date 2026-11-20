@@ -21,7 +21,7 @@ import type {
     AgentInput,
     Finished,
     Submit,
-} from "../../src/agent/messages.ts";
+} from "../../src/agent/messages/agent.ts";
 import { fakeFiles } from "../agent-testing.ts";
 import { FIXTURES, fauxModels, fixture } from "../testing.ts";
 import { eventually, inFolder, startLocalHost } from "./support.ts";
@@ -68,6 +68,7 @@ const realm = actor({
         may_spend: () => ({ type: "done" }),
         charge: () => null,
         secrets: () => ({ version: 1, values: [] }),
+        read_place: () => ({ place: "# Your place\nYou are `hand`." }),
     },
 });
 
@@ -93,7 +94,14 @@ const profile = actor({
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
-    place: { version: 1, hires: [], roads: [], tools_off: [] },
+    place: {
+        version: 1,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    },
     copies: {},
 };
 

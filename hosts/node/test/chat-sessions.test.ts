@@ -3,7 +3,7 @@ import { type TestContext, test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationId, EntryRecord } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type { Input } from "../src/agent/messages.ts";
+import type { Input } from "../src/agent/messages/agent.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
@@ -375,4 +375,34 @@ test("the history titles a session by its line's first words, cut at 90, and lea
         sessions.map((s) => [s.number, s.current, s.title, s.tokens]),
         [[1, false, `${"x".repeat(90)}...`, "0"]],
     );
+});
+
+// As today's `/retry` (`crates/hamlet_server/src/talk/chats.rs`, `retry`),
+// only a session whose last entry is an answer was answered.
+test("/retry after /resume carries on: the session's last entry is the resume's notice", async (t) => {
+    const agent = await wake(
+        t,
+        fakeCalls({
+            realm: {
+                open_task: () => ({ type: "opened", task: "task-retry" }),
+            },
+        }).calls,
+        ["One.", "Kept it.", "Carried on."],
+    );
+    const client = agent.by(from.client);
+    await sender(agent)(line("a"));
+    await agent.actions.new_session(client, { id: "new-1", to: 7 });
+    await reflected(agent, "Kept it.");
+    await agent.actions.resume(client, { id: "resume-1", number: 1, to: 7 });
+
+    assert.deepEqual(await agent.actions.retry(client, { id: "r-1", to: 7 }), {
+        type: "done",
+    });
+    await agent.idle();
+    const { root, all } = await chats(agent);
+    assert.deepEqual(said(all, root).slice(-3), [
+        "Went back to an earlier session.",
+        "Carry on from where you stopped.",
+        "Carried on.",
+    ]);
 });

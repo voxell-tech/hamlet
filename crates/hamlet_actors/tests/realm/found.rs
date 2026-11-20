@@ -27,7 +27,7 @@ fn count(
 #[tokio::test(flavor = "multi_thread")]
 async fn founding_makes_the_mayor_agent_2() {
     // ask Asked<Found>; the answer is Founded { mayor: 2 }; the
-    // record holds `founded`; the mayor's row is begun.
+    // record holds `hired`, then `founded`; the mayor's row is begun.
     let realm = Realm::start().await;
 
     let answer = realm
@@ -42,21 +42,21 @@ async fn founding_makes_the_mayor_agent_2() {
         panic!("the chief founds a hamlet: {answer:?}");
     };
     assert_eq!(mayor, AgentNumber(2));
-    let (decision, row) = realm
+    let (decisions, row) = realm
         .stopped_rows(|db| {
-            let decision = db
-                .query_row(
-                    "SELECT kind, hamlet, by FROM decision",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
-                )
-                .optional()?;
+            let decisions = db
+                .prepare(
+                    "SELECT kind, hamlet, by FROM decision ORDER BY \
+                     id",
+                )?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             let row = db
                 .query_row(
                     "SELECT n FROM step WHERE kind = 'hire' AND n = \
@@ -65,17 +65,13 @@ async fn founding_makes_the_mayor_agent_2() {
                     |row| row.get::<_, i64>(0),
                 )
                 .optional()?;
-            Ok((decision, row))
+            Ok((decisions, row))
         })
         .await;
-    assert_eq!(
-        decision,
-        Some((
-            "founded".to_owned(),
-            Some(hamlet.0),
-            "chief".to_owned()
-        ))
-    );
+    let kept = |kind: &str| {
+        (kind.to_owned(), Some(hamlet.0.clone()), "chief".to_owned())
+    };
+    assert_eq!(decisions, [kept("hired"), kept("founded")]);
     assert_eq!(row, Some(2), "the mayor's row is begun");
     realm.host.shutdown().await.unwrap();
 }
@@ -166,11 +162,11 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_as_none()
-{
+async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_names_the_hamlet()
+ {
     // found Mill with a blank purpose and Pond with " Dig \n": Mill's
-    // mayor takes the chief's first line as its purpose, and Pond's
-    // keeps "Dig".
+    // mayor is "Mayor of Mill." and keeps it past the chief's first
+    // line, and Pond's keeps "Dig".
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     for (name, purpose) in [("Mill", "  "), ("Pond", " Dig \n")] {
@@ -200,7 +196,7 @@ async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_as_none()
             purpose_of(&realm, MAYOR).await,
             purpose_of(&realm, AgentNumber(3)).await
         ),
-        (Some("build the mill".to_owned()), Some("Dig".to_owned()))
+        (Some("Mayor of Mill.".to_owned()), Some("Dig".to_owned()))
     );
     realm.host.shutdown().await.unwrap();
 }

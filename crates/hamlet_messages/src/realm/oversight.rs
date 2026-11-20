@@ -61,11 +61,7 @@ pub enum LapseReason {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Hold {
-    #[error(
-        "task {} is held on an objection until a chief says go or \
-         withdraw",
-        task.0
-    )]
+    #[error("The chief is considering an objection.")]
     Objection { task: RealmTask },
     #[error(
         "The chief withdrew the instruction, so this call did not \
@@ -83,7 +79,37 @@ pub struct Revoke {
 
 impl ChiefRequest for Revoke {
     const NAME: &'static str = "chief_revoke";
-    type Answer = Done<RevokeRefusal>;
+    type Answer = Revoked;
+}
+
+answer!(
+    /// The answer of a [`Revoke`]: a notice to the chief, in its
+    /// `Display`, unless it is refused.
+    Revoked<RevokeRefusal> {
+        Revoked { name: String, permission: Permission },
+        NoGrant { name: String, permission: Permission },
+        /// No grant, and the settings give the network to every agent.
+        AllowedToAll { name: String, permission: Permission },
+    }
+);
+
+impl fmt::Display for Revoked {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Revoked { name, permission } => {
+                write!(f, "{name} may no longer use {permission}.")
+            }
+            Self::NoGrant { name, permission } => {
+                write!(f, "{name} holds no grant of {permission}.")
+            }
+            Self::AllowedToAll { name, permission } => write!(
+                f,
+                "{name} holds no grant of {permission}; the \
+                 settings allow every agent the network."
+            ),
+            Self::Refused { why } => why.fmt(f),
+        }
+    }
 }
 
 /// A grant a chief gives an agent beyond its hamlet's mode.
@@ -116,20 +142,6 @@ impl fmt::Display for Permission {
 pub enum RevokeRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("{name} holds no grant of {permission}.")]
-    NoGrant {
-        name: String,
-        permission: Permission,
-    },
-    /// No grant, and the settings give the network to every agent.
-    #[error(
-        "{name} holds no grant of {permission}; the settings allow \
-         every agent the network."
-    )]
-    AllowedToAll {
-        name: String,
-        permission: Permission,
-    },
 }
 
 /// The most questions one [`AskChief`] asks.
@@ -184,11 +196,11 @@ pub struct Offer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AskChiefRefusal {
-    #[error("no chief oversees this turn; go on with what you know")]
+    #[error("No chief oversees this turn; go on with what you know.")]
     NoChief,
     #[error(
-        "you have asked the chief {} this turn; go on with what you \
-         know",
+        "You have asked the chief {} this turn; go on with what you \
+         know.",
         times(*most)
     )]
     TooMany { most: u32 },
@@ -242,11 +254,11 @@ impl ToolCall for Object {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ObjectRefusal {
     #[error(
-        "only a chief's instruction can be objected to, in the turn \
-         that works on it"
+        "Only a chief's instruction can be objected to, in the turn \
+         that works on it."
     )]
     NotAChiefsLine,
-    #[error("say why you object")]
+    #[error("Say why you object.")]
     NoReason,
     #[error("you have objected to this instruction already")]
     AlreadyHeld,

@@ -170,6 +170,8 @@ impl Budget {
             BudgetLimit::Time { ms } => {
                 self.ms = Some(ms);
             }
+            BudgetLimit::NoCost => self.micros = None,
+            BudgetLimit::NoTime => self.ms = None,
             BudgetLimit::Period { period } => {
                 self.period = match period {
                     budget::Period::Day => Period::Day,

@@ -270,12 +270,26 @@ impl Message for ListTools {
     type From = Agent;
 }
 
-/// The tools added by hand that load, in their folders' order.
+/// The tools added by hand that load, in their folders' order, and
+/// how the workspace confines commands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolList {
     pub tools: Vec<AddedTool>,
     /// Each folder of a tool that does not load.
     pub faults: Vec<Fault>,
+    pub confinement: Confinement,
+}
+
+/// What keeps an agent's commands from the rest of the machine.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Confinement {
+    /// The sandbox named `name`.
+    Sandbox { name: String },
+    /// Nothing: the workspace runs without a sandbox.
+    Insecure,
+    /// The workspace runs on another machine.
+    Remote,
 }
 
 /// A tool added by hand, as a model is offered it.

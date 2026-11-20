@@ -24,7 +24,9 @@ use hamlet_messages::workspace::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::act::{self, Act, Called, Decided, Decision, ToolAct};
+use super::act::{
+    self, Act, Called, Carried, Decided, Decision, ToolAct,
+};
 use super::calls::{self, Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::peer::When;
@@ -372,18 +374,11 @@ pub(super) async fn run(
     Ok(vec![Change::Judged { errand, refused }.into()])
 }
 
-/// An agent's call of the librarian.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct Librarian<T> {
-    pub called: Called,
-    pub act: T,
-}
-
 impl ToolAct<Agent> for AskLibrarian {
-    type Run = Librarian<Self>;
+    type Run = Carried<Self>;
 
-    fn run(self, called: &Called) -> Librarian<Self> {
-        Librarian {
+    fn run(self, called: &Called) -> Carried<Self> {
+        Carried {
             called: called.clone(),
             act: self,
         }
@@ -416,11 +411,11 @@ async fn asker(
         model: documents::model(rows, by)
             .await?
             .map(|chosen| chosen.model),
-        name: record::name_of(rows, by).await?,
+        name: record::agent_name(rows, by).await?.name,
     })
 }
 
-impl<T: Send + Sync + 'static> Librarian<T> {
+impl<T: Send + Sync + 'static> Carried<T> {
     /// The changes that start the librarian's errand for `by`, asked
     /// to do `asked` with `text`, judging what was `offered`; the act
     /// made `done`.
@@ -457,7 +452,7 @@ impl<T: Send + Sync + 'static> Librarian<T> {
     }
 }
 
-impl Act<Agent> for Librarian<AskLibrarian> {
+impl Act<Agent> for Carried<AskLibrarian> {
     type Output = Done<Standing>;
     type Loaded = Asker;
     type Done = ();
@@ -528,7 +523,7 @@ impl Handler<Submitting> for Realm {
             )
             .await?;
         let (key, called, asked) = act::called(&by, name, tool)?;
-        let act = Librarian {
+        let act = Carried {
             called: called.clone(),
             act: Submitted { asked, read },
         };
@@ -560,7 +555,7 @@ pub(super) enum Judging {
     },
 }
 
-impl Act<Agent> for Librarian<Submitted> {
+impl Act<Agent> for Carried<Submitted> {
     type Output = Done<Standing>;
     type Loaded = Judging;
     /// The words its caller is told at once, when the offer is not

@@ -1,8 +1,9 @@
 use hamlet_messages::library::DropOfferParts;
 use hamlet_messages::profile::DropSaveParts;
-use hamlet_messages::realm::{Done, End, Named, ProfileId};
+use hamlet_messages::realm::{End, Named, ProfileId};
 
-use super::{Callee, MAYOR, Realm, THREE, hamlet_with, tool, until};
+use super::stand_ins::Callee;
+use super::{MAYOR, Realm, THREE, done_to, hamlet_with, tool, until};
 
 fn dropped(
     realm: &Realm,
@@ -35,7 +36,7 @@ async fn an_ended_hires_parts_are_dropped_by_its_profile_and_the_library()
         .await
         .unwrap();
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
     until("both drops", || {
         let (saves, offers) = dropped(&realm);
         !saves.is_empty() && !offers.is_empty()
@@ -78,7 +79,7 @@ async fn a_hire_ended_before_its_profile_step_asks_no_profile_to_drop()
         .await
         .unwrap();
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!(ended, done_to(THREE));
     until("the library's drop", || !dropped(&realm).1.is_empty())
         .await;
     assert_eq!(

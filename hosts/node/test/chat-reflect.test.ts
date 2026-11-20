@@ -5,7 +5,7 @@ import {
     fauxAssistantMessage,
     type Message,
 } from "@earendil-works/pi-ai";
-import type { RealmActions } from "../src/agent/messages.ts";
+import type { RealmActions } from "../src/agent/messages/realm.ts";
 import {
     fakeCalls,
     from,

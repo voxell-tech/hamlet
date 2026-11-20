@@ -13,7 +13,8 @@ import {
     type Model,
     type Models,
 } from "@earendil-works/pi-ai";
-import { type RealmTask, u32 } from "./messages.ts";
+import { type RealmTask, u32 } from "./messages/shared.ts";
+import type { Placing } from "./prompt.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
 /** A request the realm refused or held, which the gate ended unsent. */
@@ -32,14 +33,25 @@ export function unsentOf(message: AssistantMessage): Unsent | undefined {
     return UNSENT.get(message);
 }
 
-export function gated(models: Models, peers: Peers): Models {
+export function gated(
+    models: Models,
+    peers: Peers,
+    placing: Pick<Placing, "missing">,
+): Models {
     const ask = async (
         model: Model<Api>,
         asked: { sessionId?: string; signal?: AbortSignal } | undefined,
     ): Promise<{ task: RealmTask } | { ended: AssistantMessage }> => {
         try {
-            const { task } = (await peers.turns.ofSession(asked?.sessionId))
-                .task;
+            const turn = await peers.turns.ofSession(asked?.sessionId);
+            const unplaced =
+                turn.conversation === undefined
+                    ? undefined
+                    : placing.missing(turn.conversation);
+            if (unplaced !== undefined) {
+                return { ended: unaskedOf(model, unplaced) };
+            }
+            const { task } = turn.task;
             const may = await cutOff(
                 asked?.signal,
                 peers.reach.may_spend({ task }),
@@ -61,12 +73,7 @@ export function gated(models: Models, peers: Peers): Models {
                 await abortOf(asked?.signal);
                 return { ended: brokenOf(model, error) };
             }
-            return {
-                ended: refusalOf(
-                    model,
-                    `it could not be asked (${reasonOf(error)})`,
-                ),
-            };
+            return { ended: unaskedOf(model, reasonOf(error)) };
         }
     };
     const charge = async (
@@ -80,6 +87,7 @@ export function gated(models: Models, peers: Peers): Models {
                 task,
                 micros: u32(message.usage.cost.total * 1_000_000),
                 took_ms: u32(message.durationMs ?? Date.now() - started),
+                tokens: u32(message.usage.input + message.usage.output),
             });
         } catch (error) {
             peers.report("a model request's charge was not taken", error);
@@ -148,6 +156,11 @@ export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
         stopReason: "error",
         errorMessage: `${REFUSED}${why}`,
     };
+}
+
+/** A request the realm could not be asked about, for `why`. */
+function unaskedOf(model: Model<Api>, why: string): AssistantMessage {
+    return refusalOf(model, `it could not be asked (${why})`);
 }
 
 /** An answer of `model` with nothing in it yet. */

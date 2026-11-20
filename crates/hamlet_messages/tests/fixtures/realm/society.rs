@@ -26,14 +26,16 @@ use hamlet_messages::realm::hamlets::{
 use hamlet_messages::realm::oversight::{
     AskChief, AskChiefRefusal, Hold, Lapse, LapseReason, Object,
     ObjectRefusal, Offer, Permission, Question, Revoke,
-    RevokeRefusal,
+    RevokeRefusal, Revoked,
 };
 use hamlet_messages::realm::workers::{
     Ended, ErrandDone, SetAllowance, StartWorker, Started,
     WorkerDone, WorkerRefusal,
 };
 use hamlet_messages::realm::world::Spend;
-use hamlet_messages::realm::{HamletRefusal, HowEnded, OnlyAHire};
+use hamlet_messages::realm::{
+    AgentName, HamletRefusal, HowEnded, OnlyAHire,
+};
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::Effort;
@@ -43,8 +45,8 @@ use super::super::cases::{Cases, Union, named, tagged};
 use super::super::profile::request;
 use super::{
     HIRE, WHY, agent_refusal, answers, asked, by_a_lead, by_an_agent,
-    done, hamlet, hire, lead_refusal, left, named_tool,
-    standing_task, tool, you_left,
+    done, done_to, hamlet, hire, lead_refusal, left, named_tool,
+    shown, standing_task, tool, you_left,
 };
 
 pub fn enums() -> Vec<Cases> {
@@ -53,6 +55,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<Hold>(),
         named::<Permission>(),
         tagged::<RevokeRefusal>(),
+        tagged::<Revoked>(),
         tagged::<Started<WorkerRefusal>>(),
         tagged::<WorkerRefusal>(),
         tagged::<Ended>(),
@@ -124,31 +127,40 @@ fn the_oversight(fixtures: &mut Fixtures) {
             permission: Permission::Network,
         }),
     );
-    done(
+    let mira = || "hire#12 (Mira)".to_owned();
+    let network = Permission::Network;
+    answers(
         fixtures,
         "realm/chief_revoke",
-        vec![
+        [
             (
-                "no_such_agent",
-                RevokeRefusal::NoSuchAgent {
-                    address: "9".into(),
+                "revoked",
+                Revoked::Revoked {
+                    name: mira(),
+                    permission: network,
                 },
             ),
             (
                 "no_grant",
-                RevokeRefusal::NoGrant {
-                    name: "hire#12 (Mira)".into(),
-                    permission: Permission::Network,
+                Revoked::NoGrant {
+                    name: mira(),
+                    permission: network,
                 },
             ),
             (
                 "allowed_to_all",
-                RevokeRefusal::AllowedToAll {
-                    name: "hire#12 (Mira)".into(),
-                    permission: Permission::Network,
+                Revoked::AllowedToAll {
+                    name: mira(),
+                    permission: network,
                 },
             ),
         ],
+        vec![(
+            "no_such_agent",
+            RevokeRefusal::NoSuchAgent {
+                address: "9".into(),
+            },
+        )],
     );
     for (case, turn) in [
         ("retry", TaskTurn::Retry),
@@ -338,7 +350,10 @@ fn the_workers(fixtures: &mut Fixtures) {
         [(
             "started",
             Started::Started {
-                worker: AgentNumber(15),
+                worker: AgentName {
+                    agent: AgentNumber(15),
+                    name: "worker#15".into(),
+                },
             },
         )]
     }
@@ -447,14 +462,14 @@ fn the_workers(fixtures: &mut Fixtures) {
             (
                 "left",
                 OnlyAHire::Left {
-                    hire: HIRE,
+                    hire: shown(HIRE),
                     left: left(HowEnded::ByTheChief),
                 },
             ),
         ]
     };
     done(fixtures, "realm/chief_set_allowance", allowance_refusals());
-    done(
+    done_to(
         fixtures,
         "realm/set_allowance",
         by_a_lead(allowance_refusals()),
@@ -622,7 +637,7 @@ fn the_choices(fixtures: &mut Fixtures) {
     );
     let refusals = || {
         let left = |how| ChoiceRefusal::Left {
-            hire: HIRE,
+            hire: shown(HIRE),
             left: left(how),
         };
         vec![
@@ -653,7 +668,10 @@ fn the_choices(fixtures: &mut Fixtures) {
                     model: "missing::model".into(),
                 },
             ),
-            ("chief_chose", ChoiceRefusal::ChiefChose { hire: HIRE }),
+            (
+                "chief_chose",
+                ChoiceRefusal::ChiefChose { hire: shown(HIRE) },
+            ),
             (
                 "hamlet_from_an_agent",
                 ChoiceRefusal::HamletFromAnAgent,
@@ -681,7 +699,7 @@ fn the_choices(fixtures: &mut Fixtures) {
         }),
     );
     for name in ["realm/set_nickname", "realm/set_model"] {
-        done(fixtures, name, by_a_lead(refusals()));
+        done_to(fixtures, name, by_a_lead(refusals()));
     }
 }
 

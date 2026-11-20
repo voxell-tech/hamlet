@@ -1,8 +1,9 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use hamlet_messages::profile::{
-    BadPath, By, DreamId, DreamOf, DreamOpen, EndDream, PrepareDream,
-    Purge, PurgeAnswer,
+    BadPath, By, DreamId, DreamOf, DreamOpen, PrepareDream, Purge,
+    PurgeAnswer,
 };
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, ProfileRefusal,
@@ -14,9 +15,12 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::profile_stand_in::{NOT_A_PATH, STILL_HOLDS};
 use super::profiles::{asked, create};
+use super::stand_ins::Callee;
 use super::{
-    Callee, NOT_A_PATH, Realm, STILL_HOLDS, THREE, hamlet_with, until,
+    Realm, THREE, dream_ends, hamlet_with, hire_3_ends, of_hire,
+    until,
 };
 
 fn purge(profile: u32, path: &str) -> PurgeProfile {
@@ -118,16 +122,6 @@ fn prepares(realm: &Realm) -> Vec<(ProfileId, PrepareDream, bool)> {
     realm.seen.prepares.lock().unwrap().clone()
 }
 
-fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
-    realm.seen.dream_ends.lock().unwrap().clone()
-}
-
-fn of_hire(hire: AgentNumber) -> Dream {
-    Dream {
-        of: Dreamer::Hire { hire },
-    }
-}
-
 fn of_profile(profile: u32) -> Dream {
     Dream {
         of: Dreamer::Profile {
@@ -136,17 +130,10 @@ fn of_profile(profile: u32) -> Dream {
     }
 }
 
-fn ended(dream: u32) -> EndDream {
-    EndDream {
-        dream: DreamId(dream),
-        done: false,
-        summary: String::new(),
-    }
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hires_dream_checks_its_folders_out_then_ends() {
     let (realm, _) = hamlet_with(1).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
 
     let answer = chief(&realm, of_hire(THREE)).await;
 
@@ -163,13 +150,17 @@ async fn a_hires_dream_checks_its_folders_out_then_ends() {
             of: DreamOf::Hire { agent: THREE },
         }
     );
-    assert_eq!(dream_ends(&realm), [(*profile, ended(1))]);
+    assert_eq!(
+        dream_ends(&realm),
+        [(*profile, hire_3_ends(1, false, ""))]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn one_dream_is_open_in_the_realm_at_a_time() {
     let (realm, _) = hamlet_with(1).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::PrepareDream);
 
@@ -308,6 +299,7 @@ async fn a_purge_does_not_wait_on_a_dreams_preparation() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dream_is_not_prepared_again_after_a_restart() {
     let (realm, _) = hamlet_with(0).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::EndDream);
     assert_eq!(chief(&realm, of_profile(3)).await, Done::Done);

@@ -54,6 +54,7 @@ pub(super) enum Origin {
     Standing,
     Retry,
     Reflection,
+    Dream,
 }
 
 impl From<TaskTurn> for Origin {
@@ -75,6 +76,13 @@ pub(super) enum Change {
     },
     /// An agent's standing task, under an id of the next ones.
     Standing { agent: AgentNumber, payer: Payer },
+    /// The task of a chief's line to `agent`, which keeps the line.
+    Line {
+        task: TaskId,
+        agent: AgentNumber,
+        payer: Payer,
+        text: String,
+    },
 }
 
 pub(super) async fn apply(
@@ -88,10 +96,28 @@ pub(super) async fn apply(
             agent,
             payer,
         } => {
-            open(writer, Id::Given(task), origin, agent, payer).await
+            open(writer, Id::Given(task), origin, agent, payer, None)
+                .await
         }
         Change::Standing { agent, payer } => {
-            open(writer, Id::Next, Origin::Standing, agent, payer)
+            open(
+                writer,
+                Id::Next,
+                Origin::Standing,
+                agent,
+                payer,
+                None,
+            )
+            .await
+        }
+        Change::Line {
+            task,
+            agent,
+            payer,
+            text,
+        } => {
+            let id = Id::Given(task);
+            open(writer, id, Origin::Chief, agent, payer, Some(text))
                 .await
         }
     }
@@ -108,6 +134,7 @@ async fn open(
     origin: Origin,
     agent: AgentNumber,
     payer: Payer,
+    text: Option<String>,
 ) -> Result<Affected> {
     let id = match id {
         Id::Given(task) => task.column()?,
@@ -115,13 +142,14 @@ async fn open(
     };
     writer
         .execute(
-            "INSERT INTO task (id, origin, agent, payer, at) VALUES \
-             (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO task (id, origin, agent, payer, text, at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             vec![
                 id,
                 BindParam::Text(change::case_name(&origin)?),
                 number(agent),
                 BindParam::Text(serde_json::to_string(&payer)?),
+                text.map_or(BindParam::Null, BindParam::Text),
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -158,6 +186,25 @@ async fn standing_of(
         )
         .await?
         .map(TaskId))
+}
+
+/// The `most` latest lines chiefs said to `agent`, newest first, each
+/// with when it was said.
+pub(super) async fn lines_to(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    most: u32,
+) -> Result<Vec<(i64, String)>> {
+    rows.rows::<(i64, String)>(
+        "SELECT at, text FROM task WHERE agent = ?1 AND origin = ?2 \
+         AND text IS NOT NULL ORDER BY id DESC LIMIT ?3",
+        vec![
+            number(agent),
+            BindParam::Text(change::case_name(&Origin::Chief)?),
+            BindParam::Integer(i64::from(most)),
+        ],
+    )
+    .await
 }
 
 /// `None` for a task the realm does not hold.

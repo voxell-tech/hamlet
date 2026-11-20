@@ -339,6 +339,9 @@ pub struct EndDream {
     pub dream: DreamId,
     pub done: bool,
     pub summary: String,
+    /// The hire's name as the realm gives it, for a hire's dream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hire_name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

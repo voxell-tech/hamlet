@@ -19,10 +19,10 @@ use hamlet_messages::workspace::reach::Reach;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::Callee;
 use super::world::seen_until;
 use super::{
-    Callee, MAYOR, Realm, THREE, copies_to, hamlet_with, to, until,
-    words,
+    MAYOR, Realm, THREE, copies_to, hamlet_with, to, until, words,
 };
 
 const FAUX: &str = "faux::faux-1";

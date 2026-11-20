@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { copyFileSync, existsSync } from "node:fs";
 import type { TestContext } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
 import {
     type AssistantMessage,
     createAssistantMessageEventStream,
+    type FauxResponseFactory,
     type FauxResponseStep,
     fauxAssistantMessage,
     fauxToolCall,
+    type Context as ModelContext,
     type Models,
     type ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -30,20 +33,23 @@ import {
     type AgentHandlers,
     agentActor,
 } from "../src/agent/actor.ts";
+import { textOf } from "../src/agent/chat-items.ts";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
+import type { AgentInput } from "../src/agent/messages/agent.ts";
+import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
+import type { ProfileActions } from "../src/agent/messages/profile.ts";
 import {
-    type AgentInput,
+    type AgentName,
     type Kept,
-    LIBRARY,
-    type LibraryActions,
-    type ProfileActions,
     REALM,
     type RealmActions,
+} from "../src/agent/messages/realm.ts";
+import {
     WORKSPACE,
     type WorkspaceActions,
-} from "../src/agent/messages.ts";
+} from "../src/agent/messages/workspace.ts";
+import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
-import { textOf } from "../src/agent/transcript.ts";
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";
 import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
 
@@ -73,7 +79,11 @@ export function fakeCalls(answers: {
         Record<string, (...args: never[]) => unknown>
     > = {
         [WORKSPACE.kind]: {
-            list_tools: () => ({ tools: [], faults: [] }),
+            list_tools: () => ({
+                tools: [],
+                faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
+            }),
             cancel: () => ({ commands: [] }),
             ...answers.workspace,
         },
@@ -84,6 +94,7 @@ export function fakeCalls(answers: {
             secrets: () => ({ version: 1, values: [] }),
             lapse: () => null,
             turn_failed: () => null,
+            read_place: () => ({ place: "# Your place\nYou are `hand`." }),
             ...answers.realm,
         },
         [LIBRARY.kind]: {
@@ -112,6 +123,10 @@ export function fakeCalls(answers: {
         },
     };
     return { calls, sent };
+}
+
+export function shown(agent: number): AgentName {
+    return { agent, name: `hire#${agent}` };
 }
 
 export function named(sent: readonly Sent[], name: string): Sent[] {
@@ -144,11 +159,12 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
                 : ok(new TextEncoder().encode(text));
         },
         write: async (path, content) => {
+            const created = files[path] === undefined;
             files[path] =
                 typeof content === "string"
                     ? content
                     : new TextDecoder().decode(content);
-            return ok(undefined);
+            return ok(created);
         },
         edit: async (path, changes) => {
             const before = files[path];
@@ -170,7 +186,27 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             edits += 1;
             return ok({ before, after: text });
         },
-        list: async () => ok([]),
+        list: async (path) => {
+            const names = new Set(
+                Object.keys(files)
+                    .filter((name) => name.startsWith(`${path}/`))
+                    .map(
+                        (name) =>
+                            name.slice(path.length + 1).split("/")[0] ?? "",
+                    ),
+            );
+            return ok(
+                [...names].sort().map((name) => ({
+                    name,
+                    path: `${root}/${path}/${name}`,
+                    kind:
+                        files[`${path}/${name}`] === undefined
+                            ? ("directory" as const)
+                            : ("file" as const),
+                    size: 0,
+                })),
+            );
+        },
         search: async () => ok({ found: [], more: false, capped: false }),
         find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),
@@ -204,12 +240,40 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
     };
 }
 
-/** The faux provider prices nothing. */
-export function priced(models: Models, dollars: number): Models {
+/** Answers `words`, keeping the request it answers in `seen`. */
+export function asked(
+    seen: ModelContext[],
+    words: string,
+): FauxResponseFactory {
+    return (context) => {
+        seen.push(context);
+        return fauxAssistantMessage(words);
+    };
+}
+
+export function userWords(context: ModelContext): string[] {
+    return context.messages.flatMap((message) =>
+        message.role !== "user"
+            ? []
+            : typeof message.content === "string"
+              ? [message.content]
+              : message.content.flatMap((part) =>
+                    part.type === "text" ? [part.text] : [],
+                ),
+    );
+}
+
+/** Each answer costs `dollars`, and uses `tokens` when they are given. */
+export function priced(
+    models: Models,
+    dollars: number,
+    tokens?: { readonly input: number; readonly output: number },
+): Models {
     const costing = (message: AssistantMessage): AssistantMessage => ({
         ...message,
         usage: {
             ...message.usage,
+            ...tokens,
             cost: { ...message.usage.cost, total: dollars },
         },
     });
@@ -244,7 +308,14 @@ export function priced(models: Models, dollars: number): Models {
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-7",
-    place: { version: 1, hires: [], roads: [], tools_off: [] },
+    place: {
+        version: 1,
+        hires: [],
+        roads: [],
+        tools_off: [],
+        manual: false,
+        agrees_roads: false,
+    },
     copies: {},
 };
 
@@ -284,11 +355,49 @@ export interface Woken {
     /** Makes the database's next transaction fail once. Resolves when it has. */
     failNextCommit(): Promise<void>;
     /**
+     * Holds the agent's next read of `sql`, outside a transaction, until
+     * `release`; `reached` resolves when it is made.
+     */
+    holdRead(sql: string): Held;
+    /**
      * As `onDestroy` does: running work stops at once and resumes at the
      * next wake.
      */
     stop(): Promise<void>;
     again(): Promise<Woken>;
+    /**
+     * As a kill does: wakes the agent on what its file holds now, and stops
+     * this one, whose later writes the new one never sees.
+     */
+    killed(): Promise<Woken>;
+}
+
+/**
+ * Answers the reflection a `/new` or a `/resume` asks "Kept.", and every
+ * other request from `answers` in order, whichever conversation asks first.
+ */
+export function reflecting(answers: string[]): FauxResponseStep[] {
+    const step: FauxResponseStep = (request) => {
+        const last = request.messages.at(-1);
+        const text =
+            typeof last?.content === "string"
+                ? last.content
+                : (last?.content ?? [])
+                      .map((part) => (part.type === "text" ? part.text : ""))
+                      .join("");
+        return fauxAssistantMessage(
+            text === REFLECT ? "Kept." : (answers.shift() ?? "Nothing left."),
+        );
+    };
+    return Array.from({ length: answers.length + 2 }, () => step);
+}
+
+export async function notices(
+    agent: Woken,
+): Promise<{ text: string; at: number }[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "hamlet.notice")
+        .map((entry) => entry.data as { text: string; at: number });
 }
 
 export async function wakeAgent(
@@ -304,7 +413,8 @@ export async function wakeAgent(
         key?: string;
     },
 ): Promise<Woken> {
-    const commits = failing(plainDatabase(scratchFile(t)));
+    const file = scratchFile(t);
+    const commits = failing(plainDatabase(file));
     const { faux, models, model } = fauxModels();
     faux.setResponses(given.responses ?? []);
     const files = given.files ?? fakeFiles({});
@@ -319,7 +429,11 @@ export async function wakeAgent(
     const definition = agentActor(config).config as unknown as Definition;
     await definition.db.onMigrate(commits.database);
     const address = Address.of("agent", given.key ?? "7");
-    const start = async (first: boolean): Promise<Woken> => {
+    const start = async (
+        first: boolean,
+        file: string,
+        commits: ReturnType<typeof failing>,
+    ): Promise<Woken> => {
         const alarms: number[] = [];
         const reported: string[] = [];
         const events: unknown[][] = [];
@@ -365,21 +479,57 @@ export async function wakeAgent(
             idle: async () => (await harness()).waitForIdle(context),
             entries: async () => entriesOf(await harness(), context),
             failNextCommit: commits.failNext,
+            holdRead: commits.holdRead,
             stop: () => definition.onDestroy(c),
-            again: () => start(false),
+            again: () => start(false, file, commits),
+            killed: async () => {
+                const copy = scratchFile(t);
+                for (const suffix of ["", "-journal"]) {
+                    if (existsSync(file + suffix)) {
+                        copyFileSync(file + suffix, copy + suffix);
+                    }
+                }
+                await definition.onDestroy(c);
+                return start(false, copy, failing(plainDatabase(copy)));
+            },
         };
     };
-    return start(true);
+    return start(true, file, commits);
+}
+
+export interface Held {
+    readonly reached: Promise<void>;
+    release(): void;
 }
 
 function failing(database: RawAccess): {
     readonly database: RawAccess;
     failNext(): Promise<void>;
+    holdRead(sql: string): Held;
 } {
     let armed: (() => void) | undefined;
+    const holds = new Map<
+        string,
+        { reach(): void; readonly released: Promise<void> }
+    >();
+    const held =
+        <F extends (sql: string, ...args: never[]) => Promise<unknown>>(
+            read: F,
+        ) =>
+        async (sql: string, ...args: never[]) => {
+            const hold = holds.get(sql);
+            if (hold !== undefined) {
+                holds.delete(sql);
+                hold.reach();
+                await hold.released;
+            }
+            return read(sql, ...args);
+        };
     return {
         database: {
             ...database,
+            get: held(database.get) as RawAccess["get"],
+            all: held(database.all) as RawAccess["all"],
             transaction: ((...args: never[]) => {
                 const fail = armed;
                 if (fail !== undefined) {
@@ -398,6 +548,15 @@ function failing(database: RawAccess): {
             const fired = Promise.withResolvers<void>();
             armed = fired.resolve;
             return fired.promise;
+        },
+        holdRead: (sql) => {
+            const reached = Promise.withResolvers<void>();
+            const released = Promise.withResolvers<void>();
+            holds.set(sql, {
+                reach: reached.resolve,
+                released: released.promise,
+            });
+            return { reached: reached.promise, release: released.resolve };
         },
     };
 }

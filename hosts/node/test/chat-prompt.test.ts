@@ -8,12 +8,9 @@ import {
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { FileError, ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
-import type {
-    AgentInput,
-    Character,
-    Copies,
-    ReadAnswer,
-} from "../src/agent/messages.ts";
+import type { AgentInput, Copies } from "../src/agent/messages/agent.ts";
+import type { Character } from "../src/agent/messages/profile.ts";
+import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
 import { renderPrompt } from "../src/agent/prompt.ts";
 import {
     FAKE_ROOT,
@@ -26,7 +23,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context } from "./testing.ts";
+import { context, fixture } from "./testing.ts";
 
 function listedFiles(files: Record<string, string>): AgentFilesystem {
     const base = fakeFiles(files);
@@ -96,6 +93,8 @@ const HIRE: AgentInput = {
         roads: [5],
         tools_off: [{ name: "end" }, { name: "bash" }],
         folder: "/work",
+        manual: false,
+        agrees_roads: false,
     },
     copies: {},
 };
@@ -214,7 +213,13 @@ test("the prompt cuts each part at its limit", async (t) => {
     const cutByTheWorkspace = await renderPrompt({
         copies: async () => ({}),
         files: listedFiles({}),
-        where: async () => ({ number: 7, kind: "hire", place: HIRE.place }),
+        where: async () => ({ kind: "hire", place: HIRE.place }),
+        tools: async () => ({
+            tools: [],
+            faults: [],
+            confinement: { type: "sandbox", name: "bwrap" },
+        }),
+        readPlace: async () => ({ place: "# Your place" }),
         report: assert.fail,
         readFile: async () => ({
             type: "text",
@@ -316,14 +321,7 @@ test("read_prompt answers what the next request sends", async (t) => {
             `- deploy: Ships it. Run: \`cd '${FAKE_ROOT}' && ./run.sh\` (skills/deploy/SKILL.md)`,
         ),
     );
-    assert.ok(text.includes("# Your place\n"));
-    // As `crates/hamlet_server/src/talk/prompt/place.rs` words it,
-    // with a society tool under the name the model calls it by.
-    assert.ok(
-        text.includes(
-            "Your lead turned these tools off for you: end_hire, bash.",
-        ),
-    );
+    assert.ok(text.endsWith("\n\n# Your place\nYou are `hand`."));
     await agent.stop();
 });
 
@@ -334,6 +332,8 @@ test("an errand's prompt is its own instructions only", async () => {
         files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
         where: refused,
         readFile: refused,
+        tools: refused,
+        readPlace: refused,
         report: assert.fail,
         errand: "Sort the library.",
     });
@@ -398,7 +398,47 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
     await agent.stop();
 });
 
-const NAMED_NOT_OFFERED = [
+/** The place, realm and scholars sections as `realm/read_place.answer` holds them. */
+const PLACE_TEXT =
+    "# Your place\nYou are `hire#12 (Ada)`.\n\n# The realm\nNo hamlet is founded yet.\n\n# The city's scholars\n- `scholar#2`";
+
+test("the prompt ends with the realm's place, realm and scholars, read once for each request", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            read_place: () => fixture("realm/read_place.answer") as never,
+        },
+    });
+    const record = recorder();
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            record.step(toolCall("tell", {})),
+            record.step(fauxAssistantMessage("Done.")),
+        ],
+    });
+    await say(agent, "Hi");
+    await agent.stop();
+
+    assert.equal(record.prompts.length, 2);
+    for (const prompt of record.prompts) {
+        assert.ok(prompt.endsWith(`\n\n${PLACE_TEXT}`), prompt);
+    }
+    assert.deepEqual(
+        named(sent, "read_place").map((call) => call.message),
+        [{ conversation: "chat" }, { conversation: "chat" }],
+    );
+});
+
+/** As `crates/hamlet_actors/tests/realm/prompt.rs` holds today's words. */
+const HAND_WORDS =
+    "You are the Hand of this realm: the chiefs' own agent. You found hamlets (`found_hamlet`) and seat their mayors (`seat_mayor`), make scholars (`create_scholar`) and hire them into any hamlet, and lead every hire. You read any hamlet's record (`read_record`) and any scholar (`read_scholar`). What you do to what a chief owns, removing a hamlet or changing, tagging or reverting a scholar, waits for a chief first. Each mayor answers to you.";
+const LEAD_WORDS =
+    "You lead the hires under you. `hire` brings a scholar of the city in under you or under a hire of your tree, and `create_scholar` makes a new scholar to hire. Hire when a kind of work will come back and deserves its own memory; do small one-off things yourself, or with `start_worker`. Check the hires below for one that fits before hiring. `lay_road` lets two hires under you write to each other directly; `end_hire` ends one nobody needs and `merge_hires` makes one hire of two whose work overlaps: the kept hire takes what the other learned, its roads and its hires. `set_model`, `set_tools` and `set_allowance` shape a hire under you, and `nickname` names it in the world.";
+const OBJECT_WORDS =
+    "A chief is a human the realm belongs to. If you think a chief's instruction is a mistake, use `object` once and wait for the chief's ruling before doing anything. If the chief says go on, do it and do not object again. You may not refuse.";
+
+/** Tools of oversight and the city the prompt names. */
+const NAMED = [
     "object",
     "start_worker",
     "merge_hires",
@@ -408,13 +448,22 @@ const NAMED_NOT_OFFERED = [
     "read_record",
 ];
 
-test("every tool the prompt names is one the agent offers", {
-    todo: "the realm's tools of oversight and the city are not offered yet",
-}, async (t) => {
+const NAMED_NOT_OFFERED = ["merge_hires"];
+
+test("every tool the prompt names is one the agent offers, but merge_hires", async (t) => {
     const missing = new Set<string>();
-    for (const input of [undefined, HIRE]) {
+    for (const [input, words] of [
+        [undefined, [HAND_WORDS, LEAD_WORDS, OBJECT_WORDS]],
+        [HIRE, [LEAD_WORDS, OBJECT_WORDS]],
+    ] as const) {
         const agent = await wakeAgent(t, {
-            calls: fakeCalls({}).calls,
+            calls: fakeCalls({
+                realm: {
+                    read_place: () => ({
+                        place: `# Your place\n${words.join("\n\n")}`,
+                    }),
+                },
+            }).calls,
             ...(input === undefined ? {} : { input }),
         });
         const prompt = await readPrompt(agent);
@@ -423,11 +472,129 @@ test("every tool the prompt names is one the agent offers", {
             (tool) => tool.name,
         );
         await agent.stop();
-        for (const name of NAMED_NOT_OFFERED) {
+        for (const name of NAMED) {
             if (prompt.includes(`\`${name}\``) && !offered.includes(name)) {
                 missing.add(name);
             }
         }
     }
-    assert.deepEqual([...missing], []);
+    assert.deepEqual([...missing], NAMED_NOT_OFFERED);
+});
+
+test("a request whose place the realm does not give is not sent, and its turn fails as an unasked spend does", async (t) => {
+    let reads = 0;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            read_place: () => {
+                reads += 1;
+                if (reads === 2) throw new Error("the realm is gone");
+                return fixture("realm/read_place.answer") as never;
+            },
+        },
+    });
+    const record = recorder();
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            record.step(toolCall("tell", {})),
+            record.step(fauxAssistantMessage("Not sent.")),
+        ],
+    });
+    await say(agent, "Hi");
+    await until(() => named(sent, "turn_failed").length === 1);
+    await agent.stop();
+
+    assert.equal(record.prompts.length, 1);
+    const [failed] = named(sent, "turn_failed").map(
+        (call) => call.message as { words: string },
+    );
+    assert.match(
+        failed?.words ?? "",
+        /: it could not be asked \(the realm is gone\)$/,
+    );
+});
+
+test("the first request of a turn is not sent when the realm does not give its place", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            read_place: () => {
+                throw new Error("the realm is gone");
+            },
+        },
+    });
+    const record = recorder();
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [record.step(fauxAssistantMessage("Not sent."))],
+    });
+    await say(agent, "Hi");
+    await until(() => named(sent, "turn_failed").length === 1);
+    await agent.stop();
+
+    assert.deepEqual(record.prompts, []);
+});
+
+test("the environment names the sandbox and the tools that failed to load, as today", async (t) => {
+    const faults = [
+        { folder: "/realm/tools/lint", words: "it has no manifest.json" },
+        { folder: "/realm/tools/fmt", words: "`fmt` is taken" },
+    ];
+    for (const [confinement, sandbox] of [
+        [{ type: "sandbox", name: "bwrap" }, "bwrap"],
+        [
+            { type: "insecure" },
+            "none. Commands are not confined: they reach whatever the chief's account can",
+        ],
+        [{ type: "remote" }, "the remote workspace's"],
+    ] as const) {
+        const { calls } = fakeCalls({
+            workspace: {
+                list_tools: () => ({ tools: [], faults, confinement }),
+            },
+        });
+        const agent = await wakeAgent(t, { calls });
+        const prompt = await readPrompt(agent);
+        await agent.stop();
+
+        const environment = prompt.slice(prompt.indexOf("# Environment"));
+        assert.ok(
+            environment.startsWith(
+                `# Environment\nSandbox: ${sandbox}. Network for tools: off unless a chief allows it; a command that needs it waits until the chief answers, so set \`network\` to true on it and carry on.\nTools that failed to load:\n/realm/tools/lint: it has no manifest.json\n/realm/tools/fmt: \`fmt\` is taken\nSystem: `,
+            ),
+            environment,
+        );
+    }
+});
+
+test("the project says it is a git repository, and that a chief approves each change in a manual hamlet, as today", async (t) => {
+    const git =
+        "- The project is a git repository. When two agents must work apart, one may use a git worktree inside the project folder, such as under `.hamlet/worktrees/<name>`.";
+    const manual =
+        "- A chief approves each edit and each command in the project before it runs, so each one waits. `read`, `search` and `find` never wait: learn what you need with them, then make few, well-aimed edits and commands.";
+    const projectOf = async (
+        files: Record<string, string>,
+        isManual: boolean,
+    ) => {
+        const { calls } = fakeCalls({ workspace: workspaceFiles(files) });
+        const agent = await wakeAgent(t, {
+            calls,
+            input: { ...HIRE, place: { ...HIRE.place, manual: isManual } },
+        });
+        const prompt = await readPrompt(agent);
+        await agent.stop();
+        return prompt.split("\n");
+    };
+
+    const repository = await projectOf(
+        { "/work/.git/HEAD": "ref: refs/heads/main\n" },
+        true,
+    );
+    assert.ok(repository.includes(git) && repository.includes(manual));
+    const worktree = await projectOf(
+        { "/work/.git": "gitdir: /src/.git/worktrees/work\n" },
+        false,
+    );
+    assert.ok(worktree.includes(git) && !worktree.includes(manual));
+    const plain = await projectOf({}, false);
+    assert.ok(!plain.includes(git) && !plain.includes(manual));
 });

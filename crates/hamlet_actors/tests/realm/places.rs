@@ -1,11 +1,12 @@
 use hamlet_messages::agent::Place;
-use hamlet_messages::realm::{Asked, Done, End, FoundAnswer, Named};
+use hamlet_messages::realm::{Asked, End, FoundAnswer, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, THREE, chief_hires, found, hamlet_with,
+    MAYOR, Realm, THREE, chief_hires, done_to, found, hamlet_with,
     hire, hired, tool, until,
 };
 
@@ -89,7 +90,7 @@ async fn a_place_follows_the_tree() {
     places_reach(&realm, MAYOR, 4).await;
 
     assert_eq!(hired_3.unwrap(), hired(3));
-    assert_eq!(ended.unwrap(), Done::Done);
+    assert_eq!(ended.unwrap(), done_to(THREE));
     assert_eq!(
         places_of(&realm, MAYOR),
         [(1, vec![]), (2, vec![]), (3, vec![3]), (4, vec![])]
