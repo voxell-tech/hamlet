@@ -62,7 +62,6 @@ pub(super) fn kept_how(how: &HowEnded) -> Result<String> {
     Ok(kept.to_string())
 }
 
-/// How an agent ended, from what its row keeps.
 pub(super) async fn read_how(
     rows: &Rows<'_>,
     kept: &str,

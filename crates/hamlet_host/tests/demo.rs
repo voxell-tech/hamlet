@@ -200,8 +200,6 @@ fn a_tells_bytes_cross_as_text() {
 
 /// A Node host's pid file read while it is written, empty or with
 /// only its first digit, is read again until it holds the whole pid.
-/// The writer pauses 200 ms between its steps; the reader waits up to
-/// [`PATIENCE`], 30 s, over a hundred times that.
 #[tokio::test]
 async fn a_pid_file_read_while_it_is_written_is_read_again_until_whole()
  {

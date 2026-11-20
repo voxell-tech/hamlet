@@ -125,7 +125,7 @@ fn each_refusal_reads_as_todays_server_words_it() {
             words(LayRefusal::OtherHamlet { hire: mira() }),
             "`hire#12 (Mira)` is in another hamlet",
         ),
-        // hamlet_server/src/calls/society/letters.rs:70
+        // hamlet_server/src/calls/society/letters.rs:71
         (
             words(RequestRoadRefusal::NoLead),
             "a road joins hires only",

@@ -201,7 +201,6 @@ async fn a_profiles_dream_tidies_its_main_in_todays_words() {
     realm.host.shutdown().await.unwrap();
 }
 
-/// A dream's errand may spend today's cost of a dream, and no more.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dreams_errand_spends_no_more_than_a_dream_may() {
     let (realm, hamlet) = hamlet_with(1).await;

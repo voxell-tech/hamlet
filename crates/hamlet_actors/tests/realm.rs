@@ -448,7 +448,6 @@ fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
     realm.seen.dream_ends.lock().unwrap().clone()
 }
 
-/// The end of hire 3's dream `dream`.
 fn hire_3_ends(dream: u32, done: bool, summary: &str) -> EndDream {
     EndDream {
         dream: DreamId(dream),
@@ -508,14 +507,12 @@ fn words(answer: impl Serialize) -> String {
     answer["words"].as_str().unwrap().to_owned()
 }
 
-/// The answer of an agent's act on `agent`.
 fn done_to<R>(agent: AgentNumber) -> DoneTo<R> {
     DoneTo::Done {
         agent: shown(agent),
     }
 }
 
-/// The answer of an agent's act on the road between `a` and `b`.
 fn road_done<R>(a: AgentNumber, b: AgentNumber) -> RoadDone<R> {
     RoadDone::Done {
         a: shown(a),
@@ -523,7 +520,6 @@ fn road_done<R>(a: AgentNumber, b: AgentNumber) -> RoadDone<R> {
     }
 }
 
-/// The answer of a letter sent to `to`.
 fn sent<R>(to: AgentNumber) -> Sent<R> {
     Sent::Sent { to: shown(to) }
 }
@@ -549,7 +545,6 @@ fn worker_shown(worker: AgentNumber) -> AgentName {
     }
 }
 
-/// `agent` shown as `name`.
 fn named_as(agent: u32, name: &str) -> AgentName {
     AgentName {
         agent: AgentNumber(agent),

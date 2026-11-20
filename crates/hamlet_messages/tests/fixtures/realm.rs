@@ -245,7 +245,6 @@ fn road_done<W>(
     answers(fixtures, name, [("done", done)], refusals);
 }
 
-/// `agent` as chiefs and agents are shown it.
 fn shown(agent: AgentNumber) -> AgentName {
     AgentName {
         agent,

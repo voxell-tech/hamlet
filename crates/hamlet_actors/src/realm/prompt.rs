@@ -388,7 +388,6 @@ async fn realm(
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))
 }
 
-/// The hamlet whose mayor `agent` is.
 async fn mayor_of(
     rows: &Rows<'_>,
     agent: AgentNumber,

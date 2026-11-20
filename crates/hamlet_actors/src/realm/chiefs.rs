@@ -73,6 +73,20 @@ pub(super) async fn hamlet(
     }))
 }
 
+/// Whether a hamlet besides `id` lives.
+pub(super) async fn another_lives(
+    rows: &Rows<'_>,
+    id: &HamletId,
+) -> Result<bool> {
+    Ok(rows
+        .row::<(u32,)>(
+            "SELECT 1 FROM hamlet WHERE id != ?1 LIMIT 1",
+            vec![BindParam::Text(id.0.clone())],
+        )
+        .await?
+        .is_some())
+}
+
 pub(super) async fn mayors(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {

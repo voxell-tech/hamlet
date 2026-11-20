@@ -1136,7 +1136,6 @@ test("object is offered in a chief's chat and not in a letter's conversation, as
     assert.deepEqual(objecting, [false, true]);
 });
 
-/** Gives each of `answers` in turn, one a call. */
 function queue<T>(...answers: T[]): () => T {
     return () => answers.shift() as T;
 }

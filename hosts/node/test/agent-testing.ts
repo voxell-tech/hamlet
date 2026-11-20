@@ -125,7 +125,6 @@ export function fakeCalls(answers: {
     return { calls, sent };
 }
 
-/** `agent` as the realm names it. */
 export function shown(agent: number): AgentName {
     return { agent, name: `hire#${agent}` };
 }
@@ -241,7 +240,6 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
     };
 }
 
-/** The faux provider prices nothing. */
 /** Answers `words`, keeping the request it answers in `seen`. */
 export function asked(
     seen: ModelContext[],
@@ -253,7 +251,6 @@ export function asked(
     };
 }
 
-/** The words of each user message of a request. */
 export function userWords(context: ModelContext): string[] {
     return context.messages.flatMap((message) =>
         message.role !== "user"
@@ -395,7 +392,6 @@ export function reflecting(answers: string[]): FauxResponseStep[] {
     return Array.from({ length: answers.length + 2 }, () => step);
 }
 
-/** The notices the agent's conversations hold. */
 export async function notices(
     agent: Woken,
 ): Promise<{ text: string; at: number }[]> {

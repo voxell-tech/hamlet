@@ -2,7 +2,6 @@
 import type { Author, Input, Submit } from "./messages/agent.ts";
 import { type Admission, NOTE_BREAK } from "./turn.ts";
 
-/** An author's name, else its address. */
 export function nameOf(author: Author, kind: "hire" | "worker"): string {
     return author.name ?? `${kind}#${author.agent}`;
 }
