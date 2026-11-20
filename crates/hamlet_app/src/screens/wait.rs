@@ -452,6 +452,25 @@ fn held(
     ))
 }
 
+/// What the MCP server a wait asks for runs and reaches.
+fn server_reach(detail: &WaitDetail) -> String {
+    let WaitDetail::McpServer { entry, .. } = detail else {
+        return String::new();
+    };
+    let mut lines = vec![entry.command.join(" ")];
+    if entry.net {
+        lines.push("Reaches the network.".into());
+    }
+    for (paths, what) in
+        [(&entry.fs_ro, "Reads"), (&entry.fs_rw, "Writes")]
+    {
+        if !paths.is_empty() {
+            lines.push(format!("{what} {}", paths.join(", ")));
+        }
+    }
+    lines.join("\n")
+}
+
 /// The line over the card of `need`, `tail` at its end.
 fn head(
     need: &Need,
@@ -476,6 +495,9 @@ fn head(
         }
         WaitDetail::Newcomer { .. } => {
             format!("{profile} wants to move into the city")
+        }
+        WaitDetail::McpServer { name, .. } => {
+            format!("{} asks for the MCP server {name}", need.shown)
         }
     };
     let when = match need.asked {
@@ -571,6 +593,14 @@ fn strip(hub: Entity, need: &Need, tail: AnyView) -> AnyView {
             {
                 command_block(need.about.clone()).boxed()
             }
+            (None, None)
+                if matches!(
+                    need.detail,
+                    WaitDetail::McpServer { .. }
+                ) =>
+            {
+                command_block(server_reach(&need.detail)).boxed()
+            }
             (None, None) => {
                 note(need.about.clone()).tagged(MonoText).boxed()
             }
@@ -608,6 +638,24 @@ fn strip(hub: Entity, need: &Need, tail: AnyView) -> AnyView {
                  it in.",
                 need.shown
             )),
+            WaitDetail::McpServer { entry, .. } => {
+                Some(if entry.env.is_empty() {
+                    "Allowed, it runs in the sandbox and its tools \
+                     are offered to every agent."
+                        .to_string()
+                } else {
+                    format!(
+                        "Allowed, it is added without the values of \
+                         {}; give them in Settings, MCP Servers.",
+                        entry
+                            .env
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+            }
             _ => Some(need.line.clone()),
         };
         let line = match line {

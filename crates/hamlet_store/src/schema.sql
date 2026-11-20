@@ -606,7 +606,8 @@ CREATE TABLE asked_dream (
 CREATE TABLE wait (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN
-        ('approval', 'fault', 'question', 'objection', 'newcomer')),
+        ('approval', 'fault', 'question', 'objection', 'newcomer',
+         'mcp-server')),
     danger TEXT CHECK (danger IS NULL OR danger IN
         ('network', 'unconfined', 'reserved', 'edit', 'command',
          'send', 'act')),
@@ -621,6 +622,9 @@ CREATE TABLE wait (
     questions TEXT CHECK (questions IS NULL OR json_valid(questions)),
     -- A fault's cause a chief sets up once for every agent it stops.
     setup TEXT CHECK (setup IS NULL OR json_valid(setup)),
+    -- The name and entry of the MCP server a `mcp-server` wait asks
+    -- for.
+    server TEXT CHECK (server IS NULL OR json_valid(server)),
     since INTEGER NOT NULL,
     asked INTEGER NOT NULL DEFAULT 1 CHECK (asked >= 1),
     open INTEGER NOT NULL DEFAULT 1 CHECK (open IN (0, 1)),

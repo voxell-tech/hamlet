@@ -340,6 +340,7 @@ impl Core<'_, '_> {
                             answers: danger.answers(),
                             questions: None,
                             setup: None,
+                            server: None,
                         },
                     )?;
                     held::hold(cx.db, &runtime, &key, wait, change)?;

@@ -118,6 +118,7 @@ pub(crate) fn rule(
                     answers: vec![Choice::Dismiss],
                     questions: None,
                     setup: None,
+                    server: None,
                 },
             )?;
         }

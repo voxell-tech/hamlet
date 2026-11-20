@@ -13,6 +13,7 @@ pub(crate) enum Society {
     SubmitSkill,
     RequestLibrarian,
     RequestChief,
+    RequestMcpServer,
     ReadBudget,
     Object,
     ProposeChannel,
@@ -175,7 +176,7 @@ impl Facts {
 }
 
 /// Every society tool, once.
-pub(crate) const FACTS: [Facts; 66] = {
+pub(crate) const FACTS: [Facts; 67] = {
     use Offered::{
         Chats, Everyone, HamletAgents, Hand, Leads, Parents,
     };
@@ -189,6 +190,7 @@ pub(crate) const FACTS: [Facts; 66] = {
         facts(S::RequestLibrarian, "request_librarian", Everyone)
             .doing(Doing::Await),
         facts(S::RequestChief, "request_chief", Everyone),
+        facts(S::RequestMcpServer, "request_mcp_server", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
         facts(S::ProposeChannel, "propose_channel", HamletAgents)

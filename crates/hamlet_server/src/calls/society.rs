@@ -10,6 +10,7 @@ mod realm;
 pub(crate) mod welcome;
 
 use anyhow::Result;
+use hamlet_protocol::client::Choice;
 use hamlet_store::ids::{
     Actor, AgentId, ChiefId, HamletId, ProfileId, TaskId,
 };
@@ -17,7 +18,8 @@ use hamlet_store::ids::{
 use self::args::{
     AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
     FoundHamlet, MakeProfile, MergeAgents, ReadRecord, RenameAgent,
-    ReparentAgent, SetAllowance, SetLead, SetModel, SetTools,
+    ReparentAgent, RequestMcpServer, SetAllowance, SetLead, SetModel,
+    SetTools,
 };
 use super::looks::Look;
 use super::{Call, rejected, said};
@@ -32,11 +34,13 @@ use crate::society::hamlet_agents::{
     self, LastDream, ProfileChoice, Spec,
 };
 use crate::society::hamlets::{self, Founding};
+use crate::society::oversight::{self, Raise, WaitKind};
 use crate::society::rejection::Rejection;
 use crate::society::spend::{self, micros, money};
 use crate::society::{authority, channels, city, limits, record};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
+use crate::tools::mcp;
 
 /// The most of a text a read gives, in bytes.
 const MOST_READ: usize = 50 * 1024;
@@ -497,6 +501,9 @@ impl Core<'_, '_> {
                 let db = self.realm.store().connection();
                 Ok(Ok(budget(db, agent)?))
             }
+            Called::RequestMcpServer(args) => {
+                self.request_mcp_server(call, args)
+            }
             Called::ReadRecord(ReadRecord { hamlet }) => {
                 let id = HamletId(hamlet);
                 let db = self.realm.store().connection();
@@ -537,6 +544,74 @@ impl Core<'_, '_> {
     /// Makes the change of `call` and keeps its answer in the same
     /// transaction, so a call replayed after a crash never changes
     /// anything twice.
+    /// Raises the wait for the MCP server `args` asks for.
+    fn request_mcp_server(
+        &mut self,
+        call: &Call<'_>,
+        args: RequestMcpServer,
+    ) -> Done<String> {
+        let RequestMcpServer {
+            name,
+            command,
+            env,
+            net,
+            fs_ro,
+            fs_rw,
+            reason,
+        } = args;
+        if self.tools.mcp.is_listed(&name) {
+            reject!(Rejection::BadMcp {
+                why: format!(
+                    "MCP server {name} is listed already; its tools \
+                     are the ones beginning mcp__{name}__."
+                ),
+            });
+        }
+        let asked =
+            match mcp::asked(name, command, env, net, fs_ro, fs_rw) {
+                Ok(asked) => asked,
+                Err(why) => reject!(Rejection::BadMcp { why }),
+            };
+        let task = self.task_of(call)?;
+        let agent = call.conversation.agent;
+        let conversation = call.conversation.id;
+        let words = format!(
+            "Asked the chief to add the MCP server {}. You are told \
+             in this chat whether it was added; its tools are \
+             offered once it starts.",
+            asked.name
+        );
+        self.carry(call, |cx, _| {
+            let about = format!(
+                "{}: {}",
+                asked.name,
+                if reason.trim().is_empty() {
+                    asked.entry.command.join(" ")
+                } else {
+                    reason.trim().to_owned()
+                }
+            );
+            oversight::raise(
+                cx,
+                Raise {
+                    kind: WaitKind::McpServer,
+                    danger: None,
+                    agent,
+                    profile: None,
+                    conversation: Some(conversation),
+                    task,
+                    about,
+                    change: None,
+                    answers: vec![Choice::Allow, Choice::Deny],
+                    questions: None,
+                    setup: None,
+                    server: Some(asked),
+                },
+            )?;
+            Ok(Ok(words))
+        })
+    }
+
     fn carry(
         &mut self,
         call: &Call<'_>,

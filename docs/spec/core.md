@@ -113,7 +113,11 @@ does not say only reads waits for a chief (H11), unless the entry allows
 it; the entry can also make a tool that says it only reads wait. An entry that does not load,
 and a server that never started, are named in the prompt of every agent
 that would have had its tools (C15). A server cannot ask Hamlet for a
-model, folders or answers (ADR 0017).
+model, folders or answers (ADR 0017). A chief adds, changes, restarts and
+removes servers in Settings and with `hamlet mcp`, and can bring in those
+other programs on the server's machine list. An agent can ask a chief for
+a server; allowed, it is added with its environment's values for the chief
+to give.
 
 ## What tools reach
 

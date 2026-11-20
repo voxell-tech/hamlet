@@ -241,7 +241,7 @@ against a chat's `turn` and `transcript` messages. A reset and its
 replacement transcript are sent together, with no message between them.
 
 A `Wait` has a `detail` discriminated by `kind`: `approval`, `fault`,
-`question`, `objection` or `newcomer` (see `waits`). A `check` replies in
+`question`, `objection`, `newcomer` or `mcp-server` (see `waits`). A `check` replies in
 words and changes the connection status in settings; a model check
 waits at most 90 s.
 

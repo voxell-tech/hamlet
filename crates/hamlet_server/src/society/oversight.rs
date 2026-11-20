@@ -53,6 +53,8 @@ pub(crate) enum WaitKind {
     /// A profile an agent made, waiting at the harbor to be let
     /// into the city.
     Newcomer,
+    /// An MCP server an agent asks a chief to add (C36).
+    McpServer,
 }
 hamlet_store::named_text!(WaitKind);
 
@@ -218,6 +220,8 @@ pub(crate) struct Wait {
     pub answers: String,
     pub questions: Option<String>,
     pub setup: Option<String>,
+    /// The MCP server a `mcp-server` wait asks for, as an [`Asked`].
+    pub server: Option<String>,
     pub since: i64,
     pub asked: i64,
     pub open: bool,
@@ -230,6 +234,15 @@ pub(crate) struct Wait {
 impl Wait {
     pub fn answers(&self) -> Result<Vec<Choice>> {
         Ok(serde_json::from_str(&self.answers)?)
+    }
+
+    /// The MCP server it asks for.
+    pub fn asked(&self) -> Result<Option<Asked>> {
+        self.server
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(Into::into)
     }
 
     pub fn questions(&self) -> Result<Option<Questions>> {
@@ -272,6 +285,15 @@ pub(crate) struct Raise {
     pub questions: Option<Questions>,
     /// A cause a chief sets up once for every agent it stops.
     pub setup: Option<protocol::Setup>,
+    /// The MCP server a `mcp-server` wait asks for.
+    pub server: Option<Asked>,
+}
+
+/// An MCP server an agent asks for: its name and its entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Asked {
+    pub name: String,
+    pub entry: protocol::McpEntry,
 }
 
 /// Raises `raise`, or raises again the open wait that is about the
@@ -317,6 +339,11 @@ pub(crate) fn raise(
             wait::questions.eq(questions),
             wait::setup.eq(raise
                 .setup
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?),
+            wait::server.eq(raise
+                .server
                 .as_ref()
                 .map(serde_json::to_string)
                 .transpose()?),
@@ -436,6 +463,9 @@ pub(crate) fn line(wait: &Wait, by: &str, most: usize) -> String {
         (WaitKind::Newcomer, _) => {
             format!("{subject}, whom {by} made, waits at the harbor")
         }
+        (WaitKind::McpServer, _) => {
+            format!("{by} asks for the MCP server `{subject}`")
+        }
     }
 }
 
@@ -502,6 +532,13 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
                 || format!("wait {} has no profile", wait.id),
             )?),
         },
+        WaitKind::McpServer => {
+            let Asked { name, entry } =
+                wait.asked()?.with_context(|| {
+                    format!("wait {} has no server", wait.id)
+                })?;
+            WaitDetail::McpServer { name, entry }
+        }
     };
     let change = wait
         .change

@@ -77,6 +77,13 @@ pub enum WaitDetail {
     /// the city.
     #[serde(rename = "newcomer")]
     Newcomer { profile: ProfileId },
+    /// An MCP server an agent asks a chief to add, as its entry would
+    /// be; `allow` adds it.
+    #[serde(rename = "mcp-server")]
+    McpServer {
+        name: String,
+        entry: crate::client::McpEntry,
+    },
 }
 
 /// A fault's cause a chief sets up once for every agent.

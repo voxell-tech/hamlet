@@ -43,6 +43,7 @@ use crate::core::{Core, ModelTools};
 use crate::realm::Realm;
 use crate::realm::layout::Layout;
 use crate::runtimes::Runtimes;
+use crate::society::oversight::Asked;
 use crate::society::oversight::gate::Reach;
 use crate::society::rejection::Rejection;
 use crate::tools::builtin::{Network, Outcome, Sight};
@@ -460,6 +461,11 @@ impl Mcp {
         faults
     }
 
+    /// Whether the list has a server named `name` that loads.
+    pub(crate) fn is_listed(&self, name: &str) -> bool {
+        self.running.contains_key(name)
+    }
+
     /// What the tool `name` reaches; none when no MCP server offers
     /// it.
     pub(crate) fn reach_of(&self, name: &str) -> Option<Reach> {
@@ -508,6 +514,40 @@ impl Core<'_, '_> {
         request: hamlet_protocol::client::Mcp,
     ) -> anyhow::Result<()> {
         let answer = self.mcp_act(request.act);
+        self.follow_mcp();
+        self.answer(
+            client,
+            crate::clients::check::reply(&request.id, answer),
+        )
+    }
+
+    /// Adds the MCP server an agent asked for, `asked`, once a chief
+    /// allowed it: each value of its environment empty, for the chief
+    /// to give.
+    pub(crate) fn add_asked(
+        &mut self,
+        asked: &Asked,
+    ) -> Result<(), Rejection> {
+        if self.tools.mcp.running.contains_key(&asked.name) {
+            return Err(Rejection::BadMcp {
+                why: format!(
+                    "MCP server {} is listed already.",
+                    asked.name
+                ),
+            });
+        }
+        let folder = self.realm.layout().mcp();
+        config::put(&folder, &asked.name, &asked.entry).map_err(
+            |unchanged| Rejection::BadMcp {
+                why: unchanged.to_string(),
+            },
+        )?;
+        self.follow_mcp();
+        Ok(())
+    }
+
+    /// The servers and the catalogue as the list now says.
+    fn follow_mcp(&mut self) {
         let layout = self.realm.layout().clone();
         let sandbox = self.tools.sandbox.0;
         self.tools.mcp.follow(&layout, sandbox, &self.inputs);
@@ -516,10 +556,6 @@ impl Core<'_, '_> {
             &mut self.runtimes,
             &mut self.changed,
         );
-        self.answer(
-            client,
-            crate::clients::check::reply(&request.id, answer),
-        )
     }
 
     fn mcp_act(&mut self, act: McpAct) -> Result<String, Rejection> {
@@ -633,6 +669,34 @@ impl Core<'_, '_> {
             }
         })
     }
+}
+
+/// The server an agent asks for, as the list would hold it: its
+/// environment's values empty, for a chief to give. Why it would not
+/// load, when it would not.
+pub(crate) fn asked(
+    name: String,
+    command: Vec<String>,
+    env: Vec<String>,
+    net: bool,
+    fs_ro: Vec<String>,
+    fs_rw: Vec<String>,
+) -> Result<Asked, String> {
+    let entry = hamlet_protocol::client::McpEntry {
+        command,
+        env: env
+            .into_iter()
+            .map(|key| (key, Some(String::new())))
+            .collect(),
+        net,
+        fs_ro,
+        fs_rw,
+        ..hamlet_protocol::client::McpEntry::default()
+    };
+    config::check(&name, &entry).map_err(|unloaded| {
+        format!("MCP server {name}: {unloaded}")
+    })?;
+    Ok(Asked { name, entry })
 }
 
 /// The tools of `server` as models are offered them, and words for

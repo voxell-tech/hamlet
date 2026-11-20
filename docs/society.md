@@ -121,10 +121,11 @@ A chief's instruction is recorded before it starts. An agent may object
 once and wait for go or withdraw; a parent's review of a direct instruction
 runs beside the work and may raise its own objection.
 
-An agent can put questions to a chief (`request_chief`); these waits survive
-a server restart. Tool calls wait too (H11):
-the network, manual-mode edits and commands, the acts a chief's limits
-reserve, and the Hand's acts on profiles. Answering allows once, for the
+An agent can put questions to a chief (`request_chief`), and ask for an
+MCP server (`request_mcp_server`); these waits survive a server restart.
+Tool calls wait too (H11): the network, manual-mode edits and commands,
+the acts a chief's limits reserve, the Hand's acts on profiles, and MCP
+tools that may change something outside the realm. Answering allows once, for the
 agent's conversation, or always; `/grants` lists and `/revoke` takes back
 what was allowed for good.
 

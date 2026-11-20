@@ -324,6 +324,7 @@ impl Core<'_, '_> {
                     ],
                     questions: Some(questions),
                     setup: None,
+                    server: None,
                 },
             )?;
             held::hold(cx.db, &runtime, &key, wait, None)

@@ -238,6 +238,7 @@ fn arrive(cx: &mut Change<'_>, id: ProfileId) -> Result<()> {
                         ],
                         questions: None,
                         setup: None,
+                        server: None,
                     },
                 )?;
             }

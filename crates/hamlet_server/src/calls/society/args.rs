@@ -79,6 +79,36 @@ pub(crate) struct SubmitSkill {
     pub reason: String,
 }
 
+/// Ask the chief to add an MCP server, a program whose tools every
+/// agent is then offered. The chief sees its command and reach, and
+/// adds it or refuses; you are told which in this chat. Never put a
+/// token or other secret in this call: name the variables that need
+/// one, and the chief gives their values.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct RequestMcpServer {
+    /// Its name: 1 to 24 lowercase letters, digits and `-`, as in
+    /// `github`.
+    pub name: String,
+    /// The program and its arguments, as in `["npx", "-y",
+    /// "@modelcontextprotocol/server-github"]`.
+    pub command: Vec<String>,
+    /// The environment variables it needs a value for, such as
+    /// `GITHUB_PERSONAL_ACCESS_TOKEN`.
+    #[serde(default)]
+    pub env: Vec<String>,
+    /// Whether it reaches the network.
+    #[serde(default)]
+    pub net: bool,
+    /// Paths it reads besides its own folder, absolute.
+    #[serde(default)]
+    pub fs_ro: Vec<String>,
+    /// Paths it writes besides its own folder, absolute.
+    #[serde(default)]
+    pub fs_rw: Vec<String>,
+    /// What its tools are for: the chief reads it.
+    pub reason: String,
+}
+
 /// Send the librarian a request for the skills in the library that
 /// help with something.
 #[derive(Deserialize, JsonSchema)]
@@ -788,6 +818,7 @@ called!(
     StartWorker,
     SubmitSkill,
     RequestLibrarian,
+    RequestMcpServer,
     ReadBudget,
     Object,
     ProposeChannel,

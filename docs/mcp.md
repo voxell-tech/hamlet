@@ -59,6 +59,34 @@ it writes besides `fs_rw`. It never writes the list. A program installed
 outside the system's folders, such as one under a version manager's folder
 in the chief's home, needs that folder in `fs_ro`.
 
+## Changing it
+
+The list is the chief's file, and also changes through the server, which
+writes one entry at a time and leaves the rest of the file as written:
+
+- Settings, MCP Servers, shows each server, how it is and its tools, and
+  adds, changes, restarts and removes one; its network is a switch.
+- `hamlet mcp` does the same from a terminal: `list`, `tools <name>`,
+  `add <name> [flags] -- <command>...`, `edit <name>` in `$EDITOR`,
+  `remove <name>`, `restart <name>`.
+- `hamlet mcp import`, or Find in Other Programs in Settings, lists the
+  servers Claude Code, Claude Desktop, Cursor and Codex list on the
+  server's machine, and adds those chosen, or every one with `--all`. Each
+  is given the network, as it had there; a program named by its name alone
+  is found on `PATH`, and one installed in the home folder gets its
+  install folder in `fs_ro`. A `${NAME}` value becomes `inherit_env`. A
+  server reached by a URL is listed and not added.
+
+No client is sent a value of a server's `env`, only its names; a change
+that leaves a value out keeps the one the entry has. A restart keeps the
+server's tools offered while it starts again.
+
+An agent can ask for a server with `request_mcp_server`, naming the
+variables it needs, never their values. The chief sees its command and
+reach, and allows or denies; allowed, the entry is added with each value
+empty for the chief to give, and the agent is told in its chat either
+way.
+
 ## What runs
 
 `session` starts the program under its policy, connects the client to its

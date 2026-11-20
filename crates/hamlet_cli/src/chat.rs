@@ -743,6 +743,15 @@ impl Screen {
                     "{subject}, whom {by} made, waits at the harbor"
                 ),
             ),
+            WaitDetail::McpServer { entry, .. } => (
+                "mcp-server",
+                format!(
+                    "{by} asks for the MCP server `{subject}`, run \
+                     as `{}`{}",
+                    entry.command.join(" "),
+                    if entry.net { " with the network" } else { "" }
+                ),
+            ),
         };
         let answers = wait
             .answers

@@ -56,7 +56,7 @@ every crate. `xtask/` is a workspace of its own, run as `cargo xtask`
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realms |
 | `hamlet_client` | Connection, outbox, realm, waits and chats as Bevy entities, and the `Index` that finds them by protocol id |
 | `hamlet_desktop` | File and link openers, editor files, dialogs, clipboard, wake locks and window icon |
-| `hamlet_import` | Other programs' conversations found on the chief's machine or in an export, read as the `Imported` a client sends (C35) |
+| `hamlet_import` | Other programs' conversations found on the chief's machine or in an export, read as the `Imported` a client sends (C35), and the MCP servers they list (C36) |
 | `hamlet_update` | A release updating itself; its `check` feature, the window's alone, touches the network |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | The islands, the city, the harbor, hamlets, houses, roads, robots, the Hand, the library, chief, sound and camera |
@@ -156,7 +156,7 @@ Search the module names above first. The ones that are not obvious:
 | An address's form | `hamlet_protocol/src/address.rs` |
 | Who may do what | `hamlet_server/src/society/authority.rs` |
 | The database's tables | `hamlet_store/src/schema.sql`, then `cargo test -p hamlet_store` |
-| MCP servers | `hamlet_server/src/tools/mcp.rs` and `mcp/`; [`mcp.md`](mcp.md) |
+| MCP servers | `hamlet_server/src/tools/mcp.rs` and `mcp/`, `hamlet_cli/src/mcp.rs`, `hamlet_app/src/mcp.rs`; [`mcp.md`](mcp.md) |
 | Folder, mode or tool reach | `hamlet_server/src/calls/place.rs`, `tools/builtin/environment.rs`, `hamlet_sandbox`; [`sandbox.md`](sandbox.md) |
 | Terminals | `hamlet_server/src/terminals/`; [`sandbox.md`](sandbox.md#terminals) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |

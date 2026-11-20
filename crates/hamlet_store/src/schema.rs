@@ -570,6 +570,7 @@ diesel::table! {
         answers -> Text,
         questions -> Nullable<Text>,
         setup -> Nullable<Text>,
+        server -> Nullable<Text>,
         since -> BigInt,
         asked -> BigInt,
         open -> Bool,

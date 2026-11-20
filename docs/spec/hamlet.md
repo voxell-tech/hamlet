@@ -556,7 +556,7 @@ only the tools in its own row:
 
 | Who | Tools |
 |---|---|
-| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
+| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `request_mcp_server` (C36), `read_budget` (H8) |
 | Every agent of a hamlet | `propose_channel` |
 | A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `reparent_agent` (H41), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |

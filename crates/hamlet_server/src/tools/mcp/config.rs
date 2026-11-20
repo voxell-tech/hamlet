@@ -377,6 +377,14 @@ pub(super) fn add(
     Ok(names)
 }
 
+/// Why the server `name` with `entry`, written anew, would not load.
+pub(super) fn check(
+    name: &str,
+    entry: &McpEntry,
+) -> Result<(), Unloaded> {
+    parse(name, written(&json!({}), entry)?).map(|_| ())
+}
+
 /// `before`, an entry as written, with what `entry` sets.
 fn written(
     before: &Value,

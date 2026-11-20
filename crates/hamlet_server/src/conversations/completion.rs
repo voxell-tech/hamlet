@@ -402,6 +402,7 @@ fn reviewed(
             answers: vec![Choice::Go, Choice::Withdraw],
             questions: None,
             setup: None,
+            server: None,
         },
     )?;
     diesel::insert_into(objection::table)
@@ -476,6 +477,7 @@ fn fault(
             answers: vec![Choice::Dismiss],
             questions: None,
             setup,
+            server: None,
         },
     )?;
     Ok(())
