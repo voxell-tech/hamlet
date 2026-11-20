@@ -102,19 +102,30 @@ export function rememberKept(kept: Kept): void {
 }
 
 /**
- * `value` with every secret the host holds, and each of `also`, replaced,
- * longest first.
+ * `value` with every secret the host holds, and each of `also`, replaced
+ * from the left: at each place the longest secret that begins there, as
+ * `crates/hamlet_sandbox/src/scrub.rs` replaces them.
  */
 export function scrub<T>(value: T, also: readonly string[] = []): T {
     const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
         (a, b) => b.length - a.length,
     );
     if (secrets.length === 0) return value;
-    const clean = (text: string) =>
-        secrets.reduce(
-            (cleaned, secret) => cleaned.split(secret).join("[REDACTED]"),
-            text,
-        );
+    const clean = (text: string) => {
+        let out = "";
+        let at = 0;
+        while (at < text.length) {
+            const secret = secrets.find((word) => text.startsWith(word, at));
+            if (secret === undefined) {
+                out += text[at];
+                at += 1;
+            } else {
+                out += "[REDACTED]";
+                at += secret.length;
+            }
+        }
+        return out;
+    };
     return JSON.parse(
         JSON.stringify(value, (_key, item: unknown) => {
             if (typeof item === "string") return clean(item);
