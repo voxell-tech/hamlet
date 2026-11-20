@@ -69,11 +69,14 @@
 //! set to `1`, it also lists two providers to sign in to, on
 //! loopback, as demo-host.ts says.
 
+#[path = "pid.rs"]
+mod pid;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
 use hamlet_actor_core::ActorFactory;
@@ -93,7 +96,6 @@ use hamlet_protocol::client::{
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
 
 use crate::Demo;
 use crate::link::{self, NodeHost, non_link_failure};
@@ -108,11 +110,6 @@ const ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../hosts/node/src/agent/demo-host.ts"
 );
-
-/// The same file as `PID_FILE` of hosts/node/src/agent/demo-host.ts.
-const PID_FILE: &str = "demo-node.pid";
-
-const POLL: Duration = Duration::from_millis(25);
 
 /// Longer than `login.ts`'s 25 s `STEP_WAIT_MS`, which a sign-in's
 /// step waits for its provider.
@@ -210,7 +207,8 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
             conversation(host, number_of(n)?).await
         }
         ["pid"] => {
-            let pid = live_pid(&demo.home, link::READY_WAIT).await?;
+            let pid =
+                pid::live_pid(&demo.home, link::READY_WAIT).await?;
             node.ready().await?;
             print(&format!("node/pid {pid}"))
         }
@@ -633,32 +631,4 @@ fn entry(record: &serde_json::Value) -> Option<String> {
             ))
         }
     }
-}
-
-/// Just after a Node host dies, [`PID_FILE`] still names it until
-/// the next one starts.
-async fn live_pid(home: &Path, within: Duration) -> Result<u32> {
-    let until = Instant::now() + within;
-    loop {
-        let pid = node_pid(home)?;
-        if !hamlet_os::process::has_ended(pid)? {
-            return Ok(pid);
-        }
-        ensure!(
-            Instant::now() < until,
-            "the Node host {pid} has ended, and no other started \
-             within {} s",
-            within.as_secs()
-        );
-        tokio::time::sleep(POLL).await;
-    }
-}
-
-fn node_pid(home: &Path) -> Result<u32> {
-    let path = home.join(PID_FILE);
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    text.trim()
-        .parse()
-        .with_context(|| format!("{} holds no pid", path.display()))
 }
