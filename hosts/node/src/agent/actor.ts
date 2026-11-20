@@ -175,7 +175,7 @@ function offerOf(row: Row): Offer | undefined {
         case "errand": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
             if (given.size === 0) return undefined;
-            return { builtIn: (name) => given.has(name), society: false };
+            return { builtIn: (name) => given.has(name) };
         }
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
