@@ -101,6 +101,8 @@ mod repeats;
 mod reserved;
 #[path = "realm/reviews.rs"]
 mod reviews;
+#[path = "realm/revision.rs"]
+mod revision;
 #[path = "realm/say.rs"]
 mod say;
 #[path = "realm/secrets.rs"]
