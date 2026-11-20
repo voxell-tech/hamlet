@@ -145,7 +145,7 @@ async fn place(
         AgentKind::Worker => {
             let by = match starter(rows, agent).await? {
                 Some(starter) => {
-                    record::name_of(rows, starter).await?
+                    record::agent_name(rows, starter).await?.name
                 }
                 None => "a chief".into(),
             };
@@ -175,7 +175,7 @@ async fn place(
             };
             lines.push(format!(
                 "- {}{how}",
-                record::name_of(rows, other).await?
+                record::agent_name(rows, other).await?.name
             ));
         }
     }
@@ -186,7 +186,7 @@ async fn place(
         ) => {
             lines.push(format!(
                 "This conversation is with `{}`. {MESSAGES}",
-                record::name_of(rows, peer).await?
+                record::agent_name(rows, peer).await?.name
             ));
         }
         (ConversationKind::Chat, _) => {
@@ -247,7 +247,7 @@ async fn hire(
         bail!("hire {} has no hamlet", agent.0);
     };
     let id = &hamlet.id.0;
-    let name = record::name_of(rows, agent).await?;
+    let name = record::agent_name(rows, agent).await?.name;
     // A hire hired without a purpose takes its first message as one.
     let purpose = purpose_of(rows, agent).await?;
     let purpose = purpose.trim().trim_end_matches('.');
@@ -265,7 +265,7 @@ async fn hire(
     match lineage.agent.lead {
         Some(lead) => lines.push(format!(
             "You answer to `{}`.",
-            record::name_of(rows, lead).await?
+            record::agent_name(rows, lead).await?.name
         )),
         None if hamlet.mayor == agent => lines.push(format!(
             "You are the mayor of `{id}`, and answer to the Hand."
@@ -280,7 +280,7 @@ async fn hire(
         for &each in &under {
             lines.push(format!(
                 "- {}: {}",
-                record::name_of(rows, each).await?,
+                record::agent_name(rows, each).await?.name,
                 purpose_of(rows, each).await?
             ));
         }
@@ -322,7 +322,7 @@ async fn hire(
                 .collect::<String>();
             lines.push(format!(
                 "- {} was told: {text}",
-                record::name_of(rows, *each).await?
+                record::agent_name(rows, *each).await?.name
             ));
         }
     }
@@ -372,7 +372,7 @@ async fn realm(
         lines.push(format!(
             "- {hamlet_name} (`{}`): mayor `{}`, {count} hires",
             id.0,
-            record::name_of(rows, AgentNumber(mayor)).await?
+            record::agent_name(rows, AgentNumber(mayor)).await?.name
         ));
     }
     if lines.is_empty() {

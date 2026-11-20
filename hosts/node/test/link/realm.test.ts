@@ -100,7 +100,7 @@ test(
             await chatHolds(
                 demo,
                 2,
-                (item) => item.text === "Done: Sent to hire#3.",
+                (item) => item.text === "Done: Sent to hire#3 (Hire 1).",
             );
             await heldOnce(demo, "hello");
             assert.equal(await demo.stop(), 0);
@@ -176,7 +176,7 @@ test(
             await chatHolds(
                 demo,
                 2,
-                (item) => item.text === "Done: Sent to hire#3.",
+                (item) => item.text === "Done: Sent to hire#3 (Hire 1).",
             );
             assert.notEqual(await demo.ask("pi pid"), before);
             await heldOnce(demo, "once");

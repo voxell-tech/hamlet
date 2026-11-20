@@ -22,7 +22,7 @@ use super::reserved::{in_turn, notices, waits};
 use super::steps::hiring_and_how;
 use super::{
     Callee, MAYOR, Realm, THREE, answer, founded, hamlet_with, hire,
-    hired, tell, to, told_of_failed, tool, until, words,
+    hired, named_as, tell, to, told_of_failed, tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";
@@ -134,8 +134,8 @@ async fn a_hire_at_a_version_its_profile_lacks_ends_as_failed() {
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
     assert_eq!(
         told_of_failed(&realm, MAYOR, THREE).await,
-        "`hire#3` has left: its task failed: `scholar#3` has no \
-         version `v9`"
+        "`hire#3 (Hire 1)` has left: its task failed: `scholar#3` \
+         has no version `v9`"
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -145,7 +145,9 @@ async fn a_hire_of_a_blank_hires_profile_names_it_by_its_label() {
     let (realm, _) = hamlet_with(0).await;
     assert_eq!(
         hire_as_mayor(&realm, "h1", named(" Digger ")).await,
-        hired(3)
+        HireAnswer::Hired {
+            agent: named_as(3, "hire#3 (Digger)")
+        }
     );
     assert_eq!(
         hire_as_mayor(&realm, "h2", hire(None)).await,
@@ -270,7 +272,12 @@ async fn a_hire_of_a_made_profile_at_a_version_starts_its_branch_there()
         ..of(3)
     };
 
-    assert_eq!(hire_as_mayor(&realm, "h1", at_v1).await, hired(3));
+    assert_eq!(
+        hire_as_mayor(&realm, "h1", at_v1).await,
+        HireAnswer::Hired {
+            agent: named_as(3, "hire#3 (Mason)")
+        }
+    );
     realm.live(THREE).await;
 
     let branched = realm.seen.branches.lock().unwrap().clone();
@@ -324,7 +331,12 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
         "`scholar#3 (Mason)` has no version `v9`"
     );
     assert_eq!(branched(), before);
-    assert_eq!(hire_as_mayor(&realm, "v1", at("v1")).await, hired(3));
+    assert_eq!(
+        hire_as_mayor(&realm, "v1", at("v1")).await,
+        HireAnswer::Hired {
+            agent: named_as(3, "hire#3 (Mason)")
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -722,6 +734,49 @@ async fn a_chiefs_change_to_a_profile_is_answered_from_the_profile() {
                 }
             ),
         }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_at_another_hires_branch_starts_its_branch_there() {
+    // As today's hire at a version, which takes a branch's name
+    // (`hamlet_git` `resolve`).
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let at = |version: &str| Hire {
+        version: Some(VersionName(version.to_owned())),
+        ..of(3)
+    };
+    let branched = |name: &str| {
+        realm.seen.branches.lock().unwrap().iter().find_map(
+            |(_, branch)| {
+                (branch.name == name).then(|| branch.from.clone())
+            },
+        )
+    };
+    hire_as_mayor(&realm, "h1", at("v1")).await;
+    until("hire 3's branch is made", || {
+        branched("hires/3").is_some()
+    })
+    .await;
+
+    let at_its_branch =
+        hire_as_mayor(&realm, "h2", at("hires/3")).await;
+    until("hire 4's branch is made", || {
+        branched("hires/4").is_some()
+    })
+    .await;
+
+    assert_eq!(
+        at_its_branch,
+        HireAnswer::Hired {
+            agent: named_as(4, "hire#4 (Mason)")
+        }
+    );
+    assert_eq!(
+        branched("hires/4"),
+        Some(Some(VersionName("hires/3".to_owned())))
     );
     realm.host.shutdown().await.unwrap();
 }

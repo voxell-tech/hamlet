@@ -147,7 +147,8 @@ pub(super) async fn apply(
                 .await?;
             Some(Part::Charter)
         }
-        Change::Card { model, card } => {
+        Change::Card { model, mut card } => {
+            card.note = writer.scrubbed(&card.note);
             let mut cards = catalogue(&writer.rows()).await?;
             let price = card.price.clone();
             let before = cards.insert(model.clone(), card);
@@ -262,27 +263,18 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
 }
 
 /// The model `agent` runs, with its card's price: each part its own
-/// choice's, else its hamlet's, else the realm's.
+/// choice's, else a worker's starter's, else its hamlet's, else the
+/// realm's (`crates/hamlet_server/src/talk/models.rs:96-109`).
 pub(super) async fn model(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<ModelChoice>> {
-    let settings = settings::read(rows).await?;
-    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
-        Some(hamlet) => {
-            choices::choice(rows, &Chosen::Hamlet(hamlet)).await?
-        }
-        None => Choice::default(),
+    let chosen = match workers::starter_of(rows, agent).await? {
+        Some(starter) => choices::choice(rows, &Chosen::Agent(agent))
+            .await?
+            .or(choice_of(rows, starter).await?),
+        None => choice_of(rows, agent).await?,
     };
-    let realm = Choice {
-        model: settings.model,
-        effort: settings.effort,
-        fast: None,
-    };
-    let chosen = choices::choice(rows, &Chosen::Agent(agent))
-        .await?
-        .or(hamlet)
-        .or(realm);
     let Some(model) = chosen.model else {
         return Ok(None);
     };
@@ -296,6 +288,30 @@ pub(super) async fn model(
         fast: chosen.fast.unwrap_or(false),
         price,
     }))
+}
+
+/// Each part of `agent`'s own choice, else its hamlet's, else the
+/// realm's.
+async fn choice_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Choice> {
+    let settings = settings::read(rows).await?;
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => {
+            choices::choice(rows, &Chosen::Hamlet(hamlet)).await?
+        }
+        None => Choice::default(),
+    };
+    let realm = Choice {
+        model: settings.model,
+        effort: settings.effort,
+        fast: None,
+    };
+    Ok(choices::choice(rows, &Chosen::Agent(agent))
+        .await?
+        .or(hamlet)
+        .or(realm))
 }
 
 /// Every part of the copies the realm holds for `agent`, at its

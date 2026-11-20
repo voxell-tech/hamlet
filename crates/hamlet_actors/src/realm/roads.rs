@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use anyhow::Result;
 use hamlet_messages::address::Agent;
-use hamlet_messages::realm::{HamletId, Named};
+use hamlet_messages::realm::{AgentName, HamletId, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
@@ -27,6 +27,7 @@ pub(super) enum Way {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct End {
     pub agent: AgentNumber,
+    pub name: AgentName,
     pub status: Status,
     pub lead: Option<AgentNumber>,
     pub hamlet: Option<HamletId>,
@@ -148,6 +149,7 @@ pub(super) async fn end_of(
 fn end(lineage: &Lineage) -> End {
     End {
         agent: lineage.agent.agent,
+        name: lineage.agent.name.clone(),
         status: lineage.agent.status.clone(),
         lead: lineage.agent.lead,
         hamlet: lineage

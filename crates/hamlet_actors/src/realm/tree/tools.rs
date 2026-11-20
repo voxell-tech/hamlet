@@ -5,7 +5,7 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    OnlyAHire, Refusable, SetTools, ToolName,
+    AgentName, OnlyAHire, Refusable, SetTools, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -34,48 +34,49 @@ pub(in crate::realm) async fn off_for(
 
 impl<By: Lead> Act<By> for SetTools {
     type Output = By::OnAgent<By::Why<OnlyAHire>>;
-    type Loaded = Option<(Lineage, String)>;
-    type Done = AgentNumber;
+    type Loaded = Option<Lineage>;
+    type Done = AgentName;
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        super::shown(rows, super::named(rows, by, &self.hire).await?)
-            .await
+        super::named(rows, by, &self.hire).await
     }
 
     fn decide(
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<AgentNumber, Self::Output> {
+    ) -> Decision<AgentName, Self::Output> {
         let refuse = |why| {
             Decision::Answer(Self::Output::refused(By::refused(why)))
         };
-        let Some((lineage, name)) = named else {
+        let Some(lineage) = named else {
             return refuse(OnlyAHire::NoSuchAgent {
                 address: self.hire.to_string(),
             });
         };
         if lineage.agent.kind != AgentKind::Hire {
-            return refuse(OnlyAHire::NotAHire { name });
+            return refuse(OnlyAHire::NotAHire {
+                name: lineage.agent.name.name.clone(),
+            });
         }
         let hire = lineage.agent.agent;
-        if let Err(not_a_lead) = by.leads(&lineage, hire) {
+        if let Err(not_a_lead) = by.leads(&lineage) {
             return Decision::Answer(Self::Output::refused(
                 not_a_lead,
             ));
         }
         if let Status::Ended(left) = lineage.agent.status {
             return refuse(OnlyAHire::Left {
-                hire: record::agent_name(hire),
+                hire: lineage.agent.name.clone(),
                 left,
             });
         }
         Decision::Change(
-            Decided::new(hire)
+            Decided::new(lineage.agent.name.clone())
                 .change(super::Change::Tools {
                     hire,
                     off: self.off.clone(),
@@ -89,11 +90,7 @@ impl<By: Lead> Act<By> for SetTools {
         )
     }
 
-    fn answer(
-        &self,
-        hire: AgentNumber,
-        _made: &Made,
-    ) -> Self::Output {
+    fn answer(&self, hire: AgentName, _made: &Made) -> Self::Output {
         By::on_agent(hire)
     }
 }

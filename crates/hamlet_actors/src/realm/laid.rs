@@ -9,9 +9,9 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::world::RoadSeen;
 use hamlet_messages::realm::{
-    AgentRefusal, Done, HamletId, LayRefusal, LayRoad, LetterId,
-    Named, Refusable, RequestRoad, RequestRoadRefusal, TakeUpRefusal,
-    TakeUpRoad,
+    AgentName, AgentRefusal, Done, HamletId, LayRefusal, LayRoad,
+    LetterId, Named, Refusable, RequestRoad, RequestRoadRefusal,
+    TakeUpRefusal, TakeUpRoad,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -281,7 +281,7 @@ impl Laying {
 impl<By: Lead> Act<By> for LayRoad {
     type Output = By::OnRoad<By::Why<LayRefusal>>;
     type Loaded = Laying;
-    type Done = (AgentNumber, AgentNumber);
+    type Done = (AgentName, AgentName);
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Laying> {
         Laying::load(rows, by, &self.a, &self.b).await
@@ -291,7 +291,7 @@ impl<By: Lead> Act<By> for LayRoad {
         &self,
         by: &By,
         laying: Laying,
-    ) -> Decision<(AgentNumber, AgentNumber), Self::Output> {
+    ) -> Decision<(AgentName, AgentName), Self::Output> {
         let refuse = |why| {
             Decision::Answer(Self::Output::refused(By::refused(why)))
         };
@@ -303,25 +303,25 @@ impl<By: Lead> Act<By> for LayRoad {
                 });
             }
         };
+        if a.agent.agent == b.agent.agent {
+            return refuse(LayRefusal::SameEnds);
+        }
         if [a, b].iter().any(|end| end.agent.kind != AgentKind::Hire)
         {
-            return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
+            return refuse(LayRefusal::NotHires);
         }
         for end in [a, b] {
-            if let Err(not_a_lead) = by.leads(end, end.agent.agent) {
+            if let Err(not_a_lead) = by.leads(end) {
                 return Decision::Answer(Self::Output::refused(
                     not_a_lead,
                 ));
             }
         }
         let (one, two) = (a.agent.agent, b.agent.agent);
-        if one == two {
-            return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
-        }
         for end in [a, b] {
             if let Status::Ended(left) = &end.agent.status {
                 return refuse(LayRefusal::Left {
-                    hire: record::agent_name(end.agent.agent),
+                    hire: end.agent.name.clone(),
                     left: left.clone(),
                 });
             }
@@ -330,15 +330,19 @@ impl<By: Lead> Act<By> for LayRoad {
             (Some(hamlet), Some(other)) if hamlet.id == other.id => {
                 hamlet
             }
-            _ => return refuse(LayRefusal::NotTwoHiresOfOneHamlet),
+            _ => {
+                return refuse(LayRefusal::OtherHamlet {
+                    hire: b.agent.name.clone(),
+                });
+            }
         };
         if laying.laid
             || a.agent.lead == Some(two)
             || b.agent.lead == Some(one)
         {
             return refuse(LayRefusal::RoadExists {
-                a: record::agent_name(one),
-                b: record::agent_name(two),
+                a: a.agent.name.clone(),
+                b: b.agent.name.clone(),
             });
         }
         let most = hamlet.limits.road.most;
@@ -349,29 +353,32 @@ impl<By: Lead> Act<By> for LayRoad {
             });
         }
         Decision::Change(
-            Decided::new((one, two))
-                .change(Change::Lay {
-                    a: one,
-                    b: two,
-                    hamlet: hamlet.id.clone(),
-                })
-                .change(budget::Change::Road {
-                    a: one,
-                    b: two,
-                    hamlet: hamlet.id.clone(),
-                })
-                .record(record::Entry::Road {
-                    a: one,
-                    b: two,
-                    by: by.by(),
-                    why: self.why.clone(),
-                }),
+            Decided::new((
+                a.agent.name.clone(),
+                b.agent.name.clone(),
+            ))
+            .change(Change::Lay {
+                a: one,
+                b: two,
+                hamlet: hamlet.id.clone(),
+            })
+            .change(budget::Change::Road {
+                a: one,
+                b: two,
+                hamlet: hamlet.id.clone(),
+            })
+            .record(record::Entry::Road {
+                a: one,
+                b: two,
+                by: by.by(),
+                why: self.why.clone(),
+            }),
         )
     }
 
     fn answer(
         &self,
-        (a, b): (AgentNumber, AgentNumber),
+        (a, b): (AgentName, AgentName),
         _made: &Made,
     ) -> Self::Output {
         By::on_road(a, b)
@@ -381,7 +388,7 @@ impl<By: Lead> Act<By> for LayRoad {
 impl<By: Lead> Act<By> for TakeUpRoad {
     type Output = By::OnRoad<By::Why<TakeUpRefusal>>;
     type Loaded = Laying;
-    type Done = (AgentNumber, AgentNumber);
+    type Done = (AgentName, AgentName);
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Laying> {
         Laying::load(rows, by, &self.a, &self.b).await
@@ -391,7 +398,7 @@ impl<By: Lead> Act<By> for TakeUpRoad {
         &self,
         by: &By,
         laying: Laying,
-    ) -> Decision<(AgentNumber, AgentNumber), Self::Output> {
+    ) -> Decision<(AgentName, AgentName), Self::Output> {
         let (a, b) = match &laying.ends {
             Ok(ends) => ends,
             Err(named) => {
@@ -403,23 +410,22 @@ impl<By: Lead> Act<By> for TakeUpRoad {
             }
         };
         for end in [a, b] {
-            if let Err(not_a_lead) = by.leads(end, end.agent.agent) {
+            if let Err(not_a_lead) = by.leads(end) {
                 return Decision::Answer(Self::Output::refused(
                     not_a_lead,
                 ));
             }
         }
+        let names = (a.agent.name.clone(), b.agent.name.clone());
         let (a, b) = (a.agent.agent, b.agent.agent);
         if !laying.laid {
+            let (a, b) = names;
             return Decision::Answer(Self::Output::refused(
-                By::refused(TakeUpRefusal::NoRoad {
-                    a: record::agent_name(a),
-                    b: record::agent_name(b),
-                }),
+                By::refused(TakeUpRefusal::NoRoad { a, b }),
             ));
         }
         Decision::Change(
-            Decided::new((a, b))
+            Decided::new(names)
                 .change(Change::TakeUp { a, b })
                 .record(record::Entry::Unroad {
                     a,
@@ -432,7 +438,7 @@ impl<By: Lead> Act<By> for TakeUpRoad {
 
     fn answer(
         &self,
-        (a, b): (AgentNumber, AgentNumber),
+        (a, b): (AgentName, AgentName),
         _made: &Made,
     ) -> Self::Output {
         By::on_road(a, b)
@@ -468,7 +474,8 @@ impl Act<Agent> for Paid<RequestRoad> {
         };
         let to = match ends.to {
             Some(to) => {
-                let name = record::name_of(rows, to.agent).await?;
+                let name =
+                    record::agent_name(rows, to.agent).await?.name;
                 Some((to, name))
             }
             None => None,
@@ -510,7 +517,7 @@ impl Act<Agent> for Paid<RequestRoad> {
                 row: hire::row(lead.agent),
                 refusal: Done::refused(AgentRefusal::Act(
                     RequestRoadRefusal::StillHiring {
-                        lead: record::agent_name(lead.agent),
+                        lead: lead.name.clone(),
                     },
                 )),
             };

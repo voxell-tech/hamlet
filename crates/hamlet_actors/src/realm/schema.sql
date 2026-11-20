@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS worker (
 	brief TEXT NOT NULL,
 	tools TEXT NOT NULL,
 	task INTEGER NOT NULL,
+	conversation TEXT,
 	ended TEXT,
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;
@@ -266,7 +267,6 @@ CREATE TABLE IF NOT EXISTS agreement (
 	a INTEGER NOT NULL,
 	b INTEGER NOT NULL,
 	by INTEGER NOT NULL,
-	why TEXT,
 	at INTEGER NOT NULL,
 	PRIMARY KEY (a, b, by),
 	CHECK (a < b)) STRICT;

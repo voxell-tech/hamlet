@@ -9,7 +9,9 @@ use hamlet_messages::realm::budget::{
     self, Budget, BudgetRead, Payer, ReadBudget, ReadBudgetRefusal,
 };
 use hamlet_messages::realm::workers::SetAllowance;
-use hamlet_messages::realm::{AgentRefusal, OnlyAHire, Refusable};
+use hamlet_messages::realm::{
+    AgentName, AgentRefusal, OnlyAHire, Refusable,
+};
 use hamlet_messages::workspace::{AgentNumber, Numbered};
 
 use super::act::{Act, Decided, Decision, Unchanged};
@@ -112,7 +114,9 @@ pub(super) async fn over(
         if spent_micros >= allowance_micros {
             return Ok(Some(Budget::OverAllowance {
                 hire: hire.agent,
-                name: record::name_of(rows, hire.agent).await?,
+                name: record::agent_name(rows, hire.agent)
+                    .await?
+                    .name,
                 spent_micros,
                 allowance_micros,
             }));
@@ -201,48 +205,49 @@ async fn charged(
 
 impl<By: Lead> Act<By> for SetAllowance {
     type Output = By::OnAgent<By::Why<OnlyAHire>>;
-    type Loaded = Option<(Lineage, String)>;
-    type Done = AgentNumber;
+    type Loaded = Option<Lineage>;
+    type Done = AgentName;
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        tree::shown(rows, tree::named(rows, by, &self.hire).await?)
-            .await
+        tree::named(rows, by, &self.hire).await
     }
 
     fn decide(
         &self,
         by: &By,
         named: Self::Loaded,
-    ) -> Decision<AgentNumber, Self::Output> {
+    ) -> Decision<AgentName, Self::Output> {
         let refuse = |why| {
             Decision::Answer(Self::Output::refused(By::refused(why)))
         };
-        let Some((lineage, name)) = named else {
+        let Some(lineage) = named else {
             return refuse(OnlyAHire::NoSuchAgent {
                 address: self.hire.to_string(),
             });
         };
         if lineage.agent.kind != AgentKind::Hire {
-            return refuse(OnlyAHire::NotAHire { name });
+            return refuse(OnlyAHire::NotAHire {
+                name: lineage.agent.name.name.clone(),
+            });
         }
         let hire = lineage.agent.agent;
-        if let Err(not_a_lead) = by.leads(&lineage, hire) {
+        if let Err(not_a_lead) = by.leads(&lineage) {
             return Decision::Answer(Self::Output::refused(
                 not_a_lead,
             ));
         }
         if let Status::Ended(left) = &lineage.agent.status {
             return refuse(OnlyAHire::Left {
-                hire: record::agent_name(hire),
+                hire: lineage.agent.name.clone(),
                 left: left.clone(),
             });
         }
         Decision::Change(
-            Decided::new(hire)
+            Decided::new(lineage.agent.name.clone())
                 .change(Change::Set {
                     hire,
                     micros: self.micros.map(|micros| {
@@ -259,11 +264,7 @@ impl<By: Lead> Act<By> for SetAllowance {
         )
     }
 
-    fn answer(
-        &self,
-        hire: AgentNumber,
-        _made: &Made,
-    ) -> Self::Output {
+    fn answer(&self, hire: AgentName, _made: &Made) -> Self::Output {
         By::on_agent(hire)
     }
 }

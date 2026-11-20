@@ -21,7 +21,8 @@ use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
 use super::tree::choices;
 use super::{
-    Realm, budget, chiefs, laid, parcels, tree, versions, waits,
+    Realm, budget, chiefs, documents, laid, parcels, tree, versions,
+    waits,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -188,11 +189,14 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         };
         let agent = AgentNumber(u32::of(id)?);
         let status = match tree::Status::of_row(
+            rows,
             agent,
             &String::of(status)?,
             Option::of(how)?,
             Option::of(why)?,
-        )? {
+        )
+        .await?
+        {
             tree::Status::Hiring => Status::Hiring,
             tree::Status::Live => Status::Live,
             tree::Status::Ended(left) => Status::Ended { left },
@@ -214,6 +218,9 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
                 }),
             },
             nickname: Option::of(nickname)?,
+            runs: documents::model(rows, agent)
+                .await?
+                .map(|chosen| chosen.model),
             model: Option::of(model)?,
             effort: Option::of(effort)?
                 .map(change::from_case_name)
@@ -268,25 +275,34 @@ type WaitRow = (
     Option<Vec<u8>>,
 );
 
+/// The open waits, each that reads.
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
-    rows.rows::<WaitRow>(
-        "SELECT id, agent, kind, call, subject, needs, detail FROM \
-         wait WHERE closed_at IS NULL ORDER BY id",
-        Vec::new(),
-    )
-    .await?
-    .into_iter()
-    .map(|row| {
-        let wait = row.0;
-        wait_seen(row).with_context(|| format!("wait {wait}"))
-    })
-    .collect()
+    Ok(rows
+        .rows::<WaitRow>(
+            "SELECT id, agent, kind, call, subject, needs, detail \
+             FROM wait WHERE closed_at IS NULL ORDER BY id",
+            Vec::new(),
+        )
+        .await?
+        .into_iter()
+        .filter_map(|row| {
+            let wait = row.0;
+            wait_seen(row)
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        wait,
+                        "a wait is left out: {error:#}"
+                    );
+                })
+                .ok()
+        })
+        .collect())
 }
 
 fn wait_seen(
     (wait, agent, kind, call, subject, needs, detail): WaitRow,
 ) -> Result<WaitSeen> {
-    let detail = || detail.as_deref().context("no detail");
+    let needed = || detail.as_deref().context("no detail");
     let kind = match change::from_case_name(kind)? {
         waits::Kind::Tool => {
             let needs = serde_json::from_str::<Vec<Need>>(
@@ -297,15 +313,18 @@ fn wait_seen(
                 call: CallId(call.context("no call")?),
                 danger,
                 always: Some(always),
-                change: None,
+                change: detail
+                    .as_deref()
+                    .map(ciborium::from_reader)
+                    .transpose()?,
             }
         }
         waits::Kind::Question | waits::Kind::Objection => {
-            ciborium::from_reader(detail()?)?
+            ciborium::from_reader(needed()?)?
         }
         waits::Kind::Reserved => WaitKind::Reserved,
         waits::Kind::Send => WaitKind::Send {
-            measure: parcels::measure_of(detail()?)?,
+            measure: parcels::measure_of(needed()?)?,
         },
         waits::Kind::Fault => WaitKind::Fault,
     };

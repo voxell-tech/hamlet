@@ -13,7 +13,7 @@ use hamlet_messages::agent::AgentKind;
 use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
-    HamletId, HowEnded, Left, Named, ProfileId, ToolName,
+    AgentName, HamletId, HowEnded, Left, Named, ProfileId, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
@@ -32,7 +32,8 @@ pub(super) enum Status {
 }
 
 impl Status {
-    pub fn of_row(
+    pub async fn of_row(
+        rows: &Rows<'_>,
         agent: AgentNumber,
         status: &str,
         how: Option<String>,
@@ -42,7 +43,7 @@ impl Status {
             ("hiring", _) => Self::Hiring,
             ("live", _) => Self::Live,
             ("ended", Some(how)) => Self::Ended(Left {
-                how: read_how(&how)?,
+                how: read_how(rows, &how).await?,
                 why,
             }),
             (other, how) => {
@@ -62,13 +63,18 @@ pub(super) fn kept_how(how: &HowEnded) -> Result<String> {
 }
 
 /// How an agent ended, from what its row keeps.
-pub(super) fn read_how(kept: &str) -> Result<HowEnded> {
+pub(super) async fn read_how(
+    rows: &Rows<'_>,
+    kept: &str,
+) -> Result<HowEnded> {
     let mut how: serde_json::Value = serde_json::from_str(kept)?;
     if let Some(lead) =
         how.get("lead").and_then(serde_json::Value::as_u64)
     {
         let lead = AgentNumber(u32::try_from(lead)?);
-        how["lead"] = serde_json::to_value(record::agent_name(lead))?;
+        how["lead"] = serde_json::to_value(
+            record::agent_name(rows, lead).await?,
+        )?;
     }
     Ok(serde_json::from_value(how)?)
 }
@@ -76,6 +82,7 @@ pub(super) fn read_how(kept: &str) -> Result<HowEnded> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Node {
     pub agent: AgentNumber,
+    pub name: AgentName,
     pub kind: AgentKind,
     pub status: Status,
     /// `None` for the Hand and for a mayor.
@@ -212,18 +219,6 @@ pub(in crate::realm) async fn named(
     named_in(rows, own.as_ref(), named).await
 }
 
-/// `lineage` with the name a refusal shows its agent by.
-pub(in crate::realm) async fn shown(
-    rows: &Rows<'_>,
-    lineage: Option<Lineage>,
-) -> Result<Option<(Lineage, String)>> {
-    let Some(lineage) = lineage else {
-        return Ok(None);
-    };
-    let name = record::name_of(rows, lineage.agent.agent).await?;
-    Ok(Some((lineage, name)))
-}
-
 async fn named_in(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -269,8 +264,10 @@ async fn node(
     };
     Ok(Some(Node {
         agent,
+        name: record::agent_name(rows, agent).await?,
         kind: change::from_case_name(kind)?,
-        status: Status::of_row(agent, &status, how, why)?,
+        status: Status::of_row(rows, agent, &status, how, why)
+            .await?,
         lead: lead.map(AgentNumber),
         has_purpose,
     }))
@@ -283,14 +280,11 @@ pub(super) async fn resolve(
 ) -> Result<Option<AgentNumber>> {
     let hamlet = match named {
         Named::Hand => return Ok(Some(Hand::NUMBER)),
-        Named::Agent { agent } | Named::Worker { worker: agent } => {
-            return Ok(rows
-                .value::<u32>(
-                    "SELECT id FROM agent WHERE id = ?1",
-                    vec![number(*agent)],
-                )
-                .await?
-                .map(AgentNumber));
+        Named::Agent { agent } => {
+            return of_kind(rows, *agent, AgentKind::Hire).await;
+        }
+        Named::Worker { worker } => {
+            return of_kind(rows, *worker, AgentKind::Worker).await;
         }
         Named::Mayor => hamlet,
         Named::MayorOf { hamlet } => Some(hamlet),
@@ -301,6 +295,24 @@ pub(super) async fn resolve(
     Ok(chiefs::hamlet(rows, hamlet)
         .await?
         .map(|hamlet| hamlet.mayor))
+}
+
+/// `agent`, when it is of the kind its address names.
+async fn of_kind(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    kind: AgentKind,
+) -> Result<Option<AgentNumber>> {
+    Ok(rows
+        .value::<u32>(
+            "SELECT id FROM agent WHERE id = ?1 AND kind = ?2",
+            vec![
+                number(agent),
+                BindParam::Text(change::case_name(&kind)?),
+            ],
+        )
+        .await?
+        .map(AgentNumber))
 }
 
 /// The state of a caller's own row.
@@ -356,10 +368,12 @@ pub(super) async fn left(
     let Some((status, how, why)) = found else {
         return Ok(None);
     };
-    Ok(match Status::of_row(agent, &status, how, why)? {
-        Status::Ended(left) => Some(left),
-        Status::Hiring | Status::Live => None,
-    })
+    Ok(
+        match Status::of_row(rows, agent, &status, how, why).await? {
+            Status::Ended(left) => Some(left),
+            Status::Hiring | Status::Live => None,
+        },
+    )
 }
 
 /// Every living hire under `lead`, at any depth: each hire's own
@@ -411,23 +425,34 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
 }
 
 /// A hire of the profile `named`, or of a blank one named `name`
-/// when none is named.
+/// when none is named, into `hamlet`.
 pub(super) async fn made_of(
     rows: &Rows<'_>,
     named: Option<ProfileId>,
     name: Option<String>,
+    hamlet: Option<&HamletId>,
 ) -> Result<Result<Of, ProfileRefusal>> {
     let Some(named) = named else {
-        return Ok(Ok(blank(rows, name).await?));
+        return Ok(Ok(blank(rows, name, hamlet).await?));
     };
     Ok(profiles::shared(rows, named).await?.map(Of::Profile))
 }
 
-/// A blank profile named `name`, made for one hire.
+/// A blank profile made for one hire into `hamlet`, named `name`,
+/// else `Mayor` for a mayor, one with no hamlet yet, and `Hire <n>`
+/// for a hire whose hamlet had `n` hires before it.
 pub(super) async fn blank(
     rows: &Rows<'_>,
     name: Option<String>,
+    hamlet: Option<&HamletId>,
 ) -> Result<Of> {
+    let name = match (name.as_deref().map(str::trim), hamlet) {
+        (Some(given), _) if !given.is_empty() => given.to_owned(),
+        (_, None) => "Mayor".to_owned(),
+        (_, Some(hamlet)) => {
+            format!("Hire {}", had(rows, hamlet).await?)
+        }
+    };
     Ok(Of::Blank {
         profile: profiles::next(rows).await?,
         name,
@@ -483,13 +508,23 @@ pub(super) async fn kind_of(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Of {
     Profile(ProfileId),
-    /// A new profile, made for this hire alone (H38), named `name`,
-    /// else `Mayor` for a mayor and `Hire <n>` for a hire whose
-    /// hamlet had `n` hires before it.
+    /// A new profile named `name`, made for this hire alone (H38).
     Blank {
         profile: ProfileId,
-        name: Option<String>,
+        name: String,
     },
+}
+
+impl Of {
+    /// The name of the profile a hire is made of.
+    pub async fn name(&self, rows: &Rows<'_>) -> Result<String> {
+        match self {
+            Self::Profile(profile) => {
+                profiles::name_of(rows, *profile).await
+            }
+            Self::Blank { name, .. } => Ok(name.clone()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -595,11 +630,6 @@ async fn hire(
     let profile = match of {
         Of::Profile(profile) => profile,
         Of::Blank { profile, name } => {
-            let name = match name.as_deref().map(str::trim) {
-                Some(given) if !given.is_empty() => given.to_owned(),
-                _ if lead.is_none() => "Mayor".to_owned(),
-                _ => format!("Hire {}", had(writer, &hamlet).await?),
-            };
             profiles::insert(
                 writer,
                 profile,
@@ -631,9 +661,8 @@ async fn hire(
 }
 
 /// How many hires `hamlet` has had, the ended ones too.
-async fn had(writer: &Writer<'_>, hamlet: &HamletId) -> Result<u32> {
-    Ok(writer
-        .rows()
+async fn had(rows: &Rows<'_>, hamlet: &HamletId) -> Result<u32> {
+    Ok(rows
         .value(
             "SELECT COUNT(*) FROM hire WHERE hamlet = ?1",
             vec![BindParam::Text(hamlet.0.clone())],
@@ -760,281 +789,4 @@ async fn purpose(
 }
 
 #[cfg(test)]
-mod tests {
-    use hamlet_actor::BindParam;
-    use hamlet_messages::realm::{HowEnded, Left};
-
-    use super::super::testing::Started;
-    use super::super::versions;
-    use super::*;
-
-    fn agents(nodes: &[Node]) -> Vec<AgentNumber> {
-        nodes.iter().map(|node| node.agent).collect()
-    }
-
-    /// An ending by a lead keeps the lead's number, and reads back
-    /// naming it.
-    #[test]
-    fn an_end_by_a_lead_is_kept_by_the_leads_number() {
-        let by_three = r#"{"type":"by_a_lead","lead":3}"#;
-        let how = HowEnded::ByALead {
-            lead: record::agent_name(AgentNumber(3)),
-        };
-
-        let kept: serde_json::Value =
-            serde_json::from_str(&kept_how(&how).unwrap()).unwrap();
-        assert_eq!(read_how(by_three).unwrap(), how);
-        assert_eq!(
-            kept,
-            serde_json::from_str::<serde_json::Value>(by_three)
-                .unwrap()
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_lineage_reads_the_leads_up_to_the_mayor() {
-        let started = Started::new().await;
-        let hamlet = HamletId("h".to_owned());
-        started.found(&hamlet, AgentNumber(2)).await;
-        started
-            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
-            .await;
-        started
-            .hire(&hamlet, AgentNumber(4), Some(AgentNumber(3)))
-            .await;
-        let rows = started.rows();
-
-        let hire =
-            lineage(&rows, AgentNumber(4)).await.unwrap().unwrap();
-        assert_eq!(
-            agents(&hire.leads),
-            [AgentNumber(3), AgentNumber(2)]
-        );
-        assert!(hire.is_led_by(AgentNumber(2)));
-        assert!(hire.is_led_by(Hand::NUMBER));
-        assert!(!hire.is_led_by(AgentNumber(4)));
-        assert!(!hire.is_mayor());
-        let mayor =
-            lineage(&rows, AgentNumber(2)).await.unwrap().unwrap();
-        assert!(mayor.is_mayor());
-        assert_eq!(agents(&mayor.hires), [AgentNumber(3)]);
-        assert_eq!(hire.hamlet, mayor.hamlet);
-        let hand =
-            lineage(&rows, Hand::NUMBER).await.unwrap().unwrap();
-        assert_eq!(
-            (hand.agent.kind, hand.hamlet),
-            (AgentKind::Hand, None)
-        );
-        assert_eq!(
-            lineage(&rows, AgentNumber(9)).await.unwrap(),
-            None
-        );
-        started.stop().await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_ended_lead_leads_nothing_and_holds_no_place_in_the_tier()
-     {
-        let started = Started::new().await;
-        let hamlet = HamletId("h".to_owned());
-        started.found(&hamlet, AgentNumber(2)).await;
-        started
-            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
-            .await;
-        started
-            .hire(&hamlet, AgentNumber(4), Some(AgentNumber(3)))
-            .await;
-        let left = Left {
-            how: HowEnded::ByTheChief,
-            why: Some("done".to_owned()),
-        };
-        started
-            .ctx
-            .sql()
-            .execute(
-                "UPDATE agent SET status = 'ended', ended_how = ?1, \
-                 ended_why = ?2 WHERE id = 3",
-                Some(vec![
-                    BindParam::Text(
-                        serde_json::to_string(&left.how).unwrap(),
-                    ),
-                    BindParam::Text("done".to_owned()),
-                ]),
-            )
-            .await
-            .unwrap();
-        let rows = started.rows();
-
-        assert_eq!(left_of(&rows, 3).await, Some(left.clone()));
-        assert_eq!(left_of(&rows, 4).await, None);
-        let hire =
-            lineage(&rows, AgentNumber(4)).await.unwrap().unwrap();
-        assert_eq!(hire.leads[0].status, Status::Ended(left));
-        assert!(!hire.is_led_by(AgentNumber(3)));
-        assert_eq!(living(&rows, &hamlet).await.unwrap(), 2);
-        started.stop().await;
-    }
-
-    async fn left_of(rows: &Rows<'_>, agent: u32) -> Option<Left> {
-        left(rows, AgentNumber(agent)).await.unwrap()
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_name_resolves_to_its_agent() {
-        let started = Started::new().await;
-        let hamlet = HamletId("h".to_owned());
-        started.found(&hamlet, AgentNumber(2)).await;
-        started
-            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
-            .await;
-        let rows = started.rows();
-        let named = async |hamlet: Option<&HamletId>,
-                           named: Named| {
-            resolve(&rows, hamlet, &named).await.unwrap()
-        };
-
-        assert_eq!(
-            named(None, Named::Hand).await,
-            Some(Hand::NUMBER)
-        );
-        assert_eq!(
-            named(Some(&hamlet), Named::Mayor).await,
-            Some(AgentNumber(2))
-        );
-        assert_eq!(named(None, Named::Mayor).await, None);
-        let mayor_of = |hamlet: &str| Named::MayorOf {
-            hamlet: HamletId(hamlet.to_owned()),
-        };
-        assert_eq!(
-            named(None, mayor_of("h")).await,
-            Some(AgentNumber(2))
-        );
-        assert_eq!(named(None, mayor_of("x")).await, None);
-        let agent = |n| Named::Agent {
-            agent: AgentNumber(n),
-        };
-        assert_eq!(named(None, agent(3)).await, Some(AgentNumber(3)));
-        assert_eq!(named(None, agent(9)).await, None);
-        started.stop().await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_hire_is_made_of_a_shared_profile_named_else_a_blank_one()
-     {
-        let started = Started::new().await;
-        let rows = started.rows();
-        let of =
-            async |named| made_of(&rows, named, None).await.unwrap();
-        let no_such = |profile| ProfileRefusal::NoSuchProfile {
-            profile: ProfileId(profile),
-        };
-
-        assert_eq!(
-            of(None).await,
-            Ok(Of::Blank {
-                profile: ProfileId(2),
-                name: None,
-            })
-        );
-        assert_eq!(of(Some(HAND_PROFILE)).await, Err(no_such(1)));
-        assert_eq!(of(Some(ProfileId(9))).await, Err(no_such(9)));
-        started.stop().await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_worker_is_live_at_once_and_ends_once() {
-        let started = Started::new().await;
-        let worker = fresh(&started.rows()).await.unwrap();
-        started
-            .commit(Change::Worker { agent: worker })
-            .await
-            .unwrap();
-        let rows = started.rows();
-        let node = lineage(&rows, worker).await.unwrap().unwrap();
-        assert_eq!(
-            (node.agent.kind, node.agent.status, node.hamlet),
-            (AgentKind::Worker, Status::Live, None)
-        );
-        assert_eq!(
-            fresh(&rows).await.unwrap(),
-            AgentNumber(worker.0 + 1)
-        );
-
-        for how in [HowEnded::Answered, HowEnded::Stopped] {
-            started
-                .commit(Change::WorkerEnded { agent: worker, how })
-                .await
-                .unwrap();
-        }
-        let left = left_of(&started.rows(), worker.0).await;
-        assert_eq!(
-            left,
-            Some(Left {
-                how: HowEnded::Answered,
-                why: None,
-            })
-        );
-        started.stop().await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_hire_goes_live_and_keeps_its_first_purpose() {
-        let started = Started::new().await;
-        let hamlet = HamletId("h".to_owned());
-        started.found(&hamlet, AgentNumber(2)).await;
-        started
-            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
-            .await;
-        let hire = AgentNumber(3);
-        let lead_place =
-            versions::place(&started.rows(), AgentNumber(2))
-                .await
-                .unwrap();
-        started.commit(Change::Live { agent: hire }).await.unwrap();
-        for text in ["first", "second"] {
-            started
-                .commit(Change::Purpose {
-                    hire,
-                    text: text.to_owned(),
-                })
-                .await
-                .unwrap();
-        }
-        let rows = started.rows();
-
-        let node = lineage(&rows, hire).await.unwrap().unwrap().agent;
-        assert_eq!(
-            (node.status, node.has_purpose),
-            (Status::Live, true)
-        );
-        let purpose = rows
-            .value::<String>(
-                "SELECT purpose FROM hire WHERE agent = 3",
-                Vec::new(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(purpose.as_deref(), Some("first"));
-        assert_eq!(
-            versions::place(&rows, AgentNumber(2)).await.unwrap(),
-            lead_place + 1
-        );
-        assert_eq!(
-            profile_of(&rows, hire).await.unwrap(),
-            HAND_PROFILE
-        );
-        assert_eq!(
-            profile_of(&rows, Hand::NUMBER).await.unwrap(),
-            HAND_PROFILE
-        );
-        assert_eq!(
-            kind_of(&rows, hire).await.unwrap(),
-            AgentKind::Hire
-        );
-        assert_eq!(
-            kind_of(&rows, Hand::NUMBER).await.unwrap(),
-            AgentKind::Hand
-        );
-        started.stop().await;
-    }
-}
+mod tests;

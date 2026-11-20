@@ -19,7 +19,7 @@ use hamlet_messages::realm::parcels::{
     PartRefusal, part_start,
 };
 use hamlet_messages::realm::world::WaitKind;
-use hamlet_messages::realm::{Done, Enclosed};
+use hamlet_messages::realm::{Done, DoneTo, Enclosed, End};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::refusal::{PathRefusal, ToRead};
 use hamlet_messages::workspace::{
@@ -563,6 +563,50 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
             },
         }]
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_wait_closes_when_its_receiver_ends() {
+    let (realm, _files) = sending(over_the_cap()).await;
+    sends(&realm, "t1", "Everything.", &["/project/big"]).await;
+    opens(&realm, "1").await;
+
+    let ended = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "e1",
+                End {
+                    hire: to(THREE),
+                    why: None,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    let allowed =
+        realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
+    let state = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT state FROM parcel WHERE id = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+
+    assert!(matches!(ended, DoneTo::Done { .. }), "{ended:?}");
+    assert!(
+        matches!(
+            allowed,
+            Done::Refused {
+                why: AnswerRefusal::NothingWaits { .. }
+            }
+        ),
+        "{allowed:?}"
+    );
+    assert_eq!(state, "refused");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -4,23 +4,42 @@ use hamlet_messages::realm::choices::SetNickname;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
-    AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Done, End,
-    FoundAnswer, HamletId, LeadRefusal, LetterRefusal, Limit, Named,
-    Rank, RequestRoad, RequestRoadRefusal, RoadDone, Sent, SetLimits,
-    TakeUpRoad,
+    AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Done,
+    End, FoundAnswer, HamletId, LeadRefusal, LetterRefusal, Limit,
+    Named, Rank, RequestRoad, RequestRoadRefusal, RoadDone, Sent,
+    SetLimits, TakeUpRoad,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires, road_done,
-    seen_submits, sent, shown, submits_to, tell, to, tool, until,
-    world,
+    FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires, named_as,
+    seen_submits, submits_to, tell, to, tool, until, world,
 };
 
 const OTHER_MAYOR: AgentNumber = AgentNumber(4);
 const FIVE: AgentNumber = AgentNumber(5);
+
+/// `agent` as the realm names it in [`two_hamlets`].
+fn shown(agent: AgentNumber) -> AgentName {
+    match agent {
+        OTHER_MAYOR => named_as(4, "hire#4 (Mayor)"),
+        FIVE => named_as(5, "hire#5 (Hire 1)"),
+        other => super::shown(other),
+    }
+}
+
+fn sent<R>(to: AgentNumber) -> Sent<R> {
+    Sent::Sent { to: shown(to) }
+}
+
+fn road_done<R>(a: AgentNumber, b: AgentNumber) -> RoadDone<R> {
+    RoadDone::Done {
+        a: shown(a),
+        b: shown(b),
+    }
+}
 
 /// Two hamlets: the mayor 2 with its hire 3, and the mayor 4 with
 /// its hire 5.
@@ -165,17 +184,16 @@ async fn a_road_is_laid_when_both_mayors_agree() {
             b: shown(FIVE)
         })
     );
-    let agreed = [
-        "- hire#2 agreed a road from hire#3: share files",
-        "- hire#4 agreed a road from hire#5: trade",
-    ];
-    for (record, line) in records.iter().zip(agreed) {
+    for record in &records {
         let Record::Read { lines } = record else {
             panic!("a record: {record:?}");
         };
-        assert!(
-            lines.iter().any(|kept| kept.text == line),
-            "{line} missing from {lines:?}"
+        assert_eq!(
+            lines.last().map(|line| line.text.as_str()),
+            Some(
+                "- hire#4 (Mayor) agreed a road from hire#5 (Hire \
+                 1): trade"
+            )
         );
     }
     realm.host.shutdown().await.unwrap();
@@ -391,7 +409,7 @@ async fn a_request_road_with_no_reason_writes_todays_words() {
         texts,
         [
             "I ask for a road to hire#3 (Spade): notes",
-            "I ask for a road to hire#4: ",
+            "I ask for a road to hire#4 (Hire 2): ",
         ]
     );
     realm.host.shutdown().await.unwrap();

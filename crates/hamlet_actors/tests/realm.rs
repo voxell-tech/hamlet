@@ -29,9 +29,9 @@ use hamlet_messages::profile::{
     BadPath, Branch, CommitId, DreamEnd, DreamId, DreamOf,
     DropSaveParts, Edit, EditRefusal, EndDream, Missing,
     Path as FilePath, PrepareDream, Prepared, ProfileInput, Purge,
-    PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1, Tag,
-    TagAnswer, TagRefusal, VersionList, VersionName, VersionSeen,
-    Versions,
+    PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Revision,
+    Sha1, Tag, TagAnswer, TagRefusal, VersionList, VersionName,
+    VersionSeen, Versions,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -95,6 +95,8 @@ mod letters;
 mod librarian;
 #[path = "realm/living.rs"]
 mod living;
+#[path = "realm/names.rs"]
+mod names;
 #[path = "realm/oversight.rs"]
 mod oversight;
 #[path = "realm/parcels.rs"]
@@ -107,6 +109,8 @@ mod profiles;
 mod prompt;
 #[path = "realm/record.rs"]
 mod record;
+#[path = "realm/refusals.rs"]
+mod refusals;
 #[path = "realm/repeats.rs"]
 mod repeats;
 #[path = "realm/reserved.rs"]
@@ -465,6 +469,18 @@ impl Actor for ProfileStandIn {
 
 const HELD_VERSION: &str = "v1";
 
+impl ProfileStandIn {
+    /// Whether `name` is its version or a branch it made.
+    fn holds(&self, name: &str) -> bool {
+        name == HELD_VERSION
+            || self.seen.branches.lock().unwrap().iter().any(
+                |(profile, branch)| {
+                    *profile == self.profile && branch.name == name
+                },
+            )
+    }
+}
+
 impl Handler<Branch> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -478,20 +494,20 @@ impl Handler<Branch> for ProfileStandIn {
             .parse()?;
         self.seen.called(Callee::Branch, AgentNumber(agent)).await?;
         let from = branch.from.clone();
+        let held =
+            from.as_ref().is_none_or(|from| self.holds(&from.0));
         self.seen
             .branches
             .lock()
             .unwrap()
             .push((self.profile, branch));
         Ok(match from {
-            Some(version) if version.0 != HELD_VERSION => {
-                Done::Refused {
-                    why: Missing::NoVersion {
-                        profile: self.profile,
-                        version,
-                    },
-                }
-            }
+            Some(version) if !held => Done::Refused {
+                why: Missing::NoVersion {
+                    profile: self.profile,
+                    version,
+                },
+            },
             _ => Done::Done,
         })
     }
@@ -523,8 +539,25 @@ impl Handler<Read> for ProfileStandIn {
         _: Ctx<Self>,
         read: Read,
     ) -> anyhow::Result<ReadAnswer> {
+        let lacked = match &read.at {
+            Some(Revision::Version { version })
+                if !self.holds(&version.0) =>
+            {
+                Some(version.clone())
+            }
+            _ => None,
+        };
         let path = read.path.clone();
         self.seen.reads.lock().unwrap().push((self.profile, read));
+        if let Some(version) = lacked {
+            return Ok(ReadAnswer::Refused {
+                why: Missing::NoVersion {
+                    profile: self.profile,
+                    version,
+                }
+                .into(),
+            });
+        }
         Ok(match path {
             None => ReadAnswer::Listed {
                 paths: vec![FilePath {
@@ -1227,7 +1260,7 @@ fn errand(n: u32) -> AgentNumber {
 }
 
 /// Hire 3's name as the realm gives it.
-const HIRE_3: &str = "hire#3";
+const HIRE_3: &str = "hire#3 (Hire 1)";
 
 fn of_hire(hire: AgentNumber) -> Dream {
     Dream {
@@ -1320,14 +1353,33 @@ fn sent<R>(to: AgentNumber) -> Sent<R> {
     Sent::Sent { to: shown(to) }
 }
 
-/// `agent` as the realm names it to chiefs and agents.
+/// `agent` as the realm names it to chiefs and agents, when the
+/// mayor and each hire after it were made blank and unnamed in one
+/// hamlet: the mayor as `Mayor`, the hires as `Hire 1` on.
 fn shown(agent: AgentNumber) -> AgentName {
-    let name = if agent == Hand::NUMBER {
-        "hand".to_owned()
-    } else {
-        format!("hire#{}", agent.0)
+    let name = match agent.0 {
+        1 => "hand".to_owned(),
+        2 => "hire#2 (Mayor)".to_owned(),
+        n => format!("hire#{n} (Hire {})", n - 2),
     };
     AgentName { agent, name }
+}
+
+/// The worker `worker`, which no one has nicknamed, as the realm
+/// names it.
+fn worker_shown(worker: AgentNumber) -> AgentName {
+    AgentName {
+        agent: worker,
+        name: format!("worker#{}", worker.0),
+    }
+}
+
+/// `agent` shown as `name`.
+fn named_as(agent: u32, name: &str) -> AgentName {
+    AgentName {
+        agent: AgentNumber(agent),
+        name: name.to_owned(),
+    }
 }
 
 /// The copies `agent` was pushed, oldest first.

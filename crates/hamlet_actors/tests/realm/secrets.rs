@@ -3,9 +3,13 @@ use std::sync::Arc;
 
 use hamlet_actor_error::ActorError;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::Input;
+use hamlet_messages::realm::choices::SetNickname;
 use hamlet_messages::realm::documents::{
-    EditSettings, Endpoint, RemoteWorkspace, Setting, SettingRefusal,
+    CardSetting, EditCatalogue, EditSettings, Endpoint,
+    RemoteWorkspace, Setting, SettingRefusal,
 };
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin, Settings,
@@ -18,7 +22,10 @@ use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
 use super::chiefs::chief;
-use super::{MAYOR, Realm, Seen, THREE, hamlet_with, open, until};
+use super::{
+    MAYOR, Realm, Seen, THREE, hamlet_with, open, seen_submits, tell,
+    to, tool, until,
+};
 
 fn file(realm: &Realm) -> PathBuf {
     realm.scratch.join("credentials.json")
@@ -665,4 +672,77 @@ async fn a_credential_an_agent_keeps_is_in_the_realms_list_of_secrets()
         );
     }
     realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kept_key_shows_as_removed_in_the_record_a_letter_and_a_note()
+ {
+    const KEY: &str = "sk-made-up-0451";
+    let (realm, hamlet) = hamlet_with(1).await;
+    keep(&realm, "cloudflare", key(KEY)).await;
+    let with_key = format!("use {KEY} for it");
+    let removed = "use [REDACTED] for it";
+
+    let renamed = chief(
+        &realm,
+        SetNickname {
+            hire: to(THREE),
+            name: Some("Spade".to_owned()),
+            why: Some(with_key.clone()),
+        },
+    )
+    .await;
+    realm
+        .tool(MAYOR, &tool("t1", tell(to(THREE), &with_key)))
+        .await
+        .unwrap();
+    let noted = chief(
+        &realm,
+        EditCatalogue {
+            model: "faux::faux-1".to_owned(),
+            set: vec![CardSetting::Note {
+                note: with_key.clone(),
+            }],
+        },
+    )
+    .await;
+    let record = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await;
+    let told = seen_submits(&realm, THREE, 1).await;
+    let catalogue = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT value FROM document WHERE name = 'catalogue'",
+                [],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+        })
+        .await;
+
+    assert_eq!((renamed, noted), (Done::Done, Done::Done));
+    let Record::Read { lines } = record else {
+        panic!("a record: {record:?}");
+    };
+    assert_eq!(
+        lines.last().map(|line| line.text.as_str()),
+        Some(
+            format!("- chief nicknamed hire#3 (Spade): {removed}")
+                .as_str()
+        )
+    );
+    assert!(
+        matches!(&told[0].input, Input::Letter { text, .. } if text == removed),
+        "{told:?}"
+    );
+    let holds = |text: &str| {
+        catalogue
+            .windows(text.len())
+            .any(|window| window == text.as_bytes())
+    };
+    assert!(holds(removed) && !holds(KEY));
 }

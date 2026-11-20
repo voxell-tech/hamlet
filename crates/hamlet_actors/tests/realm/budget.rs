@@ -143,6 +143,42 @@ async fn spending_past_the_budget_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_cap_taken_away_bounds_no_more_spending() {
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    let payer = pays(&hamlet);
+    let small = vec![
+        BudgetLimit::Cost { micros: 10 },
+        BudgetLimit::Time { ms: 100 },
+    ];
+    limit(&realm, Some(&hamlet), small).await;
+    realm
+        .tool(MAYOR, &charge("c1", &task, 10, 100))
+        .await
+        .unwrap();
+
+    let both = may_spend(&realm, MAYOR, &task).await;
+    limit(&realm, Some(&hamlet), vec![BudgetLimit::NoCost]).await;
+    let time_only = may_spend(&realm, MAYOR, &task).await;
+    limit(&realm, Some(&hamlet), vec![BudgetLimit::NoTime]).await;
+    let neither = may_spend(&realm, MAYOR, &task).await;
+
+    assert_eq!(both, over_cost(&payer, 10, 10));
+    assert_eq!(
+        time_only,
+        Done::Refused {
+            why: SpendRefusal::Budget(Budget::OverTime {
+                payer,
+                spent_ms: 100,
+                budget_ms: 100,
+            }),
+        }
+    );
+    assert_eq!(neither, Done::Done);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_ended_agent_may_not_spend_or_charge() {
     // end a hire; MaySpend as it: Standing(YouLeft). A charge it
     // makes after its end is refused and counts nothing.

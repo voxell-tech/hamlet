@@ -184,7 +184,7 @@ async fn a_mayors_place_names_its_office_hires_and_fellow_mayors() {
             &"# Your place",
             &format!(
                 "You are `{}`, a scholar of the city, hired into \
-                 `{}`.",
+                 `{}` to Mayor of Mill",
                 name(MAYOR),
                 mill.0
             ),
@@ -200,7 +200,7 @@ async fn a_mayors_place_names_its_office_hires_and_fellow_mayors() {
             &"You can write to and ask:",
             &format!("- {}", name(Hand::NUMBER)),
             &format!("- {}", name(THREE)),
-            &format!("- {} (a fellow mayor)", name(FOUR)),
+            &"- hire#4 (Mayor) (a fellow mayor)",
             &MESSAGES,
             &OBJECT,
         ])
@@ -211,10 +211,9 @@ async fn a_mayors_place_names_its_office_hires_and_fellow_mayors() {
             format!(
                 "# The realm\nThe other hamlets. With `agree_road`, \
                  two mayors open a road between a hire of each, \
-                 once both agree:\n- Pond (`{}`): mayor `{}`, 1 \
-                 hires",
+                 once both agree:\n- Pond (`{}`): mayor `hire#4 \
+                 (Mayor)`, 1 hires",
                 pond.0,
-                name(FOUR)
             )
             .as_str()
         )

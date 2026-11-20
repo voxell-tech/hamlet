@@ -5,13 +5,13 @@ use hamlet_messages::realm::hamlets::{
     NameHamlet, ReadRecord, Record, RecordLine, SetMode,
 };
 use hamlet_messages::realm::{
-    Done, HamletId, HamletRefusal, SetTools, ToolName,
+    Done, DoneTo, HamletId, HamletRefusal, SetTools, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Mode;
 
 use super::chiefs::chief;
-use super::{MAYOR, THREE, done_to, hamlet_with, to, tool};
+use super::{MAYOR, THREE, done_to, hamlet_with, named_as, to, tool};
 
 fn read(lines: &[&str]) -> Record {
     Record::Read {
@@ -85,7 +85,9 @@ async fn the_history_lists_the_decisions() {
             )
             .await
             .unwrap(),
-        done_to(THREE)
+        DoneTo::Done {
+            agent: named_as(3, "hire#3 (Spade)")
+        }
     );
     assert_eq!(
         chief(
@@ -131,17 +133,18 @@ async fn the_history_lists_the_decisions() {
     .await;
 
     let lines = read(&[
-        "- chief founded the hamlet under hire#2",
-        "- hire#2 hired hire#3 (Spade): Check the links",
+        "- chief founded the hamlet under hire#2 (Mayor): Mayor of \
+         Mill.",
+        "- hire#2 (Mayor) hired hire#3 (Spade): Check the links",
         "- chief changed ",
         "- chief changed ",
-        "- hire#2 nicknamed hire#3 (Spade): short",
-        "- hire#2 changed the tools of hire#3 (Spade): quiet",
+        "- hire#2 (Mayor) nicknamed hire#3 (Spade): short",
+        "- hire#2 (Mayor) changed the tools of hire#3 (Spade): quiet",
         "- chief chose the model of hire#3 (Spade): same",
     ]);
     assert_eq!(by_chief, lines);
     assert_eq!(by_hand, lines);
-    assert_eq!(realms, read(&[]));
+    assert_eq!(realms, read(&["Nothing is decided yet."]));
     assert_eq!(
         nowhere,
         Record::Refused {

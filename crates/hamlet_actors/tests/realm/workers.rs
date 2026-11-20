@@ -6,6 +6,7 @@ use hamlet_messages::agent::{
 use hamlet_messages::realm::budget::{
     BudgetRead, OpenTask, Payer, ReadBudget, TaskOpened, TaskTurn,
 };
+use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
@@ -13,18 +14,21 @@ use hamlet_messages::realm::workers::{
 };
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left,
-    SetTools, ToolName,
+    AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left, Named,
+    SetTools, Tool, ToolName,
 };
 use hamlet_messages::workspace::reach::Reach;
-use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
+use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
 use super::{
     Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, done_to,
-    hamlet_with, made, made_until, needs, say, seen_submits, shown,
-    standing, to, tool, until, world,
+    hamlet_with, made, made_until, needs, say, seen_submits,
+    standing, to, tool, until, worker_shown, world,
 };
 
 fn start(brief: &str) -> StartWorker {
@@ -121,11 +125,17 @@ async fn ended_until(
     .await;
 }
 
+/// The conversation hire#3 starts its workers in.
+fn talk() -> ConversationId {
+    ConversationId("talk".to_owned())
+}
+
 async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
-    let answer = realm
-        .tool(THREE, &tool(call, start("count the files")))
-        .await
-        .unwrap();
+    let call = Tool {
+        conversation: Some(talk()),
+        ..tool(call, start("count the files"))
+    };
+    let answer = realm.tool(THREE, &call).await.unwrap();
     let Started::Started { worker } = answer else {
         panic!("hire#3 starts a worker: {answer:?}");
     };
@@ -133,7 +143,8 @@ async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_worker_answers_its_starter_once_and_ends() {
+async fn a_worker_answers_its_starter_once_in_its_conversation_and_ends()
+ {
     let (realm, _) = hamlet_with(1).await;
 
     let worker = started_by_three(&realm, "w").await;
@@ -194,10 +205,10 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                 input: Input::WorkerAnswer {
                     from: Author {
                         agent: FOUR,
-                        name: Some(shown(FOUR).name),
+                        name: Some(worker_shown(FOUR).name),
                     },
                     text: "Counted: 3 files.".to_owned(),
-                    conversation: None,
+                    conversation: Some(talk()),
                 },
             }
         )]
@@ -207,6 +218,38 @@ async fn a_worker_answers_its_starter_once_and_ends() {
         *reach == Reach::Ended
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_runs_on_its_starters_model() {
+    let (realm, _) = hamlet_with(1).await;
+    let chosen = chief(
+        &realm,
+        SetModel {
+            of: ModelOf::Hire { hire: to(THREE) },
+            model: Some("faux::faux-2".to_owned()),
+            effort: Some(Effort::High),
+            fast: None,
+            why: None,
+        },
+    )
+    .await;
+
+    started_by_three(&realm, "w").await;
+    let input = made_until(&realm, FOUR).await;
+
+    assert_eq!(chosen, Done::Done);
+    assert_eq!(
+        input.brief.and_then(|brief| brief.model).as_deref(),
+        Some("faux::faux-2")
+    );
+    assert_eq!(
+        input
+            .copies
+            .model
+            .map(|model| (model.value.model, model.value.effort)),
+        Some(("faux::faux-2".to_owned(), Some(Effort::High)))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -355,7 +398,7 @@ async fn a_chiefs_worker_answers_in_its_own_conversation() {
     assert_eq!(
         answer,
         Started::Started {
-            worker: shown(THREE)
+            worker: worker_shown(THREE)
         }
     );
     let input = made_until(&realm, THREE).await;
@@ -416,7 +459,7 @@ async fn an_unknown_tool_is_refused() {
         };
         assert_eq!(
             why.to_string(),
-            format!("`hire#3` has no such tool: {name}")
+            format!("`hire#3 (Hire 1)` has no such tool: {name}")
         );
     }
     let answer = realm
@@ -437,7 +480,7 @@ async fn an_unknown_tool_is_refused() {
     assert_eq!(
         answer,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
     let tools = made_until(&realm, FOUR).await.brief.unwrap().tools;
@@ -584,7 +627,7 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
     let ended = chief(
         &realm,
         End {
-            hire: to(FOUR),
+            hire: Named::Worker { worker: FOUR },
             why: None,
         },
     )
@@ -613,10 +656,10 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
             Input::WorkerAnswer {
                 from: Author {
                     agent: FOUR,
-                    name: Some(shown(FOUR).name),
+                    name: Some(worker_shown(FOUR).name),
                 },
                 text: "It gave no answer.".to_owned(),
-                conversation: None,
+                conversation: Some(talk()),
             }
         )]
     );
@@ -637,7 +680,7 @@ async fn a_chief_sets_no_tools_of_a_worker() {
     let set = chief(
         &realm,
         SetTools {
-            hire: to(FOUR),
+            hire: Named::Worker { worker: FOUR },
             off: vec![ToolName {
                 name: "bash".to_owned(),
             }],

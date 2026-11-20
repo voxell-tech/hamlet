@@ -79,7 +79,7 @@ async fn the_librarians_answer_reaches_the_asker_after_the_call() {
              say so."
         ))
     );
-    assert_eq!(brief.text, "hire#3 asks: Which skill digs?");
+    assert_eq!(brief.text, "hire#3 (Hire 1) asks: Which skill digs?");
     ended(
         &realm,
         0,
@@ -172,8 +172,9 @@ async fn the_librarians_verdict_reaches_the_library_then_the_offerer()
     assert_eq!(
         brief.text,
         format!(
-            "hire#3 offers the skill `well`: for digging\n\nIts \
-             files: SKILL.md, dig.sh\n\nIts SKILL.md:\n{SKILL_MD}"
+            "hire#3 (Hire 1) offers the skill `well`: for \
+             digging\n\nIts files: SKILL.md, dig.sh\n\nIts \
+             SKILL.md:\n{SKILL_MD}"
         )
     );
     ended(

@@ -379,7 +379,7 @@ async fn start(
             let hire_side = home.join(
                 side.context("a hire's dream has no hire side")?,
             );
-            let who = record::name_of(&rows, hire).await?;
+            let who = record::agent_name(&rows, hire).await?.name;
             let payer =
                 tasks::own_payer(&rows, hire).await?.with_context(
                     || format!("hire {} pays nothing", hire.0),
@@ -591,9 +591,9 @@ pub(super) async fn end(
         .await?
         .with_context(|| format!("dream {n} has no end"))?;
     let hire_name = match hire {
-        Some(hire) => {
-            Some(record::name_of(&rows, AgentNumber(hire)).await?)
-        }
+        Some(hire) => Some(
+            record::agent_name(&rows, AgentNumber(hire)).await?.name,
+        ),
         None => None,
     };
     let end = EndDream {

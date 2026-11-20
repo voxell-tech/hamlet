@@ -1290,7 +1290,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
             ask: () => ({ type: "waiting", on: shown(1), question: 1 }),
             request_road: () => ({ type: "done" }),
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
-            seat: () => ({ type: "done", agent: shown(22) }),
+            seat: () => ({ type: "done", agent: shown(22), hamlet: "h" }),
             hire: () => ({ type: "hired", agent: shown(22) }),
             end: () => ({ type: "done", agent: shown(22) }),
             lay_road: () => ({ type: "done", a: shown(1), b: shown(2) }),
@@ -1678,7 +1678,7 @@ async function seatAndHire(
 ): Promise<{ seat: unknown[]; hire: unknown[]; results: string[] }> {
     const { calls, sent } = fakeCalls({
         realm: {
-            seat: () => ({ type: "done", agent: shown(22) }),
+            seat: () => ({ type: "done", agent: shown(22), hamlet: "h" }),
             hire: () => ({ type: "hired", agent: shown(22) }),
         },
     });
@@ -1704,6 +1704,11 @@ async function seatAndHire(
 }
 
 const seated = (agent: number) => ({ hire: { type: "agent", agent } });
+
+test("a seated mayor is named with its hamlet, in today's words", async (t) => {
+    const { results } = await seatAndHire(t, ["hire#22"]);
+    assert.deepEqual(results, [`${shown(22).name} is the mayor of h now.`]);
+});
 
 test("an address is trimmed, as today's server trims it", async (t) => {
     const { seat } = await seatAndHire(t, [

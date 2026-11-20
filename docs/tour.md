@@ -859,14 +859,15 @@ lead lays, and `society.rs` the roads two mayors agree; `say.rs` is a
 chief's line, which `reviews.rs` holds for the lead's review when the
 limits ask for one; `letters.rs` letters, questions and answers, and
 `parcels.rs` the files a letter sends, copied into the realm's store
-by hash and fetched by the receiver in parts; `tasks.rs` keeps what a
+(`parcels/store.rs`) by hash and fetched by the receiver in parts; `tasks.rs` keeps what a
 line or an agent's turns are charged to; `budget.rs` answers
 `MaySpend` and keeps `Charge`, and `allowance.rs` the allowance a lead
 or a chief gives a hire, with `ReadBudget`; `oversight.rs` keeps
 grants and trust, and `oversight/asking.rs` an agent's questions and
 objections to a chief, which hold its spending and letters on that
 task until a chief rules; `waits.rs` keeps the waits for a chief of
-every kind and their answers, and the refusals counted on a task;
+every kind and the refusals counted on a task, and `waits/answer.rs`
+a chief's answer to one;
 `documents.rs` and `settings.rs` keep the charter, the catalogue and
 the settings and push each agent its copies; `profiles.rs` keeps each
 profile's name and label, makes and reads profiles for

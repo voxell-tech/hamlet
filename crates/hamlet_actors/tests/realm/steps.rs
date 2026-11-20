@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
-    made_until, seen_submits, shown, submits_to, tell, to,
-    told_of_failed, tool, until, words,
+    made_until, seen_submits, submits_to, tell, to, told_of_failed,
+    tool, until, words, worker_shown,
 };
 
 const BLANK: ProfileId = ProfileId(2);
@@ -305,12 +305,12 @@ async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
     assert_eq!(hiring, 0);
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
     let told = told_of_failed(&realm, MAYOR, THREE).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(told.ends_with("An internal error occurred"), "{told}");
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
     realm.host.shutdown().await.unwrap();
 }
 
-const HIRE_3_FAILED: &str = "`hire#3` has left: its task failed: ";
+const HIRE_3_FAILED: &str =
+    "`hire#3 (Hire 1)` has left: its task failed: ";
 
 async fn told_of_a_hire_failing_at(callee: Callee) -> String {
     let (realm, _) = hamlet_with(0).await;
@@ -326,25 +326,28 @@ async fn told_of_a_hire_failing_at(callee: Callee) -> String {
     told
 }
 
+/// What the lead reads when a step's callee fails with an error of
+/// its own and no refusal's words.
+const PLAIN: &str = "An internal error occurred";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_branch_cannot_be_made_ends_and_its_lead_hears_why()
+ {
+    let told = told_of_a_hire_failing_at(Callee::Branch).await;
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_files_cannot_be_filled_ends_and_its_lead_hears_why()
  {
     let told = told_of_a_hire_failing_at(Callee::Fill).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(
-        told.ends_with("the stand-in refuses Fill of 3"),
-        "{told}"
-    );
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_reach_is_refused_ends_and_its_lead_hears_why() {
     let told = told_of_a_hire_failing_at(Callee::SetReach).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(
-        told.ends_with("the stand-in refuses SetReach of 3"),
-        "{told}"
-    );
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -373,7 +376,7 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
     assert_eq!(
         started,
         Started::Started {
-            worker: shown(FOUR)
+            worker: worker_shown(FOUR)
         }
     );
     assert_eq!(
@@ -381,7 +384,7 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
         Input::WorkerAnswer {
             from: Author {
                 agent: FOUR,
-                name: Some(shown(FOUR).name),
+                name: Some(worker_shown(FOUR).name),
             },
             text: "It gave no answer.".to_owned(),
             conversation: None,

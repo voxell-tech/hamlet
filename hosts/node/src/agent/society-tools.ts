@@ -519,7 +519,9 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 hire,
                 ...why(args.reason),
             })),
-        said: () => "Seated.",
+        // As `seat_mayor` (`crates/hamlet_server/src/calls/society.rs`).
+        said: (answer) =>
+            `${answer.agent.name} is the mayor of ${answer.hamlet} now.`,
     },
     hire: {
         name: "hire",

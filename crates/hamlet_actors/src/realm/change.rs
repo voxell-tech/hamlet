@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Result, bail};
 use hamlet_actor::{BindParam, ColumnValue, Ctx};
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_sandbox::scrub::scrub_text;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -20,8 +21,8 @@ use super::workers::errands;
 use super::{
     Realm, allowance, budget, chiefs, documents, dreams, laid,
     letters, librarian, marker, oversight, parcels, profiles, record,
-    reviews, settings, society, steps, tasks, tree, versions, waits,
-    workers, world,
+    reviews, secrets, settings, society, steps, tasks, tree,
+    versions, waits, workers, world,
 };
 
 #[derive(Debug, PartialEq)]
@@ -347,6 +348,7 @@ fn read_only(sql: &str) -> Result<()> {
 pub(super) struct Writer<'a> {
     statements: &'a handle::Statements,
     at: At,
+    secrets: &'a secrets::Held,
 }
 
 impl Writer<'_> {
@@ -369,6 +371,12 @@ impl Writer<'_> {
 
     pub fn at(&self) -> At {
         self.at
+    }
+
+    /// `text` with every secret the realm holds removed, as the realm
+    /// keeps a text a model reads.
+    pub fn scrubbed(&self, text: &str) -> String {
+        scrub_text(&self.secrets.secrets(), text)
     }
 }
 
@@ -506,6 +514,7 @@ impl Transaction {
         let writer = Writer {
             statements: &self.statements,
             at: self.at,
+            secrets: &realm.secrets,
         };
         let written = async {
             let mut affected = Affected::default();

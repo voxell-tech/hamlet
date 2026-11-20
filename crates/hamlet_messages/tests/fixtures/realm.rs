@@ -38,9 +38,9 @@ use hamlet_messages::realm::{
     LeadRefusal, Left, LetterId, LetterRefusal, Limit, Named,
     OnlyAHire, ProfileId, Rank, Refusable, Reply, ReplyRefusal,
     RequestRoad, RequestRoadRefusal, ReservedAct, Review, RoadDone,
-    Seat, Sent, SetLimits, SetTier, SetTools, SocietyTool, Standing,
-    TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal, Tool,
-    ToolName, Waiting,
+    Seat, Seated, Sent, SetLimits, SetTier, SetTools, SocietyTool,
+    Standing, TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal,
+    Tool, ToolName, Waiting,
 };
 use hamlet_messages::workspace::files::EditDiff;
 use hamlet_messages::workspace::reach::Need;
@@ -485,6 +485,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 HireRefusal::OtherHamlet { lead: shown(MAYOR) },
             ),
             (
+                "not_a_hire",
+                HireRefusal::NotAHire {
+                    name: "hand".into(),
+                },
+            ),
+            (
                 "lead_left",
                 HireRefusal::LeadLeft {
                     lead: shown(HIRE),
@@ -607,7 +613,16 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         }),
     );
     done(fixtures, "realm/chief_seat", only_a_hire());
-    done_to(fixtures, "realm/seat", only_a_hire());
+    let seated = Seated::Done {
+        agent: shown(HIRE),
+        hamlet: hamlet(),
+    };
+    answers(
+        fixtures,
+        "realm/seat",
+        [("done", seated)],
+        only_a_hire(),
+    );
 }
 
 fn the_letters(fixtures: &mut Fixtures) {
@@ -807,9 +822,11 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
                     address: "hire#9".into(),
                 },
             ),
+            ("same_ends", LayRefusal::SameEnds),
+            ("not_hires", LayRefusal::NotHires),
             (
-                "not_two_hires_of_one_hamlet",
-                LayRefusal::NotTwoHiresOfOneHamlet,
+                "other_hamlet",
+                LayRefusal::OtherHamlet { hire: shown(MAYOR) },
             ),
             (
                 "left",
@@ -1312,6 +1329,7 @@ fn seen() -> Seen {
         reach,
         worker: None,
         nickname: None,
+        runs: Some("faux::faux-1".to_owned()),
         model: None,
         effort: None,
         fast: None,
@@ -1342,6 +1360,7 @@ fn seen() -> Seen {
             ),
             AgentSeen {
                 nickname: Some("ada".into()),
+                runs: Some("anthropic::claude-opus".into()),
                 model: Some("anthropic::claude-opus".into()),
                 effort: Some(Effort::High),
                 fast: Some(true),

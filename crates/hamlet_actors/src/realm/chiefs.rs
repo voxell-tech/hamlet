@@ -248,7 +248,7 @@ impl<By: RealmWide> Act<By> for Found {
                     .await?
                     .map(tree::Of::Profile)
                     .map_err(|_| mayor),
-                None => Ok(tree::blank(rows, None).await?),
+                None => Ok(tree::blank(rows, None, None).await?),
             },
             hamlet: fresh(),
             mayor: tree::fresh(rows).await?,
@@ -270,12 +270,18 @@ impl<By: RealmWide> Act<By> for Found {
                 ));
             }
         };
-        let purpose = tree::given_purpose(self.purpose.as_deref());
-        if purpose.is_none() && by.by() != record::By::Chief {
-            return Decision::Answer(FoundAnswer::refused(
-                FoundRefusal::NoPurpose,
-            ));
-        }
+        let purpose =
+            match tree::given_purpose(self.purpose.as_deref()) {
+                Some(purpose) => purpose,
+                None if by.by() == record::By::Chief => {
+                    format!("Mayor of {name}.")
+                }
+                None => {
+                    return Decision::Answer(FoundAnswer::refused(
+                        FoundRefusal::NoPurpose,
+                    ));
+                }
+            };
         let Founding { of, hamlet, mayor } = founding;
         let of = match of {
             Ok(of) => of,
@@ -299,7 +305,7 @@ impl<By: RealmWide> Act<By> for Found {
                     lead: None,
                     of,
                     version: None,
-                    purpose: purpose.clone(),
+                    purpose: Some(purpose.clone()),
                 })
                 .change(tasks::Change::Standing {
                     agent: mayor,
@@ -314,7 +320,7 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet,
                     mayor,
                     by: by.by(),
-                    why: purpose,
+                    why: Some(purpose),
                 }),
         )
     }
@@ -359,7 +365,7 @@ mod tests {
         Founding {
             of: Ok(tree::Of::Blank {
                 profile: ProfileId(2),
-                name: None,
+                name: "Mayor".to_owned(),
             }),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),

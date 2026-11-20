@@ -212,6 +212,13 @@ pub(super) struct Called {
     pub conversation: Option<ConversationId>,
 }
 
+/// An act with the call that carried it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct Carried<T> {
+    pub called: Called,
+    pub act: T,
+}
+
 /// A society tool's act as the realm runs it for a caller of kind
 /// `By`, given the call that carried it.
 pub(super) trait ToolAct<By>: ToolCall {

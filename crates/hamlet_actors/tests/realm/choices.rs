@@ -2,6 +2,7 @@ use hamlet_messages::realm::choices::{
     ChoiceRefusal, ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
     Done, DoneTo, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
     Rank, SetTools,
@@ -266,7 +267,7 @@ async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_hand_takes_no_nickname_and_no_model() {
+async fn the_hand_takes_no_nickname_and_a_chief_sets_its_model() {
     let (realm, _) = hamlet_with(0).await;
 
     let nicknamed = chief(
@@ -291,60 +292,84 @@ async fn the_hand_takes_no_nickname_and_no_model() {
             name: "hand".to_owned(),
         },
     };
-    assert_eq!((&nicknamed, &modelled), (&not_a_hire, &not_a_hire));
+    assert_eq!((&nicknamed, &modelled), (&not_a_hire, &Done::Done));
     assert_eq!(words(nicknamed), "`hand` is not a hire");
+    assert_eq!(nicknames(&realm).await, Vec::new());
     assert_eq!(
-        (nicknames(&realm).await, model_choices(&realm).await),
-        (Vec::new(), Vec::new())
+        model_choices(&realm).await,
+        [(
+            "agent/1".to_owned(),
+            Some("faux::faux-1".to_owned()),
+            None,
+            None
+        )]
     );
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_model_choice_keeps_the_parts_it_does_not_name() {
+async fn a_chiefs_choice_is_whole_and_a_leads_sets_only_the_model() {
     let (realm, _) = hamlet_with(1).await;
-    let mayor = async |call: &str, model: &str| {
+    let mayor = async |call: &str, model: Option<&str>| {
         let act = SetModel {
-            model: Some(model.to_owned()),
+            model: model.map(str::to_owned),
             ..model_of(of_three())
         };
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()
     };
-
-    let done = (
-        chief(
-            &realm,
-            SetModel {
-                effort: Some(Effort::XHigh),
-                ..model_of(of_three())
-            },
-        )
-        .await,
-        mayor("m1", "faux::faux-2").await,
-        chief(
-            &realm,
-            SetModel {
-                fast: Some(true),
-                ..model_of(of_three())
-            },
-        )
-        .await,
-        mayor("m2", "faux::faux-1").await,
-    );
-
-    assert_eq!(
-        done,
-        (Done::Done, done_to(THREE), Done::Done, done_to(THREE))
-    );
-    assert_eq!(
-        model_choices(&realm).await,
-        [(
+    let kept = |model: Option<&str>, effort: Option<&str>, fast| {
+        vec![(
             "agent/3".to_owned(),
-            Some("faux::faux-1".to_owned()),
-            Some("xhigh".to_owned()),
-            Some(true)
+            model.map(str::to_owned),
+            effort.map(str::to_owned),
+            fast,
         )]
+    };
+
+    let thinks = chief(
+        &realm,
+        SetModel {
+            effort: Some(Effort::XHigh),
+            ..model_of(of_three())
+        },
+    )
+    .await;
+    let thinking = model_choices(&realm).await;
+    let by_lead = mayor("m1", Some("faux::faux-2")).await;
+    let led = model_choices(&realm).await;
+    let unset_by_lead = mayor("m2", None).await;
+    let lead_cleared = model_choices(&realm).await;
+    let whole = chief(
+        &realm,
+        SetModel {
+            model: Some("faux::faux-2".to_owned()),
+            effort: Some(Effort::XHigh),
+            fast: Some(true),
+            ..model_of(of_three())
+        },
+    )
+    .await;
+    let set = model_choices(&realm).await;
+    let cleared = chief(&realm, model_of(of_three())).await;
+
+    assert_eq!(
+        (thinks, by_lead, unset_by_lead, whole, cleared),
+        (
+            Done::Done,
+            done_to(THREE),
+            done_to(THREE),
+            Done::Done,
+            Done::Done
+        )
     );
+    assert_eq!(thinking, kept(None, Some("xhigh"), None));
+    assert_eq!(led, kept(Some("faux::faux-2"), Some("xhigh"), None));
+    assert_eq!(lead_cleared, kept(None, Some("xhigh"), None));
+    assert_eq!(
+        set,
+        kept(Some("faux::faux-2"), Some("xhigh"), Some(true))
+    );
+    assert_eq!(model_choices(&realm).await, kept(None, None, None));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -393,6 +418,7 @@ async fn a_leads_choice_changes_only_the_model() {
             &realm,
             SetModel {
                 model: Some("faux::faux-1".to_owned()),
+                effort: Some(Effort::Low),
                 ..model_of(ModelOf::Hamlet {
                     hamlet: hamlet.clone(),
                 })
@@ -417,7 +443,8 @@ async fn a_leads_choice_changes_only_the_model() {
     assert_eq!(quiet, before);
     assert_eq!(
         lines().await[before.len()..],
-        ["- hire#2 chose the model of hire#3: cheap"]
+        ["- hire#2 (Mayor) chose the model of hire#3 (Hire 1): \
+          cheap"]
     );
     assert_eq!(
         model_choices(&realm).await,
@@ -453,5 +480,48 @@ async fn a_choice_for_no_agent_names_its_address() {
     .await;
 
     assert_eq!(words(nicknamed), "no agent has the address `hire#9`");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_sets_a_workers_model_and_its_lead_may_not() {
+    let (realm, _) = hamlet_with(1).await;
+    let start = StartWorker {
+        brief: "count the files".to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    };
+    realm.tool(THREE, &tool("w1", start)).await.unwrap();
+    let of_four = || SetModel {
+        model: Some("faux::faux-1".to_owned()),
+        ..model_of(ModelOf::Hire {
+            hire: Named::Worker { worker: FOUR },
+        })
+    };
+
+    let by_the_chief = chief(&realm, of_four()).await;
+    let by_its_lead =
+        realm.tool(THREE, &tool("m1", of_four())).await.unwrap();
+
+    assert_eq!(by_the_chief, Done::Done);
+    assert_eq!(
+        by_its_lead,
+        DoneTo::Refused {
+            why: LeadRefusal::Act(ChoiceRefusal::NotAHire {
+                name: "worker#4".to_owned()
+            })
+        }
+    );
+    assert_eq!(words(by_its_lead), "`worker#4` is not a hire");
+    assert_eq!(
+        model_choices(&realm).await,
+        [(
+            "agent/4".to_owned(),
+            Some("faux::faux-1".to_owned()),
+            None,
+            None
+        )]
+    );
     realm.host.shutdown().await.unwrap();
 }

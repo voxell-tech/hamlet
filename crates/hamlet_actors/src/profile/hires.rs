@@ -212,8 +212,9 @@ fn branch(
     writer.kept(Done::Done)
 }
 
-/// The commit `version` names, or `main`'s tip when `None`, or the
-/// refusal of a version the profile does not have.
+/// The commit `version` names (a branch other than `main`, a version
+/// or a full commit id), or `main`'s tip when `None`, or the refusal
+/// of a version the profile does not have.
 fn start(
     git: &Reads,
     version: Option<&VersionName>,
@@ -224,7 +225,11 @@ fn start(
             .tip(MAIN)?
             .context("a profile has a main")?));
     };
-    Ok(version_at(git, version)?.ok_or_else(|| Missing::NoVersion {
+    let at = match version.0.as_str() {
+        MAIN => None,
+        name => git.resolve(name)?,
+    };
+    Ok(at.ok_or_else(|| Missing::NoVersion {
         profile: own,
         version: version.clone(),
     }))
@@ -375,7 +380,7 @@ where
     writer.tell(&Agent(hire.agent), &moved)
 }
 
-pub(super) fn version_at(
+fn version_at(
     git: &Reads,
     version: &VersionName,
 ) -> Result<Option<hamlet_git::CommitId>> {

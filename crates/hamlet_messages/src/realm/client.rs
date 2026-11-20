@@ -92,7 +92,7 @@ impl Message for Answer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnswerRefusal {
-    #[error("nothing waits here with the id {wait}")]
+    #[error("nothing waits here with that id")]
     NothingWaits { wait: String },
     #[error("that is not an answer to this wait")]
     NotOffered,

@@ -166,11 +166,11 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_as_none()
-{
+async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_names_the_hamlet()
+ {
     // found Mill with a blank purpose and Pond with " Dig \n": Mill's
-    // mayor takes the chief's first line as its purpose, and Pond's
-    // keeps "Dig".
+    // mayor is "Mayor of Mill." and keeps it past the chief's first
+    // line, and Pond's keeps "Dig".
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     for (name, purpose) in [("Mill", "  "), ("Pond", " Dig \n")] {
@@ -200,7 +200,7 @@ async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_as_none()
             purpose_of(&realm, MAYOR).await,
             purpose_of(&realm, AgentNumber(3)).await
         ),
-        (Some("build the mill".to_owned()), Some("Dig".to_owned()))
+        (Some("Mayor of Mill.".to_owned()), Some("Dig".to_owned()))
     );
     realm.host.shutdown().await.unwrap();
 }

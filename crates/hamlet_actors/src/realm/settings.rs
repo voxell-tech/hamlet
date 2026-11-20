@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_actor::{BindParam, Ctx, Handler};
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::agent::copies::AgentSettings;
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, Newcomers, RemoteWorkspace, Setting,
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use super::change::{self, Affected, Rows, Writer};
 use super::documents::{self, Copied, Part, Readers};
-use super::{Realm, secrets, world};
+use super::{Realm, marker, secrets, world};
 use crate::cbor;
 
 const CHARACTER: &str = "You are a scholar new to this realm. You \
@@ -197,19 +197,21 @@ pub(super) async fn apply(
             .into_iter()
             .collect()
     };
-    let copies = settings
-        .moved(&before)
+    let moved = settings.moved(&before);
+    let mut seen = BTreeSet::new();
+    if !reaches.is_empty() {
+        seen.insert(world::Part::Reaches);
+    }
+    if moved.contains(&Part::Model) {
+        seen.insert(world::Part::Agents);
+    }
+    let copies = moved
         .into_iter()
         .map(|part| Copied {
             part,
             readers: Readers::Living,
         })
         .collect();
-    let seen = if reaches.is_empty() {
-        BTreeSet::new()
-    } else {
-        BTreeSet::from([world::Part::Reaches])
-    };
     Ok(Affected {
         reaches,
         copies,
@@ -240,7 +242,20 @@ impl Handler<Asked<EditSettings>> for Realm {
         asked: Asked<EditSettings>,
     ) -> Result<Done<SettingRefusal>> {
         let Client = sender(&ctx, &asked)?;
+        let key = marker::Key::of(
+            &Client,
+            marker::Id::Request(asked.id),
+            <Asked<EditSettings> as Action>::NAME,
+            &asked.act,
+        )?;
         let tx = change::Transaction::begin(&ctx).await?;
+        match marker::find(&tx.rows(), &key).await? {
+            Some(marker::Found::Same { done, .. }) => {
+                return Ok(done);
+            }
+            Some(marker::Found::Other) => return Err(key.reused()),
+            None => {}
+        }
         let mut settings = read(&tx.rows()).await?;
         let before = settings.endpoints.clone();
         let mut chosen = None;
@@ -267,7 +282,13 @@ impl Handler<Asked<EditSettings>> for Realm {
         if !removed.is_empty() {
             self.secrets.forget(&removed)?;
         }
-        secrets::commit(&self, &ctx, tx, changes).await?;
-        Ok(Done::Done)
+        let done = Done::Done;
+        let write = change::Write {
+            changes,
+            entries: Vec::new(),
+            marker: Some((&key, &done)),
+        };
+        secrets::commit(&self, &ctx, tx, write).await?;
+        Ok(done)
     }
 }

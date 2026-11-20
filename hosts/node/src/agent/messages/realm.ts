@@ -53,6 +53,15 @@ export type DoneTo =
     | { readonly type: "done"; readonly agent: AgentName }
     | Refused;
 
+/** The answer of seating `agent` as the mayor of `hamlet`. */
+export type Seated =
+    | {
+          readonly type: "done";
+          readonly agent: AgentName;
+          readonly hamlet: HamletId;
+      }
+    | Refused;
+
 /** The answer of an act on the road between `a` and `b`. */
 export type RoadDone =
     | { readonly type: "done"; readonly a: AgentName; readonly b: AgentName }
@@ -143,7 +152,7 @@ export interface SocietyActs {
     };
     seat: {
         act: { readonly hire: Named; readonly why?: string };
-        answer: DoneTo;
+        answer: Seated;
     };
     tell: {
         act: {

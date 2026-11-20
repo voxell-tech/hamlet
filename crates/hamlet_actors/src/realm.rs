@@ -314,7 +314,7 @@ impl Actor for Realm {
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
         async {
-            parcels::sweep(&self, &ctx).await?;
+            parcels::store::sweep(&self, &ctx).await?;
             let rows = change::Rows::outside(&ctx)?;
             steps::undone(&rows, &self.drives)
                 .await?

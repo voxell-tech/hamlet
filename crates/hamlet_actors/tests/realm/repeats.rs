@@ -7,7 +7,9 @@ use hamlet_messages::realm::budget::{
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::documents::EditCharter;
+use hamlet_messages::realm::documents::{
+    EditCharter, EditSettings, Setting,
+};
 use hamlet_messages::realm::hamlets::{MoveHamlet, NameHamlet};
 use hamlet_messages::realm::oversight::{AskChief, Object, Question};
 use hamlet_messages::realm::workers::SetAllowance;
@@ -21,7 +23,9 @@ use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 
 use super::asking::chief_task;
-use super::{FOUR, MAYOR, Realm, THREE, hamlet_with, to, tool};
+use super::{
+    FOUR, MAYOR, Realm, THREE, error_code, hamlet_with, to, tool,
+};
 
 /// Every row of every table of the realm's own, as text.
 fn every_row(db: &Connection) -> rusqlite::Result<String> {
@@ -340,5 +344,23 @@ async fn each_act_repeated_with_its_id_answers_as_at_first_and_changes_nothing()
             .await
     })
     .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_settings_repeated_with_its_id_answers_as_at_first() {
+    let (realm, _) = hamlet_with(0).await;
+    let id = RequestId::new();
+    let every = |turns| EditSettings {
+        set: vec![Setting::ReflectEvery { turns }],
+    };
+
+    repeats(&realm, "edit_settings", async || {
+        realm.ask(&asked(&id, every(4))).await
+    })
+    .await;
+    let other = realm.ask(&asked(&id, every(5))).await;
+
+    assert_eq!(error_code(other), "message.id_reused");
     realm.host.shutdown().await.unwrap();
 }

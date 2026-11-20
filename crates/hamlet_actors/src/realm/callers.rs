@@ -10,9 +10,9 @@ use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Done, DoneTo, Gate, LeadRefusal, ProfileId,
-    Rank, Refusable, RoadDone, SecretList, Secrets, Standing, Tool,
-    ToolCall,
+    AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
+    LeadRefusal, OnlyAHire, ProfileId, Rank, Refusable, RoadDone,
+    Seated, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -125,12 +125,12 @@ pub(super) trait Shown {
         W: Send + 'static;
 
     fn on_agent<W: Send + 'static>(
-        agent: AgentNumber,
+        agent: AgentName,
     ) -> Self::OnAgent<W>;
 
     fn on_road<W: Send + 'static>(
-        a: AgentNumber,
-        b: AgentNumber,
+        a: AgentName,
+        b: AgentName,
     ) -> Self::OnRoad<W>;
 }
 
@@ -144,13 +144,13 @@ impl Shown for Client {
     where
         W: Send + 'static;
 
-    fn on_agent<W: Send + 'static>(_: AgentNumber) -> Done<W> {
+    fn on_agent<W: Send + 'static>(_: AgentName) -> Done<W> {
         Done::Done
     }
 
     fn on_road<W: Send + 'static>(
-        _: AgentNumber,
-        _: AgentNumber,
+        _: AgentName,
+        _: AgentName,
     ) -> Done<W> {
         Done::Done
     }
@@ -166,20 +166,15 @@ impl Shown for Agent {
     where
         W: Send + 'static;
 
-    fn on_agent<W: Send + 'static>(agent: AgentNumber) -> DoneTo<W> {
-        DoneTo::Done {
-            agent: record::agent_name(agent),
-        }
+    fn on_agent<W: Send + 'static>(agent: AgentName) -> DoneTo<W> {
+        DoneTo::Done { agent }
     }
 
     fn on_road<W: Send + 'static>(
-        a: AgentNumber,
-        b: AgentNumber,
+        a: AgentName,
+        b: AgentName,
     ) -> RoadDone<W> {
-        RoadDone::Done {
-            a: record::agent_name(a),
-            b: record::agent_name(b),
-        }
+        RoadDone::Done { a, b }
     }
 }
 
@@ -193,24 +188,41 @@ impl Shown for Hand {
     where
         W: Send + 'static;
 
-    fn on_agent<W: Send + 'static>(agent: AgentNumber) -> DoneTo<W> {
+    fn on_agent<W: Send + 'static>(agent: AgentName) -> DoneTo<W> {
         Agent::on_agent(agent)
     }
 
     fn on_road<W: Send + 'static>(
-        a: AgentNumber,
-        b: AgentNumber,
+        a: AgentName,
+        b: AgentName,
     ) -> RoadDone<W> {
         Agent::on_road(a, b)
     }
 }
 
 /// A sender whose powers reach every hamlet.
-pub(super) trait RealmWide: Decider + Shown {}
+pub(super) trait RealmWide: Decider + Shown {
+    /// The answer to seating a mayor.
+    type Seated: Refusable<Why = OnlyAHire> + Send + 'static;
 
-impl RealmWide for Client {}
+    fn seated(mayor: AgentName, hamlet: HamletId) -> Self::Seated;
+}
 
-impl RealmWide for Hand {}
+impl RealmWide for Client {
+    type Seated = Done<OnlyAHire>;
+
+    fn seated(_: AgentName, _: HamletId) -> Done<OnlyAHire> {
+        Done::Done
+    }
+}
+
+impl RealmWide for Hand {
+    type Seated = Seated;
+
+    fn seated(agent: AgentName, hamlet: HamletId) -> Seated {
+        Seated::Done { agent, hamlet }
+    }
+}
 
 /// A sender that can have a lead's powers over a hire (H41).
 pub(super) trait Lead: Decider + Shown {
@@ -219,10 +231,10 @@ pub(super) trait Lead: Decider + Shown {
     where
         R: Send + 'static;
 
+    /// Whether this sender leads the agent of `lineage`.
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,
-        hire: AgentNumber,
     ) -> Result<(), Self::Why<R>>;
 
     fn refused<R: Send + 'static>(refusal: R) -> Self::Why<R>;
@@ -238,11 +250,7 @@ impl Lead for Client {
     where
         R: Send + 'static;
 
-    fn leads<R: Send + 'static>(
-        &self,
-        _: &Lineage,
-        _: AgentNumber,
-    ) -> Result<(), R> {
+    fn leads<R: Send + 'static>(&self, _: &Lineage) -> Result<(), R> {
         Ok(())
     }
 
@@ -264,13 +272,12 @@ impl Lead for Agent {
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,
-        hire: AgentNumber,
     ) -> Result<(), LeadRefusal<R>> {
         if lineage.is_led_by(self.0) {
             Ok(())
         } else {
             Err(LeadRefusal::Rank(Rank::NotALead {
-                hire: record::agent_name(hire),
+                hire: lineage.agent.name.clone(),
             }))
         }
     }
