@@ -33,10 +33,13 @@ use sha2::Digest as _;
 use tokio::sync::watch;
 
 use super::asking::{chief_task, held_rows, objection, on};
+use super::profile_stand_in::ProfileStandIn;
+use super::stand_ins::{
+    AgentStandIn, Callee, Forward, Seen, forward, kind, seen,
+};
 use super::{
-    AgentStandIn, Callee, DEADLINE, Forward, MAYOR, ProfileStandIn,
-    Realm, Seen, THREE, answer, forward, founded, hires, kind, seen,
-    sent, submits_to, tell, to, tool, until,
+    DEADLINE, MAYOR, Realm, THREE, answer, founded, hires, sent,
+    submits_to, tell, to, tool, until,
 };
 
 /// The files the stand-in workspace holds, by path, and the parts it

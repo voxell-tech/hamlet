@@ -2,9 +2,8 @@ use hamlet_messages::library::DropOfferParts;
 use hamlet_messages::profile::DropSaveParts;
 use hamlet_messages::realm::{End, Named, ProfileId};
 
-use super::{
-    Callee, MAYOR, Realm, THREE, done_to, hamlet_with, tool, until,
-};
+use super::stand_ins::Callee;
+use super::{MAYOR, Realm, THREE, done_to, hamlet_with, tool, until};
 
 fn dropped(
     realm: &Realm,

@@ -21,9 +21,10 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, errand, founded,
-    hires, paid, say, sent, submits_to, tell, to, tool, until,
+    FOUR, MAYOR, Realm, THREE, answer, errand, founded, hires, paid,
+    say, sent, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most

@@ -12,10 +12,10 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, chief_hires, done_to, error_code, found,
-    founded, hire, hired, named_as, paid, shown, standing, tool,
-    until,
+    MAYOR, Realm, chief_hires, done_to, error_code, found, founded,
+    hire, hired, named_as, paid, shown, standing, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {

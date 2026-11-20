@@ -15,8 +15,9 @@ use hamlet_messages::workspace::{
     AgentNumber, ReachVersion, RealmTask, SetReach,
 };
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
+    FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
     made_until, seen_submits, submits_to, tell, to, told_of_failed,
     tool, until, words, worker_shown,
 };

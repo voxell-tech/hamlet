@@ -26,9 +26,10 @@ use serde_json::{Value, json};
 
 use super::asking::chief_task;
 use super::chiefs::chief;
+use super::stand_ins::{Seen, open};
 use super::{
-    MAYOR, Realm, Seen, THREE, answer, hamlet_with, made_until, open,
-    say, seen_submits, submits_to, tell, to, tool, until,
+    MAYOR, Realm, THREE, answer, hamlet_with, made_until, say,
+    seen_submits, submits_to, tell, to, tool, until,
 };
 
 fn file(realm: &Realm) -> PathBuf {

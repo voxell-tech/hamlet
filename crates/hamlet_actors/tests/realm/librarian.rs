@@ -7,10 +7,12 @@ use hamlet_messages::workspace::{
     AgentNumber, CallId, ConversationId, RealmTask,
 };
 
+use super::stand_ins::{
+    Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, SKILL_MD,
+};
 use super::{
-    Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, Realm, SKILL_MD,
-    THREE, errand, hamlet_with, made_until, seen_submits, standing,
-    until,
+    Realm, THREE, errand, hamlet_with, made_until, seen_submits,
+    standing, until,
 };
 
 fn in_conversation<T>(call: &str, act: T) -> Tool<T> {

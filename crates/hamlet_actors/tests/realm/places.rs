@@ -4,9 +4,10 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, THREE, chief_hires, done_to, found,
-    hamlet_with, hire, hired, tool, until,
+    MAYOR, Realm, THREE, chief_hires, done_to, found, hamlet_with,
+    hire, hired, tool, until,
 };
 
 fn places_of(

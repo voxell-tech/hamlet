@@ -25,10 +25,11 @@ use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::stand_ins::Callee;
 use super::{
-    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, done_to,
-    hamlet_with, made, made_until, needs, say, seen_submits,
-    standing, to, tool, until, worker_shown, world,
+    DEADLINE, FOUR, MAYOR, Realm, THREE, done_to, hamlet_with, made,
+    made_until, needs, say, seen_submits, standing, to, tool, until,
+    worker_shown, world,
 };
 
 fn start(brief: &str) -> StartWorker {

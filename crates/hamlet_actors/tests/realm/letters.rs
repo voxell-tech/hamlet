@@ -13,11 +13,12 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
+use super::stand_ins::{Callee, Seen};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, chief_hires, done_to,
-    error_code, founded, hamlet_with, hire, hires, paid, purpose_of,
-    say, seen_submits, sent, shown, standing, submits_to, tell, to,
-    tool, until, words,
+    FOUR, MAYOR, Realm, THREE, chief_hires, done_to, error_code,
+    founded, hamlet_with, hire, hires, paid, purpose_of, say,
+    seen_submits, sent, shown, standing, submits_to, tell, to, tool,
+    until, words,
 };
 
 /// `agent` as the author of a letter or an answer.

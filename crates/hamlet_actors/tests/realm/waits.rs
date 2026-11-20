@@ -23,8 +23,9 @@ use hamlet_protocol::client::{Choice, RequestId};
 use serde::Serialize;
 
 use super::reserved::{in_turn, refused_with};
+use super::stand_ins::Callee;
 use super::{
-    Callee, MAYOR, Realm, answer, chief_hires, error_code, founded,
+    MAYOR, Realm, answer, chief_hires, error_code, founded,
     hamlet_with, hire, needs, say, seen_submits, standing, tool,
     until,
 };
