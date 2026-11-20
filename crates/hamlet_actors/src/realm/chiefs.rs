@@ -253,7 +253,7 @@ impl<By: RealmWide> Act<By> for Found {
 
     async fn load(
         &self,
-        _by: &By,
+        by: &By,
         rows: &Rows<'_>,
     ) -> Result<Founding> {
         Ok(Founding {
@@ -262,7 +262,10 @@ impl<By: RealmWide> Act<By> for Found {
                     .await?
                     .map(tree::Of::Profile)
                     .map_err(|_| mayor),
-                None => Ok(tree::blank(rows, None, None).await?),
+                None => {
+                    Ok(tree::blank(rows, None, None, &by.by())
+                        .await?)
+                }
             },
             hamlet: fresh(),
             mayor: tree::fresh(rows).await?,
@@ -330,6 +333,10 @@ impl<By: RealmWide> Act<By> for Found {
                 .change(steps::Change::Begin {
                     row: hire::row(mayor),
                 })
+                .record(record::Entry::Hired {
+                    hire: mayor,
+                    by: by.by(),
+                })
                 .record(record::Entry::Founded {
                     hamlet,
                     mayor,
@@ -380,6 +387,7 @@ mod tests {
             of: Ok(tree::Of::Blank {
                 profile: ProfileId(2),
                 name: "Mayor".to_owned(),
+                kind: profiles::Kind::Empty,
             }),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),

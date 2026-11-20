@@ -193,6 +193,7 @@ impl<By: Lead> Act<By> for Pinned {
             hire.profile,
             hire.name.clone(),
             joins,
+            &by.by(),
         )
         .await?;
         let agent = super::fresh(rows).await?;
@@ -299,7 +300,7 @@ impl<By: Lead> Act<By> for Pinned {
                     lead: Some(lead),
                     of,
                     version: hire.version.clone(),
-                    purpose: purpose.clone(),
+                    purpose,
                 })
                 .change(tasks::Change::Standing {
                     agent,
@@ -311,7 +312,6 @@ impl<By: Lead> Act<By> for Pinned {
                 .record(record::Entry::Hired {
                     hire: agent,
                     by: by.by(),
-                    why: purpose,
                 }),
         )
     }
@@ -831,6 +831,7 @@ mod tests {
                 Of::Blank {
                     profile: ProfileId(6),
                     name: "Hire 4".to_owned(),
+                    kind: profiles::Kind::Blank,
                 },
                 record::new_hire(AgentNumber(6), "Hire 4"),
             )),

@@ -10,8 +10,8 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, ChiefRequest, Done, Gate, Hire, HireAnswer,
-    HireRefusal, LeadRefusal, ProfileId,
+    AgentRefusal, Asked, ChiefRequest, Done, Found, FoundAnswer,
+    Gate, Hire, HireAnswer, HireRefusal, LeadRefusal, ProfileId,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -22,8 +22,9 @@ use super::reserved::{in_turn, notices, waits};
 use super::stand_ins::Callee;
 use super::steps::hiring_and_how;
 use super::{
-    MAYOR, Realm, THREE, answer, founded, hamlet_with, hire, hired,
-    named_as, tell, to, told_of_failed, tool, until, words,
+    MAYOR, Realm, THREE, answer, chief_hires, found, founded,
+    hamlet_with, hire, hired, named_as, tell, to, told_of_failed,
+    tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";
@@ -80,7 +81,8 @@ fn apart(label: &str) -> HireAnswer<LeadRefusal<HireRefusal>> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_blank_hire_starts_from_the_realms_character() {
+async fn an_agents_blank_hire_starts_from_the_realms_character_and_a_chiefs_from_none()
+ {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let set = EditSettings {
@@ -89,16 +91,33 @@ async fn a_blank_hire_starts_from_the_realms_character() {
         }],
     };
     assert_eq!(chief(&realm, set).await, Done::Done);
-    founded(&realm).await;
+    let mill = founded(&realm).await;
     realm.live(MAYOR).await;
     assert_eq!(
         hire_as_mayor(&realm, "h1", hire(None)).await,
         hired(3)
     );
-    realm.live(THREE).await;
+    assert_eq!(
+        chief_hires(&realm, &mill, hire(None)).await,
+        hired(4)
+    );
+    let quay = Found {
+        purpose: Some("Mind the boats".to_owned()),
+        ..found("Quay")
+    };
+    let FoundAnswer::Founded { mayor, .. } =
+        realm.tool(Hand::NUMBER, &tool("f1", quay)).await.unwrap()
+    else {
+        panic!("the Hand founds Quay");
+    };
+    for agent in [THREE, AgentNumber(4), mayor] {
+        realm.live(agent).await;
+    }
 
-    assert_eq!(made(&realm, 2), Some(character(CHARACTER)));
+    assert_eq!(made(&realm, 2), Some(character("")));
     assert_eq!(made(&realm, 3), Some(character(CHARACTER)));
+    assert_eq!(made(&realm, 4), Some(character("")));
+    assert_eq!(made(&realm, mayor.0), Some(character(CHARACTER)));
     let Some(ProfileInput::Character { text }) = made(&realm, 1)
     else {
         panic!("the Hand's profile is made from a character");
@@ -321,7 +340,7 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
         );
     }
     let by_the_chief =
-        match super::chief_hires(&realm, &hamlet, at("v9")).await {
+        match chief_hires(&realm, &hamlet, at("v9")).await {
             HireAnswer::Refused { why } => why.to_string(),
             HireAnswer::Hired { agent } => {
                 format!("hired {agent}")

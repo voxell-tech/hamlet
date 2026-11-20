@@ -92,10 +92,29 @@ pub(super) async fn ends(
     })
 }
 
-/// Every agent `agent` has a road to, with the way.
+/// Every live agent `agent` has a road to, with the way.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
+) -> Result<Vec<(AgentNumber, Way)>> {
+    reached(rows, agent, |status| *status == Status::Live).await
+}
+
+/// Every agent `agent` has a road to and a prompt names, with the
+/// way: the live ones and those still being hired, as today
+/// (`crates/hamlet_server/src/society/roads.rs:109-156`).
+pub(super) async fn named(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<(AgentNumber, Way)>> {
+    reached(rows, agent, |status| !matches!(status, Status::Ended(_)))
+        .await
+}
+
+async fn reached(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    admits: fn(&Status) -> bool,
 ) -> Result<Vec<(AgentNumber, Way)>> {
     let own = tree::lineage_of(rows, agent).await?;
     let between = limits::roads_between(rows).await?;
@@ -120,8 +139,8 @@ pub(super) async fn of(
     for other in others {
         let other = end(&tree::lineage_of(rows, other).await?);
         let laid = laid.contains(&other.agent);
-        if let (Status::Live, Some(way)) =
-            (&other.status, way(&own, &other, laid))
+        if admits(&other.status)
+            && let Some(way) = way(&own, &other, laid)
         {
             roads.push((other.agent, way));
         }

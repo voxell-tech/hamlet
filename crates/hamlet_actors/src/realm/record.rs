@@ -34,10 +34,11 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
+    /// A hire made, kept with no reason, as today
+    /// (`crates/hamlet_server/src/society/hires.rs:144`).
     Hired {
         hire: AgentNumber,
         by: By,
-        why: Option<String>,
     },
     Ended {
         hire: AgentNumber,
@@ -138,8 +139,8 @@ pub(super) async fn write(
                     ..Fields::of(mayor, why)
                 },
             ),
-            Entry::Hired { hire, by, why } => {
-                ("hired", by, Fields::of(hire, why))
+            Entry::Hired { hire, by } => {
+                ("hired", by, Fields::of(hire, None))
             }
             Entry::Ended { hire, by, why } => {
                 ("ended", by, Fields::of(hire, why))

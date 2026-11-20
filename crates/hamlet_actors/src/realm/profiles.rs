@@ -36,7 +36,7 @@ use super::chiefs::hamlet;
 use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::steps::Cx;
-use super::{Realm, calls, dreams, settings};
+use super::{Realm, calls, dreams, record, settings};
 
 const HAND_CHARACTER: &str =
     include_str!("../../../hamlet_server/assets/hand.md");
@@ -47,10 +47,27 @@ const HAND_CHARACTER: &str =
 #[serde(rename_all = "snake_case")]
 pub(super) enum Kind {
     Hand,
-    /// A blank hire's own, made for it alone (H38).
+    /// A blank hire's own, made for it alone (H38), from the realm's
+    /// character: an agent's, as today
+    /// (`crates/hamlet_server/src/calls/society.rs:641-648`,
+    /// `:906-909`).
     Blank,
+    /// A blank hire's own with no character: a chief's, as today
+    /// (`crates/hamlet_server/src/commands.rs:544-547`,
+    /// `:1427-1430`).
+    Empty,
     /// One any hire may be made of.
     Shared,
+}
+
+impl Kind {
+    /// The kind of the blank profile `by` makes for a hire.
+    pub fn blank_by(by: &record::By) -> Self {
+        match by {
+            record::By::Chief => Self::Empty,
+            record::By::Agent(_) => Self::Blank,
+        }
+    }
 }
 
 struct Row {
@@ -117,7 +134,7 @@ pub(super) async fn shared(
             kind: Kind::Shared, ..
         }) => Ok(named),
         Some(Row {
-            kind: Kind::Blank,
+            kind: Kind::Blank | Kind::Empty,
             name,
         }) => Err(ProfileRefusal::Apart {
             label: label(named, &name),
@@ -173,6 +190,7 @@ pub(super) async fn start(
         }
         Kind::Hand => HAND_CHARACTER.to_owned(),
         Kind::Blank => settings::read(&rows).await?.character,
+        Kind::Empty => String::new(),
     };
     cx.peers()
         .create(&Profile(profile), &ProfileInput::Character { text })

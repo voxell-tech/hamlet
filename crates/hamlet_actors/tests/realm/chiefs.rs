@@ -135,7 +135,10 @@ async fn a_hamlet_is_named_and_moved() {
         })
         .await;
     assert_eq!(site, (3.0, 4.0));
-    assert_eq!(kinds, ["founded", "named-hamlet", "placed-hamlet"]);
+    assert_eq!(
+        kinds,
+        ["hired", "founded", "named-hamlet", "placed-hamlet"]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
