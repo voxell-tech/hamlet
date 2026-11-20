@@ -1448,10 +1448,10 @@ const TAKEN = [
     "agent/submit.worker_answer",
 ] as const;
 
-/** What a taken call reports: a file held whole is not fetched past 32 MiB. */
+/** What a taken call reports: a file held whole is not fetched past the workspace's 256 MiB. */
 const REPORTED: Partial<Record<(typeof TAKEN)[number], RegExp>> = {
     "agent/submit.letter.files":
-        /^from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 32\.0 MiB$/,
+        /^from-hire-12\/figures\/plot\.png was not saved in the inbox: it holds more than 256\.0 MiB$/,
 };
 
 const CREATED = [

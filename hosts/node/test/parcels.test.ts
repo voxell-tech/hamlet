@@ -133,13 +133,30 @@ test("a repeat of a letter it took fetches and saves nothing", async (t) => {
     assert.deepEqual(Object.keys(held), ["inbox/from-hire-12/report.md"]);
 });
 
-test("a file larger than 32 MiB is not fetched, and is reported", async (t) => {
+test("a file over 32 MiB is fetched and saved whole", async (t) => {
+    const held: Record<string, string> = {};
+    const big = "a".repeat(32 * 1024 * 1024 + 1);
+    const { words, reported } = await received(
+        t,
+        held,
+        serving([big], 720 * 1024),
+        [letter([file(0, "big.bin", big.length)])],
+    );
+
+    assert.deepEqual(words, [
+        `The report\n\n[File 1 of this message, 32.0 MiB, saved at ${INBOX}/big.bin]`,
+    ]);
+    assert.equal(held["inbox/from-hire-12/big.bin"]?.length, big.length);
+    assert.deepEqual(reported, []);
+});
+
+test("a file over the workspace's 256 MiB is not fetched, and is reported", async (t) => {
     const held: Record<string, string> = {};
     const { words, fetched, reported } = await received(
         t,
         held,
         serving(["new"], 9),
-        [letter([file(0, "big.bin", 32 * 1024 * 1024 + 1)])],
+        [letter([file(0, "big.bin", 256 * 1024 * 1024 + 1)])],
     );
 
     assert.deepEqual(words, ["The report"]);
@@ -147,6 +164,37 @@ test("a file larger than 32 MiB is not fetched, and is reported", async (t) => {
     assert.deepEqual(held, {});
     assert.equal(reported.length, 1);
     assert.match(reported[0] ?? "", /from-hire-12\/big\.bin/);
+});
+
+test("two files of one name are both saved, the second numbered, as today", async (t) => {
+    const held: Record<string, string> = {};
+    const { words } = await received(t, held, serving(["first", "second"], 9), [
+        letter([file(0, "x.txt", 5), file(1, "x.txt", 6)]),
+    ]);
+
+    assert.deepEqual(held, {
+        "inbox/from-hire-12/x.txt": "first",
+        "inbox/from-hire-12/x-2.txt": "second",
+    });
+    // Today counts the second into the first's caption (`inbox.rs` `put_at`).
+    assert.deepEqual(words, [
+        `The report\n\n[File 1 of this message, 11 bytes, saved at ${INBOX}/x.txt]`,
+    ]);
+});
+
+test("a size half way between two tenths rounds to the even one, as today", async (t) => {
+    const held: Record<string, string> = {};
+    const { words } = await received(
+        t,
+        held,
+        serving(["a".repeat(1280), "a".repeat(1792)], 2048),
+        [letter([file(0, "x.txt", 1280), file(1, "y.txt", 1792)])],
+    );
+
+    // Rust's `{:.1}` writes 1.25 as 1.2 and 1.75 as 1.8.
+    assert.deepEqual(words, [
+        `The report\n\n[File 1 of this message, 1.2 KiB, saved at ${INBOX}/x.txt]\n[File 2 of this message, 1.8 KiB, saved at ${INBOX}/y.txt]`,
+    ]);
 });
 
 test("a part the realm does not answer leaves the file out, and the letter is still told", async (t) => {
