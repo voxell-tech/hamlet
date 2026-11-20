@@ -406,12 +406,21 @@ impl Door {
                 self.in_turn(client, job);
             }
             Route::Stop(asked) => {
-                self.queue(client).stops.stop();
-                let job = self.ask_in_turn(client).command(asked);
-                self.in_turn(client, job);
+                let stops = self.queue(client).stops.clone();
+                stops.stop();
+                let asker = self.ask_in_turn(client);
+                self.in_turn(client, async move {
+                    asker.command(asked).await;
+                    stops.answered();
+                });
             }
-            Route::AtOnce(asked) => {
-                self.work.spawn(self.ask(client).command(asked));
+            Route::Answer(asked) => {
+                let place = self.queue(client).stops.place();
+                let asker = self.ask(client);
+                self.work.spawn(async move {
+                    place.stops_answered().await;
+                    asker.command(asked).await;
+                });
             }
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),

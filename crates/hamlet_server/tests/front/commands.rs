@@ -3,8 +3,8 @@
 use hamlet_acceptance::Client;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{
-    AgentId, AttachedImage, Choice, ClientMessage, Edit, ReplyKind,
-    RequestId, Say, ServerMessage, State,
+    AgentId, Answer, AttachedImage, Choice, ClientMessage, Edit,
+    ReplyKind, RequestId, Say, ServerMessage, State,
 };
 use hamlet_testing::Server;
 use serde_json::json;
@@ -162,6 +162,58 @@ async fn the_charter_edit_is_saved() {
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// A stop closes the waits of the agent it stops, so the answer sent
+/// right after it finds its wait closed.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_sent_after_a_stop_finds_its_wait_closed() {
+    for round in 1..=3 {
+        let (mut server, _home, _side) = serve(json!([
+            {
+                "calls": [{
+                    "name": "bash",
+                    "arguments": { "command": "curl https://one.example" },
+                }],
+            },
+            "Fetched.",
+        ]))
+        .await;
+        let mut chief = Client::join(&server).await;
+        let hand = chief.hand();
+        let line = chief.tell(hand, "Fetch the page.").await;
+        let wait = oldest(
+            &until(&server, "a wait", |realm| {
+                !realm.waits.is_empty()
+            })
+            .await,
+        )
+        .unwrap();
+        let stop = chief.tell(hand, "/stop").await;
+        let answer = RequestId::new();
+        chief
+            .send(ClientMessage::Answer(Answer {
+                choice: Choice::Allow,
+                id: answer.clone(),
+                picks: None,
+                text: None,
+                wait: wait.clone(),
+            }))
+            .await;
+        chief.reply(&stop).await;
+        let answered = chief.reply(&answer).await;
+        assert_eq!(
+            (answered.kind, answered.text),
+            (
+                ReplyKind::Error,
+                format!("nothing waits here with the id {wait}")
+            ),
+            "round {round}"
+        );
+        chief.reply(&line).await;
+        chief.close().await;
+        assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

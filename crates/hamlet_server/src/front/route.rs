@@ -27,8 +27,9 @@ use crate::society::refusal::Refusal;
 /// What a client message becomes. A connection's lines, commands,
 /// edits, stops, calls and the door's own answers are served in the
 /// order sent, and a stop ends the waits of those sent before it; an
-/// answer naming its wait, a watch of a chat and a sign-in's step are
-/// served as they come.
+/// answer naming its wait is served once the stops sent before it
+/// are answered, and a watch of a chat and a sign-in's step as they
+/// come.
 pub(crate) enum Route {
     /// Answered by the door, with no actor.
     Now(Box<ServerMessage>),
@@ -38,9 +39,10 @@ pub(crate) enum Route {
     Command(Asked),
     /// A stop, which `commands` answers.
     Stop(Asked),
-    /// An answer that names its wait, which `commands` answers at
-    /// once.
-    AtOnce(Asked),
+    /// An answer that names its wait, which `commands` answers
+    /// without waiting for the lines, commands and calls sent before
+    /// it.
+    Answer(Asked),
     /// A chief's line, whose reply is owed until the agent's work on
     /// it ends.
     Line(protocol::Say, AgentNumber),
@@ -111,7 +113,7 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             if commands::parse::is_stop(&say.text) {
                 Route::Stop(Asked::Command(say))
             } else if commands::parse::names_its_wait(&say.text) {
-                Route::AtOnce(Asked::Command(say))
+                Route::Answer(Asked::Command(say))
             } else {
                 Route::Command(Asked::Command(say))
             }
@@ -127,7 +129,7 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
         ClientMessage::Open(open) => Route::Open(open),
         ClientMessage::Close(close) => Route::Close(close.chat),
         ClientMessage::Answer(answer) => {
-            Route::AtOnce(Asked::Answer(answer))
+            Route::Answer(Asked::Answer(answer))
         }
         ClientMessage::Stop(protocol::Stop { agent: None, id }) => {
             Route::Stop(Asked::StopAll(id))
@@ -337,13 +339,12 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_keeps_its_turn_and_an_answer_naming_its_wait_does_not()
-    {
+    fn stops_keep_their_turn_and_named_answers_do_not() {
         let stop = |message| {
             matches!(route(message).unwrap(), Route::Stop(_))
         };
-        let at_once = |message| {
-            matches!(route(message).unwrap(), Route::AtOnce(_))
+        let named = |message| {
+            matches!(route(message).unwrap(), Route::Answer(_))
         };
         for agent in [None, Some(AgentId(3))] {
             assert!(stop(ClientMessage::Stop(protocol::Stop {
@@ -354,10 +355,10 @@ mod tests {
         for text in ["/stop", " /stop all", "/stop hire#3"] {
             assert!(stop(say(text, 1)), "{text}");
         }
-        assert!(at_once(say("/deny #4", 1)));
+        assert!(named(say("/deny #4", 1)));
         for text in ["/deny", "/allow the oldest", "/name-hamlet h n"]
         {
-            assert!(!at_once(say(text, 1)), "{text}");
+            assert!(!named(say(text, 1)), "{text}");
         }
     }
 

@@ -62,6 +62,9 @@ pub(crate) struct Stops(Arc<Sent>);
 
 struct Sent {
     count: watch::Sender<u64>,
+    /// How many of them were answered, which they are in the order
+    /// sent.
+    answered: watch::Sender<u64>,
     /// Each stop's number, with an agent it dropped a line to.
     dropped: Mutex<BTreeSet<(u64, AgentNumber)>>,
 }
@@ -70,6 +73,7 @@ impl Stops {
     pub(crate) fn new() -> Self {
         Self(Arc::new(Sent {
             count: watch::Sender::new(0),
+            answered: watch::Sender::new(0),
             dropped: Mutex::new(BTreeSet::new()),
         }))
     }
@@ -85,6 +89,11 @@ impl Stops {
     /// Counts a stop received now.
     pub(crate) fn stop(&self) {
         self.0.count.send_modify(|count| *count += 1);
+    }
+
+    /// Counts the oldest stop not answered as answered.
+    pub(crate) fn answered(&self) {
+        self.0.answered.send_modify(|answered| *answered += 1);
     }
 
     fn dropped(
@@ -109,6 +118,15 @@ impl Place {
     async fn stopped(&self) {
         let mut count = self.stops.0.count.subscribe();
         let _ = count.wait_for(|count| *count > self.after).await;
+    }
+
+    /// Resolves once each stop the connection sent before the request
+    /// is answered.
+    pub(crate) async fn stops_answered(&self) {
+        let mut answered = self.stops.0.answered.subscribe();
+        let _ = answered
+            .wait_for(|answered| *answered >= self.after)
+            .await;
     }
 }
 
