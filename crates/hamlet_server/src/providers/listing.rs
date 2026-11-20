@@ -31,9 +31,11 @@ pub(super) struct Listing {
     pub listed_context: Option<u64>,
     #[serde(deserialize_with = "fitting")]
     pub max_tokens: Option<u64>,
-    /// The price the catalogue shows, in place of the cost.
-    #[serde(deserialize_with = "fitting")]
-    pub listed_price: Option<ListedPrice>,
+    /// The price the catalogue shows, in place of the cost. An
+    /// endpoint's listing always gives it, null when the endpoint
+    /// lists no price, since pi then makes up the cost.
+    #[serde(deserialize_with = "given")]
+    listed_price: Option<Option<ListedPrice>>,
     #[serde(deserialize_with = "fitting")]
     cost: Cost,
     /// Set when it can be set to think.
@@ -112,14 +114,15 @@ impl Listing {
     }
 
     /// The price the catalogue shows: as listed, else its input and
-    /// output cost.
+    /// output cost when its listing gives no listed price.
     pub fn shown_price(&self) -> Option<ListedPrice> {
-        self.listed_price.clone().or_else(|| {
-            Some(ListedPrice {
+        match &self.listed_price {
+            Some(listed) => listed.clone(),
+            None => Some(ListedPrice {
                 input: self.cost.input?,
                 output: self.cost.output?,
-            })
-        })
+            }),
+        }
     }
 
     /// The images it takes, none when it takes none.
@@ -148,4 +151,14 @@ where
 {
     let value = Value::deserialize(deserializer)?;
     Ok(T::deserialize(value).unwrap_or_default())
+}
+
+/// A field given, even as null, as [`fitting`] reads it; `None` only
+/// when it is missing.
+fn given<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    fitting(deserializer).map(Some)
 }

@@ -306,13 +306,14 @@ async fn edits_settings_and_rejects_bad_ones() {
 }
 
 #[tokio::test]
-async fn prices_and_notes_a_model_in_the_catalogue() {
+async fn notes_a_model_in_the_catalogue() {
     let mut s = Session::start(Faux::new()).await;
     s.chief
         .until("the faux provider", |c| {
             !c.realm().providers.is_empty()
         })
         .await;
+    // The faux provider lists its price, which no chief changes.
     let reply = edit(&mut s.chief, |id| Edit::Catalogue {
         id,
         model: "faux::faux-1".into(),
@@ -322,6 +323,22 @@ async fn prices_and_notes_a_model_in_the_catalogue() {
                 input: 0.12,
                 output: 0.34,
             })),
+            note: None,
+        },
+    })
+    .await;
+    assert_eq!(reply.kind, ReplyKind::Error);
+    assert_eq!(
+        reply.text,
+        "The provider of `faux::faux-1` lists its price and image \
+         limits, so they cannot be changed."
+    );
+    let reply = edit(&mut s.chief, |id| Edit::Catalogue {
+        id,
+        model: "faux::faux-1".into(),
+        set: EditCatalogueSet {
+            images: None,
+            price: None,
             note: Some("Preferred.".into()),
         },
     })
@@ -334,14 +351,7 @@ async fn prices_and_notes_a_model_in_the_catalogue() {
     };
     let faux =
         models.iter().find(|m| m.name == "faux::faux-1").unwrap();
-    assert_eq!(
-        faux.price,
-        Some(Price {
-            input: 0.12,
-            output: 0.34
-        })
-    );
-    assert_eq!(faux.priced, ListedPriced::Yours);
+    assert_eq!(faux.priced, ListedPriced::Listed);
     assert_eq!(faux.note, "Preferred.");
     let reply = edit(&mut s.chief, |id| Edit::Catalogue {
         id,
