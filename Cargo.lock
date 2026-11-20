@@ -4568,6 +4568,8 @@ dependencies = [
  "hamlet_protocol",
  "jiff",
  "serde_json",
+ "thiserror 2.0.21",
+ "toml",
  "zip",
 ]
 
@@ -4645,6 +4647,7 @@ dependencies = [
  "futures",
  "hamlet_acceptance",
  "hamlet_git",
+ "hamlet_import",
  "hamlet_os",
  "hamlet_protocol",
  "hamlet_sandbox",

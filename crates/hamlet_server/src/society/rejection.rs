@@ -332,6 +332,9 @@ pub(crate) enum Rejection {
     NoCharacter,
     #[error("{why}")]
     BadEndpoint { why: String },
+    /// A change to the list of MCP servers that was not made.
+    #[error("{why}")]
+    BadMcp { why: String },
     #[error("{why}")]
     BadLimits { why: String },
     #[error("Those limits do not fit their form.")]

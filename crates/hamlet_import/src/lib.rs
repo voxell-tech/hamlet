@@ -1,6 +1,6 @@
 //! Conversations of other programs, found on this machine or in a
 //! file they exported, each read as an [`Imported`] for the server to
-//! bring in (C35).
+//! bring in (C35), and the MCP servers they list (C36).
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -17,7 +17,10 @@ use serde_json::Value;
 mod claude_code;
 mod codex;
 mod exports;
+mod mcp;
 mod pi;
+
+pub use mcp::{FoundServer, McpSource, Unrunnable, mcp_servers};
 
 /// The characters of a tool call's summary and of a title.
 const SUMMARY: usize = 200;

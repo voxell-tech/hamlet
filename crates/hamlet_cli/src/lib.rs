@@ -11,6 +11,7 @@ pub mod chat;
 pub mod client;
 pub mod import;
 pub mod launch;
+pub mod mcp;
 mod mentions;
 pub mod process;
 pub mod terminal;

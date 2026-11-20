@@ -45,6 +45,8 @@ pub enum Command {
         model: String,
         images: Option<ImageInput>,
     },
+    /// Shows or changes the realm's MCP servers.
+    Mcp(crate::mcp::Mcp),
 }
 
 /// The limits the flags `args` of `models images` name, or none for
@@ -105,6 +107,9 @@ pub async fn run(
         Command::Images { model, images } => {
             take_images(&mut client, model, images).await
         }
+        Command::Mcp(mcp) => {
+            crate::mcp::run(&mut client, &state, mcp).await
+        }
         Command::Edit {
             doc,
             hamlet,
@@ -126,7 +131,9 @@ pub async fn run(
     result
 }
 
-fn checked(message: ServerMessage) -> Result<ServerMessage> {
+pub(crate) fn checked(
+    message: ServerMessage,
+) -> Result<ServerMessage> {
     match message {
         ServerMessage::Fault(fault) => bail!("{}", fault.text),
         ServerMessage::Reply(Reply {
@@ -352,7 +359,13 @@ async fn edit(
             }
         }
     };
-    let text = in_editor(doc, &text).await?;
+    let extension = if doc == "limits" || doc == "settings" {
+        "json"
+    } else {
+        "md"
+    };
+    let text =
+        in_editor(&format!("{doc}.{extension}"), &text).await?;
     let id = RequestId::new();
     let message = match (doc, profile) {
         ("charter", _) => Edit::Charter {
@@ -404,7 +417,12 @@ impl Drop for EditDirectory {
     }
 }
 
-async fn in_editor(doc: &str, text: &str) -> Result<String> {
+/// `text` as the chief leaves it after editing it as the file `name`
+/// in `EDITOR`.
+pub(crate) async fn in_editor(
+    name: &str,
+    text: &str,
+) -> Result<String> {
     #[cfg(unix)]
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let editor = env::var("EDITOR")
@@ -418,14 +436,7 @@ async fn in_editor(doc: &str, text: &str) -> Result<String> {
     #[cfg(not(unix))]
     fs::create_dir(&path)?;
     let dir = EditDirectory(path);
-    let path = dir.0.join(format!(
-        "{doc}.{}",
-        if doc == "limits" || doc == "settings" {
-            "json"
-        } else {
-            "md"
-        }
-    ));
+    let path = dir.0.join(name);
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

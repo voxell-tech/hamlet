@@ -109,6 +109,7 @@ messages and watch failures can answer with `fault` (see
 | `read` | Fetch one document or list; `read` or failure `reply` |
 | `move-worktrees` | Copy worktrees to the workspace chosen in Settings |
 | `terminal` | Open, type into, resize, watch, rename or close a terminal |
+| `mcp` | Add, change, remove or restart an MCP server, or find and import those other programs list |
 
 Limits a client must respect on `say`: at most 20 images, each within
 what the agent's model takes (a line with images is rejected when it
@@ -119,6 +120,11 @@ given to the model as content. Uploads: an image is at most 20 MiB (PNG,
 JPEG, WebP or GIF), a file at most 256 MiB, and an `import-project`
 file at most 16 MiB (50 files, 128 MiB together). `/compact` typed
 through `say` does what `compact` does.
+
+`mcp` carries an `act` discriminated by `do` (`put`, `remove`,
+`restart`, `find`, `import`); see `mcp`. `state.settings.mcp` shows each
+server, its state and tools, and what `find` last found; an `env` value
+is never sent, and a `null` value in `put` keeps the one the entry has.
 
 `terminal` is discriminated by `op` (`open`, `input`, `rename`,
 `resize`, `watch`, `unwatch`, `close`); see `terminals`. `open` starts

@@ -12,46 +12,56 @@ use anyhow::{Result, bail};
 use hamlet_cli::process::{self, Isolation, ServiceAction};
 use hamlet_cli::{chat, terminal};
 
-const USAGE: &str = "usage: hamlet [--insecure]
+const USAGE: &str =
+    "usage: hamlet [--insecure]
        hamlet stop
        hamlet status
        hamlet server [--port <n>] [--faux <script.json>] [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
-                     [--insecure] [--hot]
+     [--insecure] [--hot]
        hamlet window
        hamlet chat [--to <hand|agent#<id>|lead@<hamlet>>] [--attach \
-                     <path>]...
+     <path>]...
        hamlet import [--file <export>] [--all] [--sessions | \
-                     --suggested | <project or conversation id>...]
+     --suggested | <project or conversation id>...]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <profile#id>
        hamlet edit memory <profile#id|agent#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
        hamlet models images <model> [off | [--width <px>] [--height \
-                     <px>] [--mb <n>] [--per-line <n>]]
+     <px>] [--mb <n>] [--per-line <n>]]
+       hamlet mcp [list | tools <name> | edit <name> | remove <name> \
+     | restart <name>]
+       hamlet mcp add <name> [--net] [--env <KEY=VALUE>]... \
+     [--inherit-env <NAME>]... [--read <path>]... [--write \
+     <path>]... [--timeout <secs>] [--allow <tool>]... [--ask \
+     <tool>]... -- <command> [<arg>]...
+       hamlet mcp import [--all | <name>...]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-                     realm; Ctrl-C stops both. --hot builds a \
-                     window that reloads saved shaders and tuning \
-                     files.
+     realm; Ctrl-C stops both. --hot builds a window that reloads \
+     saved shaders and tuning files.
 server serves in the foreground; Ctrl-C stops it.
 import lists the projects Claude Code, Codex and pi worked on in the \
-                     last 30 days, or those of a ChatGPT or Claude \
-                     export, and brings each one named in as a \
-                     hamlet with an agent for each conversation.
+     last 30 days, or those of a ChatGPT or Claude export, and \
+     brings each one named in as a hamlet with an agent for each \
+     conversation.
+mcp shows the realm's MCP servers, adds and changes them, and \
+     imports those Claude Code, Claude Desktop, Cursor and Codex \
+     list.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
-                     clients),
+     clients),
      HAMLET_APP (window executable), HAMLET_VIEW (window settings),
      HAMLET_SERVER_BIN (server executable), HAMLET_NODE (Node \
-                     executable),
+     executable),
      HAMLET_PI_HARNESS (Pi harness entry).
 Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
-                     before starting a server from source.";
+     before starting a server from source.";
 
 enum Command {
     Help,
@@ -91,7 +101,12 @@ enum Command {
 }
 
 fn parse(args: &[String]) -> Result<Command> {
-    if args.iter().any(|arg| arg == "-h" || arg == "--help") {
+    // What follows `--` is another program's arguments.
+    if args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "-h" || arg == "--help")
+    {
         return Ok(Command::Help);
     }
     let Some(name) = args.first() else {
@@ -376,6 +391,9 @@ fn parse(args: &[String]) -> Result<Command> {
                 model: rest.get(1).cloned(),
             }))
         }
+        "mcp" => Ok(Command::Terminal(terminal::Command::Mcp(
+            hamlet_cli::mcp::parse(rest)?,
+        ))),
         _ => Err(unknown(name)),
     }
 }

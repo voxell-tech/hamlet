@@ -19,6 +19,10 @@ use bevy_app::App;
 use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Res, ResMut};
+use hamlet_import::FoundServer;
+use hamlet_protocol::client::{
+    McpAct, McpFound, McpServerView, McpState, McpToolView, McpView,
+};
 use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
 use hamlet_sandbox::Sandbox;
 use hamlet_sandbox::scrub::scrub_text;
@@ -35,11 +39,12 @@ pub(crate) use self::session::Report;
 use self::session::{Launch, Peer, Status, Tool};
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
-use crate::core::ModelTools;
+use crate::core::{Core, ModelTools};
 use crate::realm::Realm;
 use crate::realm::layout::Layout;
 use crate::runtimes::Runtimes;
 use crate::society::oversight::gate::Reach;
+use crate::society::rejection::Rejection;
 use crate::tools::builtin::{Network, Outcome, Sight};
 
 /// Every MCP tool's name begins so, and no other tool's does.
@@ -117,6 +122,8 @@ fn take_in_reports(
     let before = (tools.mcp.specs(), tools.mcp.faults());
     for report in reports.drain() {
         tools.mcp.record(report);
+        // The clients show how each server is.
+        changed.state_changed_outside_change = true;
     }
     if (tools.mcp.specs(), tools.mcp.faults()) != before {
         super::custom::refresh(
@@ -135,6 +142,8 @@ pub(crate) struct Mcp {
     unloaded: Vec<String>,
     /// The generation the latest session started with.
     latest: u64,
+    /// The servers other programs list, as a chief last found them.
+    found: Vec<FoundServer>,
 }
 
 /// A listed server, its session, and what it last listed.
@@ -215,32 +224,15 @@ impl Mcp {
                 running.server = server;
                 continue;
             }
-            let home = folder.join(&name);
-            let policy = match server.policy(layout, &home) {
-                Ok(policy) => policy,
-                Err(error) => {
-                    self.unloaded
-                        .push(format!("MCP server {name}: {error}"));
-                    continue;
-                }
+            let Some((generation, session)) =
+                self.launch(&name, &server, layout, sandbox, inputs)
+            else {
+                continue;
             };
-            self.latest += 1;
-            let session = session::start(
-                Launch {
-                    name: name.clone(),
-                    generation: self.latest,
-                    argv: server.command.clone(),
-                    policy,
-                    sandbox,
-                    home,
-                    secrets: server.secrets(),
-                },
-                inputs.clone(),
-            );
             self.running.insert(
                 name,
                 Running {
-                    generation: self.latest,
+                    generation,
                     server,
                     session,
                     standing: Standing::Starting,
@@ -250,6 +242,76 @@ impl Mcp {
                 },
             );
         }
+    }
+
+    /// Stops the server `name` and starts it again at once, its tools
+    /// still offered meanwhile; false when it is not listed.
+    fn restart(
+        &mut self,
+        name: &str,
+        layout: &Layout,
+        sandbox: Sandbox,
+        inputs: &InputSender,
+    ) -> bool {
+        let Some(server) = self
+            .running
+            .get(name)
+            .map(|running| running.server.clone())
+        else {
+            return false;
+        };
+        match self.launch(name, &server, layout, sandbox, inputs) {
+            Some((generation, session)) => {
+                let running = self
+                    .running
+                    .get_mut(name)
+                    .expect("the server is listed");
+                running.session.abort();
+                running.session = session;
+                running.generation = generation;
+                running.standing = Standing::Starting;
+            }
+            None => {
+                self.running.remove(name);
+            }
+        }
+        true
+    }
+
+    /// Starts a session of the server `name`, under the next
+    /// generation; none when its policy does not hold, which is named
+    /// in the prompt.
+    fn launch(
+        &mut self,
+        name: &str,
+        server: &Server,
+        layout: &Layout,
+        sandbox: Sandbox,
+        inputs: &InputSender,
+    ) -> Option<(u64, AbortHandle)> {
+        let home = layout.mcp().join(name);
+        let policy = match server.policy(layout, &home) {
+            Ok(policy) => policy,
+            Err(error) => {
+                self.unloaded
+                    .push(format!("MCP server {name}: {error}"));
+                return None;
+            }
+        };
+        self.latest += 1;
+        let session = session::start(
+            Launch {
+                name: name.to_owned(),
+                generation: self.latest,
+                argv: server.command.clone(),
+                policy,
+                sandbox,
+                home,
+                secrets: server.secrets(),
+            },
+            inputs.clone(),
+        );
+        Some((self.latest, session))
     }
 
     /// Keeps what the session of a server reported, unless a later
@@ -283,6 +345,85 @@ impl Mcp {
                 again: Instant::now() + again,
             },
         };
+    }
+
+    /// The servers, as the clients show them.
+    pub(crate) fn view(&self) -> McpView {
+        let now = Instant::now();
+        let servers = self
+            .running
+            .iter()
+            .map(|(name, running)| McpServerView {
+                name: name.clone(),
+                entry: running.server.entry(),
+                state: match &running.standing {
+                    Standing::Starting => McpState::Starting,
+                    Standing::Up { .. } => McpState::Up,
+                    Standing::Down { reason, again } => {
+                        McpState::Down {
+                            reason: reason.clone(),
+                            again: crate::app::clock::now()
+                                + i64::try_from(
+                                    again
+                                        .saturating_duration_since(
+                                            now,
+                                        )
+                                        .as_millis(),
+                                )
+                                .unwrap_or(i64::MAX / 2),
+                        }
+                    }
+                },
+                tools: running
+                    .tools
+                    .iter()
+                    .map(|listed| McpToolView {
+                        name: listed.spec.name.clone(),
+                        tool: listed.tool.clone(),
+                        description: listed.spec.description.clone(),
+                        acts: running
+                            .server
+                            .acts(&listed.tool, listed.read_only),
+                    })
+                    .collect(),
+            })
+            .collect();
+        let found = self
+            .found
+            .iter()
+            .filter(|found| !self.running.contains_key(&found.name))
+            .map(|found| {
+                let (entry, unrunnable) = match &found.entry {
+                    Ok(entry) => {
+                        match config::parse(
+                            &found.name,
+                            entry.clone(),
+                        ) {
+                            Ok(server) => {
+                                (Some(server.entry()), None)
+                            }
+                            Err(unloaded) => {
+                                (None, Some(unloaded.to_string()))
+                            }
+                        }
+                    }
+                    Err(unrunnable) => {
+                        (None, Some(unrunnable.to_string()))
+                    }
+                };
+                McpFound {
+                    source: found.source.name().into(),
+                    name: found.name.clone(),
+                    entry,
+                    unrunnable,
+                }
+            })
+            .collect();
+        McpView {
+            servers,
+            faults: self.faults(),
+            found,
+        }
     }
 
     /// The tools offered.
@@ -353,6 +494,143 @@ impl Mcp {
                 .iter()
                 .find(|listed| listed.spec.name == name)
                 .map(|listed| (server.as_str(), running, listed))
+        })
+    }
+}
+
+impl Core<'_, '_> {
+    /// A chief's change to the list of MCP servers, made at once: the
+    /// servers and the catalogue follow the list without waiting for
+    /// its watch.
+    pub(crate) fn mcp(
+        &mut self,
+        client: u64,
+        request: hamlet_protocol::client::Mcp,
+    ) -> anyhow::Result<()> {
+        let answer = self.mcp_act(request.act);
+        let layout = self.realm.layout().clone();
+        let sandbox = self.tools.sandbox.0;
+        self.tools.mcp.follow(&layout, sandbox, &self.inputs);
+        super::custom::refresh(
+            &mut self.tools,
+            &mut self.runtimes,
+            &mut self.changed,
+        );
+        self.answer(
+            client,
+            crate::clients::check::reply(&request.id, answer),
+        )
+    }
+
+    fn mcp_act(&mut self, act: McpAct) -> Result<String, Rejection> {
+        let folder = self.realm.layout().mcp();
+        let refused =
+            |unchanged: config::Unchanged| Rejection::BadMcp {
+                why: unchanged.to_string(),
+            };
+        Ok(match act {
+            McpAct::Put { name, entry } => {
+                config::put(&folder, &name, &entry)
+                    .map_err(refused)?;
+                format!("MCP server {name} is saved.")
+            }
+            McpAct::Remove { name } => {
+                config::remove(&folder, &name).map_err(refused)?;
+                format!("MCP server {name} is removed.")
+            }
+            McpAct::Restart { name } => {
+                let layout = self.realm.layout().clone();
+                let sandbox = self.tools.sandbox.0;
+                let inputs = &self.inputs;
+                if !self
+                    .tools
+                    .mcp
+                    .restart(&name, &layout, sandbox, inputs)
+                {
+                    return Err(refused(
+                        config::Unchanged::NoServer(name),
+                    ));
+                }
+                format!("MCP server {name} starts again.")
+            }
+            McpAct::Find => {
+                self.tools.mcp.found = hamlet_import::mcp_servers();
+                let found = self
+                    .tools
+                    .mcp
+                    .found
+                    .iter()
+                    .filter(|found| {
+                        !self
+                            .tools
+                            .mcp
+                            .running
+                            .contains_key(&found.name)
+                    })
+                    .map(|found| {
+                        let source = found.source.name();
+                        match &found.entry {
+                            Ok(_) => {
+                                format!("- {} ({source})", found.name)
+                            }
+                            Err(why) => {
+                                format!(
+                                    "- {} ({source}): {why}",
+                                    found.name
+                                )
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if found.is_empty() {
+                    "No other program lists an MCP server this list \
+                     does not."
+                        .into()
+                } else {
+                    format!(
+                        "Other programs list these MCP servers:\n{}",
+                        found.join("\n")
+                    )
+                }
+            }
+            McpAct::Import { names } => {
+                let entries = self
+                    .tools
+                    .mcp
+                    .found
+                    .iter()
+                    .filter(|found| {
+                        names.is_empty()
+                            || names.contains(&found.name)
+                    })
+                    .filter_map(|found| {
+                        Some((
+                            found.name.clone(),
+                            found.entry.clone().ok()?,
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                let added =
+                    config::add(&folder, entries).map_err(refused)?;
+                let left = names
+                    .iter()
+                    .filter(|name| !added.contains(name))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let mut words = if added.is_empty() {
+                    "No MCP server was added.".to_owned()
+                } else {
+                    format!("Added {}.", added.join(", "))
+                };
+                if !left.is_empty() {
+                    words.push_str(&format!(
+                        " Not added, as they are listed already, \
+                         cannot run here or were not found: {}.",
+                        left.join(", ")
+                    ));
+                }
+                words
+            }
         })
     }
 }

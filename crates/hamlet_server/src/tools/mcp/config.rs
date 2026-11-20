@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hamlet_os::fs::path::{resolve, text};
+use hamlet_protocol::client::McpEntry;
 use hamlet_sandbox::{LimitError, Policy};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use crate::realm::layout::Layout;
 
@@ -36,7 +37,7 @@ const SECRET_LENGTH: usize = 8;
 
 /// The fault that keeps a server from loading.
 #[derive(Debug, thiserror::Error)]
-enum Unloaded {
+pub(super) enum Unloaded {
     #[error(
         "its name must be 1 to {NAME_LENGTH} lowercase letters, \
          digits and '-'"
@@ -51,6 +52,8 @@ enum Unloaded {
     NoTimeout,
     #[error("{0} is in both allow and ask")]
     AllowedAndAsked(String),
+    #[error("{0} in env has no value")]
+    NoValue(String),
     #[error(transparent)]
     Limit(#[from] LimitError),
 }
@@ -192,6 +195,27 @@ impl Server {
         !read_only
     }
 
+    /// Its entry as a client is shown it: its environment's names,
+    /// never their values, and no limit it was not given.
+    pub(super) fn entry(&self) -> McpEntry {
+        McpEntry {
+            command: self.command.clone(),
+            env: self
+                .env
+                .keys()
+                .map(|name| (name.clone(), None))
+                .collect(),
+            inherit_env: self.inherit_env.clone(),
+            fs_ro: self.fs_ro.clone(),
+            fs_rw: self.fs_rw.clone(),
+            net: self.net,
+            timeout_secs: Some(self.timeout.as_secs())
+                .filter(|secs| *secs != CALL_SECS),
+            allow: self.allow.clone(),
+            ask: self.ask.clone(),
+        }
+    }
+
     /// The variables of `inherit_env` the server's environment has.
     fn inherited(&self) -> impl Iterator<Item = (String, String)> {
         self.inherit_env.iter().filter_map(|name| {
@@ -225,24 +249,14 @@ pub(super) enum Unread {
 /// The list `servers.json` in the folder `folder` holds; none when
 /// there is no file.
 pub(super) fn load(folder: &Path) -> Result<Listed, Unread> {
-    let data = match std::fs::read_to_string(folder.join(FILE)) {
-        Ok(data) => data,
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound =>
-        {
-            return Ok(Listed::default());
-        }
-        Err(error) => return Err(Unread::Io(error)),
-    };
-    let entries = match serde_json::from_str::<Value>(&data)
-        .map_err(Unread::Json)?
+    let entries = file(folder)?
         .get_mut("servers")
         .map(Value::take)
-    {
-        None => serde_json::Map::new(),
-        Some(Value::Object(entries)) => entries,
-        Some(_) => return Err(Unread::NotObject),
-    };
+        .and_then(|entries| match entries {
+            Value::Object(entries) => Some(entries),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut listed = Listed::default();
     for (name, entry) in entries {
         match parse(&name, entry) {
@@ -259,7 +273,188 @@ pub(super) fn load(folder: &Path) -> Result<Listed, Unread> {
     Ok(listed)
 }
 
-fn parse(name: &str, entry: Value) -> Result<Server, Unloaded> {
+/// The file `servers.json` in `folder` as written, its servers an
+/// object; `{"servers": {}}` when there is no file.
+fn file(folder: &Path) -> Result<Value, Unread> {
+    let data = match std::fs::read_to_string(folder.join(FILE)) {
+        Ok(data) => data,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(json!({"servers": {}}));
+        }
+        Err(error) => return Err(Unread::Io(error)),
+    };
+    let mut file =
+        serde_json::from_str::<Value>(&data).map_err(Unread::Json)?;
+    let Some(object) = file.as_object_mut() else {
+        return Err(Unread::NotObject);
+    };
+    match object
+        .entry("servers")
+        .or_insert_with(|| Value::Object(Map::new()))
+    {
+        Value::Object(_) => Ok(file),
+        _ => Err(Unread::NotObject),
+    }
+}
+
+/// A change to the list a chief asked for that was not made.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum Unchanged {
+    #[error("{FILE} cannot be read, so it is not changed: {0}")]
+    Unread(#[from] Unread),
+    #[error("MCP server {0}: {1}")]
+    Unfit(String, Unloaded),
+    #[error("There is no MCP server {0}.")]
+    NoServer(String),
+    #[error("{FILE} cannot be written: {0}")]
+    Unwritten(#[from] std::io::Error),
+}
+
+/// Sets the entry of the server `name` in the list in `folder` to
+/// `entry`: an environment value it leaves out is the one the entry
+/// has, and what a client is not shown, such as the limits, is kept.
+/// The rest of the file stays as written.
+pub(super) fn put(
+    folder: &Path,
+    name: &str,
+    entry: &McpEntry,
+) -> Result<(), Unchanged> {
+    let mut whole = file(folder)?;
+    let servers = &mut whole["servers"];
+    let before = servers.get(name).cloned().unwrap_or(json!({}));
+    let written = written(&before, entry)
+        .and_then(|written| {
+            parse(name, written.clone()).map(|_| written)
+        })
+        .map_err(|unloaded| {
+            Unchanged::Unfit(name.into(), unloaded)
+        })?;
+    servers[name] = written;
+    write(folder, &whole)
+}
+
+/// Takes the server `name` out of the list in `folder`.
+pub(super) fn remove(
+    folder: &Path,
+    name: &str,
+) -> Result<(), Unchanged> {
+    let mut whole = file(folder)?;
+    let servers = whole["servers"]
+        .as_object_mut()
+        .expect("the file's servers are an object");
+    if servers.remove(name).is_none() {
+        return Err(Unchanged::NoServer(name.into()));
+    }
+    write(folder, &whole)
+}
+
+/// Adds the entries `added` to the list in `folder`, each unless the
+/// list has its name; the names added.
+pub(super) fn add(
+    folder: &Path,
+    added: Vec<(String, Value)>,
+) -> Result<Vec<String>, Unchanged> {
+    let mut whole = file(folder)?;
+    let servers = whole["servers"]
+        .as_object_mut()
+        .expect("the file's servers are an object");
+    let mut names = Vec::new();
+    for (name, entry) in added {
+        if servers.contains_key(&name) {
+            continue;
+        }
+        parse(&name, entry.clone()).map_err(|unloaded| {
+            Unchanged::Unfit(name.clone(), unloaded)
+        })?;
+        servers.insert(name.clone(), entry);
+        names.push(name);
+    }
+    if !names.is_empty() {
+        write(folder, &whole)?;
+    }
+    Ok(names)
+}
+
+/// `before`, an entry as written, with what `entry` sets.
+fn written(
+    before: &Value,
+    entry: &McpEntry,
+) -> Result<Value, Unloaded> {
+    let mut written = before.as_object().cloned().unwrap_or_default();
+    let mut env = Map::new();
+    for (name, value) in &entry.env {
+        let value = match value {
+            Some(value) => Value::String(value.clone()),
+            None => before["env"]
+                .get(name)
+                .cloned()
+                .ok_or_else(|| Unloaded::NoValue(name.clone()))?,
+        };
+        env.insert(name.clone(), value);
+    }
+    let mut set = |key: &str, value: Value, empty: bool| {
+        if empty {
+            written.remove(key);
+        } else {
+            written.insert(key.into(), value);
+        }
+    };
+    set("command", json!(entry.command), false);
+    set("env", Value::Object(env), entry.env.is_empty());
+    set(
+        "inherit_env",
+        json!(entry.inherit_env),
+        entry.inherit_env.is_empty(),
+    );
+    set(
+        "timeout_secs",
+        json!(entry.timeout_secs),
+        entry.timeout_secs.is_none(),
+    );
+    set("allow", json!(entry.allow), entry.allow.is_empty());
+    set("ask", json!(entry.ask), entry.ask.is_empty());
+    let mut sandbox =
+        before["sandbox"].as_object().cloned().unwrap_or_default();
+    for (key, paths) in
+        [("fs_ro", &entry.fs_ro), ("fs_rw", &entry.fs_rw)]
+    {
+        if paths.is_empty() {
+            sandbox.remove(key);
+        } else {
+            sandbox.insert(key.into(), json!(paths));
+        }
+    }
+    if entry.net {
+        sandbox.insert("net".into(), true.into());
+    } else {
+        sandbox.remove("net");
+    }
+    let empty = sandbox.is_empty();
+    set("sandbox", Value::Object(sandbox), empty);
+    Ok(Value::Object(written))
+}
+
+/// Writes `whole` as the list in `folder`, at once: a reader finds it
+/// as it was or as it is.
+fn write(folder: &Path, whole: &Value) -> Result<(), Unchanged> {
+    std::fs::create_dir_all(folder)?;
+    let file = folder.join(FILE);
+    let partial = folder.join(format!(".{FILE}.partial"));
+    let mut text = serde_json::to_string_pretty(whole)
+        .expect("a JSON value is written");
+    text.push('\n');
+    std::fs::write(&partial, text)?;
+    std::fs::rename(&partial, &file)?;
+    Ok(())
+}
+
+/// The server `name` with the entry `entry`, as the list loads it.
+pub(super) fn parse(
+    name: &str,
+    entry: Value,
+) -> Result<Server, Unloaded> {
     if !is_name(name) {
         return Err(Unloaded::BadName);
     }
@@ -362,6 +557,46 @@ mod tests {
         assert!(!servers["mail"].acts("draft", false));
         assert!(!servers["docs"].acts("send", false));
         assert!(servers["docs"].acts("publish", true));
+    }
+
+    #[test]
+    fn a_change_keeps_what_a_client_is_not_shown() {
+        let folder = std::env::temp_dir()
+            .join(format!("hamlet-mcp-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join(FILE),
+            r#"{"note": "mine", "servers": {"mail": {
+                "command": ["mail"],
+                "env": {"TOKEN": "a-long-token"},
+                "sandbox": {"limits": {"max_procs": 4}}
+            }}}"#,
+        )
+        .unwrap();
+        let mut entry =
+            load(&folder).unwrap().servers["mail"].entry();
+        assert_eq!(entry.env["TOKEN"], None);
+        entry.env.insert("MODE".into(), Some("fast".into()));
+        entry.net = true;
+        put(&folder, "mail", &entry).unwrap();
+        let whole = file(&folder).unwrap();
+        assert_eq!(whole["note"], "mine");
+        assert_eq!(
+            whole["servers"]["mail"],
+            json!({
+                "command": ["mail"],
+                "env": {"TOKEN": "a-long-token", "MODE": "fast"},
+                "sandbox": {"limits": {"max_procs": 4}, "net": true}
+            })
+        );
+        entry.env.insert("NEW".into(), None);
+        assert!(matches!(
+            put(&folder, "mail", &entry),
+            Err(Unchanged::Unfit(_, Unloaded::NoValue(_)))
+        ));
+        remove(&folder, "mail").unwrap();
+        assert!(load(&folder).unwrap().servers.is_empty());
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

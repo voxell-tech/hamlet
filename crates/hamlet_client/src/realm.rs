@@ -299,6 +299,7 @@ impl Default for Settings {
             reflect_every: 0,
             allow_net: false,
             endpoints: Vec::new(),
+            mcp: protocol::McpView::default(),
             unset: true,
             link: protocol::Link {
                 state: protocol::LinkState::Untested,

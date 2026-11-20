@@ -18,6 +18,8 @@ pub struct SettingsView {
     pub effort: Option<crate::Effort>,
     pub endpoints: Vec<SettingsViewEndpoints>,
     pub link: Link,
+    /// The MCP servers the realm lists (C36).
+    pub mcp: crate::client::McpView,
     pub model: String,
     pub newcomers: Newcomers,
     #[serde(rename = "reflectEvery")]

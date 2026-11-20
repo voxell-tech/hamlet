@@ -22,6 +22,7 @@ pub fn state() -> protocol::State {
             "endpoints": [], "unset": false, "newcomers": "chief",
             "character": "A profile new to this realm.",
             "link": {"state": "untested", "models": null, "words": null},
+            "mcp": {"servers": [], "faults": [], "found": []},
             "workspace": {"url": null, "running": null}
         },
         "limits": {

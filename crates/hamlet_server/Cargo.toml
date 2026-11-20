@@ -24,6 +24,7 @@ harness = ["faults"]
 
 [dependencies]
 hamlet_git.workspace = true
+hamlet_import.workspace = true
 hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_sandbox.workspace = true
