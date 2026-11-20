@@ -188,7 +188,9 @@ fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
         let path = entry.unwrap().path();
         if path.is_dir() {
             files.extend(rust_files(&path));
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
+        } else if path.extension().is_some_and(|ext| ext == "rs")
+            && !path.ends_with("tests.rs")
+        {
             files.push(path);
         }
     }

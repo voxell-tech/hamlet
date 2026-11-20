@@ -27,7 +27,8 @@ use super::super::act::{Act, Called, Carried, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
 use super::super::tasks::TaskId;
-use super::super::waits::{self, Kind, Raised, Ruling};
+use super::super::waits::answer::Ruling;
+use super::super::waits::{self, Kind, Raised};
 use super::super::{Realm, profiles, record, tree};
 
 /// A reservable act, as its wait's `detail` keeps it: written by
