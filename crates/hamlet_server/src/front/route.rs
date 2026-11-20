@@ -25,9 +25,10 @@ use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
 /// What a client message becomes. A connection's lines, commands,
-/// edits, calls and the door's own answers are served in the order
-/// sent; a stop, an answer naming its wait, a watch of a chat and a
-/// sign-in's step are served as they come.
+/// edits, stops, calls and the door's own answers are served in the
+/// order sent, and a stop ends the waits of those sent before it; an
+/// answer naming its wait, a watch of a chat and a sign-in's step are
+/// served as they come.
 pub(crate) enum Route {
     /// Answered by the door, with no actor.
     Now(Box<ServerMessage>),
@@ -35,8 +36,10 @@ pub(crate) enum Route {
     Close(protocol::ChatRef),
     /// A chief's command or edit, which `commands` answers.
     Command(Asked),
-    /// A stop, or an answer that names its wait, which `commands`
-    /// answers at once.
+    /// A stop, which `commands` answers.
+    Stop(Asked),
+    /// An answer that names its wait, which `commands` answers at
+    /// once.
     AtOnce(Asked),
     /// A chief's line, whose reply is owed until the agent's work on
     /// it ends.
@@ -105,7 +108,9 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
         ClientMessage::Say(say)
             if say.text.trim().starts_with('/') =>
         {
-            if commands::parse::is_at_once(&say.text) {
+            if commands::parse::is_stop(&say.text) {
+                Route::Stop(Asked::Command(say))
+            } else if commands::parse::names_its_wait(&say.text) {
                 Route::AtOnce(Asked::Command(say))
             } else {
                 Route::Command(Asked::Command(say))
@@ -125,12 +130,12 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             Route::AtOnce(Asked::Answer(answer))
         }
         ClientMessage::Stop(protocol::Stop { agent: None, id }) => {
-            Route::AtOnce(Asked::StopAll(id))
+            Route::Stop(Asked::StopAll(id))
         }
         ClientMessage::Stop(protocol::Stop {
             agent: Some(agent),
             id,
-        }) => Route::AtOnce(Asked::Stop(id, agent)),
+        }) => Route::Stop(Asked::Stop(id, agent)),
         ClientMessage::New(new) => {
             let (to, id) = (new.to, new.id.clone());
             agent_call(
@@ -332,21 +337,24 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_and_an_answer_naming_its_wait_are_served_at_once() {
+    fn a_stop_keeps_its_turn_and_an_answer_naming_its_wait_does_not()
+    {
+        let stop = |message| {
+            matches!(route(message).unwrap(), Route::Stop(_))
+        };
         let at_once = |message| {
             matches!(route(message).unwrap(), Route::AtOnce(_))
         };
         for agent in [None, Some(AgentId(3))] {
-            assert!(at_once(ClientMessage::Stop(protocol::Stop {
+            assert!(stop(ClientMessage::Stop(protocol::Stop {
                 agent,
                 id: RequestId::new(),
             })));
         }
-        for text in
-            ["/stop", " /stop all", "/stop hire#3", "/deny #4"]
-        {
-            assert!(at_once(say(text, 1)), "{text}");
+        for text in ["/stop", " /stop all", "/stop hire#3"] {
+            assert!(stop(say(text, 1)), "{text}");
         }
+        assert!(at_once(say("/deny #4", 1)));
         for text in ["/deny", "/allow the oldest", "/name-hamlet h n"]
         {
             assert!(!at_once(say(text, 1)), "{text}");

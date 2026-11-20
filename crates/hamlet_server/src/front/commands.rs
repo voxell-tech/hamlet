@@ -31,7 +31,7 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, Choice, RequestId};
 
 use self::parse::{Act, Part, Target, parse};
-use super::call::Calls;
+use super::call::{Calls, Given};
 use super::host::HAND;
 use super::view::{self, View};
 use super::words;
@@ -280,11 +280,14 @@ async fn perform(
                     text,
                     to: view::wire(agent),
                 };
-                calls
-                    .say(line)
-                    .await?
-                    .map(|_| words::told(&view.name(agent)))
-                    .map_err(|words| Refusal::Usage { words })
+                match calls.say(line).await? {
+                    Given::Taken | Given::Dropped => {
+                        Ok(words::told(&view.name(agent)))
+                    }
+                    Given::Refused(words) => {
+                        Err(Refusal::Usage { words })
+                    }
+                }
             }
             Err(refusal) => Err(refusal),
         },
@@ -597,7 +600,8 @@ pub(crate) async fn answer(
 }
 
 /// Stops each living agent `view` shows, and gives the turns
-/// stopped. An agent still being hired has no turn to stop.
+/// stopped. An agent still being hired has no turn to stop but the
+/// line the stop dropped.
 pub(crate) async fn stop_all(
     calls: &Calls,
     view: &View,
@@ -605,9 +609,10 @@ pub(crate) async fn stop_all(
 ) -> Result<u32> {
     let mut turns = 0;
     for seen in &view.world.agents {
-        if matches!(seen.status, Status::Live) {
-            turns += stop(calls, id, seen.agent).await?;
-        }
+        turns += match seen.status {
+            Status::Live => stop(calls, id, seen.agent).await?,
+            _ => calls.dropped(seen.agent),
+        };
     }
     Ok(turns)
 }

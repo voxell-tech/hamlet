@@ -133,11 +133,14 @@ const ANSWERS: [&str; 7] = [
     "allow", "always", "deny", "go", "withdraw", "reply", "dismiss",
 ];
 
-/// Whether `line` is a stop, or an answer that names its wait.
-pub(crate) fn is_at_once(line: &str) -> bool {
+pub(crate) fn is_stop(line: &str) -> bool {
+    split(line).0 == "stop"
+}
+
+/// Whether `line` is an answer that names its wait.
+pub(crate) fn names_its_wait(line: &str) -> bool {
     let (name, rest) = split(line);
-    name == "stop"
-        || (ANSWERS.contains(&name) && rest.starts_with('#'))
+    ANSWERS.contains(&name) && rest.starts_with('#')
 }
 
 pub(crate) fn is_new(line: &str) -> bool {

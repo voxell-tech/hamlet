@@ -2,6 +2,8 @@
 //! of the chat a client follows, and who may answer a sign-in.
 
 use std::collections::HashSet;
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
@@ -22,6 +24,10 @@ const REPLY: &str = "The door carried this reply.";
 /// A key typed in a sign-in, which nothing the server sends or
 /// prints may hold.
 const KEY: &str = "made-up-door-key-6b1e0c2f";
+
+/// How long a stop may wait for the requests its connection sent
+/// before it, when they wait for an agent that cannot be reached.
+const STOP_BOUND: Duration = Duration::from_millis(500);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_following_an_agents_chat_gets_its_reply() {
@@ -172,51 +178,134 @@ async fn a_line_dropped_by_stop_is_answered() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+/// A line and a `/stop` sent back to back, as a piped `hamlet chat`
+/// sends them, twenty times: the stop finds the line's turn and ends
+/// it before its answer. Each answer takes 2 s unless stopped.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
+async fn a_stop_sent_after_a_line_ends_that_lines_turn() {
+    let rounds = 20;
+    let answers = (0..rounds)
+        .map(|n| json!({ "text": format!("Answer {n}."), "waitMs": 2_000 }))
+        .collect::<Vec<_>>();
+    let (mut server, _home, _side) = serve(json!(answers)).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    for n in 0..rounds {
+        let line = chief.tell(hand, &format!("Line {n}.")).await;
+        let stop = chief.tell(hand, "/stop").await;
+        let stopped = chief.reply(&stop).await;
+        let reply = chief.reply(&line).await;
+        assert_eq!(
+            (stopped.kind, stopped.text.as_str()),
+            (ReplyKind::Notice, "Stopped 1 running turns."),
+            "round {n}"
+        );
+        assert_eq!(
+            (reply.kind, reply.text.as_str()),
+            (ReplyKind::Notice, ""),
+            "round {n}: a stopped line is answered with the empty \
+             notice"
+        );
+        let answers = chief
+            .items(&chat)
+            .into_iter()
+            .filter(|item| item.kind == ItemKind::Assistant)
+            .map(|item| item.text)
+            .collect::<Vec<_>>();
+        assert!(
+            answers.is_empty(),
+            "round {n}: a stopped line's turn answered {answers:?}"
+        );
+    }
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// A line, then `/stop`, while the Node host is down: the stop drops
+/// the line, which never runs once the host is back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_stopped_while_its_agent_is_down_never_runs() {
+    let held = HeldNode::new();
     let (mut server, home, _side) =
-        serve(json!(["Up.", "Back."])).await;
+        held.serve(json!(["Up.", "Back."])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
     chief.say(hand, "Are you up?").await;
-    let pid = std::fs::read_to_string(home.join("demo-node.pid"))
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
-    hamlet_testing::signals::kill(pid).unwrap();
-    let began = Instant::now();
-    while !hamlet_os::process::has_ended(pid).unwrap() {
-        assert!(
-            began.elapsed() < PATIENCE,
-            "the Node host never ended"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    kill_node(&home).await;
     let line = chief.tell(hand, "Are you there?").await;
     let sent = Instant::now();
     let stop = chief.tell(hand, "/stop").await;
     let stopped = chief.reply(&stop).await;
     let took = sent.elapsed();
-    assert_eq!(stopped.kind, ReplyKind::Notice, "{}", stopped.text);
-    let early = chief
-        .messages()
-        .iter()
-        .find(|message| message.to() == Some(&line));
-    assert!(
-        early.is_none(),
-        "the stop was answered after the line it was sent behind: \
-         {early:?}"
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 1 running turns.")
     );
-    assert!(took < Duration::from_secs(1), "the stop took {took:?}");
-    chief.reply(&line).await;
-    chief.settle(Duration::from_millis(500)).await;
+    assert!(took < STOP_BOUND, "the stop took {took:?}");
+    let reply = chief.reply(&line).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, ""),
+        "a dropped line is answered with the empty notice"
+    );
+    held.release();
+    let back = chief.say(hand, "Hello again.").await;
+    assert_eq!(back.kind, ReplyKind::Notice, "{}", back.text);
+    let page = chief.open(&chat(hand)).await;
+    let lines = page
+        .items
+        .iter()
+        .filter(|item| item.kind == ItemKind::User)
+        .map(|item| item.text.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        ["Are you up?", "Hello again."],
+        "the dropped line never reached the agent"
+    );
     let replies = chief
         .messages()
         .iter()
         .filter(|message| message.to() == Some(&line))
         .count();
     assert_eq!(replies, 1, "the line is answered once");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// A read of an agent whose Node host is down waits for the host; a
+/// `/stop` sent after it ends that wait and is answered at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_ends_the_wait_of_a_call_sent_before_it() {
+    let held = HeldNode::new();
+    let (mut server, home, _side) = held.serve(json!(["Up."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
+    kill_node(&home).await;
+    let read = RequestId::new();
+    chief
+        .send(ClientMessage::Read(Read::Prompt {
+            agent: hand,
+            id: read.clone(),
+        }))
+        .await;
+    let sent = Instant::now();
+    let stop = chief.tell(hand, "/stop").await;
+    let stopped = chief.reply(&stop).await;
+    let took = sent.elapsed();
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 0 running turns.")
+    );
+    assert!(took < STOP_BOUND, "the stop took {took:?}");
+    assert!(
+        matches!(chief.answer(&read).await, ServerMessage::Fault(_)),
+        "the read is answered with the failure that kept it waiting"
+    );
+    held.release();
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -810,4 +899,66 @@ fn keeps_the_key_to_itself(server: &Server, frames: &[String]) {
         !server.log().contains(KEY),
         "the server printed the key"
     );
+}
+
+/// A `node` for the server that, once its first start ended, starts
+/// again only when released.
+struct HeldNode {
+    side: Scratch,
+}
+
+impl HeldNode {
+    fn new() -> Self {
+        let side = Scratch::new("front-held-node");
+        let script = format!(
+            "#!/bin/sh\nif [ -e {started} ]; then\nwhile [ ! -e \
+             {go} ]; do sleep 0.05; done\nfi\ntouch {started}\nexec \
+             node \"$@\"\n",
+            started = side.join("started").display(),
+            go = side.join("go").display(),
+        );
+        let node = side.join("node");
+        std::fs::write(&node, script).unwrap();
+        std::fs::set_permissions(
+            &node,
+            Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        Self { side }
+    }
+
+    async fn serve(
+        &self,
+        responses: serde_json::Value,
+    ) -> (Server, Scratch, Scratch) {
+        let node = self.side.join("node");
+        serve_with(
+            responses,
+            &[("HAMLET_NODE", node.to_str().unwrap())],
+        )
+        .await
+    }
+
+    /// Lets the Node host start again.
+    fn release(&self) {
+        std::fs::write(self.side.join("go"), "").unwrap();
+    }
+}
+
+/// Kills the server's Node host and waits until it has ended.
+async fn kill_node(home: &Scratch) {
+    let pid = std::fs::read_to_string(home.join("demo-node.pid"))
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    hamlet_testing::signals::kill(pid).unwrap();
+    let began = Instant::now();
+    while !hamlet_os::process::has_ended(pid).unwrap() {
+        assert!(
+            began.elapsed() < PATIENCE,
+            "the Node host never ended"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }

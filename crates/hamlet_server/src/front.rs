@@ -35,10 +35,12 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
-use self::call::{Calls, failed, failure, server_failed};
+use self::call::{
+    Calls, Given, Stops, failed, failure, server_failed,
+};
 use self::commands::Outcome;
 use self::host::HAND;
-use self::hub::Hub;
+use self::hub::{Hub, ended_line};
 use self::route::{After, Asked, Call, Route};
 use crate::claim::Claim;
 use crate::clients::check::{Protocol, reply};
@@ -163,8 +165,7 @@ struct Door {
     credentials: Keys,
     own: Arc<view::Own>,
     clients: BTreeMap<u64, Client>,
-    /// Each connection's requests not yet done, in the order sent.
-    queues: HashMap<u64, mpsc::UnboundedSender<Job>>,
+    queues: HashMap<u64, Queue>,
     /// The revision of the `State` each connection was sent last.
     shown: HashMap<u64, i64>,
     next: u64,
@@ -175,6 +176,13 @@ struct Door {
     connections: JoinSet<()>,
     /// The tasks that call the actors for the clients.
     work: JoinSet<()>,
+}
+
+/// One connection's requests not yet done, in the order sent, and
+/// the stops it sent.
+struct Queue {
+    jobs: mpsc::UnboundedSender<Job>,
+    stops: Stops,
 }
 
 impl Door {
@@ -394,17 +402,38 @@ impl Door {
             Route::Open(open) => self.hub.watch(client, open),
             Route::Close(chat) => self.hub.close(client, &chat),
             Route::Command(asked) => {
-                let job = self.command(client, asked);
+                let job = self.ask_in_turn(client).command(asked);
+                self.in_turn(client, job);
+            }
+            Route::Stop(asked) => {
+                self.queue(client).stops.stop();
+                let job = self.ask_in_turn(client).command(asked);
                 self.in_turn(client, job);
             }
             Route::AtOnce(asked) => {
-                let job = self.command(client, asked);
-                self.work.spawn(job);
+                self.work.spawn(self.ask(client).command(asked));
             }
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),
             Route::SignIn(login) => self.sign_in(client, login),
         }
+    }
+
+    /// The queue of `client`'s requests.
+    fn queue(&mut self, client: u64) -> &Queue {
+        let work = &mut self.work;
+        self.queues.entry(client).or_insert_with(|| {
+            let (queue, mut jobs) = mpsc::unbounded_channel::<Job>();
+            work.spawn(async move {
+                while let Some(job) = jobs.recv().await {
+                    job.await;
+                }
+            });
+            Queue {
+                jobs: queue,
+                stops: Stops::new(),
+            }
+        })
     }
 
     /// Runs `job` once the jobs of the requests `client` sent before
@@ -415,17 +444,7 @@ impl Door {
         client: u64,
         job: impl Future<Output = ()> + Send + 'static,
     ) {
-        let work = &mut self.work;
-        let queue = self.queues.entry(client).or_insert_with(|| {
-            let (queue, mut jobs) = mpsc::unbounded_channel::<Job>();
-            work.spawn(async move {
-                while let Some(job) = jobs.recv().await {
-                    job.await;
-                }
-            });
-            queue
-        });
-        let _ = queue.send(Box::pin(job));
+        let _ = self.queue(client).jobs.send(Box::pin(job));
     }
 
     /// Sends `client` `message` in its turn.
@@ -447,6 +466,16 @@ impl Door {
         }
     }
 
+    /// The door's means for the request `client` sent now, whose
+    /// waits a stop it sends next ends.
+    fn ask_in_turn(&mut self, client: u64) -> Asker {
+        let place = self.queue(client).stops.place();
+        Asker {
+            calls: self.calls.at(place),
+            ..self.ask(client)
+        }
+    }
+
     /// Sends `client`, which said hello, the realm as it is now,
     /// before the answer of anything it asks next.
     fn welcome(&mut self, client: u64) {
@@ -459,7 +488,7 @@ impl Door {
     /// Makes the call `call` and sends its answer's frame, after what
     /// the call changed is shown.
     fn call(&mut self, client: u64, call: Call) {
-        let asker = self.ask(client);
+        let asker = self.ask_in_turn(client);
         self.in_turn(client, async move {
             let Call {
                 to,
@@ -501,85 +530,11 @@ impl Door {
         say: protocol::Say,
         agent: AgentNumber,
     ) {
-        let asker = self.ask(client);
+        let asker = self.ask_in_turn(client);
         self.in_turn(
             client,
             async move { asker.line(say, agent).await },
         );
-    }
-
-    /// Runs `asked` with the realm as it is then, and sends its reply
-    /// once what it changed is shown.
-    fn command(
-        &self,
-        client: u64,
-        asked: Asked,
-    ) -> impl Future<Output = ()> + Send + 'static {
-        let asker = self.ask(client);
-        async move {
-            let ran = async {
-                let view =
-                    view::read(&asker.calls, &asker.own).await?;
-                match &asked {
-                    Asked::Command(say) => {
-                        commands::run(&asker.calls, &view, say).await
-                    }
-                    Asked::Edit(_, edit) => {
-                        commands::edit(&asker.calls, edit).await
-                    }
-                    Asked::Answer(answer) => commands::answer(
-                        &asker.calls,
-                        &view,
-                        answer.clone(),
-                    )
-                    .await
-                    .map(Outcome::said),
-                    Asked::Stop(id, agent) => commands::stop_one(
-                        &asker.calls,
-                        &view,
-                        id,
-                        *agent,
-                    )
-                    .await
-                    .map(Outcome::said),
-                    Asked::StopAll(id) => {
-                        commands::stop_all(&asker.calls, &view, id)
-                            .await
-                            .map(|turns| {
-                                Outcome::said(Ok(
-                                    words::stopped_or_nothing(turns),
-                                ))
-                            })
-                    }
-                }
-            };
-            let id = asked.id();
-            let held = match &asked {
-                Asked::Command(say)
-                    if commands::parse::is_new(&say.text) =>
-                {
-                    route::number(say.to)
-                        .map(|agent| asker.hub.hold_resets(agent))
-                }
-                _ => None,
-            };
-            let message = match ran.await {
-                Ok(outcome) => {
-                    asker
-                        .after(match outcome.reread {
-                            Some(agent) => After::Reread(agent),
-                            None => After::Show,
-                        })
-                        .await;
-                    reply(id, outcome.reply)
-                }
-                Err(error) => failed(id, &error),
-            };
-            asker.send(message);
-            if let Some(held) = held {
-                held.release().await;
-            }
-        }
     }
 
     /// Takes a step of a sign-in: one its client starts, answers or
@@ -801,19 +756,100 @@ impl Asker {
         }
     }
 
+    /// Runs `asked` with the realm as it is then, and sends its reply
+    /// once what it changed is shown.
+    async fn command(self, asked: Asked) {
+        let ran = async {
+            let view = view::read(&self.calls, &self.own).await?;
+            match &asked {
+                Asked::Command(say) => {
+                    commands::run(&self.calls, &view, say).await
+                }
+                Asked::Edit(_, edit) => {
+                    commands::edit(&self.calls, edit).await
+                }
+                Asked::Answer(answer) => commands::answer(
+                    &self.calls,
+                    &view,
+                    answer.clone(),
+                )
+                .await
+                .map(Outcome::said),
+                Asked::Stop(id, agent) => {
+                    commands::stop_one(&self.calls, &view, id, *agent)
+                        .await
+                        .map(Outcome::said)
+                }
+                Asked::StopAll(id) => {
+                    commands::stop_all(&self.calls, &view, id)
+                        .await
+                        .map(|turns| {
+                            Outcome::said(Ok(
+                                words::stopped_or_nothing(turns),
+                            ))
+                        })
+                }
+            }
+        };
+        let id = asked.id();
+        let held = match &asked {
+            Asked::Command(say)
+                if commands::parse::is_new(&say.text) =>
+            {
+                route::number(say.to)
+                    .map(|agent| self.hub.hold_resets(agent))
+            }
+            _ => None,
+        };
+        let message = match ran.await {
+            Ok(outcome) => {
+                self.after(match outcome.reread {
+                    Some(agent) => After::Reread(agent),
+                    None => After::Show,
+                })
+                .await;
+                reply(id, outcome.reply)
+            }
+            Err(error) => failed(id, &error),
+        };
+        self.send(message);
+        if let Some(held) = held {
+            held.release().await;
+        }
+    }
+
+    /// Gives the realm a chief's line to `agent` once the hub follows
+    /// its chat. A stop the connection sent after it, coming before
+    /// the agent took it, drops it, and its reply is the empty notice
+    /// of a line that ended.
     async fn line(&self, say: protocol::Say, agent: AgentNumber) {
         let id = say.id.clone();
-        if self.hub.owe(self.client, agent, &id).await.is_err() {
-            return;
-        }
+        let held = self.hub.owe(self.client, agent, &id);
         let settle = |message| {
             self.hub.settle(agent, self.client, &id, message);
         };
-        match self.calls.say(say).await {
-            Ok(Ok(_)) => {
-                self.hub.taken(self.client, agent, &id).await;
+        tokio::select! {
+            biased;
+            () = self.calls.stopped() => {
+                self.calls.drop_line(agent);
+                settle(ended_line(&id));
+                return;
             }
-            Ok(Err(words)) => {
+            held = held => {
+                if held.is_err() {
+                    return;
+                }
+            }
+        }
+        match self.calls.say(say).await {
+            Ok(Given::Taken) => {
+                let stopped = self.calls.stopped();
+                self.hub
+                    .taken(self.client, agent, &id, stopped)
+                    .await;
+            }
+            Ok(Given::Dropped) => settle(ended_line(&id)),
+            Ok(Given::Refused(words)) => {
                 settle(reply(&id, Err(Refusal::Usage { words })));
             }
             Err(error) => settle(failed(&id, &error)),

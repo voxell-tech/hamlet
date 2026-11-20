@@ -196,15 +196,16 @@ impl Hub {
         }
     }
 
-    /// Owes `client` the reply of its line `id` to `agent`, once
-    /// `agent`'s chat is followed, so no change after it is missed.
-    /// An `Err` means the hub answered the line already.
-    pub(crate) async fn owe(
+    /// Owes `client` the reply of its line `id` to `agent`, and tells
+    /// once `agent`'s chat is followed, so no change after it is
+    /// missed. An `Err` from it means the hub answered the line
+    /// already.
+    pub(crate) fn owe(
         &self,
         client: u64,
         agent: AgentNumber,
         id: &RequestId,
-    ) -> Result<(), oneshot::error::RecvError> {
+    ) -> oneshot::Receiver<()> {
         let (held, holds) = oneshot::channel();
         {
             let shared = &self.shared;
@@ -217,18 +218,23 @@ impl Hub {
             });
             let _ = found.jobs.send(Job::Held(held));
         }
-        holds.await
+        holds
     }
 
     /// Takes in that `agent` took the line `id` of `client`: reads
-    /// the chief's chat to learn where the agent's work on it stands.
+    /// the chief's chat to learn where the agent's work on it stands,
+    /// unless `stopped` comes first.
     pub(crate) async fn taken(
         &self,
         client: u64,
         agent: AgentNumber,
         id: &RequestId,
+        stopped: impl Future<Output = ()>,
     ) {
-        let read = self.shared.current(agent).await.ok();
+        let read = tokio::select! {
+            read = self.shared.current(agent) => read.ok(),
+            () = stopped => None,
+        };
         let shared = &self.shared;
         let mut followed = shared.followed();
         let Some(found) = followed.get_mut(&agent) else {
@@ -385,9 +391,9 @@ impl Shared {
         );
     }
 
-    /// Answers `owed` with the empty notice.
+    /// Answers `owed` as a line that ended.
     fn settle(&self, owed: &Owed) {
-        self.send(owed.client, reply(&owed.id, Ok(String::new())));
+        self.send(owed.client, ended_line(&owed.id));
     }
 
     /// Follows `agent`'s chat while something needs it.
@@ -741,6 +747,11 @@ impl Shared {
             .await?;
         Ok(ciborium::from_reader(answer.as_slice())?)
     }
+}
+
+/// The reply of line `id`, whose work ended: the empty notice.
+pub(crate) fn ended_line(id: &RequestId) -> ServerMessage {
+    reply(id, Ok(String::new()))
 }
 
 /// The answer to `open`, whose page was refused with `error`: an
