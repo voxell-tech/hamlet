@@ -54,16 +54,17 @@ export interface AgentFilesystem {
         context: Context,
     ): Promise<Result<Uint8Array, FileError>>;
     /**
-     * Writes the file whole, making its folders. A link there is replaced,
-     * not written through. With `executable`, the file runs or does not;
-     * without it, it keeps the mode of the file it replaces.
+     * Writes the file whole, making its folders, and answers whether it
+     * made the file. A link there is replaced, not written through. With
+     * `executable`, the file runs or does not; without it, it keeps the
+     * mode of the file it replaces.
      */
     write(
         path: string,
         content: string | Uint8Array,
         context: Context,
         executable?: boolean,
-    ): Promise<Result<void, FileError>>;
+    ): Promise<Result<boolean, FileError>>;
     /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
     edit(
         path: string,

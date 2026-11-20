@@ -160,11 +160,12 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
                 : ok(new TextEncoder().encode(text));
         },
         write: async (path, content) => {
+            const created = files[path] === undefined;
             files[path] =
                 typeof content === "string"
                     ? content
                     : new TextDecoder().decode(content);
-            return ok(undefined);
+            return ok(created);
         },
         edit: async (path, changes) => {
             const before = files[path];

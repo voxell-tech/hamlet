@@ -292,7 +292,7 @@ async function written(
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
-    return done.ok ? wrote(args.path) : failed(done.error.message);
+    return done.ok ? wrote(args.path, done.value) : failed(done.error.message);
 }
 
 async function searched(
