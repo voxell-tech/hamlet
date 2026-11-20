@@ -203,7 +203,6 @@ impl Shown for Hand {
 
 /// A sender whose powers reach every hamlet.
 pub(super) trait RealmWide: Decider + Shown {
-    /// The answer to seating a mayor.
     type Seated: Refusable<Why = OnlyAHire> + Send + 'static;
 
     fn seated(mayor: AgentName, hamlet: HamletId) -> Self::Seated;
@@ -232,7 +231,6 @@ pub(super) trait Lead: Decider + Shown {
     where
         R: Send + 'static;
 
-    /// Whether this sender leads the agent of `lineage`.
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,

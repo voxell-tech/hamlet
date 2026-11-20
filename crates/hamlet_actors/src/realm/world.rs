@@ -275,7 +275,6 @@ type WaitRow = (
     Option<Vec<u8>>,
 );
 
-/// The open waits, each that reads.
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
     Ok(rows
         .rows::<WaitRow>(

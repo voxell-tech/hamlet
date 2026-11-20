@@ -227,9 +227,9 @@ export interface SocietyActs {
             | Refused;
     };
     set_allowance: {
-        /** In millionths of a dollar; absent takes the allowance away. */
         act: {
             readonly hire: Named;
+            /** In millionths of a dollar; absent takes the allowance away. */
             readonly micros?: Count;
             readonly why?: string;
         };

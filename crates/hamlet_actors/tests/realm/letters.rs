@@ -21,7 +21,6 @@ use super::{
     until, words,
 };
 
-/// `agent` as the author of a letter or an answer.
 fn from(agent: AgentNumber) -> Author {
     Author {
         agent,

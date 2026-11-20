@@ -62,8 +62,10 @@ pub(super) enum Change {
         done: bool,
         summary: String,
     },
-    /// The errand of a dream ended as `ended`.
-    ErrandEnded { errand: ErrandNumber, ended: Ended },
+    ErrandEnded {
+        errand: ErrandNumber,
+        ended: Ended,
+    },
 }
 
 pub(super) async fn apply(
@@ -480,7 +482,6 @@ pub(super) fn ended(
     ]
 }
 
-/// The hire whose dream errand `n` runs, if it runs a hire's.
 pub(super) async fn hire_of(
     rows: &Rows<'_>,
     n: ErrandNumber,

@@ -39,7 +39,6 @@ function unanswered(asked: PromiseWithResolvers<void>): FauxResponseStep {
     };
 }
 
-/** The words of the notices the agent wrote for people alone. */
 /**
  * Wakes the agent with `settings`, gives it a line, waits for `cut` and
  * kills the host there, then wakes it again.
