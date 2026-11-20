@@ -1,8 +1,10 @@
 /**
  * The demo's Node host: the agent actor over the link, its model a faux one.
  * The model answers the demo's own lines (`run:`, `tell`, `read` and the
- * others below). Given `--faux <script>`, it first answers with the script's
- * steps, one per request in order, and then with those lines.
+ * others below), and the line `tools` with the tools it is offered, one
+ * `<name>: <description>` a line. Given `--faux <script>`, it first answers
+ * with the script's steps, one per request in order, and then with those
+ * lines.
  *
  * A script is JSON, after today's server's `--faux` file:
  *
@@ -113,6 +115,11 @@ const LINES: readonly Line[] = [
         args: (path, content) => ({ path, content }),
     },
     {
+        form: /^object: (.+)$/s,
+        tool: "object",
+        args: (reason) => ({ reason }),
+    },
+    {
         form: /^(die in )?edit (\S+): (.+?) -> (.*)$/s,
         tool: "edit",
         args: (dies, path, oldText, newText) => {
@@ -135,6 +142,14 @@ const echo: FauxResponseFactory = (context): AssistantMessage => {
     if (last === undefined) return ai.fauxAssistantMessage("Heard nothing.");
     const words = wordsOf(last);
     if (last.role !== "user") return ai.fauxAssistantMessage(`Done: ${words}`);
+    if (words === "tools") {
+        return ai.fauxAssistantMessage(
+            ai
+                .getCurrentTools(context.messages)
+                .map((tool) => `${tool.name}: ${tool.description}`)
+                .join("\n"),
+        );
+    }
     for (const line of LINES) {
         const found = line.form.exec(words);
         if (found === null) continue;
