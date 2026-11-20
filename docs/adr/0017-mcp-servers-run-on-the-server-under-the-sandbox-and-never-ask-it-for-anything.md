@@ -43,8 +43,9 @@ the result a model is given.
 - A server's `readOnlyHint` only decides whether a call waits for a chief,
   and the chief's entry overrides it both ways: the chief chose the server,
   and a tool that does not say it only reads always waits.
-- A server's reach is fixed while it runs, so a call the gate rules to run
-  without the network does not run on a server that has it.
+- A server's network is the chief's, given in its entry, and holds no
+  call: an agent without network standing uses the tools of a server that
+  has it.
 - The streamable HTTP transport is a feature of the same crate: an entry
   that says a url instead of a command, its headers and OAuth tokens kept
   by the server (ADR 0005). It needs the workspace's `reqwest` at the

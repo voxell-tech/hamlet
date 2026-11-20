@@ -49,7 +49,7 @@ use crate::runtimes::Runtimes;
 use crate::society::oversight::Asked;
 use crate::society::oversight::gate::Reach;
 use crate::society::rejection::Rejection;
-use crate::tools::builtin::{Network, Outcome, Sight};
+use crate::tools::builtin::{Outcome, Sight};
 
 /// Every MCP tool's name begins so, and no other tool's does.
 pub(crate) const PREFIX: &str = "mcp__";
@@ -533,11 +533,12 @@ impl Mcp {
         self.running.contains_key(name)
     }
 
-    /// What the tool `name` reaches; none when no MCP server offers
-    /// it.
+    /// What the tool `name` reaches, as the gate weighs it; none when
+    /// no MCP server offers it. A server's network is the chief's,
+    /// given when it was listed, so it holds no call.
     pub(crate) fn reach_of(&self, name: &str) -> Option<Reach> {
         self.owner(name).map(|(_, running, listed)| Reach {
-            net: running.server.net,
+            net: false,
             acts: running.server.acts(&listed.tool, listed.read_only),
         })
     }
@@ -552,7 +553,6 @@ impl Mcp {
             tool: listed.tool.clone(),
             parameters: serde_json::to_value(&listed.spec.parameters)
                 .unwrap_or_default(),
-            net: running.server.net,
             timeout: running.server.timeout,
             secrets: running.server.secrets(),
             standing: running.standing.clone(),
@@ -963,19 +963,17 @@ pub(crate) struct Route {
     tool: String,
     /// The JSON Schema of its arguments.
     parameters: Value,
-    net: bool,
     timeout: Duration,
     secrets: Vec<String>,
     standing: Standing,
 }
 
 impl Route {
-    /// Calls the tool with `arguments`, allowed `network`, and gives
-    /// its result without `secrets` or the server's own, with the
-    /// images the model of `sight` takes.
+    /// Calls the tool with `arguments`, and gives its result without
+    /// `secrets` or the server's own, with the images the model of
+    /// `sight` takes.
     pub(crate) async fn run(
         self,
-        network: Network,
         secrets: &[String],
         arguments: Map<String, Value>,
         sight: &Sight,
@@ -989,18 +987,6 @@ impl Route {
         let thrown = |code: &str, words: String| {
             Outcome::thrown(code, scrub_text(&secrets, &words))
         };
-        // A server runs with the reach its entry declares, never
-        // less; a call ruled to run without the network does not
-        // reach it.
-        if self.net && !network.is_open() {
-            return thrown(
-                "tool_error",
-                format!(
-                    "The MCP server {server} reaches the network, \
-                     and this call was allowed without it."
-                ),
-            );
-        }
         let given = Value::Object(arguments);
         let invalid = jsonschema::validator_for(&self.parameters)
             .ok()

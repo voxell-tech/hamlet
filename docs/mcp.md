@@ -43,12 +43,11 @@ given.
 | `sandbox.net` | Whether it reaches the network. |
 | `sandbox.limits` | `cpu_secs` and `max_procs`; a server runs for as long as it is listed, so its CPU limit is thirty days unless set. |
 | `timeout_secs` | How long a call may take; 120 when left out. |
-
-An entry has a `command` or a `url`. A server reached by a url runs
-nowhere here, so it takes no `env`, `inherit_env` or `sandbox`; it reaches
-the network, as the gate weighs it.
 | `allow` | Tools, by the server's names, whose calls run without asking, though the server does not say they only read; `*` for every tool. |
 | `ask` | Tools whose calls always wait for a chief, though the server says they only read; `*` for every tool. |
+
+An entry has a `command` or a `url`. A server reached by a url runs
+nowhere here, so it takes no `env`, `inherit_env` or `sandbox`.
 
 A server's name is 1 to 24 lowercase letters, digits and `-`. A key the
 entry does not know, or an entry that does not fit, is named in the prompt,
@@ -138,9 +137,9 @@ elicitation are refused, and a call that asks for input fails.
 
 ## A call
 
-1. The gate classifies it as an added tool, as it does a tool added by
-   hand: it holds for the chief when the server declares the network and
-   the agent has no network standing. A tool that may change something
+1. The gate classifies it as an added tool. A server's network is the
+   chief's, given when it was listed, so no call to it holds for the
+   network, and none is refused for it. A tool that may change something
    outside the realm holds in every mode: one whose server does not mark
    it `readOnlyHint`, unless `allow` names it, or one `ask` names. A name
    in `ask` or `allow` decides before `*`. The chief may allow the tool
@@ -149,9 +148,7 @@ elicitation are refused, and a call that asks for input fails.
 2. The call is marked begun before it runs, so a restart answers that it
    was interrupted instead of running it twice, even for a tool that says
    it only reads.
-3. A server runs with the reach its entry declares, so a call ruled to run
-   without the network, to a server that has it, fails without being sent.
-   Arguments that do not fit the tool's schema fail too.
+3. Arguments that do not fit the tool's schema fail without being sent.
 4. It is sent as `tools/call`. A call that outlasts `timeout_secs`, or whose
    turn is stopped, is cancelled with `notifications/cancelled`.
 5. The result's text is joined, the credentials the realm holds and the

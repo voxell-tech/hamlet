@@ -243,7 +243,7 @@ impl Core<'_, '_> {
                 reply,
                 request,
                 async move {
-                    route.run(net, &secrets, arguments, &sight).await
+                    route.run(&secrets, arguments, &sight).await
                 },
             );
             self.commands.spawn(running);

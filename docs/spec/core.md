@@ -107,8 +107,7 @@ workspace, and starts again with a growing delay when it ends. Each tool it
 lists is offered to every agent as `mcp__<server>__<tool>`, and stays
 offered while its server starts again; a chief or an agent's parent can
 turn one tool, or every tool of a server, off for that agent. A call runs once under its key after
-the gate has ruled on it, never with more network than the ruling allows,
-and gives its result with secrets taken out. A call of a tool its server
+the gate has ruled on it, and gives its result with secrets taken out. A call of a tool its server
 does not say only reads waits for a chief (H11), unless the entry allows
 it; the entry can also make a tool that says it only reads wait. An entry that does not load,
 and a server that never started, are named in the prompt of every agent
