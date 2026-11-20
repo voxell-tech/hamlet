@@ -41,7 +41,7 @@ given.
 | `inherit_env` | Names copied from the environment of the server, so a token need not be written in the file. |
 | `sandbox.fs_ro`, `fs_rw` | Paths it may read and write, relative to its own folder. |
 | `sandbox.net` | Whether it reaches the network. |
-| `sandbox.limits` | `cpu_secs` and `max_procs`; a server runs for as long as it is listed, so its CPU limit is thirty days unless set. |
+| `sandbox.limits` | `max_procs`. A server runs for as long as it is listed, so it has no CPU limit of its own, only the machine's. |
 | `timeout_secs` | How long a call may take; 120 when left out. |
 | `allow` | Tools, by the server's names, whose calls run without asking, though the server does not say they only read; `*` for every tool. |
 | `ask` | Tools whose calls always wait for a chief, though the server says they only read; `*` for every tool. |

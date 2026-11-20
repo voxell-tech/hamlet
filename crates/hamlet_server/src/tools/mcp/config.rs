@@ -26,10 +26,6 @@ const EVERY: &str = "*";
 /// How long a call may take when the entry says nothing.
 const CALL_SECS: u64 = 120;
 
-/// A server runs for as long as it is listed: thirty days of CPU time
-/// unless its entry says less.
-const CPU_SECS: u64 = 30 * 24 * 60 * 60;
-
 /// The shortest value of a server's environment taken out of what it
 /// says. A shorter one is no credential, and taking it out would take
 /// out common words.
@@ -118,7 +114,6 @@ struct Reach {
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct Limits {
-    cpu_secs: Option<u64>,
     max_procs: Option<u64>,
 }
 
@@ -133,7 +128,6 @@ pub(super) struct Server {
     fs_ro: Vec<String>,
     fs_rw: Vec<String>,
     pub net: bool,
-    cpu_secs: u64,
     max_procs: Option<u64>,
     pub timeout: Duration,
     allow: Vec<String>,
@@ -172,7 +166,10 @@ impl Server {
             ..Policy::default()
         };
         policy.rw.push(home.to_owned());
-        policy.limits.cpu_secs = self.cpu_secs;
+        // A server runs for as long as it is listed, so it has no CPU
+        // limit of its own: past what the sandbox can set, the
+        // machine's hard limit holds.
+        policy.limits.cpu_secs = u64::MAX;
         if let Some(procs) = self.max_procs {
             policy.limits.max_procs = procs;
         }
@@ -553,7 +550,6 @@ pub(super) fn parse(
         fs_ro: written.sandbox.fs_ro,
         fs_rw: written.sandbox.fs_rw,
         net: written.sandbox.net || written.url.is_some(),
-        cpu_secs: written.sandbox.limits.cpu_secs.unwrap_or(CPU_SECS),
         max_procs: written.sandbox.limits.max_procs,
         timeout: Duration::from_secs(
             written.timeout_secs.unwrap_or(CALL_SECS),
@@ -590,7 +586,6 @@ fn remote(url: &str, written: &Written) -> Result<(), Unloaded> {
     }
     if !sandbox.fs_ro.is_empty()
         || !sandbox.fs_rw.is_empty()
-        || sandbox.limits.cpu_secs.is_some()
         || sandbox.limits.max_procs.is_some()
     {
         return Err(Unloaded::RemoteKey("sandbox"));
@@ -751,6 +746,7 @@ mod tests {
             [PathBuf::from("/srv/out"), home.to_owned()]
         );
         assert!(!policy.net);
+        assert_eq!(policy.limits.cpu_secs, u64::MAX);
         assert_eq!(policy.env["HOME"], "/realm/mcp/files");
         assert!(
             policy
