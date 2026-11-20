@@ -705,6 +705,9 @@ pub enum HireRefusal {
     NoSuchAgent { address: String },
     #[error("`{lead}` is in another hamlet")]
     OtherHamlet { lead: AgentName },
+    /// The lead named is the Hand or a worker.
+    #[error("`{name}` is not a hire")]
+    NotAHire { name: String },
     #[error("`{lead}` has left: {left}")]
     LeadLeft { lead: AgentName, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]

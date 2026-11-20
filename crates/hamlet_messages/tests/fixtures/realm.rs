@@ -485,6 +485,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 HireRefusal::OtherHamlet { lead: shown(MAYOR) },
             ),
             (
+                "not_a_hire",
+                HireRefusal::NotAHire {
+                    name: "hand".into(),
+                },
+            ),
+            (
                 "lead_left",
                 HireRefusal::LeadLeft {
                     lead: shown(HIRE),

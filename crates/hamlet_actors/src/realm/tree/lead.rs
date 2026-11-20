@@ -239,29 +239,30 @@ impl<By: Lead> Act<By> for Pinned {
         };
         let hire = &self.hire;
         let lead_named = hire.under.as_ref().unwrap_or(&Named::Mayor);
-        let no_such = || HireRefusal::NoSuchAgent {
-            address: lead_named.to_string(),
-        };
         let Some(under) = hiring.under else {
             return refuse(
                 if named.is_none() && *lead_named == Named::Mayor {
                     HireRefusal::NoHamlet
                 } else {
-                    no_such()
+                    HireRefusal::NoSuchAgent {
+                        address: lead_named.to_string(),
+                    }
                 },
             );
         };
         let lead = under.agent.agent;
-        let (AgentKind::Hire, Some(hamlet)) =
-            (under.agent.kind, under.hamlet.as_ref())
-        else {
-            return refuse(no_such());
-        };
         if by.by() != record::By::Agent(lead)
             && let Err(not_a_lead) = by.leads(&under)
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
+        let (AgentKind::Hire, Some(hamlet)) =
+            (under.agent.kind, under.hamlet.as_ref())
+        else {
+            return refuse(HireRefusal::NotAHire {
+                name: under.agent.name.name.clone(),
+            });
+        };
         let purpose = super::given_purpose(hire.purpose.as_deref());
         if purpose.is_none() && super::caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
@@ -886,35 +887,6 @@ mod tests {
             kept(Some(" dig \n")),
             Some(Some("dig".to_owned()))
         );
-    }
-
-    #[test]
-    fn a_hire_under_the_hand_names_no_agent() {
-        let under_the_hand = || Hiring {
-            under: Some(hand()),
-            ..under_5("h")
-        };
-        let hire = hire_for(Some("dig"));
-
-        assert_eq!(
-            hire.decide(&Client, under_the_hand()),
-            Decision::Answer(HireAnswer::refused(
-                HireRefusal::NoSuchAgent {
-                    address: "mayor".to_owned()
-                }
-            ))
-        );
-        for agent in [1, 3] {
-            assert_eq!(
-                hire.decide(&by(agent), under_the_hand()),
-                Decision::Answer(HireAnswer::Refused {
-                    why: LeadRefusal::Act(HireRefusal::NoSuchAgent {
-                        address: "mayor".to_owned()
-                    })
-                }),
-                "by {agent}"
-            );
-        }
     }
 
     #[test]

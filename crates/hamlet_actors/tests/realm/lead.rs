@@ -501,9 +501,10 @@ async fn a_lead_in_another_hamlet_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hire_under_the_hand_names_no_agent() {
-    // a hire under the Hand, by the chief, the Hand and mayor 2: each
-    // is refused `NoSuchAgent`.
+async fn a_hire_under_the_hand_is_refused_as_not_under_a_hire() {
+    // a hire under the Hand: the chief and the Hand hear that the
+    // Hand is not a hire, and mayor 2, which does not lead the Hand,
+    // hears `NotALead`, as today's `may_lead`.
     let realm = Realm::start().await;
     let hamlet = founded(&realm).await;
     let under_the_hand = Hire {
@@ -519,22 +520,24 @@ async fn a_hire_under_the_hand_names_no_agent() {
         .tool(MAYOR, &tool("h2", hire(Some(Named::Hand))))
         .await;
 
+    let not_a_hire = HireRefusal::NotAHire {
+        name: "hand".to_owned(),
+    };
     assert_eq!(
         by_the_chief,
         HireAnswer::Refused {
-            why: HireRefusal::NoSuchAgent {
-                address: "hand".to_owned()
-            }
+            why: not_a_hire.clone()
         }
     );
-    for answer in [by_the_hand, by_the_mayor] {
-        assert_eq!(
-            answer.unwrap(),
-            refused_to_an_agent(HireRefusal::NoSuchAgent {
-                address: "hand".to_owned()
+    assert_eq!(by_the_hand.unwrap(), refused_to_an_agent(not_a_hire));
+    assert_eq!(
+        by_the_mayor.unwrap(),
+        HireAnswer::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead {
+                hire: named_as(1, "hand"),
             })
-        );
-    }
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }
 
