@@ -20,8 +20,32 @@ use super::{
     tool, until, words,
 };
 
+/// `agent` as the author of a letter or an answer.
 fn from(agent: AgentNumber) -> Author {
-    Author { agent, name: None }
+    Author {
+        agent,
+        name: Some(shown(agent).name),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_from_the_hand_names_the_hand() {
+    let (realm, _) = hamlet_with(0).await;
+
+    realm
+        .tool(Hand::NUMBER, &tool("t1", tell(to(MAYOR), "hello")))
+        .await
+        .unwrap();
+    let given = seen_submits(&realm, MAYOR, 1).await;
+
+    assert_eq!(
+        given[0].input,
+        Input::Letter {
+            from: from(Hand::NUMBER),
+            text: "hello".to_owned(),
+            files: Vec::new(),
+        }
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

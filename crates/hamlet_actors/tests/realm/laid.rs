@@ -154,7 +154,7 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
         Input::Letter {
             from: Author {
                 agent: THREE,
-                name: None
+                name: Some(shown(THREE).name),
             },
             text: "hi".to_owned(),
             files: Vec::new(),
