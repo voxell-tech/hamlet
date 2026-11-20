@@ -28,6 +28,8 @@ const LABEL: f32 = 90.0;
 pub(crate) enum Asking {
     /// Starting a worker in this hamlet.
     Worker(Entity),
+    /// Adding an MCP server, or changing one.
+    McpServer,
 }
 
 /// The form that is open, if one is.
@@ -87,6 +89,22 @@ pub(crate) fn form(
     + Sync
     + 'static,
 ) -> AnyView {
+    filled_form(asking, says, fields, Vec::new(), go, send)
+}
+
+/// The form of [`form`], its fields holding `filled` as it opens.
+pub(crate) fn filled_form(
+    asking: Asking,
+    says: &'static str,
+    fields: &'static [(&'static str, &'static str)],
+    filled: Vec<String>,
+    go: &'static str,
+    send: impl Fn(&mut World, &[String]) -> bool
+    + Clone
+    + Send
+    + Sync
+    + 'static,
+) -> AnyView {
     keyed(
         resource::<OpenForm, _>(move |open| open.0 == Some(asking)),
         move |open| {
@@ -94,6 +112,7 @@ pub(crate) fn form(
                 return column(()).boxed();
             }
             let send = send.clone();
+            let filled = filled.clone();
             with_cx(move |cx| {
                 let gap = cx.theme().space.gap;
                 let mut parts = vec![note(says).boxed()];
@@ -104,11 +123,17 @@ pub(crate) fn form(
                                 .tone(Tone::Faint)
                                 .wrap(false),))
                             .width(px(LABEL)),
-                            text_field(String::new(), |_, _| {})
-                                .grow(1.0)
-                                .min_width(px(0.0))
-                                .rules(text_input)
-                                .tagged(Field(at)),
+                            text_field(
+                                filled
+                                    .get(at)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                |_, _| {},
+                            )
+                            .grow(1.0)
+                            .min_width(px(0.0))
+                            .rules(text_input)
+                            .tagged(Field(at)),
                         ))
                         .gap(gap)
                         .align(AlignItems::Center)

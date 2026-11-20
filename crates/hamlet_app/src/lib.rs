@@ -16,6 +16,7 @@ mod hover;
 pub mod limits;
 pub mod lists;
 mod markdown;
+mod mcp;
 pub mod menu;
 pub mod models;
 mod naming;
@@ -115,6 +116,7 @@ impl Plugin for UiPlugin {
                 folder::plugin,
                 limits::plugin,
                 models::plugin,
+                mcp::plugin,
                 asking::plugin,
                 select::plugin,
                 welcome::plugin,
