@@ -24,12 +24,7 @@ use super::{commands, frames, words};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
-/// What a client message becomes. A connection's lines, commands,
-/// edits, stops, calls and the door's own answers are served in the
-/// order sent, and a stop ends the waits of those sent before it; an
-/// answer naming its wait is served once the stops sent before it
-/// are answered, and a watch of a chat and a sign-in's step as they
-/// come.
+/// What a client message becomes.
 pub(crate) enum Route {
     /// Answered by the door, with no actor.
     Now(Box<ServerMessage>),
@@ -39,9 +34,8 @@ pub(crate) enum Route {
     Command(Asked),
     /// A stop, which `commands` answers.
     Stop(Asked),
-    /// An answer that names its wait, which `commands` answers
-    /// without waiting for the lines, commands and calls sent before
-    /// it.
+    /// An answer that names its wait, which `commands` answers once
+    /// the stops sent before it are answered.
     Answer(Asked),
     /// A chief's line, whose reply is owed until the agent's work on
     /// it ends.

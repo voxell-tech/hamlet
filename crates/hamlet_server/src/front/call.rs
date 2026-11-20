@@ -42,7 +42,7 @@ const AGAIN: Duration = Duration::from_millis(50);
 pub(crate) struct Calls {
     host: Host,
     /// Where the request these calls are for stands among its
-    /// connection's stops; none for the door's own calls.
+    /// connection's stops; none for calls no stop ends.
     place: Option<Place>,
 }
 
@@ -62,8 +62,6 @@ pub(crate) struct Stops(Arc<Sent>);
 
 struct Sent {
     count: watch::Sender<u64>,
-    /// How many of them were answered, which they are in the order
-    /// sent.
     answered: watch::Sender<u64>,
     /// Each stop's number, with an agent it dropped a line to.
     dropped: Mutex<BTreeSet<(u64, AgentNumber)>>,
@@ -86,9 +84,11 @@ impl Stops {
         }
     }
 
-    /// Counts a stop received now.
-    pub(crate) fn stop(&self) {
+    /// Counts a stop received now, giving its place: after itself,
+    /// so its number is the count of stops it comes after.
+    pub(crate) fn stop(&self) -> Place {
         self.0.count.send_modify(|count| *count += 1);
+        self.place()
     }
 
     /// Counts the oldest stop not answered as answered.
@@ -160,9 +160,9 @@ impl Calls {
         }
     }
 
-    /// The turn of `agent` the stop these calls are for ended by
-    /// dropping a line its connection sent before it: one or none.
-    pub(crate) fn dropped(&self, agent: AgentNumber) -> u32 {
+    /// Takes the line to `agent` that the stop these calls are for
+    /// dropped: one, else none.
+    pub(crate) fn take_dropped(&self, agent: AgentNumber) -> u32 {
         self.place.as_ref().map_or(0, |place| {
             u32::from(
                 place.stops.dropped().remove(&(place.after, agent)),
@@ -236,10 +236,10 @@ impl Calls {
         }
     }
 
-    /// Stops the running turns of `agent`, giving how many, a line
-    /// the stop dropped counted as one. It is tried once: an agent
-    /// the host cannot reach now, as while it is being hired or its
-    /// Node host starts again, runs no turn.
+    /// Stops the running turns of `agent`, giving how many, or one
+    /// when none ran but the stop dropped a line to it. It is tried
+    /// once: an agent the host cannot reach now, as while it is being
+    /// hired or its Node host starts again, runs no turn.
     pub(crate) async fn stop(
         &self,
         agent: AgentNumber,
@@ -264,7 +264,7 @@ impl Calls {
             Err(error) if starting(&error) || lost(&error) => 0,
             Err(error) => return Err(error),
         };
-        Ok(turns.max(self.dropped(agent)))
+        Ok(turns.max(self.take_dropped(agent)))
     }
 
     /// Calls the action `name` of the actor at `to` with `args`. An

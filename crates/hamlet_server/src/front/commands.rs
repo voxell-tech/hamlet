@@ -600,8 +600,8 @@ pub(crate) async fn answer(
 }
 
 /// Stops each living agent `view` shows, and gives the turns
-/// stopped. An agent still being hired has no turn to stop but the
-/// line the stop dropped.
+/// stopped. Any other agent counts one when the stop dropped a line
+/// to it.
 pub(crate) async fn stop_all(
     calls: &Calls,
     view: &View,
@@ -611,7 +611,7 @@ pub(crate) async fn stop_all(
     for seen in &view.world.agents {
         turns += match seen.status {
             Status::Live => stop(calls, id, seen.agent).await?,
-            _ => calls.dropped(seen.agent),
+            _ => calls.take_dropped(seen.agent),
         };
     }
     Ok(turns)

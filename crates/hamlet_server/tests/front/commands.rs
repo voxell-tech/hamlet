@@ -164,8 +164,6 @@ async fn the_charter_edit_is_saved() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// A stop closes the waits of the agent it stops, so the answer sent
-/// right after it finds its wait closed.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_answer_sent_after_a_stop_finds_its_wait_closed() {
     for round in 1..=3 {

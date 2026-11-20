@@ -196,10 +196,10 @@ impl Hub {
         }
     }
 
-    /// Owes `client` the reply of its line `id` to `agent`, and tells
-    /// once `agent`'s chat is followed, so no change after it is
-    /// missed. An `Err` from it means the hub answered the line
-    /// already.
+    /// Owes `client` the reply of its line `id` to `agent`. The
+    /// receiver resolves once `agent`'s chat is followed, so no
+    /// change after it is missed, and fails when the hub answered the
+    /// line already.
     pub(crate) fn owe(
         &self,
         client: u64,

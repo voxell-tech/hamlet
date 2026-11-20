@@ -36,7 +36,7 @@ use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
 use self::call::{
-    Calls, Given, Stops, failed, failure, server_failed,
+    Calls, Given, Place, Stops, failed, failure, server_failed,
 };
 use self::commands::Outcome;
 use self::host::HAND;
@@ -407,8 +407,7 @@ impl Door {
             }
             Route::Stop(asked) => {
                 let stops = self.queue(client).stops.clone();
-                stops.stop();
-                let asker = self.ask_in_turn(client);
+                let asker = self.ask_at(client, stops.stop());
                 self.in_turn(client, async move {
                     asker.command(asked).await;
                     stops.answered();
@@ -428,7 +427,6 @@ impl Door {
         }
     }
 
-    /// The queue of `client`'s requests.
     fn queue(&mut self, client: u64) -> &Queue {
         let work = &mut self.work;
         self.queues.entry(client).or_insert_with(|| {
@@ -479,6 +477,11 @@ impl Door {
     /// waits a stop it sends next ends.
     fn ask_in_turn(&mut self, client: u64) -> Asker {
         let place = self.queue(client).stops.place();
+        self.ask_at(client, place)
+    }
+
+    /// The door's means for a request of `client` at `place`.
+    fn ask_at(&self, client: u64, place: Place) -> Asker {
         Asker {
             calls: self.calls.at(place),
             ..self.ask(client)
@@ -828,9 +831,8 @@ impl Asker {
     }
 
     /// Gives the realm a chief's line to `agent` once the hub follows
-    /// its chat. A stop the connection sent after it, coming before
-    /// the agent took it, drops it, and its reply is the empty notice
-    /// of a line that ended.
+    /// its chat, unless a stop the connection sent after it comes
+    /// first.
     async fn line(&self, say: protocol::Say, agent: AgentNumber) {
         let id = say.id.clone();
         let held = self.hub.owe(self.client, agent, &id);

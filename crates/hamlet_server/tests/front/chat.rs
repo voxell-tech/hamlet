@@ -178,9 +178,6 @@ async fn a_line_dropped_by_stop_is_answered() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// A line and a `/stop` sent back to back, as a piped `hamlet chat`
-/// sends them, twenty times: the stop finds the line's turn and ends
-/// it before its answer. Each answer takes 2 s unless stopped.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_sent_after_a_line_ends_that_lines_turn() {
     let rounds = 20;
@@ -223,8 +220,6 @@ async fn a_stop_sent_after_a_line_ends_that_lines_turn() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// A line, then `/stop`, while the Node host is down: the stop drops
-/// the line, which never runs once the host is back.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_line_stopped_while_its_agent_is_down_never_runs() {
     let held = HeldNode::new();
@@ -275,8 +270,6 @@ async fn a_line_stopped_while_its_agent_is_down_never_runs() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// A read of an agent whose Node host is down waits for the host; a
-/// `/stop` sent after it ends that wait and is answered at once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_ends_the_wait_of_a_call_sent_before_it() {
     let held = HeldNode::new();
@@ -945,7 +938,6 @@ impl HeldNode {
     }
 }
 
-/// Kills the server's Node host and waits until it has ended.
 async fn kill_node(home: &Scratch) {
     let pid = std::fs::read_to_string(home.join("demo-node.pid"))
         .unwrap()
