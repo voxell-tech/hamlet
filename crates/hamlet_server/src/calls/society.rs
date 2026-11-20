@@ -95,9 +95,6 @@ impl Core<'_, '_> {
                 self.send_notification(call, args)
             }
             Called::Request(args) => self.send_request(call, args),
-            Called::ProposeChannel(args) => {
-                self.propose_channel(call, args)
-            }
             Called::StartWorker(args) => {
                 self.start_worker(call, args)
             }
@@ -321,8 +318,8 @@ impl Core<'_, '_> {
                 b,
                 reason,
             }) => {
-                let a = done!(self.child(call, &a, here));
-                let b = done!(self.child(call, &b, here));
+                let (a, b) =
+                    done!(self.channel_ends(call, &a, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
                 self.carry(call, |cx, _| {
@@ -341,8 +338,8 @@ impl Core<'_, '_> {
                 b,
                 reason,
             }) => {
-                let a = done!(self.child(call, &a, here));
-                let b = done!(self.child(call, &b, here));
+                let (a, b) =
+                    done!(self.channel_ends(call, &a, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 self.carry(call, |cx, _| {
                     Ok(channels::close(cx, a, b, &reason)?.map(
@@ -541,7 +538,6 @@ impl Core<'_, '_> {
             Called::Object(_)
             | Called::Notify(_)
             | Called::Request(_)
-            | Called::ProposeChannel(_)
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
             | Called::RequestLibrarian(_) => {
@@ -767,6 +763,26 @@ impl Core<'_, '_> {
     ) -> Done<AgentId> {
         let agent = done!(self.named_within(address, here, reach));
         Ok(self.require_child(call, agent)?.map(|()| agent))
+    }
+
+    /// The ends at `a` and `b` of a channel `call`'s agent may open
+    /// or close: one of them itself, or both agents it is a parent
+    /// of.
+    fn channel_ends(
+        &mut self,
+        call: &Call<'_>,
+        a: &str,
+        b: &str,
+        here: Option<&HamletId>,
+    ) -> Done<(AgentId, AgentId)> {
+        let a = done!(self.named(a, here));
+        let b = done!(self.named(b, here));
+        let caller = call.conversation.agent;
+        if a != caller && b != caller {
+            done!(self.require_child(call, a));
+            done!(self.require_child(call, b));
+        }
+        Ok(Ok((a, b)))
     }
 
     /// Rejects unless `agent` is an agent of a hamlet `call`'s agent

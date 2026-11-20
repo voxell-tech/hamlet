@@ -364,8 +364,8 @@ pub(crate) enum Rejection {
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no channel to {other}. Propose one to your parent \
-         with propose_channel."
+        "You have no channel to {other}. Open one with open_channel \
+         if it is of your hamlet."
     )]
     NoChannelTo { other: String },
     #[error("That is not one of your lines in this conversation.")]

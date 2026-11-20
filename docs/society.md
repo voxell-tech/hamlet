@@ -65,8 +65,8 @@ no society tools, and ends with its answer, which goes back to its starter.
 ## Channels and messages
 
 Tree channels join an agent to its parent and the agents under it, and the
-Hand to each lead. A parent or a chief opens a channel between two agents of
-one hamlet, which costs the hamlet and the task that opened it. Agents of
+Hand to each lead. An agent opens a channel to another agent of its hamlet,
+and a parent or a chief one between two agents of a hamlet, which costs the hamlet and the task that opened it. Agents of
 different hamlets have a channel once both leads call `agree_channel`, while
 the realm's limits allow it.
 

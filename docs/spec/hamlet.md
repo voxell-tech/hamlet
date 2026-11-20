@@ -348,16 +348,16 @@ has one; it is off unless turned on.
 - **Tree channels**: an agent to its parent and to each agent under it, and
   the Hand to each lead.
 - **Leads' channels**: between each two leads.
-- **Opened channels**: between two agents of one hamlet, opened by a parent
-  over both, or by a chief. Each costs the hamlet [$0.01], up to the most
+- **Opened channels**: between two agents of one hamlet, opened by one of
+  them, a parent over both, or a chief. Each costs the hamlet [$0.01], up to the most
   the limits allow [24] in a hamlet, and is charged to the task that opened
   it; a chief's channel has no task. What a channel cost is not given back.
 - **Agreed channels**: between agents of different hamlets, once both leads
   agree (`agree_channel`), and only while the realm allows channels between
   hamlets [yes].
 
-A channel nobody used for [7] days is shown grown over. A chief or a parent
-can close an opened or agreed channel. Channels of a merged agent go to the
+A channel nobody used for [7] days is shown grown over. A chief, an agent
+at either end, or a parent over both can close an opened or agreed channel. Channels of a merged agent go to the
 agent that absorbed it, and are not charged again.
 
 **H30.** An agent sends messages only along its channels, in two ways:
@@ -382,9 +382,6 @@ who allows it or refuses it, and the sender is told of a refusal. No send
 holds more than [256 MiB] in one file, [1 GiB] or [10000 files] in all. A
 remote workspace gives at most 4 MiB of a file at once, so a sender working
 there sends no larger file.
-
-An agent can propose to its parent a channel to another agent of its hamlet
-(`propose_channel`).
 
 **H31.** Neither a notification nor a request holds its sender: `request`
 returns as soon as the request is sent, and the sender's turn goes on or
@@ -561,7 +558,7 @@ only the tools in its own row:
 | Who | Tools |
 |---|---|
 | Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `request_mcp_server` (C36), `read_budget` (H8) |
-| Every agent of a hamlet | `propose_channel`, `propose_folder` (C20) |
+| Every agent of a hamlet | `propose_folder` (C20), `open_channel` and `close_channel` for a channel of its own (H3) |
 | A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent` (H46), `reparent_agent` (H41), `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |
 | The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |

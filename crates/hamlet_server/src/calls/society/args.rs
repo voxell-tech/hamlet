@@ -131,17 +131,6 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Propose to your parent a channel to an agent of your hamlet you
-/// need to reach.
-#[derive(Deserialize, JsonSchema)]
-pub(crate) struct ProposeChannel {
-    #[schemars(description = ADDRESS)]
-    pub to: String,
-    #[serde(default)]
-    #[schemars(description = REASON)]
-    pub reason: String,
-}
-
 /// Propose a folder on this machine for your hamlet to work on, with
 /// your reason. A chief answers: when it agrees, the folder is added
 /// to the ones the hamlet works on, and you and your hamlet's agents
@@ -293,8 +282,10 @@ pub(crate) struct RenameAgent {
     pub reason: String,
 }
 
-/// Open a channel between two agents under you, so they can send
-/// each other notifications and requests.
+/// Open a channel between you and another agent of your hamlet, or
+/// between two agents under you, so they can send each other
+/// notifications and requests. Between hamlets, leads use
+/// `agree_channel`.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct OpenChannel {
     #[schemars(description = ADDRESS)]
@@ -306,7 +297,7 @@ pub(crate) struct OpenChannel {
     pub reason: String,
 }
 
-/// Close a channel you opened between two agents under you.
+/// Close a channel of yours, or one between two agents under you.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct CloseChannel {
     #[schemars(description = ADDRESS)]
@@ -826,7 +817,6 @@ called!(
     RequestMcpServer,
     ReadBudget,
     Object,
-    ProposeChannel,
     ProposeFolder,
     CreateProfile,
     MakeProfile,
