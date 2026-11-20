@@ -181,7 +181,7 @@ async fn a_line_dropped_by_stop_is_answered() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_sent_after_a_line_ends_that_lines_turn() {
     let rounds = 20;
-    let answers = (0..rounds)
+    let answers = (0..=rounds)
         .map(|n| json!({ "text": format!("Answer {n}."), "waitMs": 2_000 }))
         .collect::<Vec<_>>();
     let (mut server, _home, _side) = serve(json!(answers)).await;
@@ -205,17 +205,21 @@ async fn a_stop_sent_after_a_line_ends_that_lines_turn() {
             "round {n}: a stopped line is answered with the empty \
              notice"
         );
-        let answers = chief
-            .items(&chat)
-            .into_iter()
-            .filter(|item| item.kind == ItemKind::Assistant)
-            .map(|item| item.text)
-            .collect::<Vec<_>>();
-        assert!(
-            answers.is_empty(),
-            "round {n}: a stopped line's turn answered {answers:?}"
-        );
     }
+    let last = chief.say(hand, "The last line.").await;
+    assert_eq!(last.kind, ReplyKind::Notice, "{}", last.text);
+    let answers = chief
+        .items(&chat)
+        .into_iter()
+        .filter(|item| item.kind == ItemKind::Assistant)
+        .map(|item| item.text)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        answers.len(),
+        1,
+        "only the last line's turn answered, after every turn \
+         before it: {answers:?}"
+    );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
