@@ -25,7 +25,7 @@ fn read(lines: &[&str]) -> Record {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_history_lists_the_decisions_with_a_hire_shown_without_its_purpose()
+async fn the_history_lists_the_decisions_with_the_mayors_hire_before_the_founding()
  {
     let (realm, hamlet) = hamlet_with(1).await;
     let some = |why: &str| Some(why.to_owned());
@@ -134,6 +134,7 @@ async fn the_history_lists_the_decisions_with_a_hire_shown_without_its_purpose()
     .await;
 
     let lines = read(&[
+        "- chief hired hire#2 (Mayor)",
         "- chief founded the hamlet under hire#2 (Mayor): Mayor of \
          Mill.",
         "- hire#2 (Mayor) hired hire#3 (Spade)",

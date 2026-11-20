@@ -330,6 +330,10 @@ impl<By: RealmWide> Act<By> for Found {
                 .change(steps::Change::Begin {
                     row: hire::row(mayor),
                 })
+                .record(record::Entry::Hired {
+                    hire: mayor,
+                    by: by.by(),
+                })
                 .record(record::Entry::Founded {
                     hamlet,
                     mayor,

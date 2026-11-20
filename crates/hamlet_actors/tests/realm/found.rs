@@ -27,7 +27,7 @@ fn count(
 #[tokio::test(flavor = "multi_thread")]
 async fn founding_makes_the_mayor_agent_2() {
     // ask Asked<Found>; the answer is Founded { mayor: 2 }; the
-    // record holds `founded`; the mayor's row is begun.
+    // record holds `hired`, then `founded`; the mayor's row is begun.
     let realm = Realm::start().await;
 
     let answer = realm
@@ -42,21 +42,21 @@ async fn founding_makes_the_mayor_agent_2() {
         panic!("the chief founds a hamlet: {answer:?}");
     };
     assert_eq!(mayor, AgentNumber(2));
-    let (decision, row) = realm
+    let (decisions, row) = realm
         .stopped_rows(|db| {
-            let decision = db
-                .query_row(
-                    "SELECT kind, hamlet, by FROM decision",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
-                )
-                .optional()?;
+            let decisions = db
+                .prepare(
+                    "SELECT kind, hamlet, by FROM decision ORDER BY \
+                     id",
+                )?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             let row = db
                 .query_row(
                     "SELECT n FROM step WHERE kind = 'hire' AND n = \
@@ -65,17 +65,13 @@ async fn founding_makes_the_mayor_agent_2() {
                     |row| row.get::<_, i64>(0),
                 )
                 .optional()?;
-            Ok((decision, row))
+            Ok((decisions, row))
         })
         .await;
-    assert_eq!(
-        decision,
-        Some((
-            "founded".to_owned(),
-            Some(hamlet.0),
-            "chief".to_owned()
-        ))
-    );
+    let kept = |kind: &str| {
+        (kind.to_owned(), Some(hamlet.0.clone()), "chief".to_owned())
+    };
+    assert_eq!(decisions, [kept("hired"), kept("founded")]);
     assert_eq!(row, Some(2), "the mayor's row is begun");
     realm.host.shutdown().await.unwrap();
 }
