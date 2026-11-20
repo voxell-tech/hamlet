@@ -264,15 +264,21 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
 
 /// The model `agent` runs, with its card's price: each part its own
 /// choice's, else a worker's starter's, else its hamlet's, else the
-/// realm's (`crates/hamlet_server/src/talk/models.rs:96-109`).
+/// realm's (`crates/hamlet_server/src/talk/models.rs:96-109`). A
+/// worker's fast mode is its own alone (`talk/models.rs:38`).
 pub(super) async fn model(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<ModelChoice>> {
     let chosen = match workers::starter_of(rows, agent).await? {
-        Some(starter) => choices::choice(rows, &Chosen::Agent(agent))
-            .await?
-            .or(choice_of(rows, starter).await?),
+        Some(starter) => {
+            let own =
+                choices::choice(rows, &Chosen::Agent(agent)).await?;
+            Choice {
+                fast: own.fast,
+                ..own.or(choice_of(rows, starter).await?)
+            }
+        }
         None => choice_of(rows, agent).await?,
     };
     let Some(model) = chosen.model else {
