@@ -2,6 +2,7 @@ use hamlet_messages::realm::choices::{
     ChoiceRefusal, ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
     Done, DoneTo, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
     Rank, SetTools,
@@ -479,5 +480,48 @@ async fn a_choice_for_no_agent_names_its_address() {
     .await;
 
     assert_eq!(words(nicknamed), "no agent has the address `hire#9`");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_sets_a_workers_model_and_its_lead_may_not() {
+    let (realm, _) = hamlet_with(1).await;
+    let start = StartWorker {
+        brief: "count the files".to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    };
+    realm.tool(THREE, &tool("w1", start)).await.unwrap();
+    let of_four = || SetModel {
+        model: Some("faux::faux-1".to_owned()),
+        ..model_of(ModelOf::Hire {
+            hire: Named::Worker { worker: FOUR },
+        })
+    };
+
+    let by_the_chief = chief(&realm, of_four()).await;
+    let by_its_lead =
+        realm.tool(THREE, &tool("m1", of_four())).await.unwrap();
+
+    assert_eq!(by_the_chief, Done::Done);
+    assert_eq!(
+        by_its_lead,
+        DoneTo::Refused {
+            why: LeadRefusal::Act(ChoiceRefusal::NotAHire {
+                name: "worker#4".to_owned()
+            })
+        }
+    );
+    assert_eq!(words(by_its_lead), "`worker#4` is not a hire");
+    assert_eq!(
+        model_choices(&realm).await,
+        [(
+            "agent/4".to_owned(),
+            Some("faux::faux-1".to_owned()),
+            None,
+            None
+        )]
+    );
     realm.host.shutdown().await.unwrap();
 }
