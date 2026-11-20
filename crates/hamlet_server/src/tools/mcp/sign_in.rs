@@ -3,10 +3,11 @@
 //! authorization server, gives the chief the address to sign in at,
 //! and takes the code back on this machine's loopback, or from the
 //! address the chief's browser ended on. The tokens are kept in
-//! `mcp/.signed-in/<name>.json`, out of every agent's reach and every
+//! `mcp/.signed-in/<name>/`, out of every agent's reach and every
 //! program server's, and refreshed there.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use bevy_ecs::message::Message;
@@ -70,6 +71,9 @@ pub(super) async fn secrets(file: &Path) -> Vec<String> {
 
 /// A sign-in under way, which ends when this drops.
 pub(super) struct Signing {
+    /// Which sign-in this is, so the steps of one it replaced are
+    /// told apart.
+    pub attempt: u64,
     /// The address the chief signs in at, once the server gave it.
     pub address: Option<String>,
     /// Where the address the chief's browser ended on goes.
@@ -94,6 +98,7 @@ impl Drop for Signing {
 #[derive(Message)]
 pub(crate) struct SignInStep {
     pub server: String,
+    pub attempt: u64,
     pub step: Step,
 }
 
@@ -124,29 +129,41 @@ pub(super) fn begin(
     url: String,
     file: PathBuf,
     inputs: InputSender,
-) -> Signing {
+) -> std::io::Result<Signing> {
+    static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+    let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
     let (pasted, from_chief) = mpsc::channel(1);
     let task = tokio::spawn(async move {
-        let step =
-            match sign_in(&server, &url, &file, from_chief, &inputs)
-                .await
-            {
-                Ok(()) => Step::Done,
-                Err(unsigned) => {
-                    Step::Failed(first_line(&unsigned.to_string()))
-                }
-            };
-        let _ = inputs.send(SignInStep { server, step });
+        let step = match sign_in(
+            &server, attempt, &url, &file, from_chief, &inputs,
+        )
+        .await
+        {
+            Ok(()) => Step::Done,
+            Err(unsigned) => {
+                Step::Failed(first_line(&unsigned.to_string()))
+            }
+        };
+        let _ = inputs.send(SignInStep {
+            server,
+            attempt,
+            step,
+        });
     });
-    Signing {
+    Ok(Signing {
+        attempt,
         address: None,
         pasted,
         task: task.abort_handle(),
-    }
+    })
 }
 
 async fn sign_in(
     server: &str,
+    attempt: u64,
     url: &str,
     file: &Path,
     mut pasted: mpsc::Receiver<String>,
@@ -175,6 +192,7 @@ async fn sign_in(
     inputs
         .send(SignInStep {
             server: server.to_owned(),
+            attempt,
             step: Step::Address(address),
         })
         .map_err(|_| Unsigned::Stopping)?;
@@ -307,15 +325,25 @@ fn stored(error: &impl std::fmt::Display) -> AuthError {
 }
 
 /// Writes `bytes` to `file` at once, readable by this account alone.
+/// Its folder is made when a sign-in begins, never here, so a write
+/// that ends after the server was removed fails instead of keeping
+/// its tokens.
 fn write_private(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
-    let folder = file.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(folder)?;
-    let partial = file.with_extension("partial");
+    // Each write its own, so two at once never mix.
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let write = WRITES.fetch_add(1, Ordering::Relaxed);
+    let partial = file.with_extension(format!("{write}.partial"));
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(&partial)?.write_all(bytes)?;
-    std::fs::rename(&partial, file)
+    let written = options
+        .open(&partial)
+        .and_then(|mut opened| opened.write_all(bytes))
+        .and_then(|()| std::fs::rename(&partial, file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&partial);
+    }
+    written
 }

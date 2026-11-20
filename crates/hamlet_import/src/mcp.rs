@@ -231,17 +231,32 @@ fn server_name(name: &str) -> String {
 }
 
 /// The entry of Hamlet's list for the server `written` as another
-/// program lists it. Its program is named by its full path, and a
-/// program installed in the home folder gets its install folder to
-/// read. It reaches the network, as it did there.
+/// program lists it.
 fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
     let url = written
         .get("url")
         .or_else(|| written.get("httpUrl"))
         .and_then(Value::as_str);
-    if let Some(url) = url {
-        return remote(url, written);
+    let mut entry = match url {
+        Some(url) => remote(url, written)?,
+        None => program(written)?,
+    };
+    if let Some(secs) = written
+        .get("timeout")
+        .and_then(Value::as_u64)
+        .filter(|secs| *secs > 0)
+    {
+        entry.insert("timeout_secs".into(), secs.into());
     }
+    Ok(entry.into())
+}
+
+/// The entry of a server that is a program on this machine, named by
+/// its full path. A program installed in the home folder gets its
+/// install folder to read. It reaches the network, as it did there.
+fn program(
+    written: &Map<String, Value>,
+) -> Result<Map<String, Value>, Unrunnable> {
     if written.contains_key("cwd") {
         return Err(Unrunnable::Cwd);
     }
@@ -313,14 +328,7 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
         entry.insert("inherit_env".into(), json!(inherit));
     }
     entry.insert("sandbox".into(), sandbox.into());
-    if let Some(secs) = written
-        .get("timeout")
-        .and_then(Value::as_u64)
-        .filter(|secs| *secs > 0)
-    {
-        entry.insert("timeout_secs".into(), secs.into());
-    }
-    Ok(entry.into())
+    Ok(entry)
 }
 
 /// The entry of a server reached at `url`, with the headers its
@@ -329,7 +337,7 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
 fn remote(
     url: &str,
     written: &Map<String, Value>,
-) -> Result<Value, Unrunnable> {
+) -> Result<Map<String, Value>, Unrunnable> {
     if written.get("type").and_then(Value::as_str) == Some("sse") {
         return Err(Unrunnable::Sse);
     }
@@ -357,7 +365,7 @@ fn remote(
     if !headers.is_empty() {
         entry.insert("headers".into(), Value::Object(headers));
     }
-    Ok(entry.into())
+    Ok(entry)
 }
 
 /// The program `program` names: itself when it is a path, else the
@@ -456,12 +464,14 @@ mod tests {
             "type": "http",
             "url": "https://x",
             "headers": {"Authorization": "Bearer t"},
+            "timeout": 30,
         });
         assert_eq!(
             entry(remote.as_object().unwrap()),
             Ok(json!({
                 "url": "https://x",
                 "headers": {"Authorization": "Bearer t"},
+                "timeout_secs": 30,
             }))
         );
         let codex = json!({

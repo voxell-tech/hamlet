@@ -152,9 +152,22 @@ fn take_in_sign_ins(
     mut changed: ResMut<InputEffects>,
 ) {
     let sandbox = tools.sandbox.0;
-    for SignInStep { server, step } in steps.drain() {
-        changed.state_changed_outside_change = true;
+    for SignInStep {
+        server,
+        attempt,
+        step,
+    } in steps.drain()
+    {
         let mcp = &mut tools.mcp;
+        // A step of a sign-in since replaced or removed.
+        if mcp
+            .signing
+            .get(&server)
+            .is_none_or(|signing| signing.attempt != attempt)
+        {
+            continue;
+        }
+        changed.state_changed_outside_change = true;
         match step {
             Step::Address(address) => {
                 if let Some(signing) = mcp.signing.get_mut(&server) {
@@ -622,7 +635,9 @@ impl Core<'_, '_> {
         if config::holds(&folder, &asked.name, &asked.entry) {
             return Ok(());
         }
-        if self.tools.mcp.running.contains_key(&asked.name) {
+        // Never in place of the chief's own entry, though it does not
+        // load.
+        if config::lists(&folder, &asked.name) {
             return Err(Rejection::BadMcp {
                 why: format!(
                     "MCP server {} is listed already.",
@@ -664,23 +679,53 @@ impl Core<'_, '_> {
                 format!("MCP server {name} is saved.")
             }
             McpAct::Remove { name } => {
-                config::remove(&folder, &name).map_err(refused)?;
+                // A server removed before its sign-in could be is
+                // removed again for it.
+                let removed = match config::remove(&folder, &name) {
+                    Err(config::Unchanged::NoServer(_)) => false,
+                    removed => {
+                        removed.map_err(refused)?;
+                        true
+                    }
+                };
                 // Its sign-in goes with it.
                 self.tools.mcp.signing.remove(&name);
                 self.tools.mcp.sign_in_failed.remove(&name);
                 let tokens =
                     sign_in::folder(self.realm.layout(), &name);
-                if let Err(error) = std::fs::remove_dir_all(&tokens)
-                    && error.kind() != std::io::ErrorKind::NotFound
+                let signed_in = match std::fs::remove_dir_all(&tokens)
                 {
-                    return Err(Rejection::BadMcp {
-                        why: format!(
-                            "MCP server {name} is removed, but its \
-                             sign-in is not: {error}"
-                        ),
-                    });
+                    Ok(()) => true,
+                    Err(error)
+                        if error.kind()
+                            == std::io::ErrorKind::NotFound =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(Rejection::BadMcp {
+                            why: format!(
+                                "MCP server {name}'s sign-in is not \
+                                 removed: {error}"
+                            ),
+                        });
+                    }
+                };
+                match (removed, signed_in) {
+                    (true, _) => {
+                        format!("MCP server {name} is removed.")
+                    }
+                    (false, true) => {
+                        format!(
+                            "MCP server {name}'s sign-in is removed."
+                        )
+                    }
+                    (false, false) => {
+                        return Err(refused(
+                            config::Unchanged::NoServer(name),
+                        ));
+                    }
                 }
-                format!("MCP server {name} is removed.")
             }
             McpAct::SignIn {
                 name,
@@ -728,7 +773,15 @@ impl Core<'_, '_> {
                     url,
                     file,
                     self.inputs.clone(),
-                );
+                )
+                .map_err(|error| {
+                    Rejection::BadMcp {
+                        why: format!(
+                            "MCP server {name}: the sign-in cannot \
+                             begin: {error}"
+                        ),
+                    }
+                })?;
                 self.tools.mcp.sign_in_failed.remove(&name);
                 self.tools.mcp.signing.insert(name.clone(), signing);
                 format!(
@@ -808,11 +861,14 @@ impl Core<'_, '_> {
                         ))
                     })
                     .collect::<Vec<_>>();
-                let added =
+                let (added, unfit) =
                     config::add(&folder, entries).map_err(refused)?;
                 let left = names
                     .iter()
-                    .filter(|name| !added.contains(name))
+                    .filter(|name| {
+                        !added.contains(name)
+                            && !unfit.iter().any(|(n, _)| n == *name)
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
                 let mut words = if added.is_empty() {
@@ -825,6 +881,18 @@ impl Core<'_, '_> {
                         " Not added, as they are listed already, \
                          cannot run here or were not found: {}.",
                         left.join(", ")
+                    ));
+                }
+                if !unfit.is_empty() {
+                    words.push_str(&format!(
+                        " Not added, as they would not load:\n{}",
+                        unfit
+                            .iter()
+                            .map(|(name, why)| format!(
+                                "- {name}: {why}"
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     ));
                 }
                 words

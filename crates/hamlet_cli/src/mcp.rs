@@ -273,14 +273,20 @@ async fn sign_in(client: &mut Client, name: &str) -> Result<()> {
     let failed = format!("MCP server {name}: the sign-in failed");
     let mut shown = false;
     loop {
-        let ServerMessage::Change(changes) = client.next().await?
-        else {
-            continue;
+        // A client that fell behind is sent the whole state again.
+        let seen = match client.next().await? {
+            ServerMessage::State(state) => vec![state.settings],
+            ServerMessage::Change(changes) => changes
+                .changes
+                .into_iter()
+                .filter_map(|update| match update {
+                    Update::Settings { settings } => Some(settings),
+                    _ => None,
+                })
+                .collect(),
+            _ => continue,
         };
-        for update in changes.changes {
-            let Update::Settings { settings } = update else {
-                continue;
-            };
+        for settings in seen {
             if let Some(fault) = settings
                 .mcp
                 .faults

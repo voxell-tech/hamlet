@@ -207,11 +207,16 @@ fn rule_calls(
         {
             gate::grant_session(cx.db, session, chief, danger)?;
         }
+        // A worker's conversation keeps it too, as its chat would.
         if ruling == Ruling::Always
             && wait.danger == Some(Danger::Act)
-            && let Some(session) = chat_session(conversation)
         {
-            gate::grant_tool(cx.db, session, chief, &call.tool)?;
+            gate::grant_tool(
+                cx.db,
+                conversation.id,
+                chief,
+                &call.tool,
+            )?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger

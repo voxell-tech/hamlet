@@ -302,6 +302,12 @@ pub(crate) fn raise(
     cx: &mut Change<'_>,
     raise: Raise,
 ) -> Result<WaitId> {
+    // A server asked for again with another command is another wait.
+    let server = raise
+        .server
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let same = wait::table
         .filter(wait::open.eq(true))
         .filter(wait::kind.eq(raise.kind))
@@ -310,6 +316,7 @@ pub(crate) fn raise(
         .filter(wait::danger.is(raise.danger))
         .filter(wait::profile.is(raise.profile))
         .filter(wait::conversation.is(raise.conversation))
+        .filter(wait::server.is(&server))
         .select(wait::id)
         .first::<WaitId>(cx.db)
         .optional()?;
@@ -342,11 +349,7 @@ pub(crate) fn raise(
                 .as_ref()
                 .map(serde_json::to_string)
                 .transpose()?),
-            wait::server.eq(raise
-                .server
-                .as_ref()
-                .map(serde_json::to_string)
-                .transpose()?),
+            wait::server.eq(&server),
             wait::since.eq(cx.at),
         ))
         .returning(wait::id)

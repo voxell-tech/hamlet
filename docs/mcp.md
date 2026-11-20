@@ -90,8 +90,9 @@ writes one entry at a time and leaves the rest of the file as written:
   `env_vars`, becomes `inherit_env`. A server reached by a url is added
   with its headers, and Codex's `bearer_token_env_var` as an
   `Authorization` header. One on the older SSE transport, or with a `cwd`
-  of its own, is listed and not added. Two that differ under one name are
-  named apart with `-2`, `-3`.
+  of its own, is listed and not added, and so is one this list would not
+  load, with why. Two that differ under one name are named apart with
+  `-2`, `-3`.
 
 No client is sent a value of a server's `env`, only its names; a change
 that leaves a value out keeps the one the entry has. A restart keeps the

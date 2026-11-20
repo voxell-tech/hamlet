@@ -431,7 +431,10 @@ fn found_list(found: &[McpFound]) -> AnyView {
             };
             let about = match (&found.entry, &found.unrunnable) {
                 (_, Some(why)) => why.clone(),
-                (Some(entry), None) => command_line(&entry.command),
+                (Some(entry), None) => entry
+                    .url
+                    .clone()
+                    .unwrap_or_else(|| command_line(&entry.command)),
                 (None, None) => String::new(),
             };
             close((
@@ -615,20 +618,35 @@ fn words(line: &str) -> Result<Vec<String>, String> {
     Ok(words)
 }
 
-/// `words` on one line, a word with a space or a quote quoted.
+/// `words` on one line, a word with a space or a quote quoted: each
+/// run of `"` in `'`, the rest in `"`, which `words` joins again.
 fn command_line(words: &[String]) -> String {
     words
         .iter()
         .map(|word| {
-            if word.is_empty() || word.contains([' ', '"', '\'']) {
-                if word.contains('"') {
-                    format!("'{word}'")
-                } else {
-                    format!("\"{word}\"")
-                }
-            } else {
-                word.clone()
+            if !word.is_empty()
+                && !word.contains(|c: char| {
+                    c.is_whitespace() || c == '"' || c == '\''
+                })
+            {
+                return word.clone();
             }
+            if word.is_empty() {
+                return "\"\"".into();
+            }
+            let mut line = String::new();
+            let mut open = None;
+            for c in word.chars() {
+                let quote = if c == '"' { '\'' } else { '"' };
+                if open != Some(quote) {
+                    line.extend(open);
+                    line.push(quote);
+                    open = Some(quote);
+                }
+                line.push(c);
+            }
+            line.extend(open);
+            line
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -647,6 +665,9 @@ mod tests {
             ["npx", "-y", "@scope/a server", "say \"hi\""]
         );
         assert_eq!(words(&command_line(&read)).unwrap(), read);
+        let odd =
+            ["a\tb", "it's \"x\"", "", "'\"'"].map(String::from);
+        assert_eq!(words(&command_line(&odd)).unwrap(), odd);
         assert!(words("\"open").is_err());
     }
 }

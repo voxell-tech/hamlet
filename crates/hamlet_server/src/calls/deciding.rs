@@ -273,17 +273,12 @@ impl Core<'_, '_> {
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         let limits = society::limits_of(db, at.hamlet.as_ref())?;
-        let (edit, command, acts) =
-            match chat_session(&call.conversation) {
-                Some(session) => {
-                    let (edit, command) =
-                        gate::session_granted(db, session)?;
-                    let acts =
-                        gate::tool_granted(db, session, call.tool)?;
-                    (edit, command, acts)
-                }
-                None => (false, false, false),
-            };
+        let (edit, command) = match chat_session(&call.conversation) {
+            Some(session) => gate::session_granted(db, session)?,
+            None => (false, false),
+        };
+        let acts =
+            gate::tool_granted(db, call.conversation.id, call.tool)?;
         let standing = Standing {
             worktree_edit,
             net: allow_net

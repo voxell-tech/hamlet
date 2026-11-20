@@ -74,6 +74,10 @@ pub(super) enum Unloaded {
     AllowedAndAsked(String),
     #[error("{0} has no value")]
     NoValue(String),
+    #[error("header {0} is not a header's name and value")]
+    BadHeader(String),
+    #[error("{0} holds more than {1} items")]
+    TooMany(&'static str, usize),
     #[error(transparent)]
     Limit(#[from] LimitError),
 }
@@ -418,30 +422,33 @@ pub(super) fn remove(
 }
 
 /// Adds the entries `added` to the list in `folder`, each unless the
-/// list has its name; the names added.
+/// list has its name or it would not load; the names added, and why
+/// each that would not load was left out.
 pub(super) fn add(
     folder: &Path,
     added: Vec<(String, Value)>,
-) -> Result<Vec<String>, Unchanged> {
+) -> Result<(Vec<String>, Vec<(String, Unloaded)>), Unchanged> {
     let mut whole = file(folder)?;
     let servers = whole["servers"]
         .as_object_mut()
         .expect("the file's servers are an object");
     let mut names = Vec::new();
+    let mut unfit = Vec::new();
     for (name, entry) in added {
         if servers.contains_key(&name) {
             continue;
         }
-        parse(&name, entry.clone()).map_err(|unloaded| {
-            Unchanged::Unfit(name.clone(), unloaded)
-        })?;
+        if let Err(unloaded) = parse(&name, entry.clone()) {
+            unfit.push((name, unloaded));
+            continue;
+        }
         servers.insert(name.clone(), entry);
         names.push(name);
     }
     if !names.is_empty() {
         write(folder, &whole)?;
     }
-    Ok(names)
+    Ok((names, unfit))
 }
 
 /// Whether the list in `folder` has the server `name` as `entry`
@@ -457,6 +464,13 @@ pub(super) fn holds(
     written(&json!({}), entry).is_ok_and(|written| {
         whole["servers"].get(name) == Some(&written)
     })
+}
+
+/// Whether the list in `folder` has an entry named `name`, whether
+/// or not it loads.
+pub(super) fn lists(folder: &Path, name: &str) -> bool {
+    file(folder)
+        .is_ok_and(|whole| whole["servers"].get(name).is_some())
 }
 
 /// Why the server `name` with `entry`, written anew, would not load.
@@ -529,6 +543,11 @@ fn written(
     } else {
         sandbox.remove("net");
     }
+    // A program's limits, which a client is not shown, go when it
+    // becomes a server reached by a url.
+    if entry.url.is_some() {
+        sandbox.remove("limits");
+    }
     let empty = sandbox.is_empty();
     set("sandbox", Value::Object(sandbox), empty);
     Ok(Value::Object(written))
@@ -597,6 +616,22 @@ pub(super) fn parse(
     {
         return Err(Unloaded::AllowedAndAsked(both.clone()));
     }
+    // At most what McpEntry lets a client send, so what Settings
+    // shows can be saved back.
+    for (key, count, most) in [
+        ("command", written.command.len(), 256),
+        ("headers", written.headers.len(), 64),
+        ("env", written.env.len(), 256),
+        ("inherit_env", written.inherit_env.len(), 256),
+        ("fs_ro", written.sandbox.fs_ro.len(), 256),
+        ("fs_rw", written.sandbox.fs_rw.len(), 256),
+        ("allow", written.allow.len(), 1024),
+        ("ask", written.ask.len(), 1024),
+    ] {
+        if count > most {
+            return Err(Unloaded::TooMany(key, most));
+        }
+    }
     let server = Server {
         command: written.command,
         // A server reached by a url is reached over the network.
@@ -640,6 +675,18 @@ fn remote(url: &str, written: &Written) -> Result<(), Unloaded> {
     // A client would be shown it.
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(Unloaded::UrlCredentials);
+    }
+    // Found now, not when a request would carry it.
+    if let Some(name) =
+        written.headers.iter().find_map(|(name, value)| {
+            (reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                .is_err()
+                || reqwest::header::HeaderValue::from_str(value)
+                    .is_err())
+            .then(|| name.clone())
+        })
+    {
+        return Err(Unloaded::BadHeader(name));
     }
     let sandbox = &written.sandbox;
     if !written.env.is_empty() {
