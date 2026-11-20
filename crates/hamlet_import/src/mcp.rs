@@ -53,7 +53,7 @@ pub struct FoundServer {
 }
 
 /// Why a server another program lists cannot be one of Hamlet's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unrunnable {
     #[error(
         "it speaks the older SSE transport, and Hamlet only \
@@ -62,11 +62,19 @@ pub enum Unrunnable {
     Sse,
     #[error("it names no command")]
     NoCommand,
+    #[error(
+        "it runs in a working folder of its own, and a server in \
+         Hamlet runs in its own folder"
+    )]
+    Cwd,
+    #[error("its token comes from {0}, which is not set here")]
+    NoToken(String),
 }
 
 /// Every MCP server Claude Code, Claude Desktop, Cursor and Codex
 /// list on this machine, each once: a server two programs list alike
-/// is found from the first.
+/// is found from the first, and two that differ under one name are
+/// named apart.
 pub fn mcp_servers() -> Vec<FoundServer> {
     let mut found = Vec::<FoundServer>::new();
     let listed = claude_code()
@@ -75,7 +83,7 @@ pub fn mcp_servers() -> Vec<FoundServer> {
         .chain(cursor())
         .chain(codex());
     for (source, name, written) in listed {
-        let server = FoundServer {
+        let mut server = FoundServer {
             source,
             name: server_name(&name),
             entry: entry(&written),
@@ -84,11 +92,34 @@ pub fn mcp_servers() -> Vec<FoundServer> {
             earlier.name == server.name
                 && earlier.entry == server.entry
         });
-        if !again {
-            found.push(server);
+        if again {
+            continue;
         }
+        server.name = apart(&server.name, &found);
+        found.push(server);
     }
     found
+}
+
+/// `name`, or with `-2`, `-3`… when one of `found` has it already,
+/// cut so it fits.
+fn apart(name: &str, found: &[FoundServer]) -> String {
+    let taken =
+        |name: &str| found.iter().any(|each| each.name == name);
+    if !taken(name) {
+        return name.to_owned();
+    }
+    (2..)
+        .map(|n| {
+            let tail = format!("-{n}");
+            let head = name
+                .chars()
+                .take(NAME_LENGTH - tail.len())
+                .collect::<String>();
+            format!("{}{tail}", head.trim_end_matches('-'))
+        })
+        .find(|name| !taken(name))
+        .expect("some number is free")
 }
 
 /// A server as another program lists it, by its name there.
@@ -211,6 +242,9 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
     if let Some(url) = url {
         return remote(url, written);
     }
+    if written.contains_key("cwd") {
+        return Err(Unrunnable::Cwd);
+    }
     let program = written
         .get("command")
         .and_then(Value::as_str)
@@ -230,7 +264,15 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
             .map(|arg| Value::String(arg.into())),
     );
     let mut env = BTreeMap::new();
-    let mut inherit = Vec::new();
+    // Codex names the variables it passes on so.
+    let mut inherit = written
+        .get("env_vars")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(String::from)
+        .collect::<Vec<_>>();
     for (name, value) in written
         .get("env")
         .and_then(Value::as_object)
@@ -247,7 +289,9 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
             .and_then(|rest| rest.strip_suffix('}'))
         {
             Some(variable) if variable == name => {
-                inherit.push(name.clone());
+                if !inherit.contains(name) {
+                    inherit.push(name.clone());
+                }
             }
             _ => {
                 env.insert(name.clone(), value.to_owned());
@@ -292,14 +336,26 @@ fn remote(
     let mut entry = Map::new();
     entry.insert("url".into(), url.into());
     // Codex names them so.
-    let headers = written
+    let mut headers = written
         .get("headers")
         .or_else(|| written.get("http_headers"))
         .and_then(Value::as_object)
-        .filter(|headers| !headers.is_empty());
-    if let Some(headers) = headers {
-        entry
-            .insert("headers".into(), Value::Object(headers.clone()));
+        .cloned()
+        .unwrap_or_default();
+    // Codex takes a bearer token from a variable of its environment;
+    // a header holds it here.
+    if let Some(variable) =
+        written.get("bearer_token_env_var").and_then(Value::as_str)
+    {
+        let token = std::env::var(variable)
+            .map_err(|_| Unrunnable::NoToken(variable.to_owned()))?;
+        headers.insert(
+            "Authorization".into(),
+            format!("Bearer {token}").into(),
+        );
+    }
+    if !headers.is_empty() {
+        entry.insert("headers".into(), Value::Object(headers));
     }
     Ok(entry.into())
 }
@@ -356,6 +412,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn two_servers_that_differ_under_one_name_are_named_apart() {
+        let found = |name: &str| FoundServer {
+            source: McpSource::Codex,
+            name: name.into(),
+            entry: Err(Unrunnable::NoCommand),
+        };
+        let listed = [found("github"), found("github-2")];
+        assert_eq!(apart("github", &listed), "github-3");
+        assert_eq!(apart("gitlab", &listed), "gitlab");
+        let long = "a".repeat(NAME_LENGTH);
+        assert_eq!(apart(&long, &[found(&long)]).len(), NAME_LENGTH);
+    }
+
+    #[test]
     fn a_name_is_one_a_server_in_the_list_takes() {
         assert_eq!(server_name("GitHub"), "github");
         assert_eq!(server_name("my_server.v2"), "my-server-v2");
@@ -393,6 +463,20 @@ mod tests {
                 "url": "https://x",
                 "headers": {"Authorization": "Bearer t"},
             }))
+        );
+        let codex = json!({
+            "command": "/opt/server",
+            "env_vars": ["KEY"],
+            "env": {"KEY": "${KEY}"},
+        });
+        assert_eq!(
+            entry(codex.as_object().unwrap()).unwrap()["inherit_env"],
+            json!(["KEY"])
+        );
+        let elsewhere = json!({"command": "python3", "cwd": "/srv"});
+        assert_eq!(
+            entry(elsewhere.as_object().unwrap()),
+            Err(Unrunnable::Cwd)
         );
         let sse = json!({"type": "sse", "url": "https://x/sse"});
         assert_eq!(

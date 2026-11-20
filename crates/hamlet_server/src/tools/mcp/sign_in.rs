@@ -14,6 +14,7 @@ use rmcp::transport::auth::{
     AuthError, AuthorizationManager, AuthorizationRequest,
     CredentialStore, OAuthState, StoredCredentials,
 };
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -31,9 +32,40 @@ const WORDS: usize = 300;
 /// The longest request the loopback reads.
 const REQUEST: usize = 16 * 1024;
 
-/// The file that keeps the tokens of the server `name`.
-pub(super) fn tokens(layout: &Layout, name: &str) -> PathBuf {
-    layout.mcp().join(".signed-in").join(format!("{name}.json"))
+/// The folder that keeps the tokens of the server `name`.
+pub(super) fn folder(layout: &Layout, name: &str) -> PathBuf {
+    layout.mcp().join(".signed-in").join(name)
+}
+
+/// The file that keeps the tokens of the server `name` at `url`: a
+/// server whose url changed signs in again, so no token reaches
+/// another resource.
+pub(super) fn tokens(
+    layout: &Layout,
+    name: &str,
+    url: &str,
+) -> PathBuf {
+    let hash = Sha256::digest(url.as_bytes())[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    folder(layout, name).join(format!("{hash}.json"))
+}
+
+/// The tokens in `file`, which a result must not show.
+pub(super) async fn secrets(file: &Path) -> Vec<String> {
+    let Ok(Some(stored)) = Tokens::at(file).load().await else {
+        return Vec::new();
+    };
+    // As stored, a token is a string under its name.
+    let Ok(stored) = serde_json::to_value(stored) else {
+        return Vec::new();
+    };
+    ["access_token", "refresh_token"]
+        .iter()
+        .filter_map(|key| stored["token_response"][key].as_str())
+        .map(String::from)
+        .collect()
 }
 
 /// A sign-in under way, which ends when this drops.

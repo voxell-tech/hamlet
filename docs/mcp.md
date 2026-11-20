@@ -47,7 +47,11 @@ given.
 | `ask` | Tools whose calls always wait for a chief, though the server says they only read; `*` for every tool. |
 
 An entry has a `command` or a `url`. A server reached by a url runs
-nowhere here, so it takes no `env`, `inherit_env` or `sandbox`.
+nowhere here, so it takes no `env`, `inherit_env` or `sandbox`. Its url
+holds no name or password, which a client would be shown; a header or a
+sign-in carries a credential. A request follows a redirect only within the
+url's origin, so no header reaches another, and a change of the url's
+origin drops the headers whose values it does not give again.
 
 A server's name is 1 to 24 lowercase letters, digits and `-`. A key the
 entry does not know, or an entry that does not fit, is named in the prompt,
@@ -61,7 +65,9 @@ prompt and changes no server.
 The `mcp` folder is in the realm, out of every agent's reach, so the tokens
 in the list are too. Each server has its own folder, `mcp/<name>/`, made
 when it first starts: its working folder and its `HOME`, and the one place
-it writes besides `fs_rw`. It never writes the list. A program installed
+it writes besides `fs_rw`. It never writes the list, and no `fs_ro` or
+`fs_rw` may hold the realm's `mcp` folder or reach into it past its own
+folder, where the others' tokens are. A program installed
 outside the system's folders, such as one under a version manager's folder
 in the chief's home, needs that folder in `fs_ro`.
 
@@ -80,9 +86,12 @@ writes one entry at a time and leaves the rest of the file as written:
   server's machine, and adds those chosen, or every one with `--all`. Each
   is given the network, as it had there; a program named by its name alone
   is found on `PATH`, and one installed in the home folder gets its
-  install folder in `fs_ro`. A `${NAME}` value becomes `inherit_env`. A
-  server reached by a url is added with its headers; one on the older SSE
-  transport is listed and not added.
+  install folder in `fs_ro`. A `${NAME}` value, and a name in Codex's
+  `env_vars`, becomes `inherit_env`. A server reached by a url is added
+  with its headers, and Codex's `bearer_token_env_var` as an
+  `Authorization` header. One on the older SSE transport, or with a `cwd`
+  of its own, is listed and not added. Two that differ under one name are
+  named apart with `-2`, `-3`.
 
 No client is sent a value of a server's `env`, only its names; a change
 that leaves a value out keeps the one the entry has. A restart keeps the
@@ -95,9 +104,11 @@ signs in on the page it gives; the code comes back to a loopback on the
 server's machine, or, when the browser is on another machine and its last
 page does not load, in that page's address pasted back
 (`hamlet mcp sign-in <name> <address>`). The tokens are kept in
-`mcp/.signed-in/<name>.json`, readable by the server's account alone and
-outside every program server's folder, refreshed there, and removed with
-the server. A server that wants a sign-in stops with that reason.
+`mcp/.signed-in/<name>/`, a file for each url, so a server whose url
+changes signs in again. They are readable by the server's account alone,
+out of every program server's reach, refreshed there, taken out of the
+results of the server's calls, and removed with the server. A server that
+wants a sign-in stops with that reason.
 
 An agent can ask for a server with `request_mcp_server`, naming the
 variables it needs, never their values. The chief sees its command and

@@ -58,6 +58,16 @@ pub(super) enum Unloaded {
     LocalKey(&'static str),
     #[error("url must be an https address, or http on this machine")]
     BadUrl,
+    #[error(
+        "url holds a name or a password; put a token in headers, or \
+         sign in"
+    )]
+    UrlCredentials,
+    #[error(
+        "{0} holds the realm's mcp folder, where the other servers' \
+         tokens are"
+    )]
+    Reaches(String),
     #[error("timeout_secs must be at least 1")]
     NoTimeout,
     #[error("{0} is in both allow and ask")]
@@ -143,13 +153,30 @@ impl Server {
         &self,
         layout: &Layout,
         home: &Path,
-    ) -> Result<Policy, LimitError> {
+    ) -> Result<Policy, Unloaded> {
         let paths = |paths: &[String]| {
             paths
                 .iter()
                 .map(|path| PathBuf::from(resolve(&text(home), path)))
                 .collect::<Vec<_>>()
         };
+        // The realm's mcp folder holds every server's list entry and
+        // tokens; a server reaches only its own folder of it.
+        let real = |path: &Path| {
+            std::fs::canonicalize(path)
+                .unwrap_or_else(|_| path.to_owned())
+        };
+        let (mcp, own) = (real(&layout.mcp()), real(home));
+        for path in
+            paths(&self.fs_ro).iter().chain(&paths(&self.fs_rw))
+        {
+            let path = real(path);
+            if mcp.starts_with(&path)
+                || path.starts_with(&mcp) && !path.starts_with(&own)
+            {
+                return Err(Unloaded::Reaches(text(&path)));
+            }
+        }
         let mut env = hamlet_sandbox::base_env();
         env.insert("HOME".into(), text(home));
         env.extend(self.inherited());
@@ -417,6 +444,21 @@ pub(super) fn add(
     Ok(names)
 }
 
+/// Whether the list in `folder` has the server `name` as `entry`
+/// would be written anew.
+pub(super) fn holds(
+    folder: &Path,
+    name: &str,
+    entry: &McpEntry,
+) -> bool {
+    let Ok(whole) = file(folder) else {
+        return false;
+    };
+    written(&json!({}), entry).is_ok_and(|written| {
+        whole["servers"].get(name) == Some(&written)
+    })
+}
+
 /// Why the server `name` with `entry`, written anew, would not load.
 pub(super) fn check(
     name: &str,
@@ -432,7 +474,22 @@ fn written(
 ) -> Result<Value, Unloaded> {
     let mut written = before.as_object().cloned().unwrap_or_default();
     let env = kept(&entry.env, &before["env"])?;
-    let headers = kept(&entry.headers, &before["headers"])?;
+    // A header's value is kept for the address it was given for,
+    // never sent to another.
+    let origin = |url: Option<&str>| {
+        url.and_then(|url| reqwest::Url::parse(url).ok())
+            .map(|url| url.origin().ascii_serialization())
+    };
+    let same = origin(before["url"].as_str())
+        == origin(entry.url.as_deref());
+    let headers = kept(
+        &entry.headers,
+        if same {
+            &before["headers"]
+        } else {
+            &Value::Null
+        },
+    )?;
     let mut set = |key: &str, value: Value, empty: bool| {
         if empty {
             written.remove(key);
@@ -557,8 +614,11 @@ pub(super) fn parse(
         allow: written.allow,
         ask: written.ask,
     };
-    // A limit the sandbox refuses is a fault of the entry, found now.
-    server.policy(&Layout::new(Path::new("/")), Path::new("/"))?;
+    // A limit or a path the sandbox refuses is a fault of the entry,
+    // found now; the realm's own paths are known once it runs.
+    let realm = Path::new("/realm");
+    server
+        .policy(&Layout::new(realm), &realm.join("mcp").join(name))?;
     Ok(server)
 }
 
@@ -576,6 +636,10 @@ fn remote(url: &str, written: &Written) -> Result<(), Unloaded> {
         || parsed.scheme() == "http" && local)
     {
         return Err(Unloaded::BadUrl);
+    }
+    // A client would be shown it.
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(Unloaded::UrlCredentials);
     }
     let sandbox = &written.sandbox;
     if !written.env.is_empty() {
@@ -631,14 +695,16 @@ mod tests {
                 "both": {"command": ["server"], "allow": ["x"], "ask": ["x"]},
                 "remote": {"url": "https://mcp.example.com/mcp"},
                 "remote-env": {"url": "https://mcp.example.com", "env": {"A": "b"}},
-                "plain": {"url": "http://example.com/mcp"}
+                "plain": {"url": "http://example.com/mcp"},
+                "userinfo": {"url": "https://me:pass@mcp.example.com/mcp"},
+                "realm": {"command": ["s"], "sandbox": {"fs_ro": ["/realm"]}}
             }}"#,
         );
         assert_eq!(
             servers.keys().map(String::as_str).collect::<Vec<_>>(),
             ["good", "remote"]
         );
-        assert_eq!(faults.len(), 8);
+        assert_eq!(faults.len(), 10);
     }
 
     #[test]
@@ -717,7 +783,22 @@ mod tests {
             put(&folder, "mail", &entry),
             Err(Unchanged::Unfit(_, Unloaded::NoValue(_)))
         ));
+        // A header is not kept for another origin.
+        let remote = McpEntry {
+            url: Some("https://one.example/mcp".into()),
+            headers: [("X-Key".into(), Some("a-long-key".into()))]
+                .into(),
+            ..McpEntry::default()
+        };
+        put(&folder, "far", &remote).unwrap();
+        let moved = McpEntry {
+            url: Some("https://two.example/mcp".into()),
+            headers: [("X-Key".into(), None)].into(),
+            ..McpEntry::default()
+        };
+        assert!(put(&folder, "far", &moved).is_err());
         remove(&folder, "mail").unwrap();
+        remove(&folder, "far").unwrap();
         assert!(load(&folder).unwrap().servers.is_empty());
         std::fs::remove_dir_all(&folder).unwrap();
     }

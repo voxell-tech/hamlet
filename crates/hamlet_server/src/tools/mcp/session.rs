@@ -47,6 +47,10 @@ pub(crate) type Peer = rmcp::Peer<RoleClient>;
 /// A tool a server lists, as it lists it.
 pub(crate) type Tool = rmcp::model::Tool;
 
+/// The most redirects a remote server's request follows, all within
+/// its origin.
+const REDIRECTS: usize = 10;
+
 /// How long a server has to finish starting, and to list its tools.
 const HANDSHAKE: Duration = Duration::from_secs(30);
 
@@ -304,7 +308,22 @@ async fn remote(
     // TLS runs on ring, installed once for the process.
     let _ =
         rustls::crypto::ring::default_provider().install_default();
-    let client = match reqwest::Client::builder().build() {
+    // A redirect to another origin would take the server's headers
+    // there.
+    let client = match reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            let from =
+                attempt.previous().first().map(reqwest::Url::origin);
+            if attempt.previous().len() > REDIRECTS
+                || from.as_ref() != Some(&attempt.url().origin())
+            {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+    {
         Ok(client) => client,
         Err(error) => return Stop::Unstarted(error.to_string()),
     };
@@ -343,13 +362,17 @@ async fn remote(
             ))
             .await;
     }
-    let manager =
-        match signed_in_manager(url, client.clone(), signed_in).await
-        {
-            Ok(Some(manager)) => manager,
-            Ok(None) => return Stop::SignIn,
-            Err(error) => return Stop::Unstarted(error.to_string()),
-        };
+    let manager = match tokio::time::timeout(
+        HANDSHAKE,
+        signed_in_manager(url, signed_in),
+    )
+    .await
+    {
+        Ok(Ok(Some(manager))) => manager,
+        Ok(Ok(None)) => return Stop::SignIn,
+        Ok(Err(error)) => return Stop::Unstarted(error.to_string()),
+        Err(_) => return Stop::Slow,
+    };
     ran.serve(StreamableHttpClientTransport::with_client(
         AuthClient::new(client, manager),
         config,
@@ -358,14 +381,14 @@ async fn remote(
 }
 
 /// The manager of the tokens in the file `signed_in` for the server
-/// at `url`, refreshing them there; none when it holds none.
-pub(super) async fn signed_in_manager(
+/// at `url`, refreshing them there; none when it holds none. It keeps
+/// its own client, which refuses the private addresses the server's
+/// metadata could name; the protocol goes over the server's client.
+async fn signed_in_manager(
     url: &str,
-    client: reqwest::Client,
     signed_in: &std::path::Path,
 ) -> Result<Option<AuthorizationManager>, AuthError> {
     let mut manager = AuthorizationManager::new(url).await?;
-    manager.with_client(client)?;
     manager
         .set_credential_store(super::sign_in::Tokens::at(signed_in));
     Ok(manager.initialize_from_store().await?.then_some(manager))

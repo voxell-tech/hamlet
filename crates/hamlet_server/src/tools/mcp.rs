@@ -13,7 +13,7 @@ mod session;
 mod sign_in;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bevy_app::App;
@@ -351,7 +351,7 @@ impl Mcp {
             Some(url) => Way::Remote {
                 url: url.clone(),
                 headers: server.headers.clone(),
-                signed_in: sign_in::tokens(layout, name),
+                signed_in: sign_in::tokens(layout, name, url),
             },
             None => {
                 let home = layout.mcp().join(name);
@@ -557,9 +557,18 @@ impl Mcp {
 
     /// How to call the tool `name`; none when no MCP server offers
     /// it.
-    pub(crate) fn route(&self, name: &str) -> Option<Route> {
+    pub(crate) fn route(
+        &self,
+        name: &str,
+        layout: &Layout,
+    ) -> Option<Route> {
         let (server, running, listed) = self.owner(name)?;
         Some(Route {
+            tokens: running
+                .server
+                .url
+                .as_deref()
+                .map(|url| sign_in::tokens(layout, server, url)),
             server: server.to_owned(),
             name: name.to_owned(),
             tool: listed.tool.clone(),
@@ -607,6 +616,12 @@ impl Core<'_, '_> {
         &mut self,
         asked: &Asked,
     ) -> Result<(), Rejection> {
+        let folder = self.realm.layout().mcp();
+        // Added already by an answer the server stopped before
+        // keeping: the wait is settled now.
+        if config::holds(&folder, &asked.name, &asked.entry) {
+            return Ok(());
+        }
         if self.tools.mcp.running.contains_key(&asked.name) {
             return Err(Rejection::BadMcp {
                 why: format!(
@@ -615,7 +630,6 @@ impl Core<'_, '_> {
                 ),
             });
         }
-        let folder = self.realm.layout().mcp();
         config::put(&folder, &asked.name, &asked.entry).map_err(
             |unchanged| Rejection::BadMcp {
                 why: unchanged.to_string(),
@@ -655,8 +669,8 @@ impl Core<'_, '_> {
                 self.tools.mcp.signing.remove(&name);
                 self.tools.mcp.sign_in_failed.remove(&name);
                 let tokens =
-                    sign_in::tokens(self.realm.layout(), &name);
-                if let Err(error) = std::fs::remove_file(&tokens)
+                    sign_in::folder(self.realm.layout(), &name);
+                if let Err(error) = std::fs::remove_dir_all(&tokens)
                     && error.kind() != std::io::ErrorKind::NotFound
                 {
                     return Err(Rejection::BadMcp {
@@ -708,7 +722,7 @@ impl Core<'_, '_> {
                         ),
                     })?;
                 let file =
-                    sign_in::tokens(self.realm.layout(), &name);
+                    sign_in::tokens(self.realm.layout(), &name, &url);
                 let signing = sign_in::begin(
                     name.clone(),
                     url,
@@ -990,6 +1004,9 @@ pub(crate) struct Route {
     parameters: Value,
     timeout: Duration,
     secrets: Vec<String>,
+    /// The file of its sign-in's tokens, for a server reached by a
+    /// url.
+    tokens: Option<PathBuf>,
     standing: Standing,
 }
 
@@ -1068,24 +1085,32 @@ impl Route {
         );
         // A call that outlasts its time, or whose turn is stopped, is
         // dropped, which tells the server it was cancelled.
-        let mut outcome =
-            match tokio::time::timeout(self.timeout, call).await {
-                Ok(Ok(result)) => {
-                    result::outcome(result, &secrets, sight).await
-                }
-                Ok(Err(error)) => {
-                    thrown("tool_error", failure(server, error))
-                }
-                Err(_) => thrown(
-                    "tool_error",
-                    format!(
-                        "The MCP server {server} did not answer \
-                         within {} seconds, and the call was \
-                         cancelled.",
-                        self.timeout.as_secs()
-                    ),
+        let answered = tokio::time::timeout(self.timeout, call).await;
+        // The tokens of its sign-in, as the call may have refreshed
+        // them, are taken out too.
+        let mut secrets = secrets;
+        if let Some(file) = &self.tokens {
+            secrets.extend(sign_in::secrets(file).await);
+        }
+        let thrown = |code: &str, words: String| {
+            Outcome::thrown(code, scrub_text(&secrets, &words))
+        };
+        let mut outcome = match answered {
+            Ok(Ok(result)) => {
+                result::outcome(result, &secrets, sight).await
+            }
+            Ok(Err(error)) => {
+                thrown("tool_error", failure(server, error))
+            }
+            Err(_) => thrown(
+                "tool_error",
+                format!(
+                    "The MCP server {server} did not answer within \
+                     {} seconds, and the call was cancelled.",
+                    self.timeout.as_secs()
                 ),
-            };
+            ),
+        };
         outcome.details.get_or_insert_with(Map::new).extend(
             result::origin(server, &self.tool, &policy, &degraded),
         );

@@ -228,7 +228,9 @@ impl Core<'_, '_> {
         }
         // An MCP server runs on this machine apart from the worktree,
         // under the policy of its entry (C36).
-        if let Some(route) = self.tools.mcp.route(call.tool) {
+        if let Some(route) =
+            self.tools.mcp.route(call.tool, self.realm.layout())
+        {
             let secrets = self.credentials.secrets();
             let sight = self.sight_of(agent)?;
             let arguments = call
