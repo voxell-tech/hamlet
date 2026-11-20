@@ -25,9 +25,15 @@ operations to the server (see [the harness](harness.md)).
 `society/oversight/gate.rs` decides admission and `calls/execution.rs`
 checks permissions at execution, including after approval or replay.
 
-Without a folder, commands write in their own worktree and a private
-temporary space. They run the system's programs and Homebrew's. Other
-worktrees, credentials and the database are not readable. Network use is
+Commands read the machine's files but the realm's folder, as Codex's and
+Claude Code's sandboxes let theirs, and run with the chief's own `PATH`
+and `HOME`, so the chief's programs and toolchains are found. They write
+their own worktree, the folder when the hamlet has one, and a private
+temporary space. Other worktrees, credentials and the database are in
+the realm's folder, and not readable. On macOS they also reach the
+system's logging, trust, preferences, directory and audio services, and
+shared surfaces, as those sandboxes' commands do; neither opens a GPU
+device, and nor does this. Network use is
 gated separately by the settings and permissions; a shell request that
 needs the network while it is off can wait for the chief's grant. An
 approval does not remove filesystem confinement.
@@ -52,9 +58,8 @@ relative paths go to the folder, except those whose first part is
 
 Manual mode asks before edits to the folder and commands; reading and
 worktree edits stay available. Auto mode allows work without those waits
-but does not remove the sandbox. With a folder, commands can read the
-machine's ordinary files and write the folder and the worktree; the
-realm's folder is hidden.
+but does not remove the sandbox. With a folder, commands also write the
+folder.
 
 Agents use the chief's own git and machine credentials in that folder,
 and network still needs permission. Agents can write git hooks and config

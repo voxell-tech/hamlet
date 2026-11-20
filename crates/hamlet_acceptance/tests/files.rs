@@ -78,7 +78,8 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
 async fn a_notification_copies_the_files_it_names_into_the_receivers_inbox()
  {
     let home = Home::new();
-    let secret = home.side().join("secret");
+    // In the realm's folder, which no agent reads.
+    let secret = home.file("secret");
     fs::write(&secret, "canary").unwrap();
     let mut s = Session::start_in(
         home,
@@ -127,7 +128,7 @@ async fn a_notification_copies_the_files_it_names_into_the_receivers_inbox()
             && first.contains("[Folder 1 of this message, 1 files"),
         "{first}"
     );
-    // A file outside what the sender may read is refused.
+    // A file the sender may not read is refused.
     let tools = s
         .chief
         .items(&now)

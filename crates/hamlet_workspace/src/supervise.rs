@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::wire::{
-    Code, MAX_BODY, MAX_OUTPUT, Operation, Ran, Reply,
+    Code, EXEC_MS, MAX_BODY, MAX_OUTPUT, Operation, Ran, Reply,
 };
 
 /// Unix socket of the worker's proxy inside a network-granted
@@ -175,7 +175,7 @@ impl Task {
             Operation::Exec(exec) => {
                 if exec.argv.is_empty()
                     || exec.timeout_ms == 0
-                    || exec.timeout_ms > 120_000
+                    || exec.timeout_ms > EXEC_MS
                 {
                     bail!("Invalid command or timeout");
                 }
@@ -209,14 +209,18 @@ impl Task {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // A command is bounded by its time alone, so a build can use
+        // many cores for its whole hour; the file helper keeps a CPU
+        // limit.
+        let cpu = if task.file { 120 } else { libc::RLIM_INFINITY };
         // SAFETY: these resource limits are scalar kernel calls in
         // the forked child.
         unsafe {
-            task.command.pre_exec(|| {
+            task.command.pre_exec(move || {
                 for (resource, limit) in [
                     (libc::RLIMIT_FSIZE, 32 * 1024 * 1024),
                     (libc::RLIMIT_NOFILE, 128),
-                    (libc::RLIMIT_CPU, 120),
+                    (libc::RLIMIT_CPU, cpu),
                 ] {
                     let limits = libc::rlimit {
                         rlim_cur: limit,

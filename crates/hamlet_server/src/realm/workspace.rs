@@ -20,6 +20,10 @@ use crate::realm::credentials::WorkspaceAddress;
 
 /// The most bytes of a reply.
 const MAX_REPLY: usize = 6 * 1024 * 1024;
+/// How long the workspace has to answer anything but a command.
+const ANSWERED: Duration = Duration::from_secs(165);
+/// How long past a command's own time the workspace has to answer it.
+const MARGIN: Duration = Duration::from_secs(45);
 const UNKNOWN: &str = "The workspace result is unknown. Inspect its \
                        files before repeating the operation.";
 
@@ -48,7 +52,7 @@ impl Transport {
         Ok(Self {
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(165))
+                .timeout(ANSWERED)
                 .build()?,
             connection,
         })
@@ -90,6 +94,7 @@ impl Transport {
             ))
             .bearer_auth(&self.connection.token)
             .json(message)
+            .timeout(answered_within(message))
             .send()
             .await
             .map_err(|_| Failure::unknown())?;
@@ -262,6 +267,21 @@ impl Session {
         }
         message.push_str(&format!(" Request: {}.", pending.id));
         Err(Failure { message, ..failure })
+    }
+}
+
+/// How long `message` may take to be answered: a command its own
+/// time and a margin for the workspace to answer, anything else
+/// [`ANSWERED`].
+fn answered_within(message: &Message) -> Duration {
+    match message {
+        Message::Execute { request } => match &request.operation {
+            Operation::Exec(exec) => {
+                Duration::from_millis(exec.timeout_ms) + MARGIN
+            }
+            _ => ANSWERED,
+        },
+        Message::Cancel { .. } => ANSWERED,
     }
 }
 

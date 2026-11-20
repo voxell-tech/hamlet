@@ -25,8 +25,9 @@ use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{Arguments, Outcome, Place, diagnostic, number_words};
 
 /// Seconds a command may run, which a model can request to shorten
-/// and never to lengthen.
-const WALL_SECS: u64 = 120;
+/// and never to lengthen: an hour, so a build of a large project
+/// ends.
+pub(crate) const WALL_SECS: u64 = 60 * 60;
 
 /// Words a sandbox refuses a write with: Seatbelt's, then
 /// bubblewrap's.

@@ -50,13 +50,52 @@ const BASE: &str = r#"(version 1)
   (sysctl-name "sysctl.proc_cputype"))
 (allow sysctl-write (sysctl-name "kern.grade_cputype"))
 
-(allow iokit-open (iokit-registry-entry-class "RootDomainUserClient"))
+; the IOKit of Claude Code's sandbox: power, and shared surfaces
+(allow iokit-open
+  (iokit-registry-entry-class "RootDomainUserClient")
+  (iokit-registry-entry-class "IOSurfaceRootUserClient")
+  (iokit-user-client-class "IOSurfaceSendRight"))
+(allow iokit-get-properties)
+
+; the system services of Codex's platform defaults and Claude Code's:
+; users and groups, logging, trust, notifications, preferences, audio
 (allow mach-lookup
   (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.system.opendirectoryd.membership")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
   (global-name "com.apple.PowerManagement.control")
   (global-name "com.apple.cfprefsd.daemon")
-  (global-name "com.apple.cfprefsd.agent"))
+  (global-name "com.apple.cfprefsd.agent")
+  (local-name "com.apple.cfprefsd.agent")
+  (global-name "com.apple.analyticsd")
+  (global-name "com.apple.analyticsd.messagetracer")
+  (global-name "com.apple.appsleep")
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.diagnosticd")
+  (global-name "com.apple.dt.automationmode.reader")
+  (global-name "com.apple.espd")
+  (global-name "com.apple.logd")
+  (global-name "com.apple.logd.events")
+  (global-name "com.apple.secinitd")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.xpc.activity.unmanaged")
+  (global-name "com.apple.trustd")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.SecurityServer")
+  (global-name "com.apple.CoreServices.coreservicesd")
+  (global-name "com.apple.audio.audiohald")
+  (global-name "com.apple.audio.AudioComponentRegistrar"))
+(allow network-outbound (literal "/private/var/run/syslog"))
+(allow ipc-posix-shm-read* (ipc-posix-name "apple.shm.notification_center"))
+(allow ipc-posix-shm-read* (ipc-posix-name-prefix "apple.cfprefs."))
+(allow user-preference-read)
 (allow ipc-posix-sem)
+; PyTorch's OpenMP runtimes register themselves so
+(allow ipc-posix-shm-read-data
+  ipc-posix-shm-write-create
+  ipc-posix-shm-write-unlink
+  (ipc-posix-name-regex #"^/__KMP_REGISTERED_LIB_[0-9]+$"))
 
 ; devices
 (allow file-read* file-write* file-ioctl
@@ -65,6 +104,9 @@ const BASE: &str = r#"(version 1)
   (literal "/dev/dtracehelper")
   (literal "/dev/tty"))
 (allow file-read* (literal "/dev/random") (literal "/dev/urandom"))
+(allow file-read* (regex #"^/dev/fd/(0|1|2)$"))
+(allow file-write* (regex #"^/dev/fd/(1|2)$"))
+(allow file-read-metadata (regex #"^/dev/.*$"))
 (allow pseudo-tty)
 (allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
 (allow file-read* file-write* file-ioctl (regex #"^/dev/ttys[0-9]+"))
