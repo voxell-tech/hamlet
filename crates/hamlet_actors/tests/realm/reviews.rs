@@ -16,14 +16,14 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
-    AgentNumber, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, ConversationId, RealmTask,
 };
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, founded, hires,
-    paid, say, sent, submits_to, tell, to, tool, until,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, errand, founded,
+    hires, paid, say, sent, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -62,10 +62,6 @@ async fn reviews(realm: &Realm, hamlet: &HamletId, review: Review) {
         .await
         .unwrap();
     assert_eq!(set, Done::Done);
-}
-
-fn errand(n: u32) -> AgentNumber {
-    ErrandNumber::new(n).unwrap().agent()
 }
 
 /// The lines `agent` was given, with their notes.

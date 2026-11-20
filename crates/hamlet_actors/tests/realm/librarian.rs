@@ -4,17 +4,14 @@ use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{Done, Tool};
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, CallId, ConversationId, RealmTask,
 };
 
 use super::{
     Callee, JUDGED_OFFER, NO_OFFER, OTHERS_OFFER, Realm, SKILL_MD,
-    THREE, hamlet_with, made_until, seen_submits, standing, until,
+    THREE, errand, hamlet_with, made_until, seen_submits, standing,
+    until,
 };
-
-fn errand(n: u32) -> AgentNumber {
-    ErrandNumber::new(n).unwrap().agent()
-}
 
 fn in_conversation<T>(call: &str, act: T) -> Tool<T> {
     Tool {

@@ -21,6 +21,7 @@ fn end(dream: u32, done: bool) -> EndDream {
         dream: DreamId(dream),
         done,
         summary: "tidied".into(),
+        hire_name: None,
     }
 }
 
@@ -113,8 +114,11 @@ async fn a_hire_s_dream_brings_its_learning_home_and_keeps_its_side()
     };
     call_as(&host, &realm(), &edit).await.unwrap();
 
-    let ended =
-        call_as(&host, &realm(), &end(5, true)).await.unwrap();
+    let named = EndDream {
+        hire_name: Some("hire#7".into()),
+        ..end(5, true)
+    };
+    let ended = call_as(&host, &realm(), &named).await.unwrap();
     let main = main_tip(&dir);
     assert_eq!(
         ended,

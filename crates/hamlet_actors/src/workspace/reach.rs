@@ -325,9 +325,7 @@ pub fn gate(
             network: if matches!(
                 op,
                 Op::Command { .. } | Op::Tool { .. }
-            ) && reach
-                .footing()
-                .is_some_and(|footing| footing.network)
+            ) && reach.network()
             {
                 Network::On
             } else {
@@ -442,8 +440,14 @@ pub fn placement(
     reach: &Reach,
     purpose: Purpose,
 ) -> Option<Placement> {
-    if let Reach::Dream { folder, .. } = reach {
-        return Some(dream_placement(home, agent, folder));
+    if let Reach::Dream { main, hire, .. } = reach {
+        return Some(dream_placement(
+            home,
+            agent,
+            main,
+            hire.as_deref(),
+            purpose,
+        ));
     }
     let footing = reach.footing()?;
     let mut ro =
@@ -499,23 +503,31 @@ pub fn placement(
     Some(Placement { policy, cwd })
 }
 
-/// A dream's errand's policy: its folder to work in, the machine to
-/// read but the rest of the realm, and no network.
+/// A dream's errand's policy: its `main` to work in and its `hire`
+/// side to write, and the machine to read but the rest of the realm.
 fn dream_placement(
     home: &RealmFolder,
     agent: AgentNumber,
-    folder: &Path,
+    main: &Path,
+    hire: Option<&Path>,
+    purpose: Purpose,
 ) -> Placement {
+    let mut rw = vec![main.to_owned()];
+    rw.extend(hire.map(Path::to_owned));
     Placement {
         policy: Policy {
             ro: vec![home.spill(agent)],
-            rw: vec![folder.to_owned()],
+            rw,
             open: true,
             hidden: vec![home.root().to_owned()],
             env: host_env(),
+            net: purpose
+                == Purpose::Command {
+                    network: Network::On,
+                },
             ..Policy::default()
         },
-        cwd: folder.to_owned(),
+        cwd: main.to_owned(),
     }
 }
 
@@ -809,6 +821,50 @@ mod tests {
                 ))
             );
         }
+    }
+
+    /// A dream's errand works in its main, writes its hire's side
+    /// too, and has its hire's network, asking for nothing.
+    #[test]
+    fn a_dream_works_in_its_main_with_its_hires_network() {
+        let dream = |network| Reach::Dream {
+            main: "/realm/dreams/1/main".into(),
+            hire: Some("/realm/dreams/1/hire".into()),
+            network,
+            secrets: V1,
+        };
+        let talk = conversation("c");
+        let pull = command(&talk, "git pull");
+        let placed = placement(
+            &home(),
+            AGENT,
+            &dream(true),
+            Purpose::Command {
+                network: Network::On,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(placed.cwd, PathBuf::from("/realm/dreams/1/main"));
+        assert_eq!(
+            placed.policy.rw,
+            paths(&["/realm/dreams/1/main", "/realm/dreams/1/hire"])
+        );
+        assert!(placed.policy.net);
+        assert_eq!(
+            [
+                passed(&dream(true), &pull),
+                passed(&dream(false), &pull)
+            ],
+            [
+                Gate::Run {
+                    network: Network::On
+                },
+                Gate::Run {
+                    network: Network::Off
+                },
+            ]
+        );
     }
 
     /// H11, C19: a networked command of an agent with no network in

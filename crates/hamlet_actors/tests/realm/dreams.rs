@@ -2,8 +2,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use hamlet_messages::profile::{
-    BadPath, By, DreamId, DreamOf, DreamOpen, EndDream, PrepareDream,
-    Purge, PurgeAnswer,
+    BadPath, By, DreamId, DreamOf, DreamOpen, PrepareDream, Purge,
+    PurgeAnswer,
 };
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, ProfileRefusal,
@@ -17,7 +17,8 @@ use hamlet_protocol::client::RequestId;
 use super::chiefs::chief;
 use super::profiles::{asked, create};
 use super::{
-    Callee, NOT_A_PATH, Realm, STILL_HOLDS, THREE, hamlet_with, until,
+    Callee, NOT_A_PATH, Realm, STILL_HOLDS, THREE, dream_ends,
+    hamlet_with, hire_3_ends, of_hire, until,
 };
 
 fn purge(profile: u32, path: &str) -> PurgeProfile {
@@ -119,29 +120,11 @@ fn prepares(realm: &Realm) -> Vec<(ProfileId, PrepareDream, bool)> {
     realm.seen.prepares.lock().unwrap().clone()
 }
 
-fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
-    realm.seen.dream_ends.lock().unwrap().clone()
-}
-
-fn of_hire(hire: AgentNumber) -> Dream {
-    Dream {
-        of: Dreamer::Hire { hire },
-    }
-}
-
 fn of_profile(profile: u32) -> Dream {
     Dream {
         of: Dreamer::Profile {
             profile: ProfileId(profile),
         },
-    }
-}
-
-fn ended(dream: u32) -> EndDream {
-    EndDream {
-        dream: DreamId(dream),
-        done: false,
-        summary: String::new(),
     }
 }
 
@@ -165,7 +148,10 @@ async fn a_hires_dream_checks_its_folders_out_then_ends() {
             of: DreamOf::Hire { agent: THREE },
         }
     );
-    assert_eq!(dream_ends(&realm), [(*profile, ended(1))]);
+    assert_eq!(
+        dream_ends(&realm),
+        [(*profile, hire_3_ends(1, false, ""))]
+    );
     realm.host.shutdown().await.unwrap();
 }
 

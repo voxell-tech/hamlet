@@ -26,16 +26,18 @@ use hamlet_messages::library::{
     ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, DreamEnd, DreamOf, DropSaveParts,
-    Edit, EditRefusal, EndDream, Missing, Path as FilePath,
-    PrepareDream, Prepared, ProfileInput, Purge, PurgeAnswer, Read,
-    ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
-    TagRefusal, VersionList, VersionName, VersionSeen, Versions,
+    BadPath, Branch, CommitId, DreamEnd, DreamId, DreamOf,
+    DropSaveParts, Edit, EditRefusal, EndDream, Missing,
+    Path as FilePath, PrepareDream, Prepared, ProfileInput, Purge,
+    PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1, Tag,
+    TagAnswer, TagRefusal, VersionList, VersionName, VersionSeen,
+    Versions,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
 };
 use hamlet_messages::realm::client::{Answer, Say};
+use hamlet_messages::realm::profiles::{Dream, Dreamer};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     AgentName, Asked, Done, DoneTo, Found, FoundAnswer, HamletId,
@@ -46,7 +48,7 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{Need, Reach};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, ChiefAnswer, ConversationId,
-    InForce, ReachVersion, RealmTask, SetReach,
+    ErrandNumber, InForce, ReachVersion, RealmTask, SetReach,
 };
 use hamlet_protocol::client::{
     self as protocol, AgentId, Choice, RequestId,
@@ -1218,6 +1220,34 @@ async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
 
 fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
     made(realm, agent).expect("the agent was made").task
+}
+
+fn errand(n: u32) -> AgentNumber {
+    ErrandNumber::new(n).unwrap().agent()
+}
+
+/// Hire 3's name as the realm gives it.
+const HIRE_3: &str = "hire#3";
+
+fn of_hire(hire: AgentNumber) -> Dream {
+    Dream {
+        of: Dreamer::Hire { hire },
+    }
+}
+
+/// The ends of dreams the profiles were asked for, in order.
+fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
+    realm.seen.dream_ends.lock().unwrap().clone()
+}
+
+/// The end of hire 3's dream `dream`.
+fn hire_3_ends(dream: u32, done: bool, summary: &str) -> EndDream {
+    EndDream {
+        dream: DreamId(dream),
+        done,
+        summary: summary.to_owned(),
+        hire_name: Some(HIRE_3.to_owned()),
+    }
 }
 
 fn charge(

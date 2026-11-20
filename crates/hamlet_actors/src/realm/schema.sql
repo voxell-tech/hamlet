@@ -307,7 +307,8 @@ CREATE TABLE IF NOT EXISTS dream (
 	hire INTEGER,
 	at INTEGER NOT NULL,
 	errand INTEGER,
-	folder TEXT,
+	main_folder TEXT,
+	hire_folder TEXT,
 	done INTEGER,
 	summary TEXT) STRICT;
 

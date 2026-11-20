@@ -741,7 +741,9 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/set_reach.dream",
         &set_reach(Reach::Dream {
-            folder: "/realm/dreams/1".into(),
+            main: "/realm/dreams/1/main".into(),
+            hire: Some("/realm/dreams/1/hire".into()),
+            network: true,
             secrets: SecretsVersion(2),
         }),
     );
@@ -878,7 +880,9 @@ fn the_stored_rows(fixtures: &mut Fixtures) {
     fixtures.stored(
         "reach.dream",
         &Reach::Dream {
-            folder: "/realm/dreams/1".into(),
+            main: "/realm/dreams/1/main".into(),
+            hire: Some("/realm/dreams/1/hire".into()),
+            network: true,
             secrets: SecretsVersion(2),
         },
     );
