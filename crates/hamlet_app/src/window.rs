@@ -52,9 +52,14 @@ pub fn plugin(app: &mut App) {
         .add_systems(Last, limit_frames);
 }
 
-/// The window draws the world.
+/// Whether the realm panel is in front, so that the window draws the
+/// world.
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
-pub(crate) struct WorldShown;
+pub(crate) enum WorldShown {
+    #[default]
+    Shown,
+    Hidden,
+}
 
 /// Whether the window waits for the display before it shows each
 /// frame, so that no frame shows torn. On unless the chief turned it

@@ -11,6 +11,7 @@ use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::query::{Or, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_exists_and_changed;
 use bevy::ecs::system::{
     Commands, Local, Query, Res, ResMut, Single,
 };
@@ -22,14 +23,14 @@ use bevy::render::render_resource::{
     TextureDimension, TextureFormat, TextureUsages,
 };
 use bevy::state::condition::in_state;
-use bevy::state::state::{OnEnter, OnExit};
+use bevy::state::state::{NextState, OnEnter, State};
 use bevy::time::Time;
 use bevy::ui::widget::ViewportNode;
 use bevy::ui::{Display, Node, Overflow, UiSystems, px};
 use bevy::window::{PrimaryWindow, Window};
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::ViewExt;
-use bevy_fynix::dock::DockWindowKind;
+use bevy_fynix::dock::{DockTree, DockWindowKind};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use hamlet_client::realm::Busy;
 use hamlet_client::waits::Waiting;
@@ -75,9 +76,11 @@ pub(crate) fn plugin(app: &mut App) {
         Update,
         (
             (glide_sky, drive).chain().in_set(RealmSystems::Steer),
-            pace.run_if(in_state(WorldShown)),
+            pace.run_if(in_state(WorldShown::Shown)),
             adopt_tags,
             follow_scale,
+            watch_panel
+                .run_if(resource_exists_and_changed::<DockTree>),
         ),
     )
     .add_systems(
@@ -87,8 +90,25 @@ pub(crate) fn plugin(app: &mut App) {
             .before(bevy::picking::backend::ray::RayMap::repopulate),
     )
     .add_systems(PostUpdate, cap_picture.after(UiSystems::PostLayout))
-    .add_systems(OnEnter(WorldShown), draw)
-    .add_systems(OnExit(WorldShown), rest);
+    .add_systems(OnEnter(WorldShown::Shown), draw)
+    .add_systems(OnEnter(WorldShown::Hidden), rest);
+}
+
+/// Shows the world while the realm panel's tab is in front, and rests
+/// it when the panel is closed, on another desk or behind a tab.
+fn watch_panel(
+    tree: Res<DockTree>,
+    shown: Res<State<WorldShown>>,
+    mut next: ResMut<NextState<WorldShown>>,
+) {
+    let want = if crate::dock::is_in_front(&tree, "world") {
+        WorldShown::Shown
+    } else {
+        WorldShown::Hidden
+    };
+    if *shown.get() != want {
+        next.set(want);
+    }
 }
 
 /// The camera that draws the world into the panel.
