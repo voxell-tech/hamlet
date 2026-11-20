@@ -137,8 +137,11 @@ function wordsOf(message: Message): string {
         .join("");
 }
 
+/** Answers the newest message, past the prompt's updates before a request. */
 const echo: FauxResponseFactory = (context): AssistantMessage => {
-    const last = context.messages.at(-1);
+    const last = context.messages.findLast(
+        (message) => message.role !== "system",
+    );
     if (last === undefined) return ai.fauxAssistantMessage("Heard nothing.");
     const words = wordsOf(last);
     if (last.role !== "user") return ai.fauxAssistantMessage(`Done: ${words}`);
