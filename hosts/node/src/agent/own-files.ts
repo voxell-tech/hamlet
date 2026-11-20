@@ -25,6 +25,7 @@ import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,
+    type Execute,
     editsOf,
     type FileTool,
     type FileToolArgs,
@@ -51,16 +52,13 @@ function reached(
     };
 }
 
-/** An own tool, given also the folder a relative path started from. */
-type Route<Args> = (
-    args: Args,
-    api: ToolExecutionApi,
-    context: Context,
-    from: string,
-) => Promise<ToolExecutionResult>;
+/** An own tool's call, with the folder its relative path started from. */
+type OwnCall<N extends FileTool> = AbsoluteFileCall<N> & {
+    readonly from: string;
+};
 
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Route<AbsoluteFileCall<N>>;
+    readonly [N in FileTool]: Execute<OwnCall<N>>;
 } {
     const { files } = peers;
     return {
@@ -100,9 +98,9 @@ function routes(peers: Peers): {
             });
         },
         write: (args, _api, context) => written(files, args, context),
-        search: (args, _api, context, from) =>
-            searched(files, from, args, context),
-        find: (args, _api, context, from) => found(files, from, args, context),
+        search: (args, _api, context) =>
+            searched(files, args.from, args, context),
+        find: (args, _api, context) => found(files, args.from, args, context),
     };
 }
 
@@ -127,9 +125,16 @@ export function ownFiles(
             ) => {
                 const from = (await folder()) ?? peers.files.root;
                 const at = reached(peers.files, from, args.path);
-                const resolved = { ...args, path: at.path };
+                const resolved: AbsoluteFileCall<N> = {
+                    ...args,
+                    path: at.path,
+                };
                 return at.own
-                    ? own[name](resolved, api, context, from).then(scrub)
+                    ? own[name](
+                          Object.assign({}, resolved, { from }),
+                          api,
+                          context,
+                      ).then(scrub)
                     : tool.execute(resolved, api, context);
             },
         }),

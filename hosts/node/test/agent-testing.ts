@@ -387,6 +387,15 @@ export function reflecting(answers: string[]): FauxResponseStep[] {
     return Array.from({ length: answers.length + 2 }, () => step);
 }
 
+/** The notices the agent's conversations hold. */
+export async function notices(
+    agent: Woken,
+): Promise<{ text: string; at: number }[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "hamlet.notice")
+        .map((entry) => entry.data as { text: string; at: number });
+}
+
 export async function wakeAgent(
     t: TestContext,
     given: {

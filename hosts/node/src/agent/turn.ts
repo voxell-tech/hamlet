@@ -142,7 +142,7 @@ export type Admission = {
     readonly from?: Author;
     /** The note of the lead who reviewed a chief's line, at the end of its content. */
     readonly note?: string;
-    /** What a chief's line carried, as its item shows them. */
+    /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
 } & (

@@ -15,6 +15,7 @@ import {
     type UsageState,
 } from "@earendil-works/pi-durable";
 import { clip, editOf, madeOf } from "./change.ts";
+import { nameOf } from "./inputs.ts";
 import type {
     ChatItem,
     ChatOp,
@@ -286,9 +287,7 @@ function itemsOf(entry: EntryRecord): Shown[] {
             return one(
                 "user",
                 textOf(entry),
-                from === undefined
-                    ? {}
-                    : { author: from.name ?? `worker#${from.agent}` },
+                from === undefined ? {} : { author: nameOf(from, "worker") },
             );
         }
         case "hamlet.letter":
@@ -298,9 +297,7 @@ function itemsOf(entry: EntryRecord): Shown[] {
             return one(
                 "user",
                 textOf(entry),
-                from === undefined
-                    ? {}
-                    : { author: from.name ?? `hire#${from.agent}` },
+                from === undefined ? {} : { author: nameOf(from, "hire") },
             );
         }
         default:
@@ -350,7 +347,7 @@ function blocksOf(
 /** `crates/hamlet_server/src/talk/asking.rs`'s `ANSWERS`. */
 const ANSWERS = "The chief answers:";
 
-/** What the chief said in an `ask_chief` result, as `talk/asking.rs`'s `said` reads it. */
+/** The chief's words in an `ask_chief` result, as `talk/asking.rs`'s `said` reads them. */
 function chiefSaid(result: string): string | undefined {
     if (!result.startsWith(ANSWERS)) return undefined;
     const words = result.slice(ANSWERS.length).trim();

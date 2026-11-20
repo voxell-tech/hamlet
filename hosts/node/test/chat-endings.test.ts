@@ -10,6 +10,7 @@ import {
     fakeCalls,
     from,
     named,
+    notices,
     until,
     type Woken,
     wakeAgent,
@@ -39,12 +40,6 @@ function unanswered(asked: PromiseWithResolvers<void>): FauxResponseStep {
 }
 
 /** The words of the notices the agent wrote for people alone. */
-async function notices(agent: Woken): Promise<string[]> {
-    return (await agent.entries())
-        .filter((entry) => entry.kind === "hamlet.notice")
-        .map((entry) => (entry.data as { text: string }).text);
-}
-
 /**
  * Wakes the agent with `settings`, gives it a line, waits for `cut` and
  * kills the host there, then wakes it again.
@@ -94,7 +89,10 @@ async function failedOnce(
         { task: failed.task, words: failed.words, cause: failed.cause },
         { task: "task-1", words, cause: "model" },
     );
-    assert.deepEqual(await notices(agent), [words]);
+    assert.deepEqual(
+        (await notices(agent)).map((notice) => notice.text),
+        [words],
+    );
 }
 
 test("a turn killed mid-answer more often than it retries ends interrupted, with a notice and the realm told once", async (t) => {

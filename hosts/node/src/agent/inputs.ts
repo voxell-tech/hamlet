@@ -2,6 +2,11 @@
 import type { Author, Input, Submit } from "./messages/agent.ts";
 import { type Admission, NOTE_BREAK } from "./turn.ts";
 
+/** An author's name, else its address. */
+export function nameOf(author: Author, kind: "hire" | "worker"): string {
+    return author.name ?? `${kind}#${author.agent}`;
+}
+
 /** `captions` say where a letter's or a question's files were saved. */
 export function admissionOf(message: Submit, captions = ""): Admission {
     const { input } = message;
@@ -11,8 +16,6 @@ export function admissionOf(message: Submit, captions = ""): Admission {
         id: message.id,
         ...(message.task === undefined ? {} : { task: message.task }),
     };
-    const name = (author: Author, kind: "hire" | "worker") =>
-        author.name ?? `${kind}#${author.agent}`;
     switch (input.type) {
         case "line": {
             const line = {
@@ -38,7 +41,7 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                 ...base,
                 kind: "worker-answer",
                 from: input.from,
-                content: `${name(input.from, "worker")} answers: ${input.text}`,
+                content: `${nameOf(input.from, "worker")} answers: ${input.text}`,
             };
         case "letter":
             return {
@@ -60,7 +63,7 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                 ...base,
                 kind: "answer",
                 from: input.from,
-                content: `${name(input.from, "hire")} answers: ${input.text}`,
+                content: `${nameOf(input.from, "hire")} answers: ${input.text}`,
             };
     }
 }
