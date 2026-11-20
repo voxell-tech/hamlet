@@ -3,15 +3,15 @@
 
 use std::sync::atomic::Ordering;
 
-use hamlet_sdk::bevy::asset::embedded_asset;
-use hamlet_sdk::bevy::prelude::*;
-use hamlet_sdk::bevy::render::render_resource::AsBindGroup;
-use hamlet_sdk::bevy::shader::ShaderRef;
-use hamlet_sdk::bevy::tasks::ComputeTaskPool;
-use hamlet_sdk::bevy_fynix::mount;
-use hamlet_sdk::bevy_fynix::views::{column, label};
-use hamlet_sdk::hamlet_ui::theme::HamletTheme;
-use hamlet_sdk::{LOADS, Probe, Probes};
+use hamlet_core::bevy::asset::embedded_asset;
+use hamlet_core::bevy::prelude::*;
+use hamlet_core::bevy::render::render_resource::AsBindGroup;
+use hamlet_core::bevy::shader::ShaderRef;
+use hamlet_core::bevy::tasks::ComputeTaskPool;
+use hamlet_core::bevy_fynix::mount;
+use hamlet_core::bevy_fynix::views::{column, label};
+use hamlet_core::hamlet_ui::theme::HamletTheme;
+use hamlet_core::{LOADS, Probe, Probes};
 
 /// The plugin's entry, which the window calls once at start.
 #[unsafe(no_mangle)]

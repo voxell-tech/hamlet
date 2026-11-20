@@ -4,7 +4,7 @@ Checks that a plugin built by its own `cargo` call can share the app's
 Bevy as one Rust `dylib`. macOS only. The findings are in
 `../hamlet_backlog/proposals/native-plugins.md`.
 
-- `sdk/`: `hamlet_sdk`, the shared library of Bevy, fynix and
+- `sdk/`: `hamlet_core`, the shared library of Bevy, fynix and
   `hamlet_ui`, and `app`, which loads every
   library in `HAMLET_SPIKE_PLUGINS`. `app_static` is the same scene with
   Bevy linked in.

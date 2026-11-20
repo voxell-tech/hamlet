@@ -5,7 +5,7 @@
 #
 #   build_with_kit.sh <plugin-folder> <out-folder>   (after kit.sh)
 #
-# A plugin may name only hamlet_sdk. Bevy's derives and fynix's
+# A plugin may name only hamlet_core. Bevy's derives and fynix's
 # `#[element]` read the manifest in CARGO_MANIFEST_DIR for a `bevy` or
 # `fynix` dependency, so they get one written here, and the crates are
 # passed under those names.
@@ -27,7 +27,7 @@ version = "0.1.0"
 edition = "${edition:-2024}"
 
 [dependencies]
-hamlet_sdk = "0.1.0"
+hamlet_core = "0.1.0"
 EOF
 externs=""
 while IFS== read -r crate file; do
@@ -40,4 +40,4 @@ CARGO_MANIFEST_DIR="$out/manifest" CARGO_PKG_NAME="$name" CARGO_CRATE_NAME="$nam
     "$plugin/src/lib.rs" --out-dir "$out" \
     -C opt-level=3 -C embed-bitcode=no -C prefer-dynamic -C metadata="$name" \
     -L dependency="$dist/kit" \
-    --extern hamlet_sdk="$dist/libhamlet_sdk.dylib" $externs
+    --extern hamlet_core="$dist/libhamlet_core.dylib" $externs

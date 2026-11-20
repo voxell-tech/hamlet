@@ -7,7 +7,7 @@ fn main() {
     {
         println!(
             "cargo::rustc-link-arg=-Wl,-install_name,@rpath/\
-             libhamlet_sdk.dylib"
+             libhamlet_core.dylib"
         );
     }
 }

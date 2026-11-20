@@ -6,5 +6,5 @@ publish.workspace = true
 
 [dependencies]
 bevy.workspace = true
-hamlet_sdk.workspace = true
+hamlet_core.workspace = true
 libloading.workspace = true

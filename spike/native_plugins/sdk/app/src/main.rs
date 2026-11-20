@@ -18,9 +18,9 @@ use std::time::Instant;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use bevy::tasks::ComputeTaskPool;
-use hamlet_sdk::bevy_fynix::FynixPlugin;
-use hamlet_sdk::hamlet_ui::theme::HamletTheme;
-use hamlet_sdk::{ENTRY, Entry, LOADS, Probes, hamlet_ui};
+use hamlet_core::bevy_fynix::FynixPlugin;
+use hamlet_core::hamlet_ui::theme::HamletTheme;
+use hamlet_core::{ENTRY, Entry, LOADS, Probes, hamlet_ui};
 
 #[derive(Resource)]
 struct Started(Instant);
@@ -80,7 +80,7 @@ fn libraries(folder: &Path) -> Vec<PathBuf> {
 
 fn load(app: &mut App, path: &Path) -> Result<(), libloading::Error> {
     // SAFETY: a plugin is built by the same compiler against the same
-    // `hamlet_sdk`, so `Entry` means the same on both sides.
+    // `hamlet_core`, so `Entry` means the same on both sides.
     let library = unsafe { libloading::Library::new(path)? };
     // SAFETY: as above.
     let entry = unsafe { library.get::<Entry>(ENTRY)? };

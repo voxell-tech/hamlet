@@ -9,14 +9,14 @@ spike=$(cd "$(dirname "$0")" && pwd)
 kit="$spike/dist/kit"
 rm -rf "$kit" && mkdir -p "$kit"
 cd "$spike/sdk"
-cargo build --release -p hamlet_sdk --message-format=json 2>/dev/null |
+cargo build --release -p hamlet_core --message-format=json 2>/dev/null |
     jq -r 'select(.reason == "compiler-artifact") | .filenames[]
         | select(endswith(".rmeta") or (contains("/out/lib") and endswith(".dylib")))' |
-    grep -v '/libhamlet_sdk\.' |
+    grep -v '/libhamlet_core\.' |
     while read -r file; do cp -p "$file" "$kit/"; done
 # The crates the SDK's macros name by their own names: `bevy` for Bevy's
 # derives, `fynix` for `#[element]`. One `name=file` line each.
-cargo build --release -p hamlet_sdk --message-format=json 2>/dev/null |
+cargo build --release -p hamlet_core --message-format=json 2>/dev/null |
     jq -r 'select(.reason == "compiler-artifact"
             and (.target.name == "bevy" or .target.name == "fynix"))
         | .target.name + "=" + (.filenames[] | select(endswith(".rmeta"))

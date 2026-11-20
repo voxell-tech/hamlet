@@ -8,8 +8,8 @@ spike=$(cd "$(dirname "$0")" && pwd)
 cd "$spike"
 runs=${TMPDIR:-/tmp}/hamlet-native-spike
 mkdir -p $runs
-shipped=$(nm -gU dist/libhamlet_sdk.dylib | awk '/rust_metadata_hamlet_sdk/ {print $3}')
-nm -gU dist/libhamlet_sdk.dylib dist/libstd-*.dylib | awk 'NF == 3 {print $3}' | sort -u > $runs.exports
+shipped=$(nm -gU dist/libhamlet_core.dylib | awk '/rust_metadata_hamlet_core/ {print $3}')
+nm -gU dist/libhamlet_core.dylib dist/libstd-*.dylib | awk 'NF == 3 {print $3}' | sort -u > $runs.exports
 
 variant() {
     local name=$1 b=build_$1 p=plugin
@@ -44,11 +44,11 @@ variant() {
     unset RUSTUP_TOOLCHAIN CARGO_PROFILE_RELEASE_OPT_LEVEL CARGO_PROFILE_RELEASE_DEBUG
     echo "== $name: build exit $built in ${took}s"
     [ $built -eq 0 ] || { grep -E "^error" $b.log | sort | uniq -c | head -5; return; }
-    local own=$(nm -gU $b/target/release/libhamlet_sdk.dylib | awk '/rust_metadata_hamlet_sdk/ {print $3}')
+    local own=$(nm -gU $b/target/release/libhamlet_core.dylib | awk '/rust_metadata_hamlet_core/ {print $3}')
     echo "   sdk hash: $([ "$own" = "$shipped" ] && echo same || echo "differs ($own)")"
     nm -u $b/target/release/libpulse.dylib | sort -u > $runs.needs
     echo "   symbols the plugin needs that the release lacks: $(comm -23 $runs.needs $runs.exports | grep -c '^__R')"
-    otool -L $b/target/release/libpulse.dylib | awk 'NR > 1 && /hamlet_sdk|libstd/ {print "   links " $1}'
+    otool -L $b/target/release/libpulse.dylib | awk 'NR > 1 && /hamlet_core|libstd/ {print "   links " $1}'
     local run=$runs/run_$name; rm -rf $run; mkdir -p $run/plugins
     cp $b/target/release/libpulse.dylib $run/plugins/
     (cd $run && DYLD_LIBRARY_PATH=/nonexistent HAMLET_SPIKE_PLUGINS=$run/plugins HAMLET_SPIKE_FRAMES=30 \

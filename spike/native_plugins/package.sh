@@ -5,5 +5,5 @@ set -eu
 spike=$(cd "$(dirname "$0")" && pwd)
 dist="$spike/dist"
 rm -rf "$dist" && mkdir -p "$dist"
-cp "$spike/sdk/target/release/app" "$spike/sdk/target/release/libhamlet_sdk.dylib" "$dist/"
+cp "$spike/sdk/target/release/app" "$spike/sdk/target/release/libhamlet_core.dylib" "$dist/"
 cp "$(cd "$spike/sdk" && rustc --print target-libdir)"/libstd-*.dylib "$dist/"

@@ -257,7 +257,7 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "hamlet_sdk",
+ "hamlet_core",
  "libloading",
 ]
 
@@ -3098,7 +3098,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_sdk"
+name = "hamlet_core"
 version = "0.1.0"
 dependencies = [
  "bevy",
