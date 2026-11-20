@@ -199,6 +199,14 @@ pub enum ListedPriced {
     Yours,
 }
 
+impl ListedPriced {
+    /// Whether a chief can set the model's price and images: unless
+    /// its provider lists its price (S30).
+    pub fn settable(&self) -> bool {
+        *self != Self::Listed
+    }
+}
+
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

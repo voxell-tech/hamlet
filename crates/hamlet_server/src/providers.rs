@@ -914,7 +914,8 @@ impl Core<'_, '_> {
     }
 
     /// Takes the models `provider` lists into the catalogue, keeping
-    /// a chief's own prices, and lets go of those it no longer lists.
+    /// a chief's own prices where it lists none, and lets go of those
+    /// it no longer lists.
     fn take_models(
         &mut self,
         provider: &str,
@@ -944,38 +945,7 @@ impl Core<'_, '_> {
                 priced: ListedPriced::Unknown,
                 title: String::new(),
             });
-            card.learn(model);
-            let context =
-                model.listed_context.or(model.context_window);
-            if let Some(context) = context
-                .and_then(|context| i64::try_from(context).ok())
-            {
-                card.context = Some(context);
-            }
-            if card.priced == ListedPriced::Yours {
-                continue;
-            }
-            let price = model.shown_price();
-            if price.is_some() {
-                card.price = price;
-                card.priced = ListedPriced::Listed;
-            } else if matches!(
-                card.priced,
-                ListedPriced::Unknown | ListedPriced::Assigned
-            ) {
-                (card.price, card.priced) =
-                    if is_local(model.base_url.as_deref()) {
-                        (
-                            Some(ListedPrice {
-                                input: LOCAL_RATE,
-                                output: LOCAL_RATE,
-                            }),
-                            ListedPriced::Assigned,
-                        )
-                    } else {
-                        (None, ListedPriced::Unknown)
-                    };
-            }
+            card.take(model);
         }
         keep_catalogue(db, &cards)
     }
@@ -1061,6 +1031,13 @@ impl Core<'_, '_> {
                 model: name.into(),
             }));
         };
+        if !card.priced.settable()
+            && (set.price.is_some() || set.images.is_some())
+        {
+            return Ok(Err(Rejection::ModelListed {
+                model: name.into(),
+            }));
+        }
         if let Some(note) = set.note {
             card.note = self.credentials.scrub_text(&note);
         }
@@ -1191,6 +1168,42 @@ impl Card {
             model.api.as_deref(),
             Some("openai-responses" | "openai-codex-responses")
         );
+    }
+
+    /// Takes in its provider's listing `model`. A price it lists
+    /// replaces a chief's, with the images it lists (S30); with none,
+    /// a chief's price stays.
+    fn take(&mut self, model: &Listing) {
+        self.learn(model);
+        let context = model.listed_context.or(model.context_window);
+        if let Some(context) =
+            context.and_then(|context| i64::try_from(context).ok())
+        {
+            self.context = Some(context);
+        }
+        let price = model.shown_price();
+        if price.is_some() {
+            self.price = price;
+            self.priced = ListedPriced::Listed;
+            self.images_yours = false;
+            self.images = Some(model.images());
+        } else if matches!(
+            self.priced,
+            ListedPriced::Unknown | ListedPriced::Assigned
+        ) {
+            (self.price, self.priced) =
+                if is_local(model.base_url.as_deref()) {
+                    (
+                        Some(ListedPrice {
+                            input: LOCAL_RATE,
+                            output: LOCAL_RATE,
+                        }),
+                        ListedPriced::Assigned,
+                    )
+                } else {
+                    (None, ListedPriced::Unknown)
+                };
+        }
     }
 
     /// The images the model takes: as the card says, else as
@@ -1348,5 +1361,33 @@ mod tests {
         let card = serde_json::from_str::<Card>(none).unwrap();
         assert_eq!(card.images, Some(None));
         assert_eq!(card.takes(&sees), None);
+    }
+
+    #[test]
+    fn a_listed_price_replaces_a_chiefs_price_and_images() {
+        let yours = r#"{"context":null,"images":{"maxWidth":10},
+            "images_yours":true,"name":"x::y","note":"",
+            "price":{"input":1.0,"output":2.0},"priced":"yours"}"#;
+        let mut card = serde_json::from_str::<Card>(yours).unwrap();
+        card.take(&Listing::of(
+            &serde_json::json!({"input": ["text"]}),
+        ));
+        assert_eq!(card.priced, ListedPriced::Yours);
+        assert!(card.images_yours);
+
+        card.take(&Listing::of(&serde_json::json!({
+            "input": ["text", "image"],
+            "cost": {"input": 3.0, "output": 4.0},
+        })));
+        assert_eq!(card.priced, ListedPriced::Listed);
+        assert_eq!(
+            card.price,
+            Some(ListedPrice {
+                input: 3.0,
+                output: 4.0
+            })
+        );
+        assert!(!card.images_yours);
+        assert_eq!(card.images, Some(Some(ImageInput::default())));
     }
 }

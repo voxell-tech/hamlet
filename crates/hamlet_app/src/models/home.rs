@@ -151,11 +151,7 @@ fn price(name: &str, output: bool) -> AnyView {
             let value = model.price.as_ref().map_or(0.0, |price| {
                 if output { price.output } else { price.input }
             });
-            if !matches!(
-                model.priced,
-                protocol::ListedPriced::Unknown
-                    | protocol::ListedPriced::Yours
-            ) {
+            if !model.priced.settable() {
                 return row((label(format!("{value:.2}"))
                     .tone(Tone::Faint)
                     .rules(small_rules),))
@@ -257,21 +253,73 @@ fn limit(
     .boxed()
 }
 
-/// Whether `name` takes images, and its limits once it does.
+/// One image limit its provider lists.
+fn listed_limit(title: &'static str, value: String) -> AnyView {
+    row((
+        section(title),
+        label(value).tone(Tone::Faint).rules(small_rules),
+    ))
+    .gap(4.0)
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// The image limits of `input`, as its provider lists them.
+fn listed_images(input: Option<&protocol::ImageInput>) -> AnyView {
+    let Some(input) = input else {
+        return row(()).boxed();
+    };
+    let bytes =
+        input.max_bytes.unwrap_or(protocol::ImageInput::BYTES);
+    row((
+        section("IMAGES"),
+        listed_limit(
+            "WIDTH",
+            input
+                .max_width
+                .unwrap_or(protocol::ImageInput::WIDTH)
+                .to_string(),
+        ),
+        listed_limit(
+            "HEIGHT",
+            input
+                .max_height
+                .unwrap_or(protocol::ImageInput::HEIGHT)
+                .to_string(),
+        ),
+        listed_limit("MB", format!("{:.1}", bytes as f64 / MEGABYTE)),
+        listed_limit(
+            "PER LINE",
+            input
+                .per_line
+                .unwrap_or(protocol::ImageInput::PER_LINE)
+                .to_string(),
+        ),
+    ))
+    .gap(8.0)
+    .align(AlignItems::Center)
+    .boxed()
+}
+
+/// Whether `name` takes images, and its limits once it does; fixed
+/// when its provider lists its price.
 fn images(name: &str) -> AnyView {
     let (known, name) = (name.to_string(), name.to_string());
     keyed(
         resource::<Shelf, _>(move |shelf| {
-            shelf
-                .models
-                .iter()
-                .find(|model| model.name == known)
-                .map(|model| model.images.clone())
+            shelf.models.iter().find(|model| model.name == known).map(
+                |model| {
+                    (model.images.clone(), model.priced.settable())
+                },
+            )
         }),
         move |model| {
-            let Some(images) = model else {
+            let Some((images, settable)) = model else {
                 return row(()).boxed();
             };
+            if !settable {
+                return listed_images(images.as_ref());
+            }
             let switched = name.clone();
             let toggle = labelled_switch(
                 "IMAGES",

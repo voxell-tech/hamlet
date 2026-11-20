@@ -73,8 +73,10 @@ images, and its limits: the width, height and bytes of one image and how
 many a message holds. A chief can say that a model takes images and set its
 limits, as a custom endpoint, whose listing says none, needs; the server
 keeps what the chief said until they clear it, and a later listing leaves
-it alone. It refuses a line with images to a model that takes none, and
-gives a model each image only once made to fit within its limits.
+it alone. A model whose provider lists its price keeps that price and the
+listed images: a chief can change neither. It refuses a line with images to
+a model that takes none, and gives a model each image only once made to fit
+within its limits.
 
 ## Credentials
 

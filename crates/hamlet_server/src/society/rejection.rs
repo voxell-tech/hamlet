@@ -280,6 +280,11 @@ pub(crate) enum Rejection {
     BadCost,
     #[error("An image limit is a number above zero.")]
     BadImageLimit,
+    #[error(
+        "The provider of `{model}` lists its price and image \
+         limits, so they cannot be changed."
+    )]
+    ModelListed { model: String },
     #[error("Use {usage}")]
     CommandUsage { usage: String },
     #[error(
