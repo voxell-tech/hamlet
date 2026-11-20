@@ -304,8 +304,7 @@ async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
     assert_eq!(hiring, 0);
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
     let told = told_of_failed(&realm, MAYOR, THREE).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(told.ends_with("An internal error occurred"), "{told}");
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
     realm.host.shutdown().await.unwrap();
 }
 
@@ -326,25 +325,28 @@ async fn told_of_a_hire_failing_at(callee: Callee) -> String {
     told
 }
 
+/// What the lead reads when a step's callee fails with an error of
+/// its own and no refusal's words.
+const PLAIN: &str = "An internal error occurred";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_branch_cannot_be_made_ends_and_its_lead_hears_why()
+ {
+    let told = told_of_a_hire_failing_at(Callee::Branch).await;
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_files_cannot_be_filled_ends_and_its_lead_hears_why()
  {
     let told = told_of_a_hire_failing_at(Callee::Fill).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(
-        told.ends_with("the stand-in refuses Fill of 3"),
-        "{told}"
-    );
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_reach_is_refused_ends_and_its_lead_hears_why() {
     let told = told_of_a_hire_failing_at(Callee::SetReach).await;
-    assert!(told.starts_with(HIRE_3_FAILED), "{told}");
-    assert!(
-        told.ends_with("the stand-in refuses SetReach of 3"),
-        "{told}"
-    );
+    assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

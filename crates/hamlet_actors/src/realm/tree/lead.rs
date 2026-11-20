@@ -8,7 +8,9 @@ use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::Profile;
 use hamlet_messages::agent::{AgentKind, Input, InputId, Submit};
-use hamlet_messages::profile::{VersionName, Versions};
+use hamlet_messages::profile::{
+    Read, ReadAnswer, Revision, VersionName,
+};
 use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
@@ -74,18 +76,18 @@ impl Pinned {
             && let Ok(profile) =
                 profiles::shared(&Rows::outside(ctx)?, named).await?
         {
-            let held = realm
+            let at = Read {
+                at: Some(Revision::Version {
+                    version: version.clone(),
+                }),
+                path: None,
+            };
+            let read = realm
                 .peers
-                .call(
-                    &Profile(profile),
-                    &Versions,
-                    When::BeforeAnswer,
-                )
+                .call(&Profile(profile), &at, When::BeforeAnswer)
                 .await?;
-            if !held
-                .versions
-                .iter()
-                .any(|seen| seen.version == *version)
+            if version.0 == hamlet_git::MAIN
+                || matches!(read, ReadAnswer::Refused { .. })
             {
                 lacked = Some(version.clone());
             }

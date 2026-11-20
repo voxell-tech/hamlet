@@ -51,10 +51,6 @@ impl Reads {
         self.0.versions()
     }
 
-    pub fn branches(&self) -> Result<Vec<(String, CommitId)>> {
-        self.0.branches()
-    }
-
     pub fn read(
         &self,
         at: CommitId,
@@ -63,8 +59,30 @@ impl Reads {
         self.0.read(at, path)
     }
 
+    /// The commit a branch, a version or a full commit id names, in
+    /// that order. A name no ref can have, such as `no such`, names
+    /// nothing.
     pub fn resolve(&self, name: &str) -> Result<Option<CommitId>> {
-        self.0.resolve(name)
+        if let Some((_, tip)) = self
+            .0
+            .branches()?
+            .into_iter()
+            .find(|(branch, _)| branch == name)
+        {
+            return Ok(Some(tip));
+        }
+        if let Some(version) = self
+            .0
+            .versions()?
+            .into_iter()
+            .find(|seen| seen.name == name)
+        {
+            return Ok(Some(version.commit));
+        }
+        match name.parse::<CommitId>() {
+            Ok(id) if self.0.has_commit(id)? => Ok(Some(id)),
+            _ => Ok(None),
+        }
     }
 
     pub fn entries(&self, at: CommitId) -> Result<Vec<Entry>> {

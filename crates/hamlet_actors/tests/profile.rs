@@ -22,11 +22,11 @@ use hamlet_git::{Change, MAIN};
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::profile::{
-    Branch, By, Character, CommitId, CommitSeen, Moved, ProfileInput,
-    Removal, RemovePath, Sha1, Tag, TagAnswer, TagRefusal,
-    VersionList, VersionName, VersionSeen, Versions,
+    Branch, By, Character, CommitId, CommitSeen, Missing, Moved,
+    ProfileInput, Removal, RemovePath, Sha1, Tag, TagAnswer,
+    TagRefusal, VersionList, VersionName, VersionSeen, Versions,
 };
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
@@ -784,5 +784,56 @@ async fn a_hire_is_told_once_main_moved_under_it() {
         }),
     };
     assert_eq!(moved_to(&told, 7).await, moved);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_branch_starts_at_a_branch_a_tag_or_a_commit_and_never_main()
+ {
+    // As today's hire at a version (`hamlet_server/src/commands.rs`
+    // `existing`, `hamlet_git` `resolve`): a branch, then a tag, then
+    // a full commit id; `main` itself is no version.
+    let dir = Scratch::new("profile-branch-from");
+    let host = made(&dir).await;
+    hire(&host, 7).await;
+    let first = main_tip(&dir);
+    let second = commit_main(&dir, &[write("notes.md", "more")]);
+    call_as(&host, &realm(), &tag(&RequestId::new(), "v1", ""))
+        .await
+        .unwrap();
+    let seven = tip(&dir, "hires/7");
+    let from = |number: u32, name: &str| Branch {
+        name: format!("hires/{number}"),
+        from: Some(VersionName(name.to_owned())),
+    };
+
+    for (number, name) in [
+        (8, "hires/7".to_owned()),
+        (9, "v1".to_owned()),
+        (10, first.to_string()),
+    ] {
+        let made = call_as(&host, &realm(), &from(number, &name))
+            .await
+            .unwrap();
+        assert_eq!(made, Done::Done, "from {name}");
+    }
+    let at_main =
+        call_as(&host, &realm(), &from(11, MAIN)).await.unwrap();
+
+    assert_eq!(
+        [8, 9, 10]
+            .map(|number| tip(&dir, &format!("hires/{number}"))),
+        [seven, Some(second), Some(first)]
+    );
+    assert_eq!(
+        at_main,
+        Done::Refused {
+            why: Missing::NoVersion {
+                profile: ProfileId(1),
+                version: VersionName(MAIN.to_owned()),
+            }
+        }
+    );
+    assert_eq!(tip(&dir, "hires/11"), None);
     host.shutdown().await.unwrap();
 }

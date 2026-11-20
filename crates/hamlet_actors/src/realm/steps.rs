@@ -286,7 +286,7 @@ where
             return None;
         };
         if peer::refused(&error) {
-            return Some(error.root_cause().to_string());
+            return Some(peer::words(&error));
         }
         wait =
             Some(wait.map_or(FIRST_RETRY, |wait| {

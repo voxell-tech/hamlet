@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use hamlet_actor_error::ActorError;
+use hamlet_actor_error::{ActorError, INTERNAL_ERROR};
 use hamlet_host::HostRef;
 use hamlet_messages::Message;
 use hamlet_messages::address::Party;
@@ -70,9 +70,11 @@ impl Peers {
 }
 
 /// The mark of a callee's own error in answer to a call of the
-/// realm's.
+/// realm's: `worded` when it is a refusal whose words a caller reads.
 #[derive(Debug)]
-struct Refused;
+struct Refused {
+    worded: bool,
+}
 
 impl std::fmt::Display for Refused {
     fn fmt(
@@ -97,7 +99,7 @@ fn marked(error: anyhow::Error) -> anyhow::Error {
                 "actor" | "link" | "sqlite"
             ) =>
         {
-            error.context(Refused)
+            error.context(Refused { worded: false })
         }
         _ => error,
     }
@@ -105,13 +107,26 @@ fn marked(error: anyhow::Error) -> anyhow::Error {
 
 /// The refusal `why` a callee answered, as an error of its own.
 pub(super) fn refusal(why: impl std::fmt::Display) -> anyhow::Error {
-    anyhow::Error::msg(why.to_string()).context(Refused)
+    anyhow::Error::msg(why.to_string())
+        .context(Refused { worded: true })
 }
 
 /// Whether `error` is a callee's own answer to a call of the
 /// realm's.
 pub(super) fn refused(error: &anyhow::Error) -> bool {
     error.downcast_ref::<Refused>().is_some()
+}
+
+/// What a caller reads of `error`, a callee's own: a refusal's
+/// words, else the plain sentence of an internal error, never the
+/// error's own text.
+pub(super) fn words(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<Refused>() {
+        Some(Refused { worded: true }) => {
+            error.root_cause().to_string()
+        }
+        _ => INTERNAL_ERROR.default_message.to_owned(),
+    }
 }
 
 fn is_duplicate_key(error: &anyhow::Error) -> bool {

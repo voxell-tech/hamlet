@@ -28,7 +28,7 @@ use hamlet_messages::profile::{
     BadPath, Branch, CommitId, DreamEnd, DropSaveParts, Edit,
     EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
     Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
-    Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
+    Revert, RevertAnswer, Revision, Sha1, Tag, TagAnswer, TagRefusal,
     VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::budget::{
@@ -459,6 +459,18 @@ impl Actor for ProfileStandIn {
 
 const HELD_VERSION: &str = "v1";
 
+impl ProfileStandIn {
+    /// Whether `name` is its version or a branch it made.
+    fn holds(&self, name: &str) -> bool {
+        name == HELD_VERSION
+            || self.seen.branches.lock().unwrap().iter().any(
+                |(profile, branch)| {
+                    *profile == self.profile && branch.name == name
+                },
+            )
+    }
+}
+
 impl Handler<Branch> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -472,20 +484,20 @@ impl Handler<Branch> for ProfileStandIn {
             .parse()?;
         self.seen.called(Callee::Branch, AgentNumber(agent)).await?;
         let from = branch.from.clone();
+        let held =
+            from.as_ref().is_none_or(|from| self.holds(&from.0));
         self.seen
             .branches
             .lock()
             .unwrap()
             .push((self.profile, branch));
         Ok(match from {
-            Some(version) if version.0 != HELD_VERSION => {
-                Done::Refused {
-                    why: Missing::NoVersion {
-                        profile: self.profile,
-                        version,
-                    },
-                }
-            }
+            Some(version) if !held => Done::Refused {
+                why: Missing::NoVersion {
+                    profile: self.profile,
+                    version,
+                },
+            },
             _ => Done::Done,
         })
     }
@@ -517,8 +529,25 @@ impl Handler<Read> for ProfileStandIn {
         _: Ctx<Self>,
         read: Read,
     ) -> anyhow::Result<ReadAnswer> {
+        let lacked = match &read.at {
+            Some(Revision::Version { version })
+                if !self.holds(&version.0) =>
+            {
+                Some(version.clone())
+            }
+            _ => None,
+        };
         let path = read.path.clone();
         self.seen.reads.lock().unwrap().push((self.profile, read));
+        if let Some(version) = lacked {
+            return Ok(ReadAnswer::Refused {
+                why: Missing::NoVersion {
+                    profile: self.profile,
+                    version,
+                }
+                .into(),
+            });
+        }
         Ok(match path {
             None => ReadAnswer::Listed {
                 paths: vec![FilePath {
