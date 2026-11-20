@@ -45,6 +45,7 @@ the result a model is given.
   and a tool that does not say it only reads always waits.
 - A server's reach is fixed while it runs, so a call the gate rules to run
   without the network does not run on a server that has it.
-- Supporting the streamable HTTP transport later is a feature of the same
-  crate, with credentials for the remote server kept by the server as the
-  others are (ADR 0005), and an entry that says a URL instead of a command.
+- The streamable HTTP transport is a feature of the same crate: an entry
+  that says a url instead of a command, its headers and OAuth tokens kept
+  by the server (ADR 0005). It needs the workspace's `reqwest` at the
+  crate's version, 0.13.

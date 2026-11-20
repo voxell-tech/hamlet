@@ -30,6 +30,8 @@ pub(crate) enum Asking {
     Worker(Entity),
     /// Adding an MCP server, or changing one.
     McpServer,
+    /// The address a sign-in to an MCP server ended on.
+    McpPaste,
 }
 
 /// The form that is open, if one is.

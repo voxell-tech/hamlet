@@ -115,7 +115,9 @@ and a server that never started, are named in the prompt of every agent
 that would have had its tools (C15). A server cannot ask Hamlet for a
 model, folders or answers (ADR 0017). A chief adds, changes, restarts and
 removes servers in Settings and with `hamlet mcp`, and can bring in those
-other programs on the server's machine list. An agent can ask a chief for
+other programs on the server's machine list. A server can also be reached
+over streamable HTTP by a url, signed in to with OAuth, its tokens kept by
+the server. An agent can ask a chief for
 a server; allowed, it is added with its environment's values for the chief
 to give.
 

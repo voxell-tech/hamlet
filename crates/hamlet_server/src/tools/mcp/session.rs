@@ -1,8 +1,10 @@
-//! One MCP server kept running: its process under the sandbox, the
-//! MCP client that speaks with it over the process's standard input
-//! and output, and a start again with a growing delay when it ends.
+//! One MCP server kept running: its process under the sandbox and
+//! the MCP client that speaks with it over the process's standard
+//! input and output, or the client of a server reached over
+//! streamable HTTP; and a start again with a growing delay when it
+//! ends.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -19,8 +21,16 @@ use rmcp::service::{
     ClientInitializeError, NotificationContext, RunningService,
     ServiceError, Subscription,
 };
+use rmcp::transport::IntoTransport;
+use rmcp::transport::auth::{
+    AuthClient, AuthError, AuthorizationManager,
+};
+use rmcp::transport::streamable_http_client::{
+    AuthRequiredError, StreamableHttpClientTransport,
+    StreamableHttpClientTransportConfig,
+};
 use rmcp::{ClientHandler, RoleClient, ServiceExt};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader,
 };
@@ -91,13 +101,27 @@ pub(crate) struct Report {
 pub(super) struct Launch {
     pub name: String,
     pub generation: u64,
-    pub argv: Vec<String>,
-    pub policy: Policy,
-    pub sandbox: Sandbox,
-    /// Its own folder, which it works in.
-    pub home: PathBuf,
+    pub way: Way,
     /// What must not reach the log from what it says.
     pub secrets: Vec<String>,
+}
+
+/// How a server is reached.
+pub(super) enum Way {
+    /// A program run under `policy`, in its own folder `home`.
+    Program {
+        argv: Vec<String>,
+        policy: Policy,
+        sandbox: Sandbox,
+        home: PathBuf,
+    },
+    /// A server at `url`, each request carrying `headers`, signed in
+    /// with the tokens in the file `signed_in` once a chief has.
+    Remote {
+        url: String,
+        headers: BTreeMap<String, String>,
+        signed_in: PathBuf,
+    },
 }
 
 /// Why a session ended.
@@ -121,6 +145,8 @@ enum Stop {
     Ended(String),
     #[error("its output ended")]
     Closed,
+    #[error("it needs you to sign in")]
+    SignIn,
     #[error("the server is stopping")]
     Stopping,
 }
@@ -181,13 +207,43 @@ async fn session(
     launch: &Launch,
     inputs: &InputSender,
 ) -> (Stop, VecDeque<String>) {
-    if let Err(error) = std::fs::create_dir_all(&launch.home) {
+    match &launch.way {
+        Way::Program {
+            argv,
+            policy,
+            sandbox,
+            home,
+        } => {
+            program(launch, argv, policy, *sandbox, home, inputs)
+                .await
+        }
+        Way::Remote {
+            url,
+            headers,
+            signed_in,
+        } => (
+            remote(launch, url, headers, signed_in, inputs).await,
+            VecDeque::new(),
+        ),
+    }
+}
+
+/// A session of a program under the sandbox.
+async fn program(
+    launch: &Launch,
+    argv: &[String],
+    policy: &Policy,
+    sandbox: Sandbox,
+    home: &std::path::Path,
+    inputs: &InputSender,
+) -> (Stop, VecDeque<String>) {
+    if let Err(error) = std::fs::create_dir_all(home) {
         return (Stop::Folder(error), VecDeque::new());
     }
     let env = match Env::private(
-        &hamlet_os::fs::path::text(&launch.home),
-        launch.policy.clone(),
-        launch.sandbox,
+        &hamlet_os::fs::path::text(home),
+        policy.clone(),
+        sandbox,
     ) {
         Ok(env) => env,
         Err(error) => {
@@ -202,7 +258,7 @@ async fn session(
         stdin,
         stdout,
         stderr,
-    } = match env.spawn_piped(&launch.argv) {
+    } = match env.spawn_piped(argv) {
         Ok(piped) => piped,
         Err(ExecError::Spawn(words) | ExecError::Spill(words)) => {
             return (Stop::Unstarted(words), VecDeque::new());
@@ -216,42 +272,127 @@ async fn session(
     };
     let reader = Reader::start(stderr, launch);
     let ran = Ran {
-        tree: &mut tree,
+        tree: Some(&mut tree),
         launch,
         inputs,
-        env: &env,
+        policy: env.policy_hash().to_owned(),
+        degraded: env.degraded(),
     };
-    let stop = ran.serve(stdout, stdin).await;
+    let stop = ran.serve((stdout, stdin)).await;
     // Its error output closes once every process of it has ended.
     drop(tree);
     (stop, reader.said().await)
 }
 
-/// A started server's process, and what it is reported to.
+/// A session of a server at `url`: over its tokens once a chief
+/// signed in, else as it is.
+async fn remote(
+    launch: &Launch,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+    signed_in: &std::path::Path,
+    inputs: &InputSender,
+) -> Stop {
+    // TLS runs on ring, installed once for the process.
+    let _ =
+        rustls::crypto::ring::default_provider().install_default();
+    let client = match reqwest::Client::builder().build() {
+        Ok(client) => client,
+        Err(error) => return Stop::Unstarted(error.to_string()),
+    };
+    let mut config =
+        StreamableHttpClientTransportConfig::with_uri(url);
+    let mut custom = HashMap::new();
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("authorization")
+            && let Some(token) = value.strip_prefix("Bearer ")
+        {
+            config = config.auth_header(token);
+            continue;
+        }
+        let (Ok(name), Ok(value)) = (
+            reqwest::header::HeaderName::try_from(name.as_str()),
+            reqwest::header::HeaderValue::try_from(value.as_str()),
+        ) else {
+            return Stop::Unstarted(format!(
+                "its header {name} does not fit"
+            ));
+        };
+        custom.insert(name, value);
+    }
+    let config = config.custom_headers(custom);
+    let ran = Ran {
+        tree: None,
+        launch,
+        inputs,
+        policy: "remote".into(),
+        degraded: json!({}),
+    };
+    if !signed_in.exists() {
+        return ran
+            .serve(StreamableHttpClientTransport::with_client(
+                client, config,
+            ))
+            .await;
+    }
+    let manager =
+        match signed_in_manager(url, client.clone(), signed_in).await
+        {
+            Ok(Some(manager)) => manager,
+            Ok(None) => return Stop::SignIn,
+            Err(error) => return Stop::Unstarted(error.to_string()),
+        };
+    ran.serve(StreamableHttpClientTransport::with_client(
+        AuthClient::new(client, manager),
+        config,
+    ))
+    .await
+}
+
+/// The manager of the tokens in the file `signed_in` for the server
+/// at `url`, refreshing them there; none when it holds none.
+pub(super) async fn signed_in_manager(
+    url: &str,
+    client: reqwest::Client,
+    signed_in: &std::path::Path,
+) -> Result<Option<AuthorizationManager>, AuthError> {
+    let mut manager = AuthorizationManager::new(url).await?;
+    manager.with_client(client)?;
+    manager
+        .set_credential_store(super::sign_in::Tokens::at(signed_in));
+    Ok(manager.initialize_from_store().await?.then_some(manager))
+}
+
+/// A started server, its process when it has one, and what it is
+/// reported to.
 struct Ran<'a> {
-    tree: &'a mut Tree,
+    tree: Option<&'a mut Tree>,
     launch: &'a Launch,
     inputs: &'a InputSender,
-    env: &'a Env,
+    /// The hash of the policy it runs under, or `remote`.
+    policy: String,
+    /// What of the policy this machine cannot hold.
+    degraded: Value,
 }
 
 impl Ran<'_> {
-    /// Speaks with the server over `stdout` and `stdin`, and keeps
-    /// what it lists offered until it ends. Gives why it ended.
-    async fn serve(
-        self,
-        stdout: tokio::process::ChildStdout,
-        stdin: tokio::process::ChildStdin,
-    ) -> Stop {
+    /// Speaks with the server over `transport`, and keeps what it
+    /// lists offered until it ends. Gives why it ended.
+    async fn serve<T, E, A>(mut self, transport: T) -> Stop
+    where
+        T: IntoTransport<RoleClient, E, A> + Send + 'static,
+        E: std::error::Error + Send + Sync + 'static,
+    {
         let (changed, mut changes) = mpsc::channel(1);
         let started = tokio::time::timeout(
             HANDSHAKE,
-            Client { changed }.serve((stdout, stdin)),
+            Client { changed }.serve(transport),
         );
         let client = tokio::select! {
-            ended = self.tree.ended() => return Stop::Ended(word(ended)),
+            ended = ended(&mut self.tree) => return Stop::Ended(word(ended)),
             started = started => match started {
                 Ok(Ok(client)) => client,
+                Ok(Err(error)) if needs_sign_in(&error) => return Stop::SignIn,
                 Ok(Err(error)) => return self.exit_or(Stop::Refused(Box::new(error))).await,
                 Err(_) => return Stop::Slow,
             },
@@ -269,7 +410,7 @@ impl Ran<'_> {
         tokio::pin!(closed);
         loop {
             tokio::select! {
-                ended = self.tree.ended() => return Stop::Ended(word(ended)),
+                ended = ended(&mut self.tree) => return Stop::Ended(word(ended)),
                 () = &mut closed => return self.exit_or(Stop::Closed).await,
                 Some(()) = changes.recv() => {}
                 Some(()) = next(&mut subscription) => {}
@@ -293,20 +434,54 @@ impl Ran<'_> {
             status: Status::Up {
                 tools,
                 peer: peer.clone(),
-                policy: self.env.policy_hash().to_owned(),
-                degraded: self.env.degraded(),
+                policy: self.policy.clone(),
+                degraded: self.degraded.clone(),
             },
         };
         self.inputs.send(report).map_err(|_| Stop::Stopping)
     }
 
     /// How the process ended, once it ends soon; else `stop`.
-    async fn exit_or(self, stop: Stop) -> Stop {
-        match tokio::time::timeout(EXITING, self.tree.ended()).await {
+    async fn exit_or(mut self, stop: Stop) -> Stop {
+        match tokio::time::timeout(EXITING, ended(&mut self.tree))
+            .await
+        {
             Ok(ended) => Stop::Ended(word(ended)),
             Err(_) => stop,
         }
     }
+}
+
+/// How the process `tree` ended; never when there is none.
+async fn ended(
+    tree: &mut Option<&mut Tree>,
+) -> std::io::Result<std::process::ExitStatus> {
+    match tree {
+        Some(tree) => tree.ended().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Whether a server refused to start as it wants a sign-in, or new
+/// tokens.
+fn needs_sign_in(error: &ClientInitializeError) -> bool {
+    let ClientInitializeError::TransportError { error, .. } = error
+    else {
+        return false;
+    };
+    let first: &(dyn std::error::Error + 'static) = &*error.error;
+    std::iter::successors(Some(first), |error| error.source()).any(
+        |error| {
+            error.is::<AuthRequiredError>()
+                || matches!(
+                    error.downcast_ref::<AuthError>(),
+                    Some(
+                        AuthError::AuthorizationRequired
+                            | AuthError::TokenRefreshRejected(_)
+                    )
+                )
+        },
+    )
 }
 
 /// The tools the server lists, over every page; none when it offers

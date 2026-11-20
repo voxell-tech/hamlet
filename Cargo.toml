@@ -60,6 +60,7 @@ bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4
 # other
 # The version bevy_a11y uses, which it no longer re-exports.
 accesskit = { version = "0.24", default-features = false }
+async-trait = "0.1"
 anyhow = "1"
 # The system clipboard, for the images on it; Bevy's own copy of it
 # holds text and raw pixels only.

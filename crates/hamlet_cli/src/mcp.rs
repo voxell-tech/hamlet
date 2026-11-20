@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{
     ClientMessage, McpAct, McpEntry, McpServerView, McpState,
-    RequestId, ServerMessage, State,
+    RequestId, ServerMessage, State, Update,
 };
 
 use crate::client::Client;
@@ -13,13 +13,20 @@ use crate::terminal::{checked, in_editor};
 pub enum Mcp {
     List,
     Tools(String),
+    /// Boxed, as an entry is larger than the rest together.
     Add {
         name: String,
-        entry: McpEntry,
+        entry: Box<McpEntry>,
     },
     Edit(String),
     Remove(String),
     Restart(String),
+    /// Signs in to a server reached by a url, or finishes the sign-in
+    /// with the address the browser ended on.
+    SignIn {
+        name: String,
+        pasted: Option<String>,
+    },
     /// Finds the servers other programs list, and adds those named,
     /// or every one that runs.
     Import {
@@ -47,6 +54,21 @@ pub fn parse(args: &[String]) -> Result<Mcp> {
         "edit" => Mcp::Edit(name()?),
         "remove" => Mcp::Remove(name()?),
         "restart" => Mcp::Restart(name()?),
+        "sign-in" => match rest {
+            [name, ..] if name.starts_with('-') => {
+                bail!("unknown option `{name}`")
+            }
+            [name] => Mcp::SignIn {
+                name: name.clone(),
+                pasted: None,
+            },
+            [name, address] => Mcp::SignIn {
+                name: name.clone(),
+                pasted: Some(address.clone()),
+            },
+            [] => bail!("mcp sign-in needs a server's name"),
+            [_, _, extra, ..] => bail!("unknown argument `{extra}`"),
+        },
         "add" => add(rest)?,
         "import" => {
             let all = rest.iter().any(|arg| arg == "--all");
@@ -69,24 +91,21 @@ pub fn parse(args: &[String]) -> Result<Mcp> {
     })
 }
 
-/// `hamlet mcp add <name> [flags] -- <command> [<arg>...]`.
+/// `hamlet mcp add <name> [flags] -- <command> [<arg>...]`, or
+/// `hamlet mcp add <name> --url <address> [--header
+/// <Name=value>]...`.
 fn add(args: &[String]) -> Result<Mcp> {
     let (name, args) = args
         .split_first()
         .filter(|(name, _)| !name.starts_with('-'))
         .context("mcp add needs a server's name")?;
-    let split = args.iter().position(|arg| arg == "--").context(
-        "mcp add needs `--` and the server's command after it",
-    )?;
-    let command = args[split + 1..].to_vec();
-    if command.is_empty() {
-        bail!("mcp add needs the server's command after `--`");
-    }
+    let split = args.iter().position(|arg| arg == "--");
     let mut entry = McpEntry {
-        command,
+        command: split
+            .map_or_else(Vec::new, |at| args[at + 1..].to_vec()),
         ..McpEntry::default()
     };
-    let mut flags = args[..split].iter();
+    let mut flags = args[..split.unwrap_or(args.len())].iter();
     while let Some(flag) = flags.next() {
         if flag == "--net" {
             entry.net = true;
@@ -97,6 +116,13 @@ fn add(args: &[String]) -> Result<Mcp> {
             .with_context(|| format!("{flag} needs a value"))?
             .clone();
         match flag.as_str() {
+            "--url" => entry.url = Some(value),
+            "--header" => {
+                let (name, value) = value
+                    .split_once('=')
+                    .context("--header takes Name=value")?;
+                entry.headers.insert(name.into(), Some(value.into()));
+            }
             "--env" => {
                 let (key, value) = value
                     .split_once('=')
@@ -122,9 +148,15 @@ fn add(args: &[String]) -> Result<Mcp> {
             other => bail!("unknown option `{other}`"),
         }
     }
+    if entry.command.is_empty() == entry.url.is_none() {
+        bail!(
+            "mcp add needs the server's command after `--`, or its \
+             address with --url"
+        );
+    }
     Ok(Mcp::Add {
         name: name.clone(),
-        entry,
+        entry: Box::new(entry),
     })
 }
 
@@ -181,6 +213,7 @@ pub async fn run(
                      with hamlet mcp edit {name}."
                 );
             }
+            let entry = *entry;
             act(client, McpAct::Put { name, entry }).await
         }
         Mcp::Edit(name) => {
@@ -188,7 +221,7 @@ pub async fn run(
                 serde_json::to_string_pretty(&server(&name)?.entry)?;
             let after = in_editor(
                 &format!("{name}.json"),
-                &format!("{before}\n",),
+                &format!("{before}\n"),
             )
             .await?;
             if after.trim() == before.trim() {
@@ -207,6 +240,18 @@ pub async fn run(
         Mcp::Restart(name) => {
             act(client, McpAct::Restart { name }).await
         }
+        Mcp::SignIn { name, pasted } => {
+            let follow = pasted.is_none();
+            let begun = McpAct::SignIn {
+                name: name.clone(),
+                pasted,
+            };
+            println!("{}", request(client, begun).await?);
+            if follow {
+                sign_in(client, &name).await?;
+            }
+            Ok(())
+        }
         Mcp::Import { names, all } => {
             println!("{}", request(client, McpAct::Find).await?);
             if names.is_empty() && !all {
@@ -218,6 +263,56 @@ pub async fn run(
                 return Ok(());
             }
             act(client, McpAct::Import { names }).await
+        }
+    }
+}
+
+/// Follows the sign-in to the server `name`: shows the address to
+/// sign in at, then how it ended.
+async fn sign_in(client: &mut Client, name: &str) -> Result<()> {
+    let failed = format!("MCP server {name}: the sign-in failed");
+    let mut shown = false;
+    loop {
+        let ServerMessage::Change(changes) = client.next().await?
+        else {
+            continue;
+        };
+        for update in changes.changes {
+            let Update::Settings { settings } = update else {
+                continue;
+            };
+            if let Some(fault) = settings
+                .mcp
+                .faults
+                .iter()
+                .find(|fault| fault.starts_with(&failed))
+            {
+                bail!("{fault}");
+            }
+            let Some(server) =
+                settings.mcp.servers.iter().find(|s| s.name == name)
+            else {
+                bail!("MCP server {name} was removed.");
+            };
+            match (&server.sign_in, shown) {
+                (Some(address), false) => {
+                    shown = true;
+                    println!(
+                        "Open this address to sign \
+                         in:\n\n{address}\n\nIf your browser ends \
+                         on a page that does not load, run hamlet \
+                         mcp sign-in {name} with that page's \
+                         address, quoted."
+                    );
+                }
+                (None, true) => {
+                    println!(
+                        "Signed in; MCP server {name} starts again."
+                    );
+                    return Ok(());
+                }
+                _ => {}
+            }
         }
     }
 }

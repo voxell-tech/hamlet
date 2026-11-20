@@ -4,9 +4,11 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use bevy::app::App;
+use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
@@ -31,7 +33,12 @@ use crate::forms::{self, Asking, OpenForm};
 use crate::roll::moved;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<McpPage>().add_observer(answered);
+    app.init_resource::<McpPage>()
+        .add_observer(answered)
+        .add_systems(
+            Update,
+            open_sign_in.run_if(resource_changed::<Settings>),
+        );
 }
 
 /// What the page asked the server and has no answer to, the words
@@ -44,6 +51,10 @@ struct McpPage {
     /// its fields hold as it opens.
     editing: Option<String>,
     filled: Vec<String>,
+    /// The server whose sign-in page opens once its address comes.
+    opening: Option<String>,
+    /// The server whose sign-in the address pasted finishes.
+    pasting: Option<String>,
 }
 
 /// The fields of the form, in order.
@@ -51,7 +62,14 @@ const FIELDS: &[(&str, &str)] = &[
     ("Name", "Lowercase letters, digits and -, at most 24."),
     (
         "Command",
-        "The program and its arguments; quote one with spaces.",
+        "The program and its arguments, a word with spaces quoted; \
+         or the https address of a remote server.",
+    ),
+    (
+        "Headers",
+        "For an address: Name=value, apart by spaces, as \
+         Authorization=\"Bearer token\". A name alone keeps its \
+         value.",
     ),
     (
         "Environment",
@@ -158,6 +176,28 @@ pub(crate) fn page() -> impl View {
         },
     )
     .within(bare());
+    let paste = forms::form(
+        Asking::McpPaste,
+        "The address your browser ended on.",
+        &[("Address", "")],
+        "Sign In",
+        |world, typed| {
+            let Some(name) =
+                world.resource_mut::<McpPage>().pasting.take()
+            else {
+                return true;
+            };
+            let address = typed.first().cloned().unwrap_or_default();
+            send(
+                world,
+                McpAct::SignIn {
+                    name,
+                    pasted: Some(address),
+                },
+            );
+            true
+        },
+    );
     group((
         description(
             "Each server runs in the sandbox on the server, and its \
@@ -168,6 +208,7 @@ pub(crate) fn page() -> impl View {
         faults,
         problem(),
         form,
+        paste,
         row((
             good_action(Glyph::Plus, "Add Server", |world| {
                 open(world, None, Vec::new());
@@ -224,49 +265,57 @@ fn server(server: &McpServerView) -> AnyView {
             format!("{n} tools, {asks} ask before each call")
         }
     };
-    let mut parts = vec![
-        beside((
-            row((label(name.clone()).bold(true), state))
-                .gap(8.0)
-                .align(AlignItems::Center)
-                .fills_width(),
-            action(Glyph::Rename, "Change", {
-                let (name, entry) =
-                    (name.clone(), server.entry.clone());
-                move |world| {
-                    open(
-                        world,
-                        Some(name.clone()),
-                        filled(&name, &entry),
-                    );
-                }
-            }),
-            action(Glyph::Restore, "Restart", {
-                let name = name.clone();
-                move |world| {
-                    send(
-                        world,
-                        McpAct::Restart { name: name.clone() },
-                    );
-                }
-            }),
-            bad_action(Glyph::Gone, "Remove", {
-                let name = name.clone();
-                move |world| {
-                    send(
-                        world,
-                        McpAct::Remove { name: name.clone() },
-                    );
-                }
-            }),
-        ))
-        .boxed(),
-        note(command_line(&server.entry.command)).boxed(),
-    ];
+    let mut parts =
+        vec![
+            beside((
+                row((label(name.clone()).bold(true), state))
+                    .gap(8.0)
+                    .align(AlignItems::Center)
+                    .fills_width(),
+                action(Glyph::Rename, "Change", {
+                    let (name, entry) =
+                        (name.clone(), server.entry.clone());
+                    move |world| {
+                        open(
+                            world,
+                            Some(name.clone()),
+                            filled(&name, &entry),
+                        );
+                    }
+                }),
+                action(Glyph::Restore, "Restart", {
+                    let name = name.clone();
+                    move |world| {
+                        send(
+                            world,
+                            McpAct::Restart { name: name.clone() },
+                        );
+                    }
+                }),
+                bad_action(Glyph::Gone, "Remove", {
+                    let name = name.clone();
+                    move |world| {
+                        send(
+                            world,
+                            McpAct::Remove { name: name.clone() },
+                        );
+                    }
+                }),
+            ))
+            .boxed(),
+            note(server.entry.url.clone().unwrap_or_else(|| {
+                command_line(&server.entry.command)
+            }))
+            .boxed(),
+        ];
     if let McpState::Down { reason, .. } = &server.state {
         parts.push(note(format!("It stopped: {reason}")).boxed());
     }
     parts.push(note(tools).boxed());
+    if server.entry.url.is_some() {
+        parts.push(sign_in(&name, server.sign_in.as_deref()));
+        return close(parts).boxed();
+    }
     let entry = server.entry.clone();
     parts.push(
         labelled_switch(
@@ -288,6 +337,76 @@ fn server(server: &McpServerView) -> AnyView {
         .boxed(),
     );
     close(parts).boxed()
+}
+
+/// The sign-in to the server `name`, reached by a url: a press that
+/// begins it, or while it waits for `address`, ways to finish it.
+fn sign_in(name: &str, address: Option<&str>) -> AnyView {
+    let name = name.to_owned();
+    let Some(address) = address else {
+        return row((action(Glyph::Key, "Sign In", move |world| {
+            send(
+                world,
+                McpAct::SignIn {
+                    name: name.clone(),
+                    pasted: None,
+                },
+            );
+            world.resource_mut::<McpPage>().opening =
+                Some(name.clone());
+        }),))
+        .boxed();
+    };
+    let address = address.to_owned();
+    close((
+        note(
+            "Sign in on the page your browser opened. If it ends on \
+             a page that does not load, paste that page's address.",
+        ),
+        row((
+            action(Glyph::Into, "Open Again", move |world| {
+                browse(world, &address);
+            }),
+            action(Glyph::Notes, "Paste Address", move |world| {
+                world.resource_mut::<McpPage>().pasting =
+                    Some(name.clone());
+                world.resource_mut::<OpenForm>().0 =
+                    Some(Asking::McpPaste);
+            }),
+        ))
+        .gap(8.0),
+    ))
+    .boxed()
+}
+
+/// Opens `address` in the chief's browser, when it is a web page.
+fn browse(world: &mut World, address: &str) {
+    if crate::welcome::providers::is_browsable(address) {
+        let browse =
+            world.resource::<crate::welcome::providers::Browser>().0;
+        browse(world, address);
+    }
+}
+
+/// Opens the page of the sign-in the chief began, once its server
+/// gives its address.
+fn open_sign_in(world: &mut World) {
+    let Some(name) = world.resource::<McpPage>().opening.clone()
+    else {
+        return;
+    };
+    let address = world
+        .resource::<Settings>()
+        .0
+        .mcp
+        .servers
+        .iter()
+        .find(|server| server.name == name)
+        .and_then(|server| server.sign_in.clone());
+    if let Some(address) = address {
+        world.resource_mut::<McpPage>().opening = None;
+        browse(world, &address);
+    }
 }
 
 /// The servers other programs list, each added with a press.
@@ -351,7 +470,11 @@ fn found_list(found: &[McpFound]) -> AnyView {
 fn filled(name: &str, entry: &McpEntry) -> Vec<String> {
     vec![
         name.to_owned(),
-        command_line(&entry.command),
+        entry
+            .url
+            .clone()
+            .unwrap_or_else(|| command_line(&entry.command)),
+        entry.headers.keys().cloned().collect::<Vec<_>>().join(" "),
         entry.env.keys().cloned().collect::<Vec<_>>().join(" "),
         entry.inherit_env.join(" "),
         command_line(&entry.fs_ro),
@@ -384,20 +507,22 @@ fn save(
             .map(|server| server.entry.clone())
     });
     let entry = (|| -> Result<McpEntry, String> {
-        let command = words(field(1))?;
-        if command.is_empty() {
-            return Err("Type the server's command.".into());
-        }
-        let mut env = BTreeMap::new();
-        for word in words(field(2))? {
-            match word.split_once('=') {
-                Some((key, value)) => {
-                    env.insert(key.to_owned(), Some(value.to_owned()))
-                }
-                None => env.insert(word, None),
-            };
-        }
-        let timeout_secs = match field(8) {
+        let mut command = words(field(1))?;
+        let url = match command.as_slice() {
+            [] => {
+                return Err(
+                    "Type the server's command or address.".into()
+                );
+            }
+            [address]
+                if address.starts_with("https://")
+                    || address.starts_with("http://") =>
+            {
+                Some(command.remove(0))
+            }
+            _ => None,
+        };
+        let timeout_secs = match field(9) {
             "" => None,
             secs => Some(
                 secs.parse::<u64>()
@@ -408,14 +533,16 @@ fn save(
         };
         Ok(McpEntry {
             command,
-            env,
-            inherit_env: words(field(3))?,
-            fs_ro: words(field(4))?,
-            fs_rw: words(field(5))?,
+            url,
+            headers: pairs(field(2))?,
+            env: pairs(field(3))?,
+            inherit_env: words(field(4))?,
+            fs_ro: words(field(5))?,
+            fs_rw: words(field(6))?,
             net: before.as_ref().is_some_and(|entry| entry.net),
             timeout_secs,
-            allow: words(field(6))?,
-            ask: words(field(7))?,
+            allow: words(field(7))?,
+            ask: words(field(8))?,
         })
     })();
     let entry = match entry {
@@ -438,6 +565,22 @@ fn save(
     }
     send(world, McpAct::Put { name, entry });
     true
+}
+
+/// The `Name=value` words of `line`; a name alone is `None`, its
+/// value kept as it is.
+fn pairs(
+    line: &str,
+) -> Result<BTreeMap<String, Option<String>>, String> {
+    Ok(words(line)?
+        .into_iter()
+        .map(|word| match word.split_once('=') {
+            Some((name, value)) => {
+                (name.to_owned(), Some(value.to_owned()))
+            }
+            None => (word, None),
+        })
+        .collect())
 }
 
 /// `line` split into words at spaces outside quotes.

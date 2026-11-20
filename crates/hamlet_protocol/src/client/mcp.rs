@@ -40,6 +40,12 @@ pub struct McpServerView {
     pub state: McpState,
     /// The tools it last listed, offered as they are named.
     pub tools: Vec<McpToolView>,
+    /// The address a chief signs in at, while a sign-in to it waits.
+    #[serde(rename = "signIn")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String")]
+    pub sign_in: Option<String>,
 }
 
 /// A server's entry in `mcp/servers.json`.
@@ -54,9 +60,20 @@ pub struct McpServerView {
 )]
 #[serde(deny_unknown_fields)]
 pub struct McpEntry {
-    /// The program and its arguments.
-    #[schemars(length(min = 1, max = 256))]
+    /// The program and its arguments; empty for a server reached by
+    /// `url`.
+    #[schemars(length(max = 256))]
     pub command: Vec<String>,
+    /// The address of a server reached over streamable HTTP instead
+    /// of a program.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String", length(min = 1, max = 2048))]
+    pub url: Option<String>,
+    /// The headers each request to `url` carries, their values as
+    /// `env`'s are.
+    #[schemars(length(max = 64))]
+    pub headers: BTreeMap<String, Option<String>>,
     /// Its environment. The server never sends a value: each is
     /// `null` in a view, and `null` in an [`McpAct::Put`] keeps the
     /// value the entry has.
@@ -159,6 +176,10 @@ pub struct Mcp {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "do", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum McpAct {
     /// Adds the server `name`, or changes its entry.
     #[serde(rename = "put")]
@@ -177,6 +198,20 @@ pub enum McpAct {
     Restart {
         #[schemars(length(min = 1, max = 24))]
         name: String,
+    },
+    /// Begins a sign-in with OAuth to the server `name`, reached by a
+    /// url; its address shows in [`McpServerView::sign_in`]. With
+    /// `pasted`, hands the waiting sign-in the address the chief's
+    /// browser ended on, when it could not reach the server's
+    /// machine.
+    #[serde(rename = "sign-in")]
+    SignIn {
+        #[schemars(length(min = 1, max = 24))]
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "String", length(min = 1, max = 8192))]
+        pasted: Option<String>,
     },
     /// Looks for the servers other programs list, into
     /// [`McpView::found`].

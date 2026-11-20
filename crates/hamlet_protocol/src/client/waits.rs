@@ -55,6 +55,10 @@ pub enum WaitDanger {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "kind", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum WaitDetail {
     #[serde(rename = "approval")]
     Approval {

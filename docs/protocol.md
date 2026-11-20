@@ -122,7 +122,8 @@ file at most 16 MiB (50 files, 128 MiB together). `/compact` typed
 through `say` does what `compact` does.
 
 `mcp` carries an `act` discriminated by `do` (`put`, `remove`,
-`restart`, `find`, `import`); see `mcp`. `state.settings.mcp` shows each
+`restart`, `sign-in`, `find`, `import`); see `mcp`. A `sign-in` puts the
+address to sign in at in the server's `signIn` once it is known. `state.settings.mcp` shows each
 server, its state and tools, and what `find` last found; an `env` value
 is never sent, and a `null` value in `put` keeps the one the entry has.
 

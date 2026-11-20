@@ -10,6 +10,7 @@
 mod config;
 mod result;
 mod session;
+mod sign_in;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -36,7 +37,9 @@ use tokio::time::Instant;
 
 use self::config::Server;
 pub(crate) use self::session::Report;
-use self::session::{Launch, Peer, Status, Tool};
+use self::session::{Launch, Peer, Status, Tool, Way};
+pub(crate) use self::sign_in::SignInStep;
+use self::sign_in::{Signing, Step};
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
 use crate::core::{Core, ModelTools};
@@ -67,7 +70,8 @@ const SCHEMA: usize = 16 * 1024;
 /// list.
 pub(crate) fn plugin(app: &mut App) {
     app.add_handler::<Report, _>(take_in_reports)
-        .add_handler::<ServersChanged, _>(follow_list);
+        .add_handler::<ServersChanged, _>(follow_list)
+        .add_handler::<SignInStep, _>(take_in_sign_ins);
 }
 
 /// The list of the servers changed, and its changes settled.
@@ -135,6 +139,43 @@ fn take_in_reports(
     }
 }
 
+/// Takes in how the chief's sign-ins go: a server signed in to starts
+/// again on its tokens.
+fn take_in_sign_ins(
+    mut steps: ResMut<Messages<SignInStep>>,
+    realm: Res<Realm>,
+    inputs: Res<InputSender>,
+    mut tools: ModelTools,
+    mut changed: ResMut<InputEffects>,
+) {
+    let sandbox = tools.sandbox.0;
+    for SignInStep { server, step } in steps.drain() {
+        changed.state_changed_outside_change = true;
+        let mcp = &mut tools.mcp;
+        match step {
+            Step::Address(address) => {
+                if let Some(signing) = mcp.signing.get_mut(&server) {
+                    signing.address = Some(address);
+                }
+            }
+            Step::Done => {
+                mcp.signing.remove(&server);
+                mcp.sign_in_failed.remove(&server);
+                mcp.restart(
+                    &server,
+                    realm.layout(),
+                    sandbox,
+                    &inputs,
+                );
+            }
+            Step::Failed(why) => {
+                mcp.signing.remove(&server);
+                mcp.sign_in_failed.insert(server, why);
+            }
+        }
+    }
+}
+
 /// The MCP servers the chief lists, running or not.
 #[derive(Resource, Default)]
 pub(crate) struct Mcp {
@@ -145,6 +186,10 @@ pub(crate) struct Mcp {
     latest: u64,
     /// The servers other programs list, as a chief last found them.
     found: Vec<FoundServer>,
+    /// The chief's sign-ins under way, by server.
+    signing: BTreeMap<String, Signing>,
+    /// Why the last sign-in to a server failed.
+    sign_in_failed: BTreeMap<String, String>,
 }
 
 /// A listed server, its session, and what it last listed.
@@ -290,13 +335,29 @@ impl Mcp {
         sandbox: Sandbox,
         inputs: &InputSender,
     ) -> Option<(u64, AbortHandle)> {
-        let home = layout.mcp().join(name);
-        let policy = match server.policy(layout, &home) {
-            Ok(policy) => policy,
-            Err(error) => {
-                self.unloaded
-                    .push(format!("MCP server {name}: {error}"));
-                return None;
+        let way = match &server.url {
+            Some(url) => Way::Remote {
+                url: url.clone(),
+                headers: server.headers.clone(),
+                signed_in: sign_in::tokens(layout, name),
+            },
+            None => {
+                let home = layout.mcp().join(name);
+                let policy = match server.policy(layout, &home) {
+                    Ok(policy) => policy,
+                    Err(error) => {
+                        self.unloaded.push(format!(
+                            "MCP server {name}: {error}"
+                        ));
+                        return None;
+                    }
+                };
+                Way::Program {
+                    argv: server.command.clone(),
+                    policy,
+                    sandbox,
+                    home,
+                }
             }
         };
         self.latest += 1;
@@ -304,10 +365,7 @@ impl Mcp {
             Launch {
                 name: name.to_owned(),
                 generation: self.latest,
-                argv: server.command.clone(),
-                policy,
-                sandbox,
-                home,
+                way,
                 secrets: server.secrets(),
             },
             inputs.clone(),
@@ -387,6 +445,10 @@ impl Mcp {
                             .acts(&listed.tool, listed.read_only),
                     })
                     .collect(),
+                sign_in: self
+                    .signing
+                    .get(name)
+                    .and_then(|signing| signing.address.clone()),
             })
             .collect();
         let found = self
@@ -457,6 +519,11 @@ impl Mcp {
                     running.left_out.join("; ")
                 ));
             }
+        }
+        for (name, why) in &self.sign_in_failed {
+            faults.push(format!(
+                "MCP server {name}: the sign-in failed: {why}"
+            ));
         }
         faults
     }
@@ -572,7 +639,76 @@ impl Core<'_, '_> {
             }
             McpAct::Remove { name } => {
                 config::remove(&folder, &name).map_err(refused)?;
+                // Its sign-in goes with it.
+                self.tools.mcp.signing.remove(&name);
+                self.tools.mcp.sign_in_failed.remove(&name);
+                let tokens =
+                    sign_in::tokens(self.realm.layout(), &name);
+                if let Err(error) = std::fs::remove_file(&tokens)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(Rejection::BadMcp {
+                        why: format!(
+                            "MCP server {name} is removed, but its \
+                             sign-in is not: {error}"
+                        ),
+                    });
+                }
                 format!("MCP server {name} is removed.")
+            }
+            McpAct::SignIn {
+                name,
+                pasted: Some(address),
+            } => {
+                let Some(signing) = self.tools.mcp.signing.get(&name)
+                else {
+                    return Err(Rejection::BadMcp {
+                        why: format!(
+                            "No sign-in to MCP server {name} waits."
+                        ),
+                    });
+                };
+                signing.paste(address);
+                format!(
+                    "Signing in to MCP server {name} with that \
+                     address."
+                )
+            }
+            McpAct::SignIn { name, pasted: None } => {
+                let url = self
+                    .tools
+                    .mcp
+                    .running
+                    .get(&name)
+                    .ok_or_else(|| {
+                        refused(config::Unchanged::NoServer(
+                            name.clone(),
+                        ))
+                    })?
+                    .server
+                    .url
+                    .clone()
+                    .ok_or_else(|| Rejection::BadMcp {
+                        why: format!(
+                            "MCP server {name} is a program, and \
+                             only a server reached by a url signs \
+                             in."
+                        ),
+                    })?;
+                let file =
+                    sign_in::tokens(self.realm.layout(), &name);
+                let signing = sign_in::begin(
+                    name.clone(),
+                    url,
+                    file,
+                    self.inputs.clone(),
+                );
+                self.tools.mcp.sign_in_failed.remove(&name);
+                self.tools.mcp.signing.insert(name.clone(), signing);
+                format!(
+                    "Signing in to MCP server {name}: its address \
+                     shows once its server gives it."
+                )
             }
             McpAct::Restart { name } => {
                 let layout = self.realm.layout().clone();

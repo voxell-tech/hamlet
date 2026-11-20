@@ -46,13 +46,27 @@ pub(super) enum Unloaded {
     /// Not an entry's shape; serde's words say where.
     #[error("the entry does not fit: {0}")]
     Unfit(serde_json::Error),
-    #[error("command is empty")]
+    #[error("it needs a command or a url")]
     CommandEmpty,
+    #[error("it has both a command and a url")]
+    CommandAndUrl,
+    #[error(
+        "a server reached by a url runs nowhere here, so it takes \
+         no {0}"
+    )]
+    RemoteKey(&'static str),
+    #[error(
+        "a program takes no {0}, which is for a server reached by a \
+         url"
+    )]
+    LocalKey(&'static str),
+    #[error("url must be an https address, or http on this machine")]
+    BadUrl,
     #[error("timeout_secs must be at least 1")]
     NoTimeout,
     #[error("{0} is in both allow and ask")]
     AllowedAndAsked(String),
-    #[error("{0} in env has no value")]
+    #[error("{0} has no value")]
     NoValue(String),
     #[error(transparent)]
     Limit(#[from] LimitError),
@@ -63,7 +77,14 @@ pub(super) enum Unloaded {
 #[serde(deny_unknown_fields)]
 struct Written {
     /// The program and its arguments.
+    #[serde(default)]
     command: Vec<String>,
+    /// The address of a server reached over streamable HTTP, instead
+    /// of a program.
+    url: Option<String>,
+    /// The headers each request to `url` carries, such as a token.
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
     /// Names copied from the environment of the server.
@@ -105,6 +126,8 @@ struct Limits {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Server {
     pub command: Vec<String>,
+    pub url: Option<String>,
+    pub headers: BTreeMap<String, String>,
     env: BTreeMap<String, String>,
     inherit_env: Vec<String>,
     fs_ro: Vec<String>,
@@ -159,10 +182,17 @@ impl Server {
 
     /// The values it is given that must not reach a model or a log.
     pub(super) fn secrets(&self) -> Vec<String> {
+        // A header such as `Bearer <token>` holds its secret last.
+        let headers = self.headers.values().flat_map(|value| {
+            [value.clone()].into_iter().chain(
+                value.split_whitespace().last().map(String::from),
+            )
+        });
         self.env
             .values()
             .cloned()
             .chain(self.inherited().map(|(_, value)| value))
+            .chain(headers)
             .filter(|value| value.chars().count() >= SECRET_LENGTH)
             .collect()
     }
@@ -200,6 +230,12 @@ impl Server {
     pub(super) fn entry(&self) -> McpEntry {
         McpEntry {
             command: self.command.clone(),
+            url: self.url.clone(),
+            headers: self
+                .headers
+                .keys()
+                .map(|name| (name.clone(), None))
+                .collect(),
             env: self
                 .env
                 .keys()
@@ -391,17 +427,8 @@ fn written(
     entry: &McpEntry,
 ) -> Result<Value, Unloaded> {
     let mut written = before.as_object().cloned().unwrap_or_default();
-    let mut env = Map::new();
-    for (name, value) in &entry.env {
-        let value = match value {
-            Some(value) => Value::String(value.clone()),
-            None => before["env"]
-                .get(name)
-                .cloned()
-                .ok_or_else(|| Unloaded::NoValue(name.clone()))?,
-        };
-        env.insert(name.clone(), value);
-    }
+    let env = kept(&entry.env, &before["env"])?;
+    let headers = kept(&entry.headers, &before["headers"])?;
     let mut set = |key: &str, value: Value, empty: bool| {
         if empty {
             written.remove(key);
@@ -409,7 +436,9 @@ fn written(
             written.insert(key.into(), value);
         }
     };
-    set("command", json!(entry.command), false);
+    set("command", json!(entry.command), entry.command.is_empty());
+    set("url", json!(entry.url), entry.url.is_none());
+    set("headers", Value::Object(headers), entry.headers.is_empty());
     set("env", Value::Object(env), entry.env.is_empty());
     set(
         "inherit_env",
@@ -444,6 +473,27 @@ fn written(
     Ok(Value::Object(written))
 }
 
+/// The values `values` names, each one left out the value `before`
+/// has.
+fn kept(
+    values: &BTreeMap<String, Option<String>>,
+    before: &Value,
+) -> Result<Map<String, Value>, Unloaded> {
+    values
+        .iter()
+        .map(|(name, value)| {
+            let value = match value {
+                Some(value) => Value::String(value.clone()),
+                None => before
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| Unloaded::NoValue(name.clone()))?,
+            };
+            Ok((name.clone(), value))
+        })
+        .collect()
+}
+
 /// Writes `whole` as the list in `folder`, at once: a reader finds it
 /// as it was or as it is.
 fn write(folder: &Path, whole: &Value) -> Result<(), Unchanged> {
@@ -468,8 +518,15 @@ pub(super) fn parse(
     }
     let written = serde_json::from_value::<Written>(entry)
         .map_err(Unloaded::Unfit)?;
-    if written.command.is_empty() {
-        return Err(Unloaded::CommandEmpty);
+    match (&written.url, written.command.is_empty()) {
+        (None, true) => return Err(Unloaded::CommandEmpty),
+        (Some(_), false) => return Err(Unloaded::CommandAndUrl),
+        (Some(url), true) => remote(url, &written)?,
+        (None, false) => {
+            if !written.headers.is_empty() {
+                return Err(Unloaded::LocalKey("headers"));
+            }
+        }
     }
     if written.timeout_secs == Some(0) {
         return Err(Unloaded::NoTimeout);
@@ -481,11 +538,14 @@ pub(super) fn parse(
     }
     let server = Server {
         command: written.command,
+        // A server reached by a url is reached over the network.
+        url: written.url.clone(),
+        headers: written.headers,
         env: written.env,
         inherit_env: written.inherit_env,
         fs_ro: written.sandbox.fs_ro,
         fs_rw: written.sandbox.fs_rw,
-        net: written.sandbox.net,
+        net: written.sandbox.net || written.url.is_some(),
         cpu_secs: written.sandbox.limits.cpu_secs.unwrap_or(CPU_SECS),
         max_procs: written.sandbox.limits.max_procs,
         timeout: Duration::from_secs(
@@ -497,6 +557,38 @@ pub(super) fn parse(
     // A limit the sandbox refuses is a fault of the entry, found now.
     server.policy(&Layout::new(Path::new("/")), Path::new("/"))?;
     Ok(server)
+}
+
+/// Why the entry `written` of a server reached by `url` does not
+/// fit: an address other than https, or http on this machine, or what
+/// only a program takes.
+fn remote(url: &str, written: &Written) -> Result<(), Unloaded> {
+    let parsed =
+        reqwest::Url::parse(url).map_err(|_| Unloaded::BadUrl)?;
+    let local = matches!(
+        parsed.host_str(),
+        Some("localhost" | "127.0.0.1" | "[::1]")
+    );
+    if !(parsed.scheme() == "https"
+        || parsed.scheme() == "http" && local)
+    {
+        return Err(Unloaded::BadUrl);
+    }
+    let sandbox = &written.sandbox;
+    if !written.env.is_empty() {
+        return Err(Unloaded::RemoteKey("env"));
+    }
+    if !written.inherit_env.is_empty() {
+        return Err(Unloaded::RemoteKey("inherit_env"));
+    }
+    if !sandbox.fs_ro.is_empty()
+        || !sandbox.fs_rw.is_empty()
+        || sandbox.limits.cpu_secs.is_some()
+        || sandbox.limits.max_procs.is_some()
+    {
+        return Err(Unloaded::RemoteKey("sandbox"));
+    }
+    Ok(())
 }
 
 /// Whether `name` can name a server: lowercase letters, digits and
@@ -534,14 +626,17 @@ mod tests {
                 "wrong": {"command": "server"},
                 "typo": {"command": ["server"], "sandbox": {"nett": true}},
                 "zero": {"command": ["server"], "timeout_secs": 0},
-                "both": {"command": ["server"], "allow": ["x"], "ask": ["x"]}
+                "both": {"command": ["server"], "allow": ["x"], "ask": ["x"]},
+                "remote": {"url": "https://mcp.example.com/mcp"},
+                "remote-env": {"url": "https://mcp.example.com", "env": {"A": "b"}},
+                "plain": {"url": "http://example.com/mcp"}
             }}"#,
         );
         assert_eq!(
             servers.keys().map(String::as_str).collect::<Vec<_>>(),
-            ["good"]
+            ["good", "remote"]
         );
-        assert_eq!(faults.len(), 6);
+        assert_eq!(faults.len(), 8);
     }
 
     #[test]

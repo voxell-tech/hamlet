@@ -32,11 +32,14 @@ const USAGE: &str =
        hamlet models images <model> [off | [--width <px>] [--height \
      <px>] [--mb <n>] [--per-line <n>]]
        hamlet mcp [list | tools <name> | edit <name> | remove <name> \
-     | restart <name>]
+     | restart <name> | sign-in <name> [<address>]]
        hamlet mcp add <name> [--net] [--env <KEY=VALUE>]... \
      [--inherit-env <NAME>]... [--read <path>]... [--write \
      <path>]... [--timeout <secs>] [--allow <tool>]... [--ask \
      <tool>]... -- <command> [<arg>]...
+       hamlet mcp add <name> --url <address> [--header \
+     <Name=value>]... [--timeout <secs>] [--allow <tool>]... [--ask \
+     <tool>]...
        hamlet mcp import [--all | <name>...]
 
 Bare hamlet starts or reuses a background server and opens a window.

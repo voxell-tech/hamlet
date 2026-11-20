@@ -2,7 +2,7 @@
 
 mod pages;
 pub mod projects;
-mod providers;
+pub(crate) mod providers;
 
 use std::collections::BTreeMap;
 

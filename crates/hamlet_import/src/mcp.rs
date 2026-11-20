@@ -56,9 +56,10 @@ pub struct FoundServer {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unrunnable {
     #[error(
-        "it is reached by a URL, and Hamlet runs only local servers"
+        "it speaks the older SSE transport, and Hamlet only \
+         streamable HTTP"
     )]
-    Remote,
+    Sse,
     #[error("it names no command")]
     NoCommand,
 }
@@ -203,9 +204,12 @@ fn server_name(name: &str) -> String {
 /// program installed in the home folder gets its install folder to
 /// read. It reaches the network, as it did there.
 fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
-    if written.contains_key("url") || written.contains_key("httpUrl")
-    {
-        return Err(Unrunnable::Remote);
+    let url = written
+        .get("url")
+        .or_else(|| written.get("httpUrl"))
+        .and_then(Value::as_str);
+    if let Some(url) = url {
+        return remote(url, written);
     }
     let program = written
         .get("command")
@@ -271,6 +275,31 @@ fn entry(written: &Map<String, Value>) -> Result<Value, Unrunnable> {
         .filter(|secs| *secs > 0)
     {
         entry.insert("timeout_secs".into(), secs.into());
+    }
+    Ok(entry.into())
+}
+
+/// The entry of a server reached at `url`, with the headers its
+/// requests carry. A server that signs in with OAuth is signed in to
+/// again in Hamlet.
+fn remote(
+    url: &str,
+    written: &Map<String, Value>,
+) -> Result<Value, Unrunnable> {
+    if written.get("type").and_then(Value::as_str) == Some("sse") {
+        return Err(Unrunnable::Sse);
+    }
+    let mut entry = Map::new();
+    entry.insert("url".into(), url.into());
+    // Codex names them so.
+    let headers = written
+        .get("headers")
+        .or_else(|| written.get("http_headers"))
+        .and_then(Value::as_object)
+        .filter(|headers| !headers.is_empty());
+    if let Some(headers) = headers {
+        entry
+            .insert("headers".into(), Value::Object(headers.clone()));
     }
     Ok(entry.into())
 }
@@ -353,10 +382,22 @@ mod tests {
                 "timeout_secs": 30,
             }))
         );
-        let remote = json!({"type": "http", "url": "https://x"});
+        let remote = json!({
+            "type": "http",
+            "url": "https://x",
+            "headers": {"Authorization": "Bearer t"},
+        });
         assert_eq!(
             entry(remote.as_object().unwrap()),
-            Err(Unrunnable::Remote)
+            Ok(json!({
+                "url": "https://x",
+                "headers": {"Authorization": "Bearer t"},
+            }))
+        );
+        let sse = json!({"type": "sse", "url": "https://x/sse"});
+        assert_eq!(
+            entry(sse.as_object().unwrap()),
+            Err(Unrunnable::Sse)
         );
     }
 }

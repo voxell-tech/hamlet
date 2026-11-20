@@ -34,13 +34,19 @@ given.
 
 | Key | Meaning |
 |---|---|
-| `command` | The program and its arguments. Required. |
+| `command` | The program and its arguments. |
+| `url` | The address of a server reached over streamable HTTP instead of a program: https, or http on this machine. |
+| `headers` | For `url`: the headers each request carries, such as `Authorization`; secrets as `env`'s values are. |
 | `env` | Its environment, on top of the sandbox's base one. |
 | `inherit_env` | Names copied from the environment of the server, so a token need not be written in the file. |
 | `sandbox.fs_ro`, `fs_rw` | Paths it may read and write, relative to its own folder. |
 | `sandbox.net` | Whether it reaches the network. |
 | `sandbox.limits` | `cpu_secs` and `max_procs`; a server runs for as long as it is listed, so its CPU limit is thirty days unless set. |
 | `timeout_secs` | How long a call may take; 120 when left out. |
+
+An entry has a `command` or a `url`. A server reached by a url runs
+nowhere here, so it takes no `env`, `inherit_env` or `sandbox`; it reaches
+the network, as the gate weighs it.
 | `allow` | Tools, by the server's names, whose calls run without asking, though the server does not say they only read; `*` for every tool. |
 | `ask` | Tools whose calls always wait for a chief, though the server says they only read; `*` for every tool. |
 
@@ -75,11 +81,23 @@ writes one entry at a time and leaves the rest of the file as written:
   is given the network, as it had there; a program named by its name alone
   is found on `PATH`, and one installed in the home folder gets its
   install folder in `fs_ro`. A `${NAME}` value becomes `inherit_env`. A
-  server reached by a URL is listed and not added.
+  server reached by a url is added with its headers; one on the older SSE
+  transport is listed and not added.
 
 No client is sent a value of a server's `env`, only its names; a change
 that leaves a value out keeps the one the entry has. A restart keeps the
 server's tools offered while it starts again.
+
+A server reached by a url that signs in with OAuth is signed in to with
+Sign In in Settings, or `hamlet mcp sign-in <name>`. The server registers
+itself as a client of the server's authorization server, and the chief
+signs in on the page it gives; the code comes back to a loopback on the
+server's machine, or, when the browser is on another machine and its last
+page does not load, in that page's address pasted back
+(`hamlet mcp sign-in <name> <address>`). The tokens are kept in
+`mcp/.signed-in/<name>.json`, readable by the server's account alone and
+outside every program server's folder, refreshed there, and removed with
+the server. A server that wants a sign-in stops with that reason.
 
 An agent can ask for a server with `request_mcp_server`, naming the
 variables it needs, never their values. The chief sees its command and
