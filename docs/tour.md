@@ -649,8 +649,9 @@ ported to `hosts/node/src/pi/`, composed in `actor.ts` with actions of
 its own: the realm's `submit`, `place`, `fill` and `copies`, the
 workspace's `finished`, the profile's `moved` and `remove_path`, the
 library's `shelves_changed`, and `pi.wake`, the alarm of its timers. Each action checks
-its sender, reads its message with the lenient readers of `messages.ts`,
-which types every message the agent takes or sends, and answers `null`,
+its sender, reads its message with the lenient readers of `messages/`,
+which type every message the agent takes or sends, one file for each
+actor it hears from or calls, and answers `null`,
 but `remove_path`, which answers `removed` or `later`.
 An input is taken once under its id.
 
@@ -678,9 +679,17 @@ workspace or the realm answers with what it kept.
   opens the folder through the native module. An own `edit` is the one
   tool that is not run again. After a crash, the model is told that the
   edit was interrupted and may have partially run.
-- `society.ts` sends the society tools to the realm, each a row of
-  `TOOLS` that sends `Tool<Act>{call, act}`, and replies to a question.
-  `submit_skill` offers the skill's files to the library first.
+- `society-tools.ts` holds the society tools in today's names,
+  descriptions, parameters and result words, each a row of `TOOLS` that
+  sends `Tool<Act>{call, act}` to the realm and words its answer, which
+  names the agents it acted on. `society.ts` offers each agent its rows,
+  as its kind, its place and its conversation allow, and replies to a
+  question. `submit_skill` offers the skill's files to the library first.
+- `inputs.ts` words each input a turn is given as the model reads it: a
+  chief's line, a letter, a question, an answer and a worker's answer,
+  which goes to the conversation it names. `parcels.ts` fetches a
+  letter's or a question's files from the realm in parts and saves them
+  in the agent's `inbox/`, numbered as today.
 - `branch.ts` keeps the agent's filesystem and its branch of the
   profile: a fill writes the files at the branch's tip, a save after a
   turn sends what changed since, and a move from the profile pulls
@@ -700,6 +709,8 @@ other agent answers `login` with `not_the_hand`.
   `/reflect`, with today's notices and refusals.
 - `transcript.ts` answers `read_chat` and `read_history` and sends the
   `chat` events a client follows, numbered within each wake.
+  `chat-items.ts` folds a session's entries into the items a client
+  reads, as today folds them.
 - `copies.ts` keeps the realm's copies of the charter, the model and the
   settings, and the character the profile's files carry. The realm's create input carries the copies it
   holds for the agent, and the create keeps them in the transaction that
@@ -707,8 +718,10 @@ other agent answers `login` with `not_the_hand`.
   for newer ones with `read_copies` without waiting, and the realm sends
   a newer one with `copies`.
 - `prompt.ts` builds the system prompt before every model call from the
-  copies, memory, the list of skills and the library's shelves, each cut
-  to its limit.
+  copies, memory, the list of skills, the library's shelves and the
+  workspace's tool list, each cut to its limit. The place, realm and
+  scholars sections are the realm's, read with one `read_place` per
+  request; a request the realm does not answer fails.
 - `compaction.ts` sizes compaction for the model that runs, and asks once
   more after an answer cut off with nothing in it. `reflect.ts` asks for a
   reflection every `reflect_every` chief turns and when a chief leaves a
@@ -727,10 +740,12 @@ other agent answers `login` with `not_the_hand`.
   through its Agent SDK in the realm folder's `claude/`.
   `claude-query.ts` and `claude-history.ts` load at its first call.
 
-A worker or an errand runs its brief's one turn and tells the realm its
-end with `worker_done` or `errand_done`. An errand is offered no tool, and
-a worker the built-in tools its brief names, or all of them when it names
-none.
+A worker or an errand runs its brief's one turn (`brief.ts`) and tells
+the realm its end with `worker_done` or `errand_done`. An errand is
+offered the built-in tools its brief names: a dream every one its
+hire's lead has not turned off, and a librarian's call or a review none.
+A worker is offered the built-in tools its brief names, or all of them
+when it names none.
 
 A tool's name, parameters and descriptions are today's server's, word
 for word, except `wake`, because today's server has no timer an agent can
@@ -874,20 +889,26 @@ profile's name and label, makes and reads profiles for
 `create_scholar` and `read_scholar`, keeps `edit_scholar`, `tag` and
 `revert` for a chief, and answers a chief's own change from the
 profile's answer; `dreams.rs` runs a chief's dream as a step row, one
-at a time in the realm and none while its profile is purged (no errand
-dreams in it yet: the workspace gives no reach inside the realm
-folder); `librarian.rs` runs `ask_librarian` and `submit_skill` as
+at a time in the realm and none while its profile is purged: the
+profile checks `main`, and a hire's branch, out under `dreams/<n>/`,
+an errand dreams in main's checkout with the hire's network
+(`Reach::Dream`), and the profile commits what it changed when it
+ends; `prompt.rs` renders the place, realm and scholars sections of an
+agent's prompt for `ReadPlace`, with the secrets taken out;
+`librarian.rs` runs `ask_librarian` and `submit_skill` as
 errands, reads an offer from the library before the librarian judges
 it, and brings the verdict to the library; `secrets.rs` holds
 `credentials.json`, written whole with mode 0600, and answers
 `Secrets`, the list a scrub reads, and an agent's `Credential`;
 `record.rs` keeps
-the decisions. `world.rs` keeps the world a client reads with
-`ReadWorld` as a copy in memory, rebuilt after each commit that
+the decisions, and `agent_name` names an agent as chiefs and agents
+are shown it, as `hire#3 (Mira)`. `world.rs` keeps the world a client
+reads with `ReadWorld` as a copy in memory, rebuilt after each commit that
 changes it, and `versions.rs` numbers those commits in the file.
 
 `tests/realm.rs` runs the realm on a host with stand-ins for the
-workspace, the agents, the profiles and the library. They keep what they were sent,
+workspace, the agents, the profiles and the library
+(`tests/realm/stand_ins.rs`, `profile_stand_in.rs`). They keep what they were sent,
 and a test can hold a call, fail it once or fail it every time for one
 agent. A test calls the realm as a client, and as an agent or the
 workspace through that stand-in's `forward`. The files in
@@ -1060,11 +1081,12 @@ built-in ones.
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
 | The agent actor: its actions, its parts and the stamp of its calls out | `hosts/node/src/agent/actor.ts`, `turn.ts`; [the agent actor](#the-agent-actor) |
-| A tool the agent offers the model | `hosts/node/src/agent/workspace-tools.ts`, `own-files.ts`, `society.ts`, `timers.ts`; all but `wake` in the words of today's server |
-| A chat command, a client's chat call or a chat event | `hosts/node/src/agent/chat.ts`, `commands.ts`, `transcript.ts`, `sessions.ts` |
+| A tool the agent offers the model | `hosts/node/src/agent/workspace-tools.ts`, `own-files.ts`, `society-tools.ts`, `society.ts`, `timers.ts`; all but `wake` in the words of today's server |
+| An input as the model reads it, and a letter's files in the inbox | `hosts/node/src/agent/inputs.ts`, `parcels.ts` |
+| A chat command, a client's chat call or a chat event | `hosts/node/src/agent/chat.ts`, `commands.ts`, `transcript.ts`, `chat-items.ts`, `sessions.ts` |
 | What the agent's model reads, and the model it runs on | `hosts/node/src/agent/prompt.ts`, `copies.ts`, `models.ts`, `compaction.ts` |
 | A sign-in, or the provider `claude` | `hosts/node/src/agent/login.ts`, `claude.ts` |
-| A message the agent takes or sends | `hosts/node/src/agent/messages.ts`; `hosts/node/test/messages.test.ts` checks it against `hamlet_messages/fixtures/` |
+| A message the agent takes or sends | `hosts/node/src/agent/messages/`, one file per actor; `hosts/node/test/messages.test.ts` checks them against `hamlet_messages/fixtures/` |
 | The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `entry.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
 | The demo's real realm and agent: its kinds, route table, verbs and faux model | `hamlet_host/examples/demo/realm_actor.rs`, `agent_host.rs`; `hosts/node/src/agent/demo-host.ts` |
 | A model request: its key, its price and its scrub; a client's model list and model check | `hosts/node/src/agent/models.ts` (`agentModels`, `modelList`, `checkModel`), `chat.ts` (`askedBy`, `read_models`, `check`) |
@@ -1087,6 +1109,7 @@ built-in ones.
 | An owed delivery the realm makes again after a failure | `hamlet_actors/src/realm/calls.rs` (`Delivery::owed`, `again`), `steps.rs` (`retried`) |
 | The realm actor's hires, ends and steps | `hamlet_actors/src/realm/tree/lead.rs`, `hire.rs`, `steps.rs` |
 | The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
+| The place, realm and scholars sections of an agent's prompt | `hamlet_actors/src/realm/prompt.rs`; the agent's side in `hosts/node/src/agent/prompt.ts` |
 | A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
 | A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
 | The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs`; the agent's side in `hosts/node/src/agent/branch.ts` |

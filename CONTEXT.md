@@ -85,7 +85,8 @@ _Avoid_: subagent, helper, runtime
 
 **Errand**:
 A short-lived agent outside the tree that runs one turn for the realm and
-then ends: a lead's review of a chief's line, the librarian's answer.
+then ends: a lead's review of a chief's line, the librarian's answer, a
+dream.
 _Avoid_: job (a job is the server's outbox)
 
 ### Scholars and their memory
@@ -115,9 +116,9 @@ its own commands, and no path or link leads a file tool out of it.
 _Avoid_: lodge, house, workspace, home
 
 **Dream**:
-A task in which a hire brings what it learned home to its scholar's `main`,
-or a scholar tidies `main`. Off by default; the settings give its hours, cost
-cap and rests.
+An errand in which a hire brings what it learned home to its scholar's
+`main`, or a scholar tidies `main`. Off by default; the settings give its
+hours, cost cap and rests.
 _Avoid_: sleep, sync
 
 **Merge**:
