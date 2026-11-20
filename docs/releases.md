@@ -156,19 +156,22 @@ six hours old (`NIGHTLY_HOURS`); it builds the newest such commit. A
 nightly's version is `Cargo.toml`'s with `-nightly.`, the day in UTC
 and the run's number, as `0.1.0-nightly.20261119.412`, so nightlies
 order as they were published. Its files replace the last nightly's on
-the release `nightly`, whose tag moves to its commit.
-
-A stable release is made by hand: run the workflow from the Actions tab
-with **stable** ticked. It builds the commit of the last nightly, which
-nightly copies have run, and releases it as `Cargo.toml`'s version
-there, tagging that commit. Pushing a `v0.2.0` tag also releases, from
-the tag's commit. A run by hand without **stable** only uploads
+the release `nightly`, whose tag moves to its commit. Running the
+workflow from the Actions tab with **nightly** ticked does the same
+without waiting the six hours; it still publishes nothing when the last
+nightly is already that commit. A run by hand without it only uploads
 workflow artifacts.
+
+A stable release is made on GitHub's releases page: draft a release
+with a new tag such as `v0.2.0` on the commit to ship, usually the
+nightly's, which nightly copies have run, and publish it. The tag
+starts the workflow, which adds the files to that release and makes it
+the latest.
 
 `latest.json` is uploaded after the files, so installed copies find
 the update only once every file it names is there. Pushing a tag or
-running with **stable** is a publishing action, not a local packaging
-check.
+running with **nightly** ticked is a publishing action, not a local
+packaging check.
 
 After a stable release, raise `Cargo.toml`'s version on `main`: a
 nightly of a released version would be older than the release, so no

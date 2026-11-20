@@ -2,9 +2,10 @@
 # each, and what a chief installs without a terminal, a disk image, an
 # installer, a .deb and an .rpm.
 #
-# Runs when a version tag is pushed, every hour, and when started by
-# hand from the Actions tab. Each feeds a channel installed copies
-# update from (docs/releases.md#updates):
+# Runs when a version tag is pushed, as when a release is published on
+# GitHub with a new tag, every hour, and when started by hand from the
+# Actions tab. Each feeds a channel installed copies update from
+# (docs/releases.md#updates):
 #
 # - v0.2.0 publishes a stable release, the latest on GitHub.
 # - v0.2.0-beta.1 publishes a beta: a pre-release, whose manifest is
@@ -14,8 +15,8 @@
 # - The hourly run publishes a nightly to the release `nightly`,
 #   replacing the last one's files, when main has a newer commit that
 #   passed CI and the last nightly is NIGHTLY_HOURS old.
-# - A run by hand with `stable` releases the nightly's commit as
-#   Cargo.toml's version, so stable ships what nightly copies ran.
+# - A run by hand with `nightly` does the same without waiting
+#   NIGHTLY_HOURS.
 # - A run by hand without it only keeps its files as the run's
 #   artifacts.
 #
@@ -43,8 +44,8 @@ on:
     - cron: "23 * * * *"
   workflow_dispatch:
     inputs:
-      stable:
-        description: Release the nightly's commit as stable
+      nightly:
+        description: Publish main's newest commit to pass CI as a nightly now
         type: boolean
         default: false
 
@@ -55,11 +56,11 @@ permissions:
 # is cancelled: a nightly or a release stopped halfway leaves its
 # release with some of its files. A waiting run gives way to a newer
 # one of its group, which only drops a nightly or a run by hand that
-# publishes nothing: a stable release by hand has a group of its own.
+# publishes nothing.
 concurrency:
   group: >-
-    release-${{ github.event_name == 'schedule' && 'nightly' ||
-    inputs.stable && 'stable' || github.ref }}
+    release-${{ (github.event_name == 'schedule' || inputs.nightly) &&
+    'nightly' || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -71,7 +72,7 @@ env:
 jobs:
   # Whether the run builds, and what: the commit, its version, the
   # channel its programs follow and the release it publishes to, none
-  # for a run by hand without `stable`.
+  # for a run by hand without `nightly`.
   plan:
     name: Plan
     runs-on: ubuntu-latest
@@ -88,15 +89,15 @@ jobs:
       release: ${{ steps.plan.outputs.release }}
     steps:
       # A nightly builds main's newest commit to pass CI on a push, once
-      # it is newer than the last nightly's and that one is old enough.
-      # A stable release builds the last nightly's commit.
+      # it is newer than the last nightly's and, unless run by hand,
+      # that one is old enough.
       - name: Choose the commit
         id: commit
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
-          STABLE: ${{ inputs.stable }}
+          NIGHTLY: ${{ github.event_name == 'schedule' || inputs.nightly }}
         run: |
           set -euo pipefail
           skip() {
@@ -107,7 +108,7 @@ jobs:
           if ! nightly=$(gh api "repos/$REPO/git/ref/tags/nightly" --jq .object.sha 2>/dev/null); then
             nightly=
           fi
-          if [ "$EVENT" = schedule ]; then
+          if [ "$NIGHTLY" = true ]; then
             sha=$(gh api "repos/$REPO/actions/workflows/rust.yml/runs?branch=main&event=push&status=success&per_page=1" \
               --jq '.workflow_runs[0].head_sha // empty')
             [ -n "$sha" ] || skip "No commit on main has passed CI."
@@ -119,17 +120,11 @@ jobs:
               esac
               last=$(gh release view nightly --repo "$REPO" --json assets \
                 --jq '[.assets[].updatedAt] | max // empty')
-              if [ -n "$last" ] &&
+              if [ "$EVENT" = schedule ] && [ -n "$last" ] &&
                 (( $(date -u +%s) - $(date -u -d "$last" +%s) < NIGHTLY_HOURS * 3600 )); then
                 skip "The last nightly is under $NIGHTLY_HOURS hours old."
               fi
             fi
-          elif [ "$STABLE" = true ]; then
-            if [ -z "$nightly" ]; then
-              echo "::error::There is no nightly to release."
-              exit 1
-            fi
-            sha=$nightly
           else
             sha=$GITHUB_SHA
           fi
@@ -149,8 +144,7 @@ jobs:
         if: steps.commit.outputs.build == 'true'
         shell: bash
         env:
-          EVENT: ${{ github.event_name }}
-          STABLE: ${{ inputs.stable }}
+          NIGHTLY: ${{ github.event_name == 'schedule' || inputs.nightly }}
           REF_TYPE: ${{ github.ref_type }}
           TAG: ${{ github.ref_name }}
         run: |
@@ -161,7 +155,7 @@ jobs:
             git ls-remote --exit-code --tags origin "refs/tags/v$cargo_version" >/dev/null
           }
           channel=
-          if [ "$EVENT" = schedule ]; then
+          if [ "$NIGHTLY" = true ]; then
             # A nightly of a released version would sort below the
             # release, so no nightly copy would take it.
             if released; then
@@ -174,14 +168,6 @@ jobs:
             version=v$cargo_version-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
             channel=nightly
             release=nightly
-          elif [ "$STABLE" = true ]; then
-            if released; then
-              echo "::error::v$cargo_version is already released."
-              exit 1
-            fi
-            version=v$cargo_version
-            channel=stable
-            release=$version
           elif [ "$REF_TYPE" = tag ]; then
             version=$TAG
             release=$TAG
@@ -410,8 +396,7 @@ jobs:
       # such as v0.1.0-beta.1, is a pre-release, which is never the
       # latest release stable copies update to, however it was made. A
       # stable release is the latest unless a newer one is, as when an
-      # older release is published again. A stable release of the
-      # nightly's commit makes its tag there.
+      # older release is published again.
       - name: Publish the release
         if: needs.plan.outputs.channel != 'nightly'
         env:
