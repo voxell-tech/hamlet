@@ -1,5 +1,6 @@
 //! The Sight page: how much the world draws, whether the window waits
-//! for the screen, the camera put back, the hour its sky shows,
+//! for the screen, how many frames a second it draws at most, the
+//! camera put back, the hour its sky shows,
 //! how far the distance fog lies, how hard the wind blows and the
 //! volumetric fog the sun throws shafts through.
 
@@ -29,7 +30,7 @@ use hamlet_vfx::wind::WindChoice;
 
 use super::{alone, field};
 use crate::roll::moved;
-use crate::window::{self, Vsync};
+use crate::window::{self, FrameCap, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 pub(super) fn plugin(app: &mut App) {
@@ -58,6 +59,29 @@ fn quality() -> impl View {
                 |world, at| {
                     *world.resource_mut::<Quality>() =
                         Quality::ALL[at];
+                },
+            )
+            .width(percent(100.0))
+            .max_width(percent(100.0)),
+        )
+    })
+}
+
+/// The choice of the most frames a second the window draws.
+fn frame_cap() -> impl View {
+    built(|cx| {
+        cx.build(
+            dropdown(
+                FrameCap::ALL.map(FrameCap::name),
+                resource::<FrameCap, _>(|cap| {
+                    FrameCap::ALL
+                        .iter()
+                        .position(|a| a == cap)
+                        .unwrap_or_default()
+                }),
+                Glyph::Chevron.image(hamlet_ui::styles::ICON),
+                |world, at| {
+                    window::set_frame_cap(world, FrameCap::ALL[at]);
                 },
             )
             .width(percent(100.0))
@@ -328,6 +352,7 @@ pub(super) fn page() -> impl View {
                 window::set_vsync,
             )),
         ),
+        field("Frame rate", alone(frame_cap())),
         field(
             "Camera",
             alone(action(

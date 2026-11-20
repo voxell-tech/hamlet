@@ -1,10 +1,10 @@
 //! The window's size and closing, independent of the server.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, Last, Startup, Update};
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
@@ -37,6 +37,7 @@ const LEAST_SIZE: (u32, u32) = (1180, 680);
 
 pub fn plugin(app: &mut App) {
     app.init_state::<WorldShown>()
+        .init_resource::<FrameCap>()
         .insert_resource(winit_settings())
         .add_systems(
             Startup,
@@ -44,9 +45,11 @@ pub fn plugin(app: &mut App) {
                 wake_on_frames
                     .run_if(resource_exists::<EventLoopProxyWrapper>),
                 read_vsync,
+                read_frame_cap,
             ),
         )
-        .add_systems(Update, (intercept_close, remember_size));
+        .add_systems(Update, (intercept_close, remember_size))
+        .add_systems(Last, limit_frames);
 }
 
 /// The window draws the world.
@@ -102,6 +105,102 @@ pub(crate) fn set_vsync(world: &mut World, on: bool) {
             if on { "on" } else { "off" },
         );
     }
+}
+
+/// The most frames a second the window draws, which the view folder
+/// keeps.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub(crate) enum FrameCap {
+    /// As fast as the screen and the work allow.
+    #[default]
+    Display,
+    Sixty,
+    Thirty,
+}
+
+impl FrameCap {
+    pub(crate) const ALL: [Self; 3] =
+        [Self::Display, Self::Sixty, Self::Thirty];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Display => "Display",
+            Self::Sixty => "60 fps",
+            Self::Thirty => "30 fps",
+        }
+    }
+
+    fn file_text(self) -> &'static str {
+        match self {
+            Self::Display => "display",
+            Self::Sixty => "60",
+            Self::Thirty => "30",
+        }
+    }
+
+    /// The time one frame takes at the cap, if there is one.
+    fn interval(self) -> Option<Duration> {
+        match self {
+            Self::Display => None,
+            Self::Sixty => Some(Duration::from_secs_f64(1.0 / 60.0)),
+            Self::Thirty => Some(Duration::from_secs_f64(1.0 / 30.0)),
+        }
+    }
+}
+
+fn frame_cap_file(view: &Path) -> PathBuf {
+    view.join("framerate")
+}
+
+/// The cap kept in the view folder: none unless it names one.
+fn saved_frame_cap(view: &Path) -> FrameCap {
+    let text = std::fs::read_to_string(frame_cap_file(view));
+    FrameCap::ALL
+        .into_iter()
+        .find(|cap| {
+            text.as_ref()
+                .is_ok_and(|text| text.trim() == cap.file_text())
+        })
+        .unwrap_or_default()
+}
+
+fn read_frame_cap(mut commands: Commands, view: Res<ViewFolder>) {
+    commands.insert_resource(saved_frame_cap(&view.0));
+}
+
+/// Sets the cap, in the world and in the view folder.
+pub(crate) fn set_frame_cap(world: &mut World, cap: FrameCap) {
+    world.insert_resource(cap);
+    if let Some(view) = world.get_resource::<ViewFolder>()
+        && std::fs::create_dir_all(&view.0).is_ok()
+    {
+        let _ =
+            std::fs::write(frame_cap_file(&view.0), cap.file_text());
+    }
+}
+
+/// Holds the end of a frame until the cap's interval has passed since
+/// the last one.
+fn limit_frames(cap: Res<FrameCap>, mut due: Local<Option<Instant>>) {
+    let Some(interval) = cap.interval() else {
+        *due = None;
+        return;
+    };
+    let now = Instant::now();
+    // Behind, as after an idle wait, there are no frames to catch up.
+    let start = due.map_or(now, |due| due.max(now));
+    if start > now {
+        // The thread's sleep can overshoot by milliseconds, notably
+        // on Windows, so the last of the wait spins.
+        const SPIN: Duration = Duration::from_millis(2);
+        if let Some(rest) = (start - now).checked_sub(SPIN) {
+            std::thread::sleep(rest);
+        }
+        while Instant::now() < start {
+            std::hint::spin_loop();
+        }
+    }
+    *due = Some(start + interval);
 }
 
 /// The window plugin at the size last kept in the view folder, with
