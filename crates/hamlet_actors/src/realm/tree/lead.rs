@@ -193,6 +193,7 @@ impl<By: Lead> Act<By> for Pinned {
             hire.profile,
             hire.name.clone(),
             joins,
+            &by.by(),
         )
         .await?;
         let agent = super::fresh(rows).await?;
@@ -830,6 +831,7 @@ mod tests {
                 Of::Blank {
                     profile: ProfileId(6),
                     name: "Hire 4".to_owned(),
+                    kind: profiles::Kind::Blank,
                 },
                 record::new_hire(AgentNumber(6), "Hire 4"),
             )),

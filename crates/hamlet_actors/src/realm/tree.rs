@@ -423,27 +423,29 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     Ok(AgentNumber(u32::try_from(rows.next_id("agent").await?)?))
 }
 
-/// A hire of the profile `named`, or of a blank one named `name`
-/// when none is named, into `hamlet`.
+/// A hire `by` makes of the profile `named`, or of a blank one named
+/// `name` when none is named, into `hamlet`.
 pub(super) async fn made_of(
     rows: &Rows<'_>,
     named: Option<ProfileId>,
     name: Option<String>,
     hamlet: Option<&HamletId>,
+    by: &record::By,
 ) -> Result<Result<Of, ProfileRefusal>> {
     let Some(named) = named else {
-        return Ok(Ok(blank(rows, name, hamlet).await?));
+        return Ok(Ok(blank(rows, name, hamlet, by).await?));
     };
     Ok(profiles::shared(rows, named).await?.map(Of::Profile))
 }
 
-/// A blank profile made for one hire into `hamlet`, named `name`,
-/// else `Mayor` for a mayor, one with no hamlet yet, and `Hire <n>`
-/// for a hire whose hamlet had `n` hires before it.
+/// A blank profile `by` makes for one hire into `hamlet`, named
+/// `name`, else `Mayor` for a mayor, one with no hamlet yet, and
+/// `Hire <n>` for a hire whose hamlet had `n` hires before it.
 pub(super) async fn blank(
     rows: &Rows<'_>,
     name: Option<String>,
     hamlet: Option<&HamletId>,
+    by: &record::By,
 ) -> Result<Of> {
     let name = match (name.as_deref().map(str::trim), hamlet) {
         (Some(given), _) if !given.is_empty() => given.to_owned(),
@@ -455,6 +457,7 @@ pub(super) async fn blank(
     Ok(Of::Blank {
         profile: profiles::next(rows).await?,
         name,
+        kind: profiles::Kind::blank_by(by),
     })
 }
 
@@ -511,6 +514,7 @@ pub(super) enum Of {
     Blank {
         profile: ProfileId,
         name: String,
+        kind: profiles::Kind,
     },
 }
 
@@ -628,14 +632,12 @@ async fn hire(
 ) -> Result<Affected> {
     let profile = match of {
         Of::Profile(profile) => profile,
-        Of::Blank { profile, name } => {
-            profiles::insert(
-                writer,
-                profile,
-                profiles::Kind::Blank,
-                &name,
-            )
-            .await?;
+        Of::Blank {
+            profile,
+            name,
+            kind,
+        } => {
+            profiles::insert(writer, profile, kind, &name).await?;
             profile
         }
     };

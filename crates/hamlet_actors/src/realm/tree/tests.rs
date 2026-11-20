@@ -156,7 +156,9 @@ async fn a_hire_is_made_of_a_shared_profile_named_else_a_blank_one() {
     let started = Started::new().await;
     let rows = started.rows();
     let of = async |named| {
-        made_of(&rows, named, None, None).await.unwrap()
+        made_of(&rows, named, None, None, &record::By::Chief)
+            .await
+            .unwrap()
     };
     let no_such = |profile| ProfileRefusal::NoSuchProfile {
         profile: ProfileId(profile),
@@ -167,6 +169,7 @@ async fn a_hire_is_made_of_a_shared_profile_named_else_a_blank_one() {
         Ok(Of::Blank {
             profile: ProfileId(2),
             name: "Mayor".to_owned(),
+            kind: profiles::Kind::Empty,
         })
     );
     assert_eq!(of(Some(HAND_PROFILE)).await, Err(no_such(1)));
