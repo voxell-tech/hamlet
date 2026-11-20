@@ -15,10 +15,12 @@ use hamlet_messages::realm::workers::{
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left, Named,
-    SetTools, ToolName,
+    SetTools, Tool, ToolName,
 };
 use hamlet_messages::workspace::reach::Reach;
-use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
@@ -123,11 +125,17 @@ async fn ended_until(
     .await;
 }
 
+/// The conversation hire#3 starts its workers in.
+fn talk() -> ConversationId {
+    ConversationId("talk".to_owned())
+}
+
 async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
-    let answer = realm
-        .tool(THREE, &tool(call, start("count the files")))
-        .await
-        .unwrap();
+    let call = Tool {
+        conversation: Some(talk()),
+        ..tool(call, start("count the files"))
+    };
+    let answer = realm.tool(THREE, &call).await.unwrap();
     let Started::Started { worker } = answer else {
         panic!("hire#3 starts a worker: {answer:?}");
     };
@@ -135,7 +143,8 @@ async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_worker_answers_its_starter_once_and_ends() {
+async fn a_worker_answers_its_starter_once_in_its_conversation_and_ends()
+ {
     let (realm, _) = hamlet_with(1).await;
 
     let worker = started_by_three(&realm, "w").await;
@@ -199,7 +208,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                         name: Some(worker_shown(FOUR).name),
                     },
                     text: "Counted: 3 files.".to_owned(),
-                    conversation: None,
+                    conversation: Some(talk()),
                 },
             }
         )]
@@ -650,7 +659,7 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
                     name: Some(worker_shown(FOUR).name),
                 },
                 text: "It gave no answer.".to_owned(),
-                conversation: None,
+                conversation: Some(talk()),
             }
         )]
     );

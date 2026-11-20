@@ -225,6 +225,7 @@ CREATE TABLE IF NOT EXISTS worker (
 	brief TEXT NOT NULL,
 	tools TEXT NOT NULL,
 	task INTEGER NOT NULL,
+	conversation TEXT,
 	ended TEXT,
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;

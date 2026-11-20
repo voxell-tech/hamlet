@@ -29,7 +29,7 @@ use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::act::{Act, Called, Decided, Decision, ToolAct};
+use super::act::{Act, Called, Carried, Decided, Decision, ToolAct};
 use super::callers::{self, ByHand, Relay};
 use super::change::{self, Affected, Rows, Writer};
 use super::chiefs::hamlet;
@@ -494,13 +494,7 @@ impl Handler<Purging> for Realm {
 }
 
 /// An agent's call of a change to a profile, kept for a chief.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct Asking<T> {
-    pub called: Called,
-    pub act: T,
-}
-
-impl<T: ProfileChange> Act<Hand> for Asking<T> {
+impl<T: ProfileChange> Act<Hand> for Carried<T> {
     type Output = <T as ToolCall>::Answer;
     type Loaded = Kept;
     /// The wait that keeps it.
@@ -543,7 +537,7 @@ impl<T: ProfileChange> Act<Hand> for Asking<T> {
     }
 }
 
-impl<T: ProfileChange> Relay<Agent> for Asking<T> {
+impl<T: ProfileChange> Relay<Agent> for Carried<T> {
     type Call = T::Call;
     type Output = <T as ChiefRequest>::Answer;
 
@@ -567,7 +561,7 @@ pub(super) async fn carry_out<T: ProfileChange>(
     realm: &Realm,
     ctx: &Ctx<Realm>,
     by: Agent,
-    asking: Asking<T>,
+    asking: Carried<T>,
 ) -> Result<String> {
     let answer =
         callers::relay(realm, ctx, &by, &asking, When::AfterAnswer)
@@ -715,10 +709,10 @@ impl ProfileChange for RevertProfile {
 macro_rules! asked_of_the_profile {
     ($($change:ty),+) => {$(
         impl ToolAct<Hand> for $change {
-            type Run = Asking<Self>;
+            type Run = Carried<Self>;
 
-            fn run(self, called: &Called) -> Asking<Self> {
-                Asking {
+            fn run(self, called: &Called) -> Carried<Self> {
+                Carried {
                     called: called.clone(),
                     act: self,
                 }

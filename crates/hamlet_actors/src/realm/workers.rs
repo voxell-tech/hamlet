@@ -22,9 +22,9 @@ use hamlet_messages::realm::{
     ToolName,
 };
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Called, Carried, Decided, Decision, ToolAct};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
@@ -46,6 +46,8 @@ pub(super) struct Worker {
     /// The task its turn is charged to, and its answer comes back
     /// under.
     task: TaskId,
+    /// The starter's conversation its answer goes to.
+    conversation: Option<ConversationId>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,7 +84,8 @@ async fn start(writer: &Writer<'_>, worker: Worker) -> Result<()> {
     writer
         .execute(
             "INSERT INTO worker (agent, starter, hamlet, brief, \
-             tools, task, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             tools, task, conversation, at) VALUES (?1, ?2, ?3, ?4, \
+             ?5, ?6, ?7, ?8)",
             vec![
                 number(worker.agent),
                 worker.starter.map_or(BindParam::Null, number),
@@ -92,6 +95,9 @@ async fn start(writer: &Writer<'_>, worker: Worker) -> Result<()> {
                 BindParam::Text(worker.brief),
                 BindParam::Text(serde_json::to_string(&tools)?),
                 worker.task.column()?,
+                worker.conversation.map_or(BindParam::Null, |id| {
+                    BindParam::Text(id.0)
+                }),
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -181,6 +187,7 @@ struct Row {
     tools: Vec<String>,
     ended: Option<HowEnded>,
     answer: Option<String>,
+    conversation: Option<ConversationId>,
 }
 
 /// The hire or the Hand that started `agent`, when it is a worker
@@ -200,17 +207,18 @@ pub(super) async fn starter_of(
 }
 
 async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
-    let (starter, task, brief, tools, ended, answer) = rows
-        .row::<(
+    let (starter, task, brief, tools, ended, answer, conversation) =
+        rows.row::<(
             Option<u32>,
             TaskId,
             String,
             String,
             Option<String>,
             Option<String>,
+            Option<String>,
         )>(
-            "SELECT starter, task, brief, tools, ended, answer FROM \
-             worker WHERE agent = ?1",
+            "SELECT starter, task, brief, tools, ended, answer, \
+             conversation FROM worker WHERE agent = ?1",
             vec![number(agent)],
         )
         .await?
@@ -225,6 +233,7 @@ async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
             None => None,
         },
         answer,
+        conversation: conversation.map(ConversationId),
     })
 }
 
@@ -255,7 +264,7 @@ pub(super) async fn answer(
                 ),
             },
             text: words(how, row.answer),
-            conversation: None,
+            conversation: row.conversation,
         },
     };
     realm
@@ -416,7 +425,18 @@ pub(super) enum ByAgent {
     },
 }
 
-impl Act<Agent> for StartWorker {
+impl ToolAct<Agent> for StartWorker {
+    type Run = Carried<Self>;
+
+    fn run(self, called: &Called) -> Carried<Self> {
+        Carried {
+            called: called.clone(),
+            act: self,
+        }
+    }
+}
+
+impl Act<Agent> for Carried<StartWorker> {
     type Output = Started<AgentRefusal<WorkerRefusal>>;
     type Loaded = ByAgent;
     type Done = AgentNumber;
@@ -430,7 +450,7 @@ impl Act<Agent> for StartWorker {
         if starter.agent.kind == AgentKind::Worker {
             return Ok(ByAgent::AWorker);
         }
-        let named = match &self.task {
+        let named = match &self.act.task {
             Some(task) => tasks::named(rows, by.0, task).await?,
             None => None,
         };
@@ -465,11 +485,11 @@ impl Act<Agent> for StartWorker {
         else {
             return refuse(WorkerRefusal::AWorker);
         };
-        let brief = match checked(self, &name, &off) {
+        let brief = match checked(&self.act, &name, &off) {
             Ok(brief) => brief,
             Err(why) => return refuse(why),
         };
-        if self.hamlet.is_some() {
+        if self.act.hamlet.is_some() {
             return refuse(WorkerRefusal::HamletFromAnAgent);
         }
         Decision::Change(started(Worker {
@@ -477,8 +497,9 @@ impl Act<Agent> for StartWorker {
             starter: Some(by.0),
             hamlet,
             brief,
-            tools: self.tools.clone(),
+            tools: self.act.tools.clone(),
             task,
+            conversation: self.called.conversation.clone(),
         }))
     }
 
@@ -553,6 +574,7 @@ impl Act<Client> for StartWorker {
                 brief,
                 tools: self.tools.clone(),
                 task: loaded.task,
+                conversation: None,
             })
             .change(tasks::Change::Open {
                 task: loaded.task,

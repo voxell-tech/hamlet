@@ -23,13 +23,12 @@ use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::super::act::{Act, Called, Decided, Decision};
+use super::super::act::{Act, Called, Carried, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
-use super::super::profiles::{self, Asking};
 use super::super::tasks::TaskId;
 use super::super::waits::{self, Kind, Raised, Ruling};
-use super::super::{Realm, record, tree};
+use super::super::{Realm, profiles, record, tree};
 
 /// A reservable act, as its wait's `detail` keeps it: written by
 /// [`Keeping`], whose `tool` names the case.
@@ -40,9 +39,9 @@ enum Held {
     End(End),
     LayRoad(LayRoad),
     TakeUpRoad(TakeUpRoad),
-    EditProfile(Asking<EditProfile>),
-    Tag(Asking<TagProfile>),
-    Revert(Asking<RevertProfile>),
+    EditProfile(Carried<EditProfile>),
+    Tag(Carried<TagProfile>),
+    Revert(Carried<RevertProfile>),
 }
 
 impl Held {
@@ -85,14 +84,14 @@ impl Held {
                     "take_up_road"
                 }
             }
-            Self::EditProfile(Asking { act, .. }) => {
+            Self::EditProfile(Carried { act, .. }) => {
                 arg("content", Some(act.text.clone()));
                 arg("message", act.message.clone());
                 arg("path", Some(act.path.clone()));
                 arg("scholar", Some(profiles::address(act.profile)));
                 "edit_scholar"
             }
-            Self::Tag(Asking { act, .. }) => {
+            Self::Tag(Carried { act, .. }) => {
                 arg(
                     "note",
                     Some(act.note.clone())
@@ -102,7 +101,7 @@ impl Held {
                 arg("tag", Some(act.version.0.clone()));
                 "tag"
             }
-            Self::Revert(Asking { act, .. }) => {
+            Self::Revert(Carried { act, .. }) => {
                 arg("commit", Some(revision(&act.what)));
                 arg("reason", act.reason.clone());
                 arg("scholar", Some(profiles::address(act.profile)));
