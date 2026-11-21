@@ -24,10 +24,13 @@ pub(super) fn type_into_field(
     world: &mut World,
     mut cursor: Local<MessageCursor<KeyboardInput>>,
 ) {
-    let held = world.resource::<ButtonInput<Key>>();
-    let chord = [Key::Control, Key::Super, Key::Alt]
-        .into_iter()
-        .any(|key| held.pressed(key));
+    let chord = world.get_resource::<ButtonInput<Key>>().is_some_and(
+        |held| {
+            [Key::Control, Key::Super, Key::Alt]
+                .into_iter()
+                .any(|key| held.pressed(key))
+        },
+    );
     let focused =
         world.get_resource::<InputFocus>().and_then(InputFocus::get);
     let typed = world
