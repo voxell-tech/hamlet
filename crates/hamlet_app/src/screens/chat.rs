@@ -16,6 +16,7 @@ pub(crate) mod reply;
 mod rewind;
 mod suggestions;
 mod timeline;
+mod typing;
 
 use std::collections::HashMap;
 
@@ -30,6 +31,9 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::InputSystems;
+use bevy::input_focus::InputFocusSystems;
+use bevy::picking::PickingSystems;
 use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{
@@ -127,6 +131,14 @@ pub fn plugin(app: &mut App) {
                 .in_set(PanelSystems::Bind),
         )
         .add_systems(Update, break_long_words)
+        // The key that starts a message reaches the field it opens.
+        .add_systems(
+            PreUpdate,
+            typing::type_into_field
+                .after(InputSystems)
+                .after(PickingSystems::Hover)
+                .before(InputFocusSystems::Dispatch),
+        )
         .add_systems(PostUpdate, refocus)
         // After the field takes in an edit, late in PostUpdate.
         .add_systems(Last, field::chip_early);
@@ -681,12 +693,7 @@ fn message_bar_in(
         if without_model(world, hub) {
             return "Set up a model to start".to_string();
         }
-        let message = match convo::of(world, hub).map(|c| &c.with) {
-            Some(Some(name)) => format!("Message {name}"),
-            Some(None) => "Message the Hand".to_string(),
-            None => "Message".to_string(),
-        };
-        format!("{message}. {}", suggestions::hint(world))
+        format!("Ask anything. {}", suggestions::hint(world))
     })
     .when(every_frame());
     let field = row((hinted(
