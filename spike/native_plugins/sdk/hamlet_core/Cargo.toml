@@ -1,0 +1,13 @@
+[package]
+name = "hamlet_core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy.workspace = true
+bevy_fynix.workspace = true
+hamlet_ui.workspace = true
