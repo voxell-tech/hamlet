@@ -170,17 +170,12 @@ pub enum Sound {
     /// A hamlet has another lead.
     Lead,
     Founded,
-    /// A menu or a popup opening, and closing.
+    /// A menu or a popup opening.
     PopOpen,
-    PopClose,
     /// A tab brought to the front.
     Tab,
-    /// A fold opened or shut.
-    Fold,
     /// A message sent from the command line.
     Send,
-    /// The card of a thing the pointer rests on.
-    Card,
     /// A panel taken hold of, and set in its place.
     Grab,
     Dock,
@@ -195,7 +190,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 62] = [
         Self::Step,
         Self::RoadStep,
         Self::Hammer,
@@ -249,11 +244,8 @@ impl Sound {
         Self::Lead,
         Self::Founded,
         Self::PopOpen,
-        Self::PopClose,
         Self::Tab,
-        Self::Fold,
         Self::Send,
-        Self::Card,
         Self::Grab,
         Self::Dock,
         Self::Sash,
@@ -279,11 +271,8 @@ impl Sound {
             | Self::Confirm
             | Self::Deny
             | Self::PopOpen
-            | Self::PopClose
             | Self::Tab
-            | Self::Fold
             | Self::Send
-            | Self::Card
             | Self::Grab
             | Self::Dock
             | Self::Sash
@@ -394,9 +383,6 @@ impl Sound {
             | Self::HouseFall
             | Self::Embers
             | Self::PopOpen
-            | Self::PopClose
-            | Self::Fold
-            | Self::Card
             | Self::Grab
             | Self::Dock
             | Self::Clockwork => &[],
@@ -470,11 +456,8 @@ impl Sound {
             Self::Lead => "lead",
             Self::Founded => "founded",
             Self::PopOpen => "pop-open",
-            Self::PopClose => "pop-close",
             Self::Tab => "tab",
-            Self::Fold => "fold",
             Self::Send => "send",
-            Self::Card => "card",
             Self::Grab => "grab",
             Self::Dock => "dock",
             Self::Sash => "sash",

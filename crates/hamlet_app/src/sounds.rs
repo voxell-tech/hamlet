@@ -15,8 +15,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::widgets::effects::ControlSound;
 
-use crate::chat::{ChatError, Unfolded};
-use crate::hover::Card;
+use crate::chat::ChatError;
 use crate::hub::Showing;
 use crate::menu::OpenMenu;
 use crate::world_menu::Open;
@@ -30,7 +29,7 @@ pub(crate) fn plugin(app: &mut App) {
                 cues.write(cue(Sound::Error));
             },
         )
-        .add_systems(Update, (controls, menus, tabs, folds));
+        .add_systems(Update, (controls, menus, tabs));
 }
 
 /// The sounds the controls ask for.
@@ -76,24 +75,18 @@ pub(crate) fn write(
     });
 }
 
-/// A top-bar menu or a question over the world, opening and closing.
+/// A top-bar menu or a question over the world, opening.
 fn menus(
     bar: Res<OpenMenu>,
     over: Res<Open>,
-    mut was: Local<(bool, bool, bool)>,
+    mut was: Local<(bool, bool)>,
     mut turn: Local<u32>,
     mut cues: MessageWriter<Cue>,
 ) {
-    let now = (
-        bar.is_open(),
-        matches!(*over, Open::Question(..)),
-        *over != Open::Nothing,
-    );
+    let now = (bar.is_open(), matches!(*over, Open::Question(..)));
     let before = std::mem::replace(&mut *was, now);
     if now.0 && !before.0 || now.1 && !before.1 {
         write(&mut cues, &mut turn, Sound::PopOpen);
-    } else if before.0 && !now.0 || before.2 && !now.2 {
-        write(&mut cues, &mut turn, Sound::PopClose);
     }
 }
 
@@ -137,23 +130,6 @@ fn tabs(
         write(&mut cues, &mut turn, Sound::Tab);
     }
     docked.tabs = !fronts.is_empty();
-}
-
-/// A fold opened or shut, and a hover card appearing.
-fn folds(
-    unfolded: Res<Unfolded>,
-    card: Res<Card>,
-    mut shown: Local<bool>,
-    mut turn: Local<u32>,
-    mut cues: MessageWriter<Cue>,
-) {
-    if unfolded.is_changed() && !unfolded.is_added() {
-        write(&mut cues, &mut turn, Sound::Fold);
-    }
-    if card.is_shown() && !*shown {
-        write(&mut cues, &mut turn, Sound::Card);
-    }
-    *shown = card.is_shown();
 }
 
 /// A message sent from the command line.

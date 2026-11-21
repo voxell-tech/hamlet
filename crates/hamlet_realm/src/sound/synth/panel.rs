@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 
 use super::{
     Band, DT, Hiss, Low, RATE, air, bell, burst, empty, finish,
-    glass, hit, knock, pitch, rustle, strike, tine,
+    glass, hit, knock, pitch, strike, tine,
 };
 use crate::sound::Sound;
 
@@ -66,14 +66,6 @@ fn pop_open() -> Vec<f32> {
     finish(out, 0.2, false)
 }
 
-/// A menu or a popup closing: the same air going down.
-fn pop_close() -> Vec<f32> {
-    let mut out = empty(0.14);
-    let mut hiss = Hiss(263);
-    air(&mut out, &mut hiss, 0.0, 0.09, (2400.0, 800.0), 1.0);
-    finish(out, 0.16, false)
-}
-
 /// A tab brought to the front: a small hollow click, on the fifth.
 fn tab() -> Vec<f32> {
     let mut out = empty(0.1);
@@ -88,15 +80,6 @@ fn tab() -> Vec<f32> {
     finish(out, 0.24, false)
 }
 
-/// A fold opened or shut: paper creased.
-fn fold() -> Vec<f32> {
-    let mut out = empty(0.2);
-    let mut hiss = Hiss(269);
-    rustle(&mut out, &mut hiss, (0.0, 0.1), 1.0, 2200.0);
-    knock(&mut out, 0.08, 1100.0, 0.15);
-    finish(out, 0.2, false)
-}
-
 /// A message sent from the command line: air, and two tines going
 /// with it.
 fn send() -> Vec<f32> {
@@ -106,14 +89,6 @@ fn send() -> Vec<f32> {
     tine(&mut out, 0.12, 81.0, 0.7);
     tine(&mut out, 0.2, 86.0, 0.5);
     finish(out, 0.17, false)
-}
-
-/// The card of a thing the pointer rests on: a breath of paper.
-fn card() -> Vec<f32> {
-    let mut out = empty(0.22);
-    let mut hiss = Hiss(277);
-    rustle(&mut out, &mut hiss, (0.0, 0.2), 1.0, 1800.0);
-    finish(out, 0.15, false)
 }
 
 /// A panel taken hold of: a knock, and wood sliding.
@@ -170,11 +145,8 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Confirm => confirm(),
         Sound::Deny => deny(),
         Sound::PopOpen => pop_open(),
-        Sound::PopClose => pop_close(),
         Sound::Tab => tab(),
-        Sound::Fold => fold(),
         Sound::Send => send(),
-        Sound::Card => card(),
         Sound::Grab => grab(),
         Sound::Dock => dock(),
         Sound::Sash => sash(),

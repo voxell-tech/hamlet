@@ -5,9 +5,10 @@ use std::collections::HashMap;
 
 use bevy::audio::{SpatialScale, Volume};
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use super::clip::Bank;
-use super::{Cue, Family, Hearing, Sound, SoundSettings};
+use super::{Cue, Family, Hearing, Sound, SoundSettings, is_drawn};
 use crate::WorldCamera;
 
 /// The place the world is heard from.
@@ -95,6 +96,16 @@ pub(super) fn start_ambience(
     }
 }
 
+/// Ends the ambience while the world is not drawn.
+pub(super) fn stop_ambience(
+    mut commands: Commands,
+    beds: Query<Entity, With<Ambient>>,
+) {
+    for bed in &beds {
+        commands.entity(bed).despawn();
+    }
+}
+
 /// Wind always, louder the higher the camera.
 pub(super) fn mix_ambience(
     time: Res<Time>,
@@ -160,11 +171,14 @@ pub(super) fn play(
     set: Res<SoundSettings>,
     bank: Res<Bank>,
     ears: Single<&Transform, With<Ears>>,
+    camera: Query<&Camera, With<WorldCamera>>,
+    window: Query<&Window, With<PrimaryWindow>>,
     voices: Query<&Voice>,
     mut heard: ResMut<Heard>,
     mut cues: MessageReader<Cue>,
 ) {
     let now = time.elapsed_secs();
+    let drawn = is_drawn(&camera, &window);
     let mut playing = HashMap::<Family, usize>::new();
     for voice in &voices {
         *playing.entry(voice.0).or_default() += 1;
@@ -190,6 +204,10 @@ pub(super) fn play(
         }
         let everywhere = cue.sound.is_heard_everywhere()
             || cue.sound.is_alert() && set.alerts_everywhere;
+        // Only the panels' sounds reach a window that shows no world.
+        if !drawn && !cue.sound.is_heard_everywhere() {
+            continue;
+        }
         let far = ears.translation.distance(cue.at) > set.earshot;
         if family.is_worldly()
             && !everywhere
