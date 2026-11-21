@@ -34,6 +34,9 @@ struct Steps {
     /// from the panel toward the accent.
     primary_low: f32,
     primary_high: f32,
+    /// Body text, from the end of the ramp toward the step before
+    /// it: the end is brighter than words need to be.
+    body: f32,
     /// Pressable text, from the body toward the warm accent.
     pressable: f32,
     /// A mark of the accent, from the body toward the warm accent.
@@ -65,6 +68,7 @@ const DARK: Steps = Steps {
     bottom: 0.0,
     primary_low: 0.27,
     primary_high: 0.42,
+    body: 0.5,
     pressable: 0.38,
     mark: 0.70,
     core: 0.60,
@@ -85,6 +89,7 @@ const LIGHT: Steps = Steps {
     bottom: 0.0,
     primary_low: 0.72,
     primary_high: 1.0,
+    body: 0.5,
     pressable: 0.17,
     mark: 1.0,
     core: 0.74,
@@ -279,10 +284,11 @@ impl Palette {
         // The background is the end of the ramp, darkest in dark and
         // lightest in light, and a field a step in from it.
         let [surface, input, ..] = ramp;
-        let [_, _, button, border, _, mark, _, dim, body] = ramp;
+        let [_, _, button, border, _, mark, dim, quiet, end] = ramp;
+        let body = end.mix(&quiet, steps.body);
         // The lightest end of the ramp is the text's in dark and the
         // paper's in light; solids carry it as their words.
-        let lightest = if dark { body } else { surface };
+        let lightest = if dark { end } else { surface };
         let accent = base.hue(base.accent);
 
         let card = surface
