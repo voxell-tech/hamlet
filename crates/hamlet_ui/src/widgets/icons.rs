@@ -87,11 +87,17 @@ pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
 }
 
+/// The turns after which [`spin`] starts again. The turn only grows
+/// until then, since a rotation that fell back from 360 to 0 would
+/// be carried backwards.
+const SPIN_TURNS: f64 = 4096.0;
+
 /// How far the open ring has turned, in degrees clockwise, by the
 /// clock: every ring shows the same turn, wherever it is.
 fn spin(world: &World) -> f32 {
     let now = world.resource::<Time>().elapsed_secs_f64();
-    (now % SPIN_PERIOD / SPIN_PERIOD * 360.0) as f32
+    let turns = now / SPIN_PERIOD;
+    (turns % SPIN_TURNS * 360.0) as f32
 }
 
 /// An icon of the panels.
