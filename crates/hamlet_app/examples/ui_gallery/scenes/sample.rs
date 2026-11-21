@@ -80,6 +80,7 @@ pub(super) fn setup(world: &mut World) {
         configured: configured.contains(&id),
         id: id.into(),
         label: name.into(),
+        limits: None,
         methods: vec![protocol::LoginMethod::Key],
         name: name.into(),
     };
@@ -111,6 +112,9 @@ pub(super) fn setup(world: &mut World) {
             ..provider("openrouter", "OpenRouter")
         },
     ]);
+    if matches!(scene, Scene::Overview | Scene::SettingsEndpoints) {
+        plans(&mut state.providers);
+    }
     state.providers.sort_by(|a, b| a.id.cmp(&b.id));
     terminal::state(&mut state, scene);
     hamlet_client::receive(
@@ -207,4 +211,112 @@ pub(super) fn setup(world: &mut World) {
 fn scratch() -> PathBuf {
     std::env::temp_dir()
         .join(format!("hamlet-gallery-{}", std::process::id()))
+}
+
+/// Claude, ChatGPT and OpenRouter signed in, each with what its
+/// provider told of its limits: a week used faster than it lasts, a
+/// plan used slowly, and a key with no cap of its own.
+fn plans(providers: &mut Vec<protocol::ProviderView>) {
+    let now = jiff::Timestamp::now().as_millisecond();
+    let (hour, minute) = (3_600_000, 60_000);
+    let window =
+        |id: &str, name: &str, length: i64, used: f64, left: i64| {
+            protocol::LimitWindow {
+                id: id.into(),
+                length: Some(length),
+                money: None,
+                name: name.into(),
+                resets: Some(now + left),
+                used: Some(used),
+            }
+        };
+    providers.push(protocol::ProviderView {
+        configured: true,
+        id: "claude".into(),
+        label: "Sign in to Claude".into(),
+        limits: Some(protocol::ProviderLimits {
+            checked: now - 2 * minute,
+            plan: Some("Max".into()),
+            state: protocol::LimitsState::Ok,
+            windows: vec![
+                window(
+                    "five_hour",
+                    "Session",
+                    300,
+                    46.0,
+                    2 * hour + 26 * minute,
+                ),
+                window(
+                    "seven_day",
+                    "Weekly",
+                    10_080,
+                    61.0,
+                    104 * hour,
+                ),
+                window(
+                    "model:Fable",
+                    "Weekly · Fable",
+                    10_080,
+                    12.0,
+                    104 * hour,
+                ),
+            ],
+        }),
+        methods: vec![protocol::LoginMethod::Subscription],
+        name: "Claude".into(),
+    });
+    for (id, name) in
+        [("chatgpt", "ChatGPT"), ("openrouter", "OpenRouter")]
+    {
+        if !providers.iter().any(|p| p.id == id) {
+            providers.push(protocol::ProviderView {
+                configured: true,
+                id: id.into(),
+                label: name.into(),
+                limits: None,
+                methods: vec![protocol::LoginMethod::Subscription],
+                name: name.into(),
+            });
+        }
+    }
+    for provider in providers.iter_mut() {
+        match provider.id.as_str() {
+            "chatgpt" => {
+                provider.configured = true;
+                provider.limits = Some(protocol::ProviderLimits {
+                    checked: now - minute,
+                    plan: Some("Plus".into()),
+                    state: protocol::LimitsState::Ok,
+                    windows: vec![
+                        window(
+                            "primary",
+                            "Session",
+                            300,
+                            18.0,
+                            3 * hour,
+                        ),
+                        window(
+                            "secondary",
+                            "Weekly",
+                            10_080,
+                            34.0,
+                            61 * hour,
+                        ),
+                    ],
+                });
+            }
+            "openrouter" => {
+                provider.configured = true;
+                // Most keys carry no cap of their own: OpenRouter
+                // bills the account's credits.
+                provider.limits = Some(protocol::ProviderLimits {
+                    checked: now - minute,
+                    plan: None,
+                    state: protocol::LimitsState::Ok,
+                    windows: Vec::new(),
+                });
+            }
+            _ => {}
+        }
+    }
 }

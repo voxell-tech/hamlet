@@ -148,8 +148,100 @@ pub struct ProviderView {
     pub configured: bool,
     pub id: String,
     pub label: String,
+    /// What the provider last told of its limits; none before it was
+    /// asked, and for a provider that keeps none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "ProviderLimits")]
+    pub limits: Option<ProviderLimits>,
     pub methods: Vec<LoginMethod>,
     pub name: String,
+}
+
+/// How much of a provider's plan or key is used, as it last told it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderLimits {
+    /// When the provider told it, in milliseconds since the epoch.
+    pub checked: i64,
+    /// The plan's name, where the provider tells it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String")]
+    pub plan: Option<String>,
+    pub state: LimitsState,
+    pub windows: Vec<LimitWindow>,
+}
+
+/// Whether the provider lets the plan or key be used.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum LimitsState {
+    /// It answers.
+    #[serde(rename = "ok")]
+    Ok,
+    /// It answers and says a limit is near.
+    #[serde(rename = "warning")]
+    Warning,
+    /// It refused, for a limit, when the limits were told.
+    #[serde(rename = "refused")]
+    Refused,
+    /// It tells nothing of its limits.
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// One limit a provider keeps over a span of time, or over money.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct LimitWindow {
+    /// The same window across reads, such as `five_hour`.
+    pub id: String,
+    /// How long the window lasts, in minutes, where it is a span of
+    /// time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "i64")]
+    pub length: Option<i64>,
+    /// What is left and what the cap is, where it is money.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "LimitMoney")]
+    pub money: Option<LimitMoney>,
+    /// Its name, such as "Session" or "Weekly · Fable".
+    pub name: String,
+    /// When it resets, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "i64")]
+    pub resets: Option<i64>,
+    /// How much of it is used, from 0 to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "f64", range(min = 0.0, max = 100.0))]
+    pub used: Option<f64>,
+}
+
+/// Money left under a cap, in US dollars.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct LimitMoney {
+    pub cap: f64,
+    pub left: f64,
 }
 
 #[derive(
@@ -231,6 +323,10 @@ pub enum Check {
     },
     #[serde(rename = "connection")]
     Connection { id: RequestId },
+    /// Asks each signed-in provider how much of its limits is used,
+    /// unless it told so in the last minute.
+    #[serde(rename = "limits")]
+    Limits { id: RequestId },
 }
 
 #[derive(
@@ -246,9 +342,23 @@ pub struct MoveWorktrees {
 )]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Login {
-    Start { id: RequestId, start: LoginStart },
-    Reply { id: RequestId, reply: LoginReply },
-    Cancel { cancel: String, id: RequestId },
+    Start {
+        id: RequestId,
+        start: LoginStart,
+    },
+    Reply {
+        id: RequestId,
+        reply: LoginReply,
+    },
+    Cancel {
+        cancel: String,
+        id: RequestId,
+    },
+    /// Signs out of the provider `forget` names, or removes its key.
+    Forget {
+        forget: String,
+        id: RequestId,
+    },
 }
 
 #[derive(

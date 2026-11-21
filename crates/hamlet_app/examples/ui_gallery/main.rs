@@ -145,6 +145,12 @@ const SHOTS: [Shot; 54] = [
         scale: 1.0,
     },
     Shot {
+        name: "settings-endpoints",
+        scene: Scene::SettingsEndpoints,
+        size: UVec2::new(1440, 1000),
+        scale: 1.0,
+    },
+    Shot {
         name: "toasts",
         scene: Scene::Toasts,
         size: UVec2::new(1440, 860),

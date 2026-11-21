@@ -1,6 +1,7 @@
 //! The messages about credentials and providers: a credential
 //! requested and answered once the leases let it through, and a
-//! provider's result or event.
+//! provider's result or event, and what a turn learnt of a
+//! provider's limits.
 
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::error::Result;
@@ -32,7 +33,8 @@ pub(crate) fn plugin(app: &mut App) {
     )
     .add_handler::<FromRuntime<runtime::ProviderEvent>, _>(
         provider_event,
-    );
+    )
+    .add_handler::<FromRuntime<runtime::LimitsSeen>, _>(limits_seen);
 }
 
 /// Run condition for an input from a runtime.
@@ -80,4 +82,14 @@ fn provider_event(
             core.provider_event(runtime, message)?;
             Ok(())
         })
+}
+
+fn limits_seen(
+    mut heard: ResMut<Messages<FromRuntime<runtime::LimitsSeen>>>,
+    mut core: Core,
+) -> Result {
+    heard.drain().try_for_each(|FromRuntime { message, .. }| {
+        core.limits_seen(message)?;
+        Ok(())
+    })
 }

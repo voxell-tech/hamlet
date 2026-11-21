@@ -19,6 +19,12 @@ const script = JSON.parse(readFileSync(scriptFile, "utf8"));
 const args = process.argv.slice(2);
 const config = process.env.CLAUDE_CONFIG_DIR ?? "";
 
+// `claude auth logout`: notes it and forgets the login, as the real one does.
+if (args[0] === "auth" && args[1] === "logout") {
+    appendFileSync(script.log, `${JSON.stringify({ logout: config })}\n`);
+    process.exit(0);
+}
+
 /** Notes what this run was given, for the test to read. */
 function note(what) {
     appendFileSync(script.log, `${JSON.stringify(what)}\n`);
@@ -136,16 +142,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
                 subtype: "success",
                 request_id: message.request_id,
                 response:
-                    message.request.subtype === "initialize"
-                        ? {
-                              commands: [],
-                              agents: [],
-                              output_style: "default",
-                              available_output_styles: ["default"],
-                              models: [],
-                              account: {},
-                          }
-                        : {},
+                    message.request.subtype === "get_usage"
+                        ? script.usage
+                        : message.request.subtype === "initialize"
+                          ? {
+                                commands: [],
+                                agents: [],
+                                output_style: "default",
+                                available_output_styles: ["default"],
+                                models: [],
+                                account: {},
+                            }
+                          : {},
             },
         });
     } else if (message.type === "control_response") {

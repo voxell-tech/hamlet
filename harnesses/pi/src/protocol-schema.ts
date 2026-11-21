@@ -457,6 +457,123 @@ export const schema = {
             ],
             "type": "string"
         },
+        "LimitMoney": {
+            "additionalProperties": false,
+            "description": "Money left under a cap, in US dollars.",
+            "properties": {
+                "cap": {
+                    "format": "double",
+                    "type": "number"
+                },
+                "left": {
+                    "format": "double",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "cap",
+                "left"
+            ],
+            "type": "object"
+        },
+        "LimitWindow": {
+            "additionalProperties": false,
+            "description": "One limit a provider keeps over a span of time, or over money.",
+            "properties": {
+                "id": {
+                    "description": "The same window across reads, such as `five_hour`.",
+                    "minLength": 1,
+                    "type": "string"
+                },
+                "length": {
+                    "description": "How long the window lasts, in minutes, where it is a span of\ntime.",
+                    "format": "double",
+                    "type": "number"
+                },
+                "money": {
+                    "$ref": "#/$defs/LimitMoney",
+                    "description": "What is left and what the cap is, in US dollars, where it is\nmoney."
+                },
+                "name": {
+                    "description": "Its name for a chief, such as \"Session\" or \"Weekly · Fable\".",
+                    "minLength": 1,
+                    "type": "string"
+                },
+                "resets": {
+                    "description": "When it resets, in milliseconds since the epoch.",
+                    "format": "double",
+                    "type": "number"
+                },
+                "used": {
+                    "description": "How much of it is used, from 0 to 100.",
+                    "format": "double",
+                    "maximum": 100.0,
+                    "minimum": 0.0,
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "name"
+            ],
+            "type": "object"
+        },
+        "Limits": {
+            "additionalProperties": false,
+            "description": "How much of a provider's plan or key is used, as the provider\ntells it.",
+            "properties": {
+                "checked": {
+                    "description": "When the provider told it, in milliseconds since the epoch.",
+                    "format": "double",
+                    "type": "number"
+                },
+                "plan": {
+                    "description": "The plan's name, where the provider tells it.",
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/$defs/LimitsState"
+                },
+                "windows": {
+                    "description": "The windows the provider keeps. In a `limits` message, only\nthose the turn learnt about.",
+                    "items": {
+                        "$ref": "#/$defs/LimitWindow"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "checked",
+                "state",
+                "windows"
+            ],
+            "type": "object"
+        },
+        "LimitsState": {
+            "description": "Whether the provider lets the plan or key be used.",
+            "oneOf": [
+                {
+                    "const": "ok",
+                    "description": "It answers.",
+                    "type": "string"
+                },
+                {
+                    "const": "warning",
+                    "description": "It answers and says a limit is near.",
+                    "type": "string"
+                },
+                {
+                    "const": "refused",
+                    "description": "It refused, for a limit.",
+                    "type": "string"
+                },
+                {
+                    "const": "unknown",
+                    "description": "It tells nothing of its limits.",
+                    "type": "string"
+                }
+            ]
+        },
         "Mark": {
             "additionalProperties": false,
             "description": "Hamlet's own kind and data of an entry, such as a chief's line or\na notice, kept as the server gave them.",
@@ -573,13 +690,27 @@ export const schema = {
             "type": "object"
         },
         "ProviderRequestAction": {
-            "enum": [
-                "describe",
-                "refresh",
-                "hello",
-                "login"
-            ],
-            "type": "string"
+            "oneOf": [
+                {
+                    "enum": [
+                        "describe",
+                        "refresh",
+                        "hello",
+                        "login"
+                    ],
+                    "type": "string"
+                },
+                {
+                    "const": "limits",
+                    "description": "Reads how much of the provider's plan or key is used.",
+                    "type": "string"
+                },
+                {
+                    "const": "logout",
+                    "description": "Signs out of the provider where its runtime keeps a login of\nits own, as Claude's program does.",
+                    "type": "string"
+                }
+            ]
         },
         "ProviderRequestMethod": {
             "enum": [
@@ -629,6 +760,9 @@ export const schema = {
                         "id": {
                             "minLength": 1,
                             "type": "string"
+                        },
+                        "limits": {
+                            "$ref": "#/$defs/Limits"
                         },
                         "models": {
                             "items": {
@@ -697,6 +831,38 @@ export const schema = {
                         "id",
                         "scope",
                         "step",
+                        "v"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "What a turn learnt about a provider's limits, sent as it learns\nit.",
+                    "properties": {
+                        "id": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "limits": {
+                            "$ref": "#/$defs/Limits"
+                        },
+                        "provider": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "limits",
+                            "type": "string"
+                        },
+                        "v": {
+                            "$ref": "#/$defs/Version"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "id",
+                        "limits",
+                        "provider",
                         "v"
                     ],
                     "type": "object"

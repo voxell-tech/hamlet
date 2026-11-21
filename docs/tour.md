@@ -129,7 +129,7 @@ and serves the realm again.
 | `attachments/` | Images and files on a chief's line, and the inbox (C33, S29, H30) |
 | `tools/` | What agents' tools do: built-in, custom, MCP servers' and the society's catalogue |
 | `terminals/` | Shells on pseudo-terminals and each agent's commands terminal |
-| `providers/` | The model catalogue, provider requests and sign-ins |
+| `providers/` | The model catalogue, provider requests and sign-ins, and what each provider last told of its plan's limits (`limits.rs`) |
 
 ## The pi harness
 

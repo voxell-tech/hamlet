@@ -244,6 +244,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::HubMenu {
         super::terminal::logs(&mut state);
     }
+    if scene == Scene::Overview {
+        super::plans(&mut state.providers);
+    }
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),

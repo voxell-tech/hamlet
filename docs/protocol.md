@@ -104,8 +104,8 @@ messages and watch failures can answer with `fault` (see
 | `edit` | Edit a chief-owned document or setting |
 | `open` | Watch a conversation and fetch a page; `transcript` or `fault` |
 | `close` | End a watch; no `id`; no answer |
-| `login` | Start, answer or cancel a connection-owned sign-in |
-| `check` | Check a model or the connection |
+| `login` | Start, answer or cancel a connection-owned sign-in, or remove a provider |
+| `check` | Check a model, the connection or the providers' limits |
 | `read` | Fetch one document or list; `read` or failure `reply` |
 | `move-worktrees` | Copy worktrees to the workspace chosen in Settings |
 | `terminal` | Open, type into, resize, watch, rename or close a terminal |
@@ -150,7 +150,7 @@ before questions or answers are stored or sent.
 `edit` is discriminated by `doc` (`charter`, `character`, `memory`,
 `limits`, `settings`, `catalogue`), `read` by `what` (`prompt`,
 `models`, `image`, `papers`, `charter`) and `login` by its one field
-(`start`, `reply`, `cancel`); their types are in `documents`, `limits`,
+(`start`, `reply`, `cancel`, `forget`); their types are in `documents`, `limits`,
 `settings` and `chat`. A rejected `edit` changes nothing and replies
 with an error. `charter` with `null` restores the built-in one; an empty
 memory `text` removes the file.
@@ -159,7 +159,9 @@ Login sessions belong to the initiating connection; disconnecting
 cancels them. The provider `claude` signs in with `method:
 "subscription"` alone: the server sends one `url` step, then `done` once
 the Claude program has the login, and asks for no `reply`. It completes
-only in a browser on the server's machine.
+only in a browser on the server's machine. `forget` names a provider:
+the server forgets its sign-in or key and its limits, and for `claude`
+the Claude program signs out too.
 
 ## Server to client
 
@@ -190,7 +192,10 @@ instead. `Confinement` (`sandbox`, `insecure` or `remote`) says what
 keeps agents' commands from the rest of the machine. `SettingsView.workspace`
 never holds the token. `Hamlet`, `Agent`, `Wait`, `Grant`, `Profile`,
 `SettingsView`, `ProviderView` and `TerminalView` are complete views in
-`hamlet_protocol`.
+`hamlet_protocol`. A signed-in `ProviderView` carries `limits` once its
+provider told them: when they were `checked`, the `plan`'s name, a
+`state` and its `windows`, each with how much is `used`, when it
+`resets` and, for a key's cap, the `money` left of it.
 
 An `Item`'s ids are opaque cursors (`<entryId>:<block>`); the transcript
 holds ids and never image or file bytes. A message from another agent is
@@ -244,7 +249,9 @@ replacement transcript are sent together, with no message between them.
 A `Wait` has a `detail` discriminated by `kind`: `approval`, `fault`,
 `question`, `objection`, `newcomer` or `mcp-server` (see `waits`). A `check` replies in
 words and changes the connection status in settings; a model check
-waits at most 90 s.
+waits at most 90 s. `what: "limits"` asks each signed-in provider that
+keeps limits how much is used, unless it told so in the last minute,
+and replies once each answered.
 
 `State.realm` names the realm's folder on the server's machine so local
 links and pictures can exclude it, including through symlinks.
