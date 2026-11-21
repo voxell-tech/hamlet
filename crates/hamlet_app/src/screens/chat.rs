@@ -33,6 +33,7 @@ use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::InputSystems;
 use bevy::input_focus::InputFocusSystems;
+use bevy::picking::PickingSystems;
 use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{
@@ -134,6 +135,7 @@ pub fn plugin(app: &mut App) {
             PreUpdate,
             typing::type_into_field
                 .after(InputSystems)
+                .after(PickingSystems::Hover)
                 .before(InputFocusSystems::Dispatch),
         )
         .add_systems(PostUpdate, refocus)
