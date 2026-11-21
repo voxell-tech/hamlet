@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     label, overlay, row, scroll, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, keyed, resource, style,
+    Binding, ScopedExt, ViewExt, derived, keyed, resource, style,
 };
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
@@ -760,10 +760,10 @@ fn manual() -> AnyView {
                  write: fn(&mut World, String),
                  hint: &'static str| {
         hinted(
-            text_field(
+            text_field(Binding::new(
                 resource::<Welcome, _>(read),
                 move |world: &mut World, text| write(world, text),
-            )
+            ))
             .rules(text_input),
             hint,
         )

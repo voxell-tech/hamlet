@@ -13,7 +13,7 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_ui::styles::{
     self, Looks, bare, lettered, note, text_input,
 };
@@ -125,13 +125,13 @@ pub(crate) fn filled_form(
                                 .tone(Tone::Faint)
                                 .wrap(false),))
                             .width(px(LABEL)),
-                            text_field(
+                            text_field(Binding::new(
                                 filled
                                     .get(at)
                                     .cloned()
                                     .unwrap_or_default(),
                                 |_, _| {},
-                            )
+                            ))
                             .grow(1.0)
                             .min_width(px(0.0))
                             .rules(text_input)

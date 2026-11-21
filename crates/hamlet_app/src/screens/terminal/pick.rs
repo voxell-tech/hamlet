@@ -21,7 +21,8 @@ use bevy_fynix::views::{
     label, menu_item, overlay, popup, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+    resource,
 };
 use hamlet_protocol::client::AgentKind;
 use hamlet_ui::styles::{ICON, link_row, note, text_input};
@@ -186,7 +187,7 @@ fn content(panel: &PanelId) -> Vec<AnyView> {
 /// The search, with a word in it while it is empty.
 fn search() -> impl View {
     column((
-        text_field(String::new(), |_, _| {})
+        text_field(Binding::new(String::new(), |_, _| {}))
             .width(percent(100.0))
             .rules(text_input)
             .tagged(Find),

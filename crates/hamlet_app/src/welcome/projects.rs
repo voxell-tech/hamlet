@@ -20,7 +20,8 @@ use bevy_fynix::views::{
     overlay, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, each, every_frame, keyed, resource,
+    Binding, ScopedExt, ViewExt, derived, each, every_frame, keyed,
+    resource,
 };
 use hamlet_client::ViewFolder;
 use hamlet_client::imports::{BringIn, FindProjects, Imports};
@@ -372,9 +373,9 @@ fn line_view(line: &Line) -> AnyView {
             // Unturned, the chevron points up.
             let turn = if unfolded { 180.0 } else { 270.0 };
             row((
-                checkbox(picked).on_change(move |world, on| {
+                checkbox(Binding::new(picked, move |world, on| {
                     pick_project(world, &picking, on);
-                }),
+                })),
                 button(
                     row((
                         column((
@@ -410,9 +411,9 @@ fn line_view(line: &Line) -> AnyView {
             detail,
             picked,
         } => row((
-            checkbox(picked).on_change(move |world, on| {
+            checkbox(Binding::new(picked, move |world, on| {
                 pick(world, &key, on);
-            }),
+            })),
             column((
                 one_line(label(title)),
                 column((one_line(label(detail)),)).rules(note_rules),

@@ -41,10 +41,11 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
-use bevy_fynix::views::RichField;
+use bevy_fynix::views::{ItalicFaces, RichField};
 use hamlet_assets::File;
 use hamlet_assets::fonts::{
-    FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI, ZERO_X_PROTO,
+    FRAUNCES, INTER, INTER_ITALIC, JETBRAINS_MONO, TWEMOJI,
+    ZERO_X_PROTO,
 };
 
 use crate::theme::Themed;
@@ -120,6 +121,11 @@ pub fn install_fonts(world: &mut World) {
         fonts.add(Font::from_bytes(FRAUNCES.bytes.to_vec()));
     let terminal =
         fonts.add(Font::from_bytes(JETBRAINS_MONO.bytes.to_vec()));
+    let italic =
+        fonts.add(Font::from_bytes(INTER_ITALIC.bytes.to_vec()));
+    let mut faces = ItalicFaces::default();
+    faces.0.insert(AssetId::default(), italic);
+    world.insert_resource(faces);
     world.insert_resource(Mono(mono));
     world.insert_resource(TerminalFace(terminal));
     world.insert_resource(Display(display));

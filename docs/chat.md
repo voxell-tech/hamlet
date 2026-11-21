@@ -177,6 +177,15 @@ the field.
 A line that opens with `> ` is a quote; the model reads it as a Markdown
 quote.
 
+The chief's lines are Markdown, drawn as an agent's words are, with each
+line break kept (`parse_typed`). The field draws them so while they are
+typed: `hamlet_ui/src/markdown/marks.rs` reads the field's text into
+fynix marks, which set each part's look and hide the signs, such as `**`
+and a quote's `> `, once the part they open is closed. Signs show again
+while the caret is in their part, or at a line's `#` or `>`, so they
+are edited one character at a time like any other text. A line with an
+attachment placed in its words is drawn with its links and quotes only.
+
 ## Selecting words
 
 Text of the panels is selected where it is drawn

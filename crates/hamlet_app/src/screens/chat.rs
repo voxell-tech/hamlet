@@ -48,6 +48,7 @@ use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
+use hamlet_ui::markdown::{Inks, marks};
 use hamlet_ui::styles::{ICON, Looks, Tipped, note, text_input};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -660,7 +661,12 @@ pub fn message_bar(
         let space = &cx.theme().space;
         // Keeps the corners of the card and its controls concentric.
         let inset = space.soft - space.round;
-        message_bar_in(hub, space.gap, inset, tools)
+        let mono = cx
+            .world
+            .get_resource::<hamlet_ui::widgets::platform::Mono>()
+            .map(|mono| mono.0.clone());
+        let inks = Inks::of(cx.theme(), mono);
+        message_bar_in(hub, space.gap, inset, inks, tools)
     })
 }
 
@@ -668,6 +674,7 @@ fn message_bar_in(
     hub: Entity,
     gap: f32,
     inset: f32,
+    inks: Inks,
     tools: impl View + 'static,
 ) -> impl View {
     let hint = derived(move |world: &World| {
@@ -684,6 +691,7 @@ fn message_bar_in(
     .when(every_frame());
     let field = row((hinted(
         rich_field()
+            .marks(move |text| marks(text, &inks))
             .enter(Enter::Submit)
             .on_submit(move |world, _| send_typed(world, hub))
             .on_change(move |world, pieces| {

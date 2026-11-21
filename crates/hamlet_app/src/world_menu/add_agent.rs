@@ -12,7 +12,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, label, popup, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+};
 use hamlet_client::realm::{self as agents, Actions, Profile};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -179,15 +181,14 @@ fn version() -> impl View {
                 section("At version"),
                 dropdown(
                     shown,
-                    at,
-                    Glyph::Chevron.image(ICON),
-                    move |world, chosen| {
+                    Binding::new(at, move |world, chosen: usize| {
                         world.resource_mut::<AgentForm>().version =
                             chosen
                                 .checked_sub(1)
                                 .and_then(|at| versions.get(at))
                                 .cloned();
-                    },
+                    }),
+                    Glyph::Chevron.image(ICON),
                 ),
             ))
             .boxed()
@@ -298,7 +299,7 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
                         styles::close((
                             // Left empty, its first message says it.
                             section("What it is added to do"),
-                            text_field(
+                            text_field(Binding::new(
                                 bevy_fynix::resource::<AgentForm, _>(
                                     |f| f.purpose.clone(),
                                 ),
@@ -307,7 +308,7 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
                                         .resource_mut::<AgentForm>()
                                         .purpose = text;
                                 },
-                            )
+                            ))
                             .rules(text_input)
                             .tagged(TakesFocus),
                         )),

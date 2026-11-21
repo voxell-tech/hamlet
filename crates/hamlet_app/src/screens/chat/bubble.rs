@@ -1,10 +1,11 @@
 //! The chat drawn as a group chat, a bubble for each message.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered;
 use bevy::text::TextColor;
 use bevy::ui::{
@@ -17,11 +18,14 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, Visual, component, keyed, resource,
+    ScopedExt, Signal, ViewExt, Visual, component, keyed, resource,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::ItemMessage;
-use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
+use hamlet_ui::markdown::{
+    Area, Block, Kind as Shape, Span, Style, is_address_in,
+    parse_typed,
+};
 use hamlet_ui::styles::{note, small_rules, text_button};
 use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::theme::{Palette, StatusKind};
@@ -104,6 +108,64 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
             .radius(theme.space.round)
             .border(theme.space.border)
             .border_color(theme.palette.gold_2),
+    }
+}
+
+/// The words the chief typed in entry `id`, or answered with, as
+/// Markdown blocks, read again only when they change.
+fn typed_blocks(chat: Entity, id: String) -> Signal<Vec<Arc<Block>>> {
+    let mut moved = component::<Transcript, _>(chat, |_| ());
+    let kept = Arc::new(Mutex::new(Typed::default()));
+    let shared = kept.clone();
+    let read_id = id.clone();
+    Signal::new(
+        move |world: &World| {
+            let mut kept = shared.lock().unwrap();
+            kept.update(world, chat, &read_id);
+            kept.blocks.clone()
+        },
+        move |world: &World| {
+            moved.changed(world)
+                && kept.lock().unwrap().update(world, chat, &id)
+        },
+    )
+}
+
+/// The words a [`typed_blocks`] read, and their blocks.
+#[derive(Default)]
+struct Typed {
+    words: Option<String>,
+    blocks: Vec<Arc<Block>>,
+}
+
+impl Typed {
+    /// True if the blocks are not those of the words as they are now.
+    fn update(
+        &mut self,
+        world: &World,
+        chat: Entity,
+        id: &str,
+    ) -> bool {
+        let entry = world
+            .get::<Transcript>(chat)
+            .and_then(|transcript| transcript.item(id))
+            .map(|item| &item.entry);
+        let now = match entry {
+            Some(Entry::Chief { text, .. }) => {
+                reply::own_words(text).1
+            }
+            Some(Entry::Answered(said)) => said.clone(),
+            _ => String::new(),
+        };
+        if self.words.as_ref() == Some(&now) {
+            return false;
+        }
+        self.blocks = parse_typed(&now, is_address_in(world))
+            .into_iter()
+            .map(Arc::new)
+            .collect();
+        self.words = Some(now);
+        true
     }
 }
 
@@ -259,7 +321,6 @@ fn said<B: Board>(
                     .boxed(),
             );
         }
-        let typed_id = id.clone();
         let reserve = if time.is_empty() { "" } else { RESERVE };
         let selectable = |said: AnyView| {
             let words = column((said,))
@@ -269,20 +330,6 @@ fn said<B: Board>(
                 true => words.tagged(Area).boxed(),
                 false => words.boxed(),
             }
-        };
-        // Words with a link in them are set once, span by span.
-        let linked = match quote::has_quote(&typed) {
-            true => Some(quote::drawn(
-                &typed,
-                reserve,
-                palette.gold_4,
-                Vec::new(),
-            )),
-            false => hamlet_ui::markdown::typed(
-                &typed,
-                reserve,
-                hamlet_ui::markdown::is_address_in(cx.world),
-            ),
         };
         let shown = !time.is_empty();
         let hour = label(time)
@@ -343,29 +390,14 @@ fn said<B: Board>(
                     );
                     (said, None)
                 } else {
-                    let said = linked.unwrap_or_else(|| {
-                        label(component::<Transcript, _>(
-                            chat,
-                            move |t| match t.and_then(|t| {
-                                t.item(&typed_id)
-                                    .map(|item| &item.entry)
-                            }) {
-                                Some(Entry::Chief {
-                                    text, ..
-                                }) => {
-                                    format!(
-                                        "{}{reserve}",
-                                        reply::own_words(text).1
-                                    )
-                                }
-                                Some(Entry::Answered(said)) => {
-                                    format!("{said}{reserve}")
-                                }
-                                _ => String::new(),
-                            },
-                        ))
-                        .boxed()
-                    });
+                    let blocks = typed_blocks(chat, id.clone()).map(
+                        move |blocks| kept_room(blocks, reserve),
+                    );
+                    let said = hamlet_ui::markdown::document(
+                        blocks,
+                        Tone::Body,
+                    )
+                    .boxed();
                     (said, Some(chips))
                 };
                 inside.push(selectable(said));
@@ -617,7 +649,7 @@ fn message(hub: Entity, chat: Entity, id: String) -> AnyView {
         let head = hamlet_ui::markdown::typed(
             &heading,
             "",
-            hamlet_ui::markdown::is_address_in(cx.world),
+            is_address_in(cx.world),
         )
         .unwrap_or_else(|| label(heading).bold(true).boxed());
         let key = (hub, chat, id.clone());

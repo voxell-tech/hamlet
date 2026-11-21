@@ -335,12 +335,12 @@ fn field<R: Resource<Mutability = Mutable>>(
     read: fn(&R) -> &String,
     write: fn(&mut R, String),
 ) -> impl View {
-    views::text_field(
+    views::text_field(bevy_fynix::Binding::new(
         resource::<R, _>(move |r| read(r).clone()),
         move |world, text| {
             write(&mut world.resource_mut::<R>(), text);
         },
-    )
+    ))
     .rules(hamlet_ui::styles::text_input)
 }
 

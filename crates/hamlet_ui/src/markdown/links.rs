@@ -198,7 +198,7 @@ enum Plain {
 }
 
 /// The links in `text`, each with the part of the text it is.
-fn find(
+pub(super) fn find(
     text: &str,
     is_address: IsAddress,
 ) -> Vec<(Range<usize>, Target)> {

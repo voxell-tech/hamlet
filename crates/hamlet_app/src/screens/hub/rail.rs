@@ -32,9 +32,9 @@ use bevy_fynix::views::{
     frame, label, row, text_field,
 };
 use bevy_fynix::{
-    Dragging, FynixSystems, OverrideCursor, ScopedExt, Signal,
-    ViewExt, component, derived, each, every_frame, keyed, resource,
-    style,
+    Binding, Dragging, FynixSystems, OverrideCursor, ScopedExt,
+    Signal, ViewExt, component, derived, each, every_frame, keyed,
+    resource, style,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
@@ -1661,7 +1661,7 @@ fn search_row(hub: Entity) -> impl View {
             .map(|rail| rail.search.clone())
             .unwrap_or_default();
         cx.build(search(
-            text_field(now, |_, _| {})
+            text_field(Binding::new(now, |_, _| {}))
                 .rules(text_input)
                 .tagged(Search(hub)),
             "Search",

@@ -49,8 +49,8 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{
-    EntityCursor, ModifierExt, ScopedExt, ViewExt, keyed, resource,
-    style,
+    Binding, EntityCursor, ModifierExt, ScopedExt, ViewExt, keyed,
+    resource, style,
 };
 use hamlet_ui::styles::{
     ICON, Tipped, action, bad_action, close_button, description,
@@ -590,24 +590,28 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
         let theme = cx.theme();
         let (pad, size) =
             (theme.space.tab_padding, theme.text.heading);
-        let field = text_field(name.clone(), move |world, name| {
-            // Enter keeps the field focused while it commits. Focus
-            // leaving first, as on a press outside, drops the name.
-            let entered = world
-                .resource::<InputFocus>()
-                .get()
-                .and_then(|input| world.get::<ChildOf>(input))
-                .is_some_and(|parent| {
-                    world
-                        .get::<RenameField>(parent.parent())
-                        .is_some()
-                });
-            if !entered {
-                return;
-            }
-            world.resource_mut::<Desks>().rename(at, &name);
-            world.resource_mut::<Renaming>().0 = None;
-        })
+        let field = text_field(Binding::new(
+            name.clone(),
+            move |world, name: String| {
+                // Enter keeps the field focused while it commits.
+                // Focus leaving first, as on a press outside, drops
+                // the name.
+                let entered = world
+                    .resource::<InputFocus>()
+                    .get()
+                    .and_then(|input| world.get::<ChildOf>(input))
+                    .is_some_and(|parent| {
+                        world
+                            .get::<RenameField>(parent.parent())
+                            .is_some()
+                    });
+                if !entered {
+                    return;
+                }
+                world.resource_mut::<Desks>().rename(at, &name);
+                world.resource_mut::<Renaming>().0 = None;
+            },
+        ))
         .rules(text_input)
         .rules(|cx: &mut Cx| {
             // As wide and as tall as the tab it covers.

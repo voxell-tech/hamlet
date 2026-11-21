@@ -14,7 +14,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
     text_field,
 };
-use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
+use bevy_fynix::{Bevy, Binding, Focused, ScopedExt, View, ViewExt};
 use hamlet_app::{chat, lists, menu};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{self, Looks, marked, text_input};
@@ -75,7 +75,7 @@ fn states(which: Glyph, text: &'static str, variant: Variant) -> Ui {
 }
 
 fn field(text: &'static str) -> impl View<Bevy, HamletTheme> {
-    text_field(text.to_string(), |_, _| {})
+    text_field(Binding::new(text.to_string(), |_, _| {}))
         .width(px(160.0))
         .rules(text_input)
 }
@@ -261,13 +261,15 @@ pub(super) fn controls() -> Ui {
         ),
         part(
             "A slider",
-            bevy_fynix::views::slider(bevy_fynix::resource::<
-                SoundSettings,
-                _,
-            >(|s| s.volume))
-            .on_change(|world, level| {
-                world.resource_mut::<SoundSettings>().volume = level;
-            })
+            bevy_fynix::views::slider(Binding::new(
+                bevy_fynix::resource::<SoundSettings, _>(|s| {
+                    s.volume
+                }),
+                |world, level| {
+                    world.resource_mut::<SoundSettings>().volume =
+                        level;
+                },
+            ))
             .boxed(),
         ),
         part("Menu titles", titles()),

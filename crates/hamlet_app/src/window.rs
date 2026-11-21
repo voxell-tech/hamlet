@@ -1,24 +1,27 @@
 //! The window's size and closing, independent of the server.
 
+use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use bevy::app::{App, Last, Startup, Update};
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::ecs::system::{Commands, Local, Res};
 use bevy::ecs::world::World;
+use bevy::input::keyboard::KeyboardInput;
+use bevy::input::mouse::{MouseButtonInput, MouseWheel};
 use bevy::state::app::AppExtStates;
 use bevy::state::state::States;
 use bevy::time::Time;
 use bevy::window::{
-    ExitCondition, PresentMode, PrimaryWindow, Window,
-    WindowCloseRequested, WindowPlugin, WindowResizeConstraints,
-    WindowResized, WindowResolution,
+    ExitCondition, Ime, PresentMode, PrimaryWindow, RequestRedraw,
+    Window, WindowCloseRequested, WindowPlugin,
+    WindowResizeConstraints, WindowResized, WindowResolution,
 };
 use bevy::winit::{
     EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent,
@@ -39,6 +42,12 @@ pub fn plugin(app: &mut App) {
     app.init_state::<WorldShown>()
         .init_resource::<FrameCap>()
         .insert_resource(winit_settings())
+        // Here too for an app without the input and window plugins.
+        .add_message::<KeyboardInput>()
+        .add_message::<Ime>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<RequestRedraw>()
         .add_systems(
             Startup,
             (
@@ -48,7 +57,10 @@ pub fn plugin(app: &mut App) {
                 read_frame_cap,
             ),
         )
-        .add_systems(Update, (intercept_close, remember_size))
+        .add_systems(
+            Update,
+            (intercept_close, remember_size, settle_after_input),
+        )
         .add_systems(Last, limit_frames);
 }
 
@@ -220,6 +232,9 @@ pub fn window_plugin(view: &Path) -> Result<WindowPlugin> {
             name: Some("hamlet".into()),
             resolution: WindowResolution::new(size.0, size.1),
             present_mode: present_mode(saved_vsync(view)),
+            // One frame queued for the display, not two, so that what
+            // is typed shows a frame sooner.
+            desired_maximum_frame_latency: NonZero::new(1),
             resize_constraints: WindowResizeConstraints {
                 min_width: LEAST_SIZE.0 as f32,
                 min_height: LEAST_SIZE.1 as f32,
@@ -285,6 +300,35 @@ pub(crate) fn remember_size(
             );
         }
         *pending = None;
+    }
+}
+
+/// The frames drawn after an input. The UI shows some of what an
+/// input changes a frame or two later, as a field that grows by the
+/// line just typed, and the reactive loop would draw that only at its
+/// next tick.
+const SETTLE_FRAMES: u8 = 4;
+
+/// Draws the next frames at the display's rate after a key, a typed
+/// text, a button or a scroll.
+fn settle_after_input(
+    mut keys: MessageReader<KeyboardInput>,
+    mut ime: MessageReader<Ime>,
+    mut buttons: MessageReader<MouseButtonInput>,
+    mut wheel: MessageReader<MouseWheel>,
+    mut left: Local<u8>,
+    mut redraw: MessageWriter<RequestRedraw>,
+) {
+    let inputs = keys.read().count()
+        + ime.read().count()
+        + buttons.read().count()
+        + wheel.read().count();
+    if inputs > 0 {
+        *left = SETTLE_FRAMES;
+    }
+    if *left > 0 {
+        *left -= 1;
+        redraw.write(RequestRedraw);
     }
 }
 

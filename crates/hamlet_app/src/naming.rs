@@ -25,7 +25,9 @@ use bevy::ui::px;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+};
 use hamlet_client::realm::{
     self as agents, Actions, HamletId, Kind, Left, Profile,
     profile_address,
@@ -158,15 +160,18 @@ pub(crate) fn name_crumb(named: Entity, shown: String) -> AnyView {
                 .boxed();
             }
             let was = shown.clone();
-            text_field(shown.clone(), move |world, name| {
-                if !in_field(world) {
-                    return;
-                }
-                world.resource_mut::<Naming>().0 = None;
-                if name.trim() != was {
-                    commit(world, named, &name);
-                }
-            })
+            text_field(Binding::new(
+                shown.clone(),
+                move |world, name: String| {
+                    if !in_field(world) {
+                        return;
+                    }
+                    world.resource_mut::<Naming>().0 = None;
+                    if name.trim() != was {
+                        commit(world, named, &name);
+                    }
+                },
+            ))
             .min_width(px(FIELD))
             .rules(text_input)
             .tagged(NameField)

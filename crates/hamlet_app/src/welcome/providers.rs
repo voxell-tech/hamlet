@@ -16,7 +16,9 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, frame, label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    Binding, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
@@ -533,7 +535,9 @@ fn prompt() -> AnyView {
             let field = if *secret {
                 secret_field(answer, answered).boxed()
             } else {
-                text_field(answer, answered).rules(text_input).boxed()
+                text_field(Binding::new(answer, answered))
+                    .rules(text_input)
+                    .boxed()
             };
             group((
                 said(words.clone()),

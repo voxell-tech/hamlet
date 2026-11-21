@@ -9,7 +9,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, Signal, ViewExt, component, keyed};
+use bevy_fynix::{
+    Binding, ScopedExt, Signal, ViewExt, component, keyed,
+};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, Looks, action, bad_action, bare, buttons, good_action,
@@ -312,9 +314,12 @@ fn add(
                 .unwrap_or_default();
             row((
                 hinted(
-                    text_field(typed, move |world, text| {
-                        opened(world, hub, |o| o.name = text);
-                    })
+                    text_field(Binding::new(
+                        typed,
+                        move |world, text| {
+                            opened(world, hub, |o| o.name = text);
+                        },
+                    ))
                     .grow(1.0)
                     .min_width(px(0.0))
                     .rules(text_input),
