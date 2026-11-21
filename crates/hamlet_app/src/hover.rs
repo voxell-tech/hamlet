@@ -87,12 +87,6 @@ pub(crate) struct Card {
     hint: String,
 }
 
-impl Card {
-    pub(crate) fn is_shown(&self) -> bool {
-        self.shown
-    }
-}
-
 /// The card's node.
 #[derive(Component)]
 pub(crate) struct CardBox;

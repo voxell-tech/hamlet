@@ -28,7 +28,9 @@ pub fn plugin(app: &mut App) {
         .add_observer(heard::hear_veto)
         .configure_sets(
             Update,
-            Cues.run_if(in_state(Hearing::On)).after(Step::Robots),
+            Cues.run_if(in_state(Hearing::On))
+                .run_if(drawn)
+                .after(Step::Robots),
         )
         .add_systems(
             Update,
@@ -50,7 +52,8 @@ pub fn plugin(app: &mut App) {
                     .run_if(resource_exists::<clip::Making>),
                 (
                     mix::place_ears,
-                    mix::start_ambience,
+                    mix::start_ambience.run_if(drawn),
+                    mix::stop_ambience.run_if(not(drawn)),
                     mix::mix_ambience,
                     mix::play,
                 )
@@ -200,8 +203,8 @@ impl SoundSettings {
     }
 }
 
-/// The hearing of the world's effects: on while they are not muted
-/// and the world is being drawn.
+/// The hearing of the effects: on while they are not muted. What
+/// the world makes is heard only while it is drawn.
 #[derive(
     States, Clone, Copy, PartialEq, Eq, Hash, Debug, Default,
 )]
@@ -236,17 +239,21 @@ fn is_drawn(
         && window.iter().any(|window| window.visible)
 }
 
-/// Turns [`Hearing`] on and off with the settings and with whether
-/// the world is being drawn.
-fn listen(
-    set: Res<SoundSettings>,
+/// [`is_drawn`], as a run condition.
+fn drawn(
     camera: Query<&Camera, With<WorldCamera>>,
     window: Query<&Window, With<PrimaryWindow>>,
+) -> bool {
+    is_drawn(&camera, &window)
+}
+
+/// Turns [`Hearing`] on and off with the settings.
+fn listen(
+    set: Res<SoundSettings>,
     hearing: Res<State<Hearing>>,
     mut next: ResMut<NextState<Hearing>>,
 ) {
-    let want = if set.can_hear_effects() && is_drawn(&camera, &window)
-    {
+    let want = if set.can_hear_effects() {
         Hearing::On
     } else {
         Hearing::Off

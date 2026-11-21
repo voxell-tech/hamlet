@@ -303,7 +303,7 @@ steps = 0.22
 work = 0.7
 doors = 0.8
 alerts = 0.6
-interface = 0.35
+interface = 0.2
 hand = 1.0
 magic = 0.6
 talk = 0.4
@@ -348,8 +348,8 @@ most = 1
 gap = 0.0
 
 [sound.limits.interface]
-most = 4
-gap = 0.04
+most = 3
+gap = 0.08
 
 [sound.limits.hand]
 most = 3
