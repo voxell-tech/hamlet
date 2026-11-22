@@ -1305,7 +1305,7 @@ fn chip(
         let padding = theme.space.chip_padding_x;
         let edge = match &face.trouble {
             Some(_) => palette.danger_border,
-            None => palette.gold_5,
+            None => palette.mark,
         };
         let tone = match (&face.trouble, disabled) {
             (Some(_), _) => Tone::Critical,

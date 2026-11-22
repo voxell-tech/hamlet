@@ -79,7 +79,7 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
         .border(theme.space.border)
-        .border_color(theme.palette.gold_5)
+        .border_color(theme.palette.mark)
         .radius(size / 4.0)
     })
     .boxed()

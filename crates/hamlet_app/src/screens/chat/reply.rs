@@ -336,7 +336,7 @@ pub(super) fn answered(
             frame()
                 .width(px(3.0))
                 .shrink(0.0)
-                .fill(theme.palette.gold_4),
+                .fill(theme.palette.accent_fill),
             column((
                 label(format!("Replying to {}", answers.by))
                     .bold(true)
@@ -379,7 +379,7 @@ fn shown(cx: &Cx, hub: Entity, answers: &Answers) -> AnyView {
         frame()
             .width(px(3.0))
             .shrink(0.0)
-            .fill(cx.theme().palette.gold_5),
+            .fill(cx.theme().palette.mark),
         column((
             label(format!("Replying to {}", answers.by))
                 .bold(true)

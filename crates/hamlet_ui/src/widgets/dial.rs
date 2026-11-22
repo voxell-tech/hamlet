@@ -143,13 +143,13 @@ pub fn dial(
         let theme = cx.theme();
         let (palette, border) = (&theme.palette, theme.space.border);
         let (rim, knob, trailing, middle) = (
-            palette.gold_3,
-            palette.gold_1,
-            palette.gold_4,
+            palette.accent_mark,
+            palette.text,
+            palette.accent_fill,
             palette.button,
         );
         let (short_mark, long_mark) =
-            (palette.gold_5, palette.gold_3);
+            (palette.mark, palette.accent_mark);
         let rim_width = border * 2.0;
         // Places are measured inside the rim; its line is half its
         // width further out.

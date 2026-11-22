@@ -282,7 +282,7 @@ fn swatch(
                     .height(px(SWATCH))
                     .fill(colour)
                     .border(1.0)
-                    .border_color(cx.theme().palette.gold_5)
+                    .border_color(cx.theme().palette.mark)
                     .radius(SWATCH / 2.0),))
                 .padding(UiRect::all(px(RING)))
                 .border(RING)
@@ -339,7 +339,7 @@ fn figure(chief: Entity, facts: &Facts) -> impl View {
             .radius(theme.space.round * 3.0)
             .fill(palette.input)
             .border(theme.space.border)
-            .border_color(palette.gold_6)
+            .border_color(palette.hairline)
             .tagged(glow)
             .tagged(Sitter(chief));
         // Without the picture, as where the portrait is not set up.

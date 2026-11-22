@@ -544,7 +544,7 @@ pub fn place(
         if fill.0.alpha() != eased {
             fill.0.set_alpha(eased);
             *edge = BorderColor::all(
-                theme.palette.gold_5.with_alpha(eased),
+                theme.palette.mark.with_alpha(eased),
             );
         }
         for child in under.iter_descendants(entity) {

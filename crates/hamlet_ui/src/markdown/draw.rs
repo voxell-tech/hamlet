@@ -587,7 +587,7 @@ fn table_view(
                 .gap(1.0)
                 .padding(UiRect::all(px(1.0)))
                 .min_width(px(0.0))
-                .fill(cx.theme().palette.gold_6),
+                .fill(cx.theme().palette.hairline),
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
@@ -637,7 +637,7 @@ fn block_view(
         Kind::Rule => frame()
             .height(px(crate::styles::LINE))
             .margin(UiRect::vertical(px(4.0)))
-            .fill(cx.theme().palette.gold_6)
+            .fill(cx.theme().palette.hairline)
             .boxed(),
         Kind::Table { align, rows } => {
             table_view(cx, align, rows, tone)
@@ -661,7 +661,7 @@ fn block_view(
                 .width(px(3.0))
                 .margin(UiRect::right(px(8.0)))
                 .shrink(0.0)
-                .fill(cx.theme().palette.gold_5)
+                .fill(cx.theme().palette.mark)
                 .boxed(),
         );
     }

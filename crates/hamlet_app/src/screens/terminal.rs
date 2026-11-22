@@ -346,7 +346,7 @@ fn light_edge(
         .and_then(|focus| focus.get())
         .and_then(|node| canvases.get(node).ok());
     let lit = theme.map_or(Color::NONE, |theme| {
-        theme.0.palette.gold_4.with_alpha(EDGE_ALPHA)
+        theme.0.palette.accent_fill.with_alpha(EDGE_ALPHA)
     });
     for (edge, Edge(panel), outline) in &edges {
         let color = if focused.is_some_and(|c| c.0 == *panel) {

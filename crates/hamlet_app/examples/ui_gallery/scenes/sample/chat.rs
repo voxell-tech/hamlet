@@ -35,7 +35,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
         Scene::Quiet => Transcript::default(),
         Scene::Chat => {
             let mut items = Vec::new();
-            for turn in 0..24 {
+            for turn in 0..23 {
                 let start = conversation(&[
                     ("chief", "Look over this row before the frost."),
                     (
@@ -90,6 +90,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                     });
                 }
             }
+            items.extend(every_step());
             Transcript::from_items(items)
         }
         Scene::Edits => {
@@ -294,6 +295,160 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             ),
         ]),
     }
+}
+
+/// The last turn of the chat: one step of every kind, between the
+/// chief's words and the reply.
+fn every_step() -> Vec<Item> {
+    let at = 1_791_374_400_000 + 30 * 60_000;
+    let tool =
+        |id: &str, name: &str, call, summary: &str, ms, exit| {
+            let failure = match exit {
+                0 => None,
+                _ => Some("test count_pears ... FAILED".to_string()),
+            };
+            Entry::Tool {
+                name: name.into(),
+                call,
+                summary: summary.into(),
+                exit: Some(exit),
+                ms: Some(ms),
+                failure,
+                change: (id == "last-edit").then(change),
+                agent: None,
+            }
+        };
+    let command = |command: &str| protocol::ToolCall::Command {
+        command: command.into(),
+    };
+    let path =
+        |path: &str| protocol::ToolCall::Path { path: path.into() };
+    let entries = [
+        (
+            "last-ask",
+            Entry::Chief {
+                name: "chief".into(),
+                text: "Find out why the pear count is off.".into(),
+                images: Vec::new(),
+                files: Vec::new(),
+            },
+        ),
+        (
+            "last-think",
+            Entry::Reasoning(
+                "The count comes from the almanac. I should read \
+                 it, then check the rows it reads."
+                    .into(),
+            ),
+        ),
+        (
+            "last-web",
+            tool(
+                "last-web",
+                "bash",
+                command(
+                    "python3 skills/web-search/scripts/search.py \
+                     \"pear trees frost straw\"",
+                ),
+                "",
+                2_300,
+                0,
+            ),
+        ),
+        (
+            "last-read",
+            tool(
+                "last-read",
+                "read",
+                path("src/almanac.rs"),
+                "",
+                12,
+                0,
+            ),
+        ),
+        (
+            "last-find",
+            tool(
+                "last-find",
+                "find",
+                protocol::ToolCall::Other,
+                "{\"pattern\": \"*.rows\", \"path\": \"notes\"}",
+                40,
+                0,
+            ),
+        ),
+        (
+            "last-edit",
+            tool(
+                "last-edit",
+                "edit",
+                path("src/almanac.rs"),
+                "",
+                8,
+                0,
+            ),
+        ),
+        (
+            "last-test",
+            tool(
+                "last-test",
+                "bash",
+                command("cargo test -p almanac"),
+                "",
+                14_200,
+                101,
+            ),
+        ),
+        (
+            "last-fetch",
+            tool(
+                "last-fetch",
+                "web_fetch",
+                protocol::ToolCall::Other,
+                "{\"url\": \"https://example.org/frost\"}",
+                900,
+                0,
+            ),
+        ),
+        (
+            "last-ask-agent",
+            tool(
+                "last-ask-agent",
+                "request",
+                protocol::ToolCall::Request {
+                    to: "hand".into(),
+                    text: "Check the north rows.".into(),
+                },
+                "",
+                300,
+                0,
+            ),
+        ),
+        (
+            "last-reply",
+            Entry::Assistant(
+                "The count read a stale rows file. I fixed the \
+                 almanac, but one test still fails."
+                    .into(),
+            ),
+        ),
+    ];
+    entries
+        .into_iter()
+        .enumerate()
+        .map(|(step, (id, entry))| Item {
+            id: id.into(),
+            // The thinking takes 6s; each step after it a second.
+            at: at
+                + match step {
+                    0 => 0,
+                    1 => 1_000,
+                    n => 6_000 + n as u64 * 1_000,
+                },
+            queued: false,
+            entry,
+        })
+        .collect()
 }
 
 pub(super) fn change() -> protocol::Change {

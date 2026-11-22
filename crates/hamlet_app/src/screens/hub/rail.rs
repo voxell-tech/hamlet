@@ -459,10 +459,10 @@ pub(super) fn divider(hub: Entity) -> impl View {
 /// The divider is a hairline, in the accent while held or hovered.
 fn revealed_line(cx: &mut Cx) {
     style::<HamletTheme>()
-        .frame(|f, t| f.fill(t.palette.gold_6))
-        .hovered(|s| s.fill(|t: &HamletTheme| t.palette.gold_4))
+        .frame(|f, t| f.fill(t.palette.hairline))
+        .hovered(|s| s.fill(|t: &HamletTheme| t.palette.accent_fill))
         .when::<Dragging>(|s| {
-            s.fill(|t: &HamletTheme| t.palette.gold_4)
+            s.fill(|t: &HamletTheme| t.palette.accent_fill)
         })
         .transition(HamletTheme::interact)
         .apply(cx);
@@ -1868,7 +1868,7 @@ pub(crate) fn guides(
     height: f32,
 ) -> impl View {
     with_cx(move |cx| {
-        let colour = cx.theme().palette.gold_6;
+        let colour = cx.theme().palette.hairline;
         let half = height / 2.0;
         let column_of = |top: bool, bottom: bool, across: bool| {
             let bar = |on: bool| {
@@ -2059,7 +2059,7 @@ fn tree_lines(line: &Line) -> Vec<AnyView> {
                 frame()
                     .width(px(width))
                     .height(height.map_or(Val::Auto, px))
-                    .fill(cx.theme().palette.gold_6)
+                    .fill(cx.theme().palette.hairline)
                     .position(PositionType::Absolute)
                     .inset(UiRect::new(
                         px(left),

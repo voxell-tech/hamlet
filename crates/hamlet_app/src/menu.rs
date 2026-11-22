@@ -343,7 +343,7 @@ fn items(
             }
             items.push(
                 with_cx(|cx| {
-                    hairline(cx.theme().palette.gold_6)
+                    hairline(cx.theme().palette.hairline)
                         .margin(UiRect::vertical(px(4.0)))
                 })
                 .boxed(),

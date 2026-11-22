@@ -44,9 +44,9 @@ pub(super) fn line(panel: &PanelId) -> impl View + use<> {
 fn lit(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| f.fill(t.palette.border))
-        .hovered(|s| s.fill(|t: &HamletTheme| t.palette.gold_4))
+        .hovered(|s| s.fill(|t: &HamletTheme| t.palette.accent_fill))
         .when::<Dragging>(|s| {
-            s.fill(|t: &HamletTheme| t.palette.gold_4)
+            s.fill(|t: &HamletTheme| t.palette.accent_fill)
         })
         .transition(HamletTheme::interact)
         .apply(cx);

@@ -354,7 +354,7 @@ impl EffectColors {
             primary_low: p.primary_low,
             primary_high: p.primary_high,
             particle: p.particle,
-            drag_border: p.gold_5,
+            drag_border: p.mark,
             attention: lamp(p.glow),
             flash: p.agent,
             underglow: lamp(p.glow),

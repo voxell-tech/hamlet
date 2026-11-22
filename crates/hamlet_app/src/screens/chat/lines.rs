@@ -35,7 +35,8 @@ use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_ui::styles::{
-    Fills, Looks, Tipped, lettered, note, small_rules, text_button,
+    Fills, Looks, Tipped, lettered, note, quiet_text_button,
+    small_rules,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -565,7 +566,7 @@ pub(super) fn fold_view<B: Board>(
         let rule = frame()
             .height(px(theme.space.border))
             .width(percent(100.0))
-            .fill(theme.palette.gold_6);
+            .fill(theme.palette.hairline);
         column((head, rule, inside))
             .gap(theme.space.gap / 2.0)
             .align(AlignItems::FlexStart)
@@ -660,7 +661,7 @@ fn worked<B: Board>(
     .align(AlignItems::Center);
     button(words)
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(text_button)
+        .rules(quiet_text_button)
         .on_activate(move |world| {
             let unfolded = &mut world.resource_mut::<Unfolded>().0;
             let fold = (hub, chat, first.clone());

@@ -295,18 +295,18 @@ fn swatch(palette: &Palette) -> impl View {
     };
     column((
         column((
-            line(palette.gold_1, 80.0),
-            line(palette.grey_1, 55.0),
+            line(palette.text, 80.0),
+            line(palette.text_dim, 55.0),
         ))
         .gap(5.0)
         .padding(UiRect::all(px(7.0)))
         .width(percent(100.0))
         .radius(4.0)
         .border(1.0)
-        .border_color(palette.gold_6)
+        .border_color(palette.hairline)
         .fill(palette.card),
         row((
-            row((line(palette.gold_1, 100.0),))
+            row((line(palette.text, 100.0),))
                 .width(px(34.0))
                 .padding(UiRect::axes(px(6.0), px(5.0)))
                 .radius(4.0)
@@ -328,7 +328,7 @@ fn swatch(palette: &Palette) -> impl View {
     .padding(UiRect::all(px(8.0)))
     .radius(6.0)
     .border(1.0)
-    .border_color(palette.gold_5)
+    .border_color(palette.mark)
     .fill(palette.surface)
     .tagged(lamp)
 }

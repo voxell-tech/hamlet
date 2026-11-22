@@ -66,7 +66,7 @@ pub fn root(cx: &mut Cx) {
                 .radius(space.round_card)
                 .fill(t.palette.card)
                 .border(space.border)
-                .border_color(t.palette.gold_6)
+                .border_color(t.palette.hairline)
         })
     });
     cx.set::<Look<Tile>>(|look, t| {
@@ -88,7 +88,7 @@ pub fn root(cx: &mut Cx) {
             .radius(space.round_small)
             .fill(t.palette.code)
             .border(space.border)
-            .border_color(t.palette.gold_6)
+            .border_color(t.palette.hairline)
         })
     });
     cx.set::<Look<Inset>>(|look, t| {
@@ -109,7 +109,7 @@ pub fn root(cx: &mut Cx) {
 pub fn floating(cx: &mut Cx) {
     cx.set::<Look<Card>>(|look, t| {
         look.frame(|f| {
-            f.radius(t.space.soft).border_color(t.palette.gold_5)
+            f.radius(t.space.soft).border_color(t.palette.mark)
         })
     });
 }

@@ -212,7 +212,7 @@ impl Pair {
     }
 }
 
-/// `gold_5 on surface: #a99172 on #f4ecda, 2.55, a mark needs 3:1,
+/// `mark on surface: #a99172 on #f4ecda, 2.55, a mark needs 3:1,
 /// https://...`
 impl fmt::Display for Pair {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -266,7 +266,10 @@ impl Report {
         // A translucent fill is a highlight: it is seen over a panel
         // or the chief's own bubble.
         let unders = of(Part::Panel)
-            .chain([Named::new("gold_6", theme.palette.gold_6)])
+            .chain([Named::new(
+                "button_hover",
+                theme.palette.button_hover,
+            )])
             .collect::<Vec<_>>();
         let mut grounds = Vec::new();
         for (name, part, colour) in &parts {
@@ -295,6 +298,11 @@ impl Report {
         grounds.push((
             Named::new("pressed", theme.pressed()),
             Gate::Fail,
+        ));
+        // Selected words in a field are drawn over the hairline.
+        grounds.push((
+            Named::new("hairline", theme.selection()),
+            SELECTION_GATE,
         ));
 
         let mut report = Self {
@@ -325,9 +333,9 @@ impl Report {
         let on_accent =
             Named::new("on_accent", theme.tone(Tone::OnAccent));
         for back in [
-            Named::new("gold_4", theme.accent()),
-            Named::new("gold_4 hovered", theme.accent_hover()),
-            Named::new("gold_4 pressed", theme.accent_pressed()),
+            Named::new("accent_fill", theme.accent()),
+            Named::new("accent_fill hovered", theme.accent_hover()),
+            Named::new("accent_fill pressed", theme.accent_pressed()),
         ] {
             report.pairs.push(Pair::new(
                 on_accent.clone(),

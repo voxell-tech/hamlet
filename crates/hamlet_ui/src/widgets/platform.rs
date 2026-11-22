@@ -337,7 +337,7 @@ pub fn focus_ring(
     mut rings: Query<(Entity, &mut Outline), With<Ring>>,
 ) {
     // In the words' own ink, not the accent: it stands out against
-    // the gold edge of the primary button as much as on the panel.
+    // the accent edge of the primary button as much as on the panel.
     let ink = theme.tone(Tone::Body);
     for (control, mut outline) in &mut rings {
         let shown = visible.0 && focus.get() == Some(control);

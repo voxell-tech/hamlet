@@ -25,15 +25,18 @@ struct Steps {
     code: f32,
     /// What is selected, from the surface toward the glow.
     selected: f32,
-    /// A gold button's fill under the pointer, from the panel
+    /// An accent button's fill under the pointer, from the panel
     /// toward the accent.
-    gold_hover: f32,
+    accent_wash: f32,
     /// The glow that gathers at the bottom of a surface.
     bottom: f32,
     /// A primary button's fill away from its glow and near it,
     /// from the panel toward the accent.
     primary_low: f32,
     primary_high: f32,
+    /// Body text, from the end of the ramp toward the step before
+    /// it: the end is brighter than words need to be.
+    body: f32,
     /// Pressable text, from the body toward the warm accent.
     pressable: f32,
     /// A mark of the accent, from the body toward the warm accent.
@@ -60,11 +63,12 @@ const DARK: Steps = Steps {
     hover: 0.43,
     code: 0.75,
     selected: 0.20,
-    gold_hover: 0.21,
+    accent_wash: 0.21,
     // Panels are flat in both modes: no glow gathers at the bottom.
     bottom: 0.0,
     primary_low: 0.27,
     primary_high: 0.42,
+    body: 0.5,
     pressable: 0.38,
     mark: 0.70,
     core: 0.60,
@@ -81,10 +85,11 @@ const LIGHT: Steps = Steps {
     hover: 0.31,
     code: 0.5,
     selected: 0.58,
-    gold_hover: 0.10,
+    accent_wash: 0.10,
     bottom: 0.0,
     primary_low: 0.72,
     primary_high: 1.0,
+    body: 0.5,
     pressable: 0.17,
     mark: 1.0,
     core: 0.74,
@@ -98,7 +103,7 @@ const LIGHT: Steps = Steps {
 
 /// What is in progress is a mustard: the yellow with its lightness
 /// and chroma scaled by these and its hue turned this many degrees
-/// toward green, so it cannot be taken for the accent gold.
+/// toward green, so it cannot be taken for the accent.
 const OCHRE_LIGHTNESS: f32 = 0.78;
 const OCHRE_CHROMA: f32 = 1.0;
 const OCHRE_HUE: f32 = 12.0;
@@ -110,8 +115,8 @@ const INFO_PULL: f32 = 0.6;
 /// blue, which need not be as dark as an error.
 const REFERENCE: f32 = 4.75;
 /// What is at rest is a cool grey of the ramp's lightness, with no
-/// brown or gold in it, so that it is told from the ochre of what is
-/// in progress by its hue.
+/// warmth in it, so that it is told from the ochre of what is in
+/// progress by its hue.
 const REST_CHROMA: f32 = 0.02;
 const REST_HUE: f32 = 255.0;
 /// How far the border of a card, a bubble and a divider is from the
@@ -156,8 +161,8 @@ const ACCENT_WARM: f32 = 0.35;
 const TEXT_MARGIN: f32 = 0.1;
 /// The contrast a mark reaches on the panels, above [`MARK`].
 const MARK_MARGIN: f32 = 0.2;
-/// The contrast of the gold that fills a button under its words.
-const GOLD: f32 = 5.2;
+/// The contrast of the accent that fills a button under its words.
+const ACCENT_FILL: f32 = 5.2;
 /// The contrast of the light words on a solid pill, circle or
 /// button of a status.
 const SOLID: f32 = 4.6;
@@ -279,10 +284,12 @@ impl Palette {
         // The background is the end of the ramp, darkest in dark and
         // lightest in light, and a field a step in from it.
         let [surface, input, ..] = ramp;
-        let [_, _, button, border, _, mark, _, dim, body] = ramp;
+        let [_, _, button, border, _, mark_step, dim, near_end, end] =
+            ramp;
+        let body = end.mix(&near_end, steps.body);
         // The lightest end of the ramp is the text's in dark and the
         // paper's in light; solids carry it as their words.
-        let lightest = if dark { body } else { surface };
+        let lightest = if dark { end } else { surface };
         let accent = base.hue(base.accent);
 
         let card = surface
@@ -296,8 +303,8 @@ impl Palette {
         // The hairline of a card: the border, a little toward the
         // mark in both modes, so it is no more an outline in one
         // than in the other.
-        let line = border.mix(&mark, BORDER_FIRM);
-        let gold_6 = line.mix(&mark, HAIRLINE);
+        let line = border.mix(&mark_step, BORDER_FIRM);
+        let hairline = line.mix(&mark_step, HAIRLINE);
         // The accent as it washes a surface and fills a tab: no more
         // saturated than `WASH_CHROMA`, and over paper no darker
         // than `WASH_LIGHTNESS`, so that a deep accent is a pastel
@@ -323,8 +330,9 @@ impl Palette {
                 paint.hue,
             )
         };
-        let gold_4 = reach(accent, &[surface], GOLD, Way::Nearest);
-        let warm = if dark { accent } else { gold_4 };
+        let accent_fill =
+            reach(accent, &[surface], ACCENT_FILL, Way::Nearest);
+        let warm = if dark { accent } else { accent_fill };
         let statuses = Statuses::derive(
             base,
             &Grounds {
@@ -335,7 +343,7 @@ impl Palette {
                 button,
                 button_hover,
                 lightest,
-                dim: mark,
+                dim: mark_step,
             },
             steps,
         );
@@ -343,7 +351,7 @@ impl Palette {
         let danger_hover = statuses.danger.fill_hover;
         let green_deep = statuses.success.fill;
         let selected = surface.mix(&glow, steps.selected);
-        let gold_hover = surface.mix(&wash, steps.gold_hover);
+        let accent_wash = surface.mix(&wash, steps.accent_wash);
         let primary_low = surface.mix(&wash, steps.primary_low);
         let primary_high = surface.mix(&wash, steps.primary_high);
 
@@ -357,17 +365,17 @@ impl Palette {
             code,
             button,
             button_hover,
-            gold_6,
             selected,
-            gold_hover,
+            accent_wash,
             primary_low,
             danger,
             danger_hover,
             green_deep,
         ];
-        let text = TEXT + TEXT_MARGIN;
-        let on_fills =
-            |colour: Color| reach(colour, &fills, text, Way::Nearest);
+        let text_need = TEXT + TEXT_MARGIN;
+        let on_fills = |colour: Color| {
+            reach(colour, &fills, text_need, Way::Nearest)
+        };
         let panels = [surface, card];
         let on_panels = |colour: Color| {
             reach(colour, &panels, MARK + MARK_MARGIN, Way::Nearest)
@@ -382,18 +390,20 @@ impl Palette {
 
         Self {
             surface,
-            grey_1: on_fills(dim),
+            text_dim: on_fills(dim),
             button,
             button_hover,
             border: line,
             selected,
-            gold_1: on_fills(body),
-            gold_2: on_fills(body.mix(&warm, steps.pressable)),
-            gold_3: on_panels(body.mix(&warm, steps.mark)),
-            gold_4,
-            gold_5: on_panels(mark),
-            gold_6,
-            gold_hover,
+            text: on_fills(body),
+            text_pressable: on_fills(
+                body.mix(&warm, steps.pressable),
+            ),
+            accent_mark: on_panels(body.mix(&warm, steps.mark)),
+            accent_fill,
+            mark: on_panels(mark_step),
+            hairline,
+            accent_wash,
             accent: on_fills(accent_ink),
             glow,
             glow_core: glow.mix(&lightest, steps.core),

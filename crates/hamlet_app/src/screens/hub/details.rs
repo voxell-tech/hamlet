@@ -247,7 +247,7 @@ fn version(facts: &Facts) -> AnyView {
         .width(px(FIELD))
         .fill(theme.palette.input)
         .border(theme.space.border)
-        .border_color(theme.palette.gold_5)
+        .border_color(theme.palette.mark)
         .radius(theme.space.round),))
     })
     .boxed()
@@ -492,7 +492,7 @@ fn ruled(
     with_cx(move |cx| {
         let theme = cx.theme();
         column((
-            hairline(theme.palette.gold_6),
+            hairline(theme.palette.hairline),
             column(content).gap(theme.space.gap / 2.0).padding(
                 UiRect::axes(
                     px(theme.space.card_padding_x),
