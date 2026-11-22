@@ -50,6 +50,7 @@ unicode-segmentation.workspace = true
 vt100.workspace = true
 
 [dev-dependencies]
+hamlet_core = { workspace = true, features = ["testing"] }
 hamlet_testing.workspace = true
 
 [features]

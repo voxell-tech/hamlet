@@ -452,11 +452,12 @@ mod tests {
     use bevy::text::EditableText;
     use hamlet_client::chats::Chat;
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::{press, words};
     use hamlet_protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{panel_app, press, words};
+    use crate::testing::panel_app;
 
     #[test]
     fn the_chat_shows_its_oldest_request_and_sends_its_response() {

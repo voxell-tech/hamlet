@@ -365,10 +365,11 @@ mod tests {
 
     use bevy::time::{Time, TimeUpdateStrategy, Virtual};
     use hamlet_assets::Tuning;
+    use hamlet_core::testing::press_and_update;
     use hamlet_ui::theme::{HamletTheme, Measures, ThemeId};
 
     use super::*;
-    use crate::testing::{keeping, press_and_update, settings_page};
+    use crate::testing::{keeping, settings_page};
 
     #[test]
     fn picking_light_shows_parchment_and_keeps_the_pick() {

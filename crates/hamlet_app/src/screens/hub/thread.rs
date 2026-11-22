@@ -1199,9 +1199,10 @@ pub(super) fn prompt_page(hub: Entity) -> impl View {
 mod tests {
     use bevy::app::App;
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::{press, words};
 
     use super::*;
-    use crate::testing::{panel_app, press, words};
+    use crate::testing::panel_app;
 
     fn hub_app() -> App {
         let mut app = panel_app();

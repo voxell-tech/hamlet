@@ -235,7 +235,7 @@ mod tests {
         app.update();
         assert!(hamlet(app.world(), "home").is_some());
         assert_ne!(*app.world().resource::<Roll>(), before);
-        let shown = testing::words(&mut app);
+        let shown = hamlet_core::testing::words(&mut app);
         assert!(
             shown.iter().any(|text| text == "agent#2"),
             "{shown:?}"

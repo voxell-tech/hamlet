@@ -980,10 +980,11 @@ mod tests {
     use bevy::text::EditableText;
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
+    use hamlet_core::testing::{control, requests, settle};
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::testing::{control, requests, settings_page, settle};
+    use crate::testing::settings_page;
 
     #[test]
     fn agent_controls_send_only_the_changed_setting_and_follow_received_changes()

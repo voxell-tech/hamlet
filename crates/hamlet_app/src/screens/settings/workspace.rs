@@ -355,13 +355,13 @@ mod tests {
     };
     use hamlet_client::outbox::Outbox;
     use hamlet_core::settings::SettingsPane;
+    use hamlet_core::testing::{
+        control, press, requests, settle, words_and_spans,
+    };
     use hamlet_protocol::client as protocol;
 
     use super::WORKSPACE;
-    use crate::testing::{
-        control, press, requests, settings_page, settle,
-        words_and_spans,
-    };
+    use crate::testing::settings_page;
 
     fn received(
         app: &mut App,

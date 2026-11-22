@@ -1263,9 +1263,10 @@ mod tests {
     use bevy::window::{PrimaryWindow, Window};
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm;
+    use hamlet_core::testing::press;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     /// The part the focus is in, and whether the focus is anywhere.
     fn focus_in(app: &mut App) -> Option<Part> {

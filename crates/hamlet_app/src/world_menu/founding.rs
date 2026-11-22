@@ -357,11 +357,12 @@ pub(super) fn founding(at: Vec2) -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::press;
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     #[test]
     fn founding_goes_to_the_hand_even_from_another_chat() {

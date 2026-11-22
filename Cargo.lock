@@ -4546,9 +4546,11 @@ dependencies = [
  "hamlet_client",
  "hamlet_desktop",
  "hamlet_protocol",
+ "hamlet_testing",
  "hamlet_ui",
  "jiff",
  "reqwest",
+ "serde_json",
 ]
 
 [[package]]

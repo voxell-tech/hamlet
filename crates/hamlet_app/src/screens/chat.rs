@@ -1018,7 +1018,7 @@ mod tests {
         app.update();
         assert_eq!(typed(&app, input), "Digital, please.");
         assert!(
-            crate::testing::words(&mut app)
+            hamlet_core::testing::words(&mut app)
                 .iter()
                 .any(|text| text.starts_with("Replying to "))
         );
@@ -1139,7 +1139,7 @@ mod tests {
             });
             app.update();
             assert!(
-                crate::testing::words(&mut app)
+                hamlet_core::testing::words(&mut app)
                     .iter()
                     .any(|text| text == UNLISTED)
             );
@@ -1660,7 +1660,7 @@ mod tests {
         );
         assert_eq!(header(&mut app), None);
         assert!(
-            crate::testing::words(&mut app)
+            hamlet_core::testing::words(&mut app)
                 .iter()
                 .any(|w| w.starts_with("Worked"))
         );

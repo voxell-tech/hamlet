@@ -210,10 +210,11 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::words;
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::testing::{panel_app, words};
+    use crate::testing::panel_app;
 
     #[test]
     fn the_record_reply_comes_from_the_server_and_commands_reach_its_lead()

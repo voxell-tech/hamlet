@@ -314,14 +314,14 @@ mod tests {
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy::text::EditableText;
     use bevy_fynix::mount;
+    use hamlet_core::testing::{
+        all_words, connect, incoming, press_and_update, sent,
+    };
     use hamlet_ui::theme::HamletTheme;
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{
-        all_words, connect, incoming, press_and_update, sent,
-        welcome_app,
-    };
+    use crate::testing::welcome_app;
 
     #[test]
     fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices()

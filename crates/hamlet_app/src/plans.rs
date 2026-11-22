@@ -674,11 +674,12 @@ pub(crate) fn refusal(
 #[cfg(test)]
 mod tests {
     use bevy_fynix::mount;
+    use hamlet_core::testing::{all_words, sent, settle};
     use hamlet_ui::theme::HamletTheme;
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{all_words, panel_app, sent, settle};
+    use crate::testing::panel_app;
 
     /// The window on the realm's page, connected, with the provider
     /// `claude` signed in.

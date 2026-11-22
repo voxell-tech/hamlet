@@ -19,6 +19,8 @@ pub mod roll;
 pub mod settings;
 pub mod sound;
 pub mod standing;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 pub mod toasts;
 pub mod welcome;
 pub mod words;

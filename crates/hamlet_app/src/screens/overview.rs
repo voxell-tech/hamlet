@@ -690,16 +690,16 @@ fn closed(hub: Entity) -> AnyView {
 
 #[cfg(test)]
 mod tests {
+    use hamlet_core::testing::words;
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::testing::{panel_app, words};
+    use crate::testing::panel_app;
 
     #[test]
     fn closed_hamlets_restore_and_need_confirmation_to_erase() {
         use hamlet_client::outbox::Outbox;
-
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
@@ -748,7 +748,7 @@ mod tests {
     #[test]
     fn restoring_or_leaving_the_closed_list_disarms_permanent_deletion()
      {
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();

@@ -555,14 +555,14 @@ mod server_tests {
     use bevy::ecs::query::With;
     use bevy::text::EditableText;
     use bevy_fynix::mount;
+    use hamlet_core::testing::{
+        all_words, connect, incoming, press, press_and_update, sent,
+    };
     use hamlet_protocol::client as protocol;
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
-    use crate::testing::{
-        all_words, connect, incoming, press, press_and_update, sent,
-        welcome_app,
-    };
+    use crate::testing::welcome_app;
 
     #[test]
     fn a_later_state_does_not_reopen_the_welcome_page() {

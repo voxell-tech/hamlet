@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn a_step_on_closing_waits_for_the_saves_and_keep_open_drops_it()
     {
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn an_in_flight_save_keeps_the_window_open_and_offers_visible_recovery_copies()
      {
-        use crate::testing::{all_words, press};
+        use hamlet_core::testing::{all_words, press};
         let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },

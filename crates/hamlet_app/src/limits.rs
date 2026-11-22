@@ -844,9 +844,8 @@ mod tests {
     #[test]
     fn a_rejected_edit_restores_the_received_value_beside_its_words()
     {
+        use hamlet_core::testing::words;
         use hamlet_protocol::client as protocol;
-
-        use crate::testing::words;
         let (mut app, _) = page(Part::Budget);
         enter(&mut app, "May spend, in dollars", "2");
         let to =

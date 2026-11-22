@@ -344,11 +344,12 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::press;
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     #[test]
     fn a_profile_chosen_from_the_list_is_added_under_the_parent() {
