@@ -148,7 +148,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
             },
         );
         cx.build(group((
-            crate::overview::heading(
+            hamlet_ui::styles::heading(
                 Glyph::Chip,
                 "Model this hamlet runs",
             ),

@@ -23,7 +23,7 @@ use hamlet_core::settings::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    bad_action, bare, beside, good_action, note, parts,
+    bad_action, bare, beside, good_action, heading, note, parts,
     segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
@@ -32,7 +32,6 @@ use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
 
 use super::{alone, field, shown};
-use crate::overview::heading;
 use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {

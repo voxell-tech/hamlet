@@ -18,13 +18,13 @@ use hamlet_core::roll::hamlets_moved;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_ui::styles::{
     ICON, Looks, action, bare, buttons, description,
-    description_rules, lettered, link_row, note,
+    description_rules, heading_line, lettered, link_row, note,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
-use crate::overview::{heading_line, tell};
+use crate::overview::tell;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;

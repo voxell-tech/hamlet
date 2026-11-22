@@ -586,7 +586,7 @@ pub(crate) fn part() -> AnyView {
                 .boxed();
         with_cx(move |cx| {
             let mut title = vec![
-                crate::screens::overview::part_title(
+                hamlet_ui::styles::part_title(
                     "Plans".into(),
                     Tone::Faint,
                 )

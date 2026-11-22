@@ -22,15 +22,13 @@ use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
     Fills, action, bare, beside, breadcrumb, close, description,
-    group, nav_list, nav_row, note, parts, segmented_words,
+    group, heading, nav_list, nav_row, note, parts, segmented_words,
     text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch as toggle;
 use hamlet_ui::{AnyView, View, with_cx};
 use serde_json::Value;
-
-use crate::overview::heading;
 
 const CONTROLS: f32 = 150.0;
 

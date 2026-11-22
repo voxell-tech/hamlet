@@ -14,10 +14,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
-use hamlet_ui::styles::{bare, group, note};
+use hamlet_ui::styles::{bare, group, heading, note};
 use hamlet_ui::widgets::icons::Glyph;
-
-use super::heading;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Annals>()

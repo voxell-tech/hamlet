@@ -26,7 +26,7 @@ use hamlet_core::roll::{either, moved};
 use hamlet_core::words;
 use hamlet_ui::styles::{
     Fills, ICON, LINE, action, bare, buttons, crumb, crumb_slash,
-    crumbs, group, more_button, note, note_rules, raised,
+    crumbs, group, heading, more_button, note, note_rules, raised,
     scroll_area, status_icon, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -39,7 +39,6 @@ use hamlet_ui::widgets::rainbow::rainbow_bar;
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::hub::Showing;

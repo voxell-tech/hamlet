@@ -13,9 +13,7 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Display, InteractionDisabled, percent, px,
-};
+use bevy::ui::{AlignItems, Display, InteractionDisabled, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
@@ -39,8 +37,8 @@ use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, card_button,
-    card_name, close, group, note, raised, scroll_area, small_rules,
-    title,
+    card_name, close, group, note, part_title, scroll_area,
+    small_rules, title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::{Variant, lit_panels};
@@ -67,52 +65,6 @@ pub fn plugin(app: &mut App) {
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
         .add_systems(Update, tabs::mark_on::<Page>);
-}
-
-/// A heading over a part of the panel, behind its icon.
-pub(crate) fn heading(
-    which: Glyph,
-    text: impl Into<String>,
-) -> AnyView {
-    let text = text.into();
-    with_cx(move |cx| {
-        row((
-            raised(glyph(which, ICON).tone(Tone::Dim)),
-            label(text.clone())
-                .size(cx.theme().text.heading)
-                .bold(true)
-                .wrap(false),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-    })
-    .boxed()
-}
-
-/// A [`heading`] with `end` at the far end of its line.
-pub(crate) fn heading_line(
-    which: Glyph,
-    text: &'static str,
-    end: AnyView,
-) -> AnyView {
-    with_cx(move |cx| {
-        row((heading(which, text), frame().grow(1.0), end))
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::Center)
-            .width(percent(100.0))
-    })
-    .boxed()
-}
-
-/// The title of a part of a list, as the rail heads its parts.
-pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
-    with_cx(move |cx| {
-        label(text.clone())
-            .size(cx.theme().text.heading)
-            .bold(true)
-            .tone(tone)
-            .wrap(false)
-    })
 }
 
 /// A [`part_title`] with its count.
