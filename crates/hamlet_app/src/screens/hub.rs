@@ -136,7 +136,7 @@ pub fn ask_limits(
     let moved = connection.is_changed() || !turned.is_empty();
     if moved && hubs.iter().any(|showing| *showing == Showing::Realm)
     {
-        commands.queue(crate::plans::check);
+        commands.queue(hamlet_core::plans::check);
     }
 }
 
@@ -672,5 +672,111 @@ pub(crate) fn tell_page(
         .is_some_and(|was| was.0 == hub && was != now)
     {
         world.write_message(Updated);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy_fynix::mount;
+    use hamlet_client::connection::Contact;
+    use hamlet_client::realm::Providers;
+    use hamlet_core::plans::{part, plugin};
+    use hamlet_core::testing::{all_words, sent, settle};
+    use hamlet_core::toasts::Toast;
+    use hamlet_protocol::client as protocol;
+    use jiff::Timestamp;
+    use serde_json::json;
+
+    use super::*;
+    use crate::testing::panel_app;
+
+    /// The window on the realm's page, connected, with the provider
+    /// `claude` signed in.
+    fn realm_page() -> App {
+        let mut app = panel_app();
+        app.init_resource::<Toasted>()
+            .add_observer(
+                |_: On<Toast>, mut toasted: ResMut<Toasted>| {
+                    toasted.0 += 1;
+                },
+            )
+            .add_plugins(plugin)
+            .add_systems(
+                PreUpdate,
+                ask_limits.in_set(PanelSystems::Follow),
+            );
+        app.world_mut().spawn(Showing::Realm);
+        app.world_mut().resource_mut::<Connection>().state =
+            Contact::Connected;
+        app.world_mut().resource_mut::<Providers>().0 =
+            vec![protocol::ProviderView {
+                configured: true,
+                id: "claude".into(),
+                label: "Sign in to Claude".into(),
+                limits: None,
+                methods: vec![protocol::LoginMethod::Subscription],
+                name: "Claude".into(),
+            }];
+        settle(&mut app);
+        app
+    }
+
+    fn told(app: &mut App, limits: serde_json::Value) {
+        let limits = serde_json::from_value(limits).unwrap();
+        app.world_mut().resource_mut::<Providers>().0[0].limits =
+            Some(limits);
+        settle(app);
+    }
+
+    /// The toasts raised.
+    #[derive(Resource, Default)]
+    struct Toasted(usize);
+
+    fn toasted(app: &App) -> usize {
+        app.world().resource::<Toasted>().0
+    }
+
+    #[test]
+    fn the_realm_page_asks_for_the_limits_and_toasts_a_refusal_once()
+    {
+        let mut app = realm_page();
+        // Mounted before any plan told its limits, as the page opens.
+        mount::<HamletTheme>(app.world_mut(), part());
+        let asked = sent(&mut app)
+            .into_iter()
+            .filter(|m| m["type"] == "check")
+            .collect::<Vec<_>>();
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(asked[0]["what"], "limits");
+
+        let now = Timestamp::now().as_millisecond();
+        let window = |used: f64| {
+            json!({"id": "five_hour", "name": "Session", "length": 300,
+                   "used": used, "resets": now + 3_600_000})
+        };
+        told(
+            &mut app,
+            json!({"checked": now, "plan": "Max", "state": "ok",
+                   "windows": [window(46.0)]}),
+        );
+        let shown = all_words(&mut app);
+        for text in ["Plans", "Claude · Max", "Session", "54% left"]
+        {
+            assert!(shown.contains(text), "{shown}");
+        }
+        assert_eq!(toasted(&app), 0);
+
+        // A refusal is toasted once, however often it is told again.
+        let refused = json!({"checked": now, "plan": "Max",
+            "state": "refused", "windows": [window(100.0)]});
+        told(&mut app, refused.clone());
+        assert_eq!(toasted(&app), 1);
+        told(
+            &mut app,
+            json!({"checked": now + 1, "plan": "Max",
+            "state": "refused", "windows": [window(100.0)]}),
+        );
+        assert_eq!(toasted(&app), 1);
+        assert!(all_words(&mut app).contains("0% left"));
     }
 }

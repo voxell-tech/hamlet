@@ -10,11 +10,14 @@ pub mod browser;
 pub mod clock;
 pub mod confirm;
 pub mod drops;
+pub mod limits;
 pub mod menus;
+pub mod models;
 pub mod orders;
 pub mod paints;
 pub mod panels;
 pub mod pick;
+pub mod plans;
 pub mod roll;
 pub mod settings;
 pub mod sound;
@@ -39,10 +42,13 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         browser::plugin,
         drops::plugin,
+        limits::plugin,
         menus::plugin,
+        models::plugin,
         paints::plugin,
         panels::plugin,
         pick::plugin,
+        plans::plugin,
         roll::plugin,
         settings::plugin,
         sound::plugin,

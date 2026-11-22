@@ -6,21 +6,19 @@ use std::path::PathBuf;
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
 use bevy::math::UVec2;
-use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::{DockRegistry, DockTree};
-use hamlet_client::{ClientPlugin, ViewFolder, receive};
+use hamlet_client::ViewFolder;
 use hamlet_core::pick::Selected;
 use hamlet_core::roll::Roll;
 use hamlet_core::settings::SettingsPane;
 use hamlet_core::testing::settle;
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_protocol::client as protocol;
 use hamlet_realm::North;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, VolumetricFogSettings,
 };
 use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_vfx::wind::WindChoice;
 use image::{ImageFormat, RgbaImage};
 
@@ -33,26 +31,10 @@ use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// A window's panels on the fixture state, with no first-run setup.
 pub(crate) fn panel_app() -> App {
-    let mut app = App::new();
-    app.add_plugins((
-        bevy::time::TimePlugin,
-        ClientPlugin { server: None },
-        FynixPlugin::<HamletTheme>::default(),
-        hamlet_core::panels::plugin,
-    ));
-    theme::show(app.world_mut(), HamletTheme::designed());
-    receive(
-        app.world_mut(),
-        protocol::ServerMessage::State(hamlet_testing::realm::state()),
-    );
-    app.add_plugins((
-        hamlet_core::roll::plugin,
-        crate::asking::plugin,
-        hamlet_ui::widgets::forms::plugin,
-    ));
+    let mut app = hamlet_core::testing::panel_app();
+    app.add_plugins(crate::asking::plugin);
     app.init_resource::<DockTree>()
-        .init_resource::<crate::select::Selecting>()
-        .add_message::<ThemeChanged>();
+        .init_resource::<crate::select::Selecting>();
     hub(&mut app);
     app
 }

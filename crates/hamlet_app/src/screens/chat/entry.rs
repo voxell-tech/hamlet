@@ -649,7 +649,7 @@ fn failure(
             })
             .unwrap_or_default();
         let model = model_of(world, session);
-        match crate::plans::refusal(world, &model, &error) {
+        match hamlet_core::plans::refusal(world, &model, &error) {
             Some(words) => format!(
                 "{words} Try again to carry on from where it ended."
             ),
@@ -660,7 +660,7 @@ fn failure(
             ),
         }
     })
-    .when(hamlet_core::roll::moved::<crate::plans::Plans>())
+    .when(hamlet_core::roll::moved::<hamlet_core::plans::Plans>())
 }
 
 /// Where to see the limits of the plan that refused a reply in
@@ -671,21 +671,21 @@ fn plan_action(session: Entity) -> AnyView {
         derived(move |world| {
             let model = model_of(world, session);
             let provider =
-                crate::models::provider_of(&model).to_string();
+                hamlet_core::models::provider_of(&model).to_string();
             world
-                .get_resource::<crate::plans::Plans>()
+                .get_resource::<hamlet_core::plans::Plans>()
                 .and_then(|plans| plans.of(&provider))
                 .filter(|plan| {
-                    plan.reading.mood == crate::plans::Mood::Out
+                    plan.reading.mood == hamlet_core::plans::Mood::Out
                 })
                 .map(|_| provider)
         })
-        .when(hamlet_core::roll::moved::<crate::plans::Plans>()),
+        .when(hamlet_core::roll::moved::<hamlet_core::plans::Plans>()),
         |provider| match provider.as_deref() {
             Some(_) => hamlet_ui::styles::action(
                 Glyph::Meter,
                 "Open limits",
-                crate::plans::open,
+                hamlet_core::plans::open,
             ),
             None => frame().boxed(),
         },

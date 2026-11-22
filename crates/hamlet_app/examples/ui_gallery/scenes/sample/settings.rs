@@ -53,7 +53,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(SettingsPane(Some(settings::CHARTER)));
     }
     if scene == Scene::SettingsModels {
-        world.resource_mut::<hamlet_app::models::Shelf>().models =
+        world.resource_mut::<hamlet_core::models::Shelf>().models =
             super::hub::catalogue();
         world.insert_resource(SettingsPane(Some(MODELS)));
     }

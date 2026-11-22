@@ -23,12 +23,12 @@ use hamlet_ui::{Cx, View, built};
 use crate::{chrome, desk, hover, menu, welcome, world_menu};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(Startup, (open, crate::models::test_connection))
-        // Before anything queues work on the panels it despawns.
-        .add_systems(
-            First,
-            rebuild.run_if(on_message::<ThemeChanged>),
-        );
+    app.add_systems(
+        Startup,
+        (open, hamlet_core::models::test_connection),
+    )
+    // Before anything queues work on the panels it despawns.
+    .add_systems(First, rebuild.run_if(on_message::<ThemeChanged>));
 }
 
 /// The root the panels are mounted on.

@@ -12,7 +12,7 @@ use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
 use hamlet_protocol::client as protocol;
-use hamlet_ui::theme::{self, HamletTheme};
+use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
 
 use crate::browser::Browser;
 
@@ -33,6 +33,28 @@ pub fn app() -> App {
     app.insert_resource(Browser(|_, url| {
         panic!("unexpected browser URL: {url}")
     }));
+    app
+}
+
+/// The shared panels on the fixture state, with no first-run setup.
+pub fn panel_app() -> App {
+    let mut app = App::new();
+    app.add_plugins((
+        bevy::time::TimePlugin,
+        ClientPlugin { server: None },
+        FynixPlugin::<HamletTheme>::default(),
+        crate::panels::plugin,
+    ));
+    theme::show(app.world_mut(), HamletTheme::designed());
+    receive(
+        app.world_mut(),
+        protocol::ServerMessage::State(hamlet_testing::realm::state()),
+    );
+    app.add_plugins((
+        crate::roll::plugin,
+        hamlet_ui::widgets::forms::plugin,
+    ));
+    app.add_message::<ThemeChanged>();
     app
 }
 

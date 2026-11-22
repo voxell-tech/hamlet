@@ -63,11 +63,11 @@ impl Plugin for GalleryPlugin {
             })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
-            .init_resource::<hamlet_app::limits::Book>()
-            .init_resource::<hamlet_app::models::Shelf>()
-            .init_resource::<hamlet_app::models::Draft>()
+            .init_resource::<hamlet_core::limits::Book>()
+            .init_resource::<hamlet_core::models::Shelf>()
+            .init_resource::<hamlet_core::models::Draft>()
             .init_resource::<hamlet_app::mcp::McpPage>()
-            .init_resource::<hamlet_app::limits::Part>()
+            .init_resource::<hamlet_core::limits::Part>()
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
@@ -107,7 +107,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::world_menu::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
-                hamlet_app::plans::plugin,
+                hamlet_core::plans::plugin,
                 hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,

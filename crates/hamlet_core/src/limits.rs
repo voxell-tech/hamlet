@@ -18,7 +18,6 @@ use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
-use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
     Fills, action, bare, beside, breadcrumb, close, description,
@@ -30,12 +29,14 @@ use hamlet_ui::widgets::switch::switch as toggle;
 use hamlet_ui::{AnyView, View, with_cx};
 use serde_json::Value;
 
+use crate::panels::PanelSystems;
+
 const CONTROLS: f32 = 150.0;
 
 /// The server's default budget, in dollars.
 const DEFAULT_BUDGET: f64 = 50.0;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
@@ -68,7 +69,7 @@ pub fn follow(hamlets: Query<&Bylaws>, mut book: ResMut<Book>) {
 }
 
 /// `limits` as the map a whole edit sends.
-pub(crate) fn whole_of(limits: &Limits) -> BTreeMap<String, Value> {
+pub fn whole_of(limits: &Limits) -> BTreeMap<String, Value> {
     match serde_json::to_value(limits) {
         Ok(Value::Object(fields)) => fields.into_iter().collect(),
         _ => unreachable!(
@@ -412,7 +413,7 @@ fn budget(hamlet: Entity) -> impl View {
                 Glyph::Restore,
                 "Start It Again Now",
                 move |world| {
-                    hamlet_core::orders::decree_for(
+                    crate::orders::decree_for(
                         world,
                         hamlet,
                         "/reset-budget".into(),
@@ -844,8 +845,9 @@ mod tests {
     #[test]
     fn a_rejected_edit_restores_the_received_value_beside_its_words()
     {
-        use hamlet_core::testing::words;
         use hamlet_protocol::client as protocol;
+
+        use crate::testing::words;
         let (mut app, _) = page(Part::Budget);
         enter(&mut app, "May spend, in dollars", "2");
         let to =

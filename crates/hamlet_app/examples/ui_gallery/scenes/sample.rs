@@ -122,7 +122,7 @@ pub(super) fn setup(world: &mut World) {
         protocol::ServerMessage::State(state),
     );
     if scene.first_run().is_some() {
-        world.resource_mut::<hamlet_app::models::Shelf>().models =
+        world.resource_mut::<hamlet_core::models::Shelf>().models =
             welcome::catalogue();
     }
     // The key that was not accepted, still in its field.

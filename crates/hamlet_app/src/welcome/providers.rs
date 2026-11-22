@@ -23,6 +23,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_core::browser::{Browser, is_browsable};
+use hamlet_core::models::mark;
 use hamlet_core::roll::{either, moved};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
@@ -38,7 +39,6 @@ use hamlet_ui::widgets::secret::secret_field;
 
 use super::pages::{card, footed, linked, news, said, to_providers};
 use super::{Pick, Step, Welcome, commit, go, read_models};
-use crate::models::mark;
 
 #[derive(Resource, Default)]
 pub(super) struct Login {

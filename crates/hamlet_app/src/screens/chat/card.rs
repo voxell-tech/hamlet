@@ -174,7 +174,7 @@ fn model_words(world: &World, model: &protocol::ItemModel) -> String {
         .map_or("Default", crate::world_menu::model::words);
     format!(
         "{} {effort}",
-        crate::models::model_title(world, &model.model)
+        hamlet_core::models::model_title(world, &model.model)
     )
 }
 

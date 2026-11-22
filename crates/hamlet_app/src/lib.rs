@@ -10,14 +10,11 @@ pub mod desk;
 mod dock;
 mod folder;
 mod hover;
-pub mod limits;
 pub mod lists;
 mod markdown;
 pub mod mcp;
 pub mod menu;
-pub mod models;
 mod naming;
-pub mod plans;
 mod profile_tag;
 mod reference;
 mod remember;
@@ -80,10 +77,7 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
-                limits::plugin,
-                models::plugin,
                 mcp::plugin,
-                plans::plugin,
                 asking::plugin,
                 select::plugin,
                 welcome::plugin,

@@ -565,8 +565,9 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 .tooltip(|| note("Change the budget"))
                 .on_activate(move |world| {
                     turn_to(world, hub, Page::Limits);
-                    *world.resource_mut::<crate::limits::Part>() =
-                        crate::limits::Part::Budget;
+                    *world
+                        .resource_mut::<hamlet_core::limits::Part>(
+                        ) = hamlet_core::limits::Part::Budget;
                 });
         let mut top = vec![path, spending.boxed()];
         // The forms open only from these buttons.
@@ -597,9 +598,11 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
         }),
         move |page| match page {
             Page::Agents => list_of(hub, hamlet).boxed(),
-            Page::Limits => crate::limits::panel(hamlet, |hamlet| {
-                crate::folder::section(hamlet).boxed()
-            }),
+            Page::Limits => {
+                hamlet_core::limits::panel(hamlet, |hamlet| {
+                    crate::folder::section(hamlet).boxed()
+                })
+            }
             Page::History => record_of(hamlet).boxed(),
         },
     )

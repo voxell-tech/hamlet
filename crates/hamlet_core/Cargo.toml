@@ -20,14 +20,13 @@ bevy = { workspace = true, features = ["bevy_input_focus", "bevy_picking", "bevy
 bevy_fynix.workspace = true
 jiff.workspace = true
 reqwest.workspace = true
+serde_json.workspace = true
 hamlet_testing = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 hamlet_testing.workspace = true
-serde_json.workspace = true
 
 [features]
 # The helpers of the tests of the window's parts, for their crates'
 # dev-dependencies.
-testing = ["dep:hamlet_testing", "dep:serde_json"]
+testing = ["dep:hamlet_testing"]

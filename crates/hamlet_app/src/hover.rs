@@ -365,7 +365,7 @@ impl Told<'_, '_> {
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
             account: account
-                .map(crate::models::account_words)
+                .map(hamlet_core::models::account_words)
                 .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),

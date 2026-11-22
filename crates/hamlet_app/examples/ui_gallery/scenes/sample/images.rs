@@ -105,7 +105,7 @@ pub(super) fn setup(world: &mut World, scene: Scene, chat: Entity) {
             .get::<Account>(agent)
             .map(|account| account.model.clone())
             .unwrap_or_default();
-        world.resource_mut::<hamlet_app::models::Shelf>().models =
+        world.resource_mut::<hamlet_core::models::Shelf>().models =
             vec![protocol::Listed {
                 context: None,
                 default_effort: None,

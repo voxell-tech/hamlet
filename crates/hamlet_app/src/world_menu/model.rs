@@ -38,6 +38,11 @@ use hamlet_client::realm::{
     Account, Bylaws, Fast, Kind, LivesIn, OwnEffort, Settings,
     name_of,
 };
+use hamlet_core::models::{
+    Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
+    model_title, over_rows, provider_name, provider_of, tag,
+    title_of,
+};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
     ICON, RailRow, description, hairline, note, radio, rail_item,
@@ -53,11 +58,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
 use crate::menu::rect_of;
-use crate::models::{
-    Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
-    model_title, over_rows, provider_name, provider_of, tag,
-    title_of,
-};
 
 /// The width of the providers down the side.
 const RAIL: f32 = 108.0;
@@ -714,7 +714,8 @@ fn rail() -> impl View {
         derived(|world: &World| {
             let picking = world.resource::<Picking>();
             let searching = !picking.search.trim().is_empty();
-            let plans = world.get_resource::<crate::plans::Plans>();
+            let plans =
+                world.get_resource::<hamlet_core::plans::Plans>();
             // A plan that refuses or runs short says so beside its
             // provider.
             let providers = providers(world)
@@ -723,13 +724,17 @@ fn rail() -> impl View {
                     let warns = plans
                         .and_then(|plans| plans.of(&id))
                         .and_then(|plan| {
-                            crate::plans::alert_of(plan.reading.mood)
-                                .map(|kind| {
+                            hamlet_core::plans::alert_of(
+                                plan.reading.mood,
+                            )
+                            .map(
+                                |kind| {
                                     (
                                         kind,
                                         plan.reading.sentence.clone(),
                                     )
-                                })
+                                },
+                            )
                         });
                     (id, name, warns)
                 })

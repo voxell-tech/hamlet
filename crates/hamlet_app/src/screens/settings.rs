@@ -91,8 +91,9 @@ pub fn plugin(app: &mut App) {
         updates::plugin,
         visits::plugin,
     ))
-    // Each provider's limits are under it, filled by `plans::plugin`.
-    .init_resource::<crate::plans::Plans>()
+    // Each provider's limits are under it, filled by
+    // `hamlet_core::plans::plugin`.
+    .init_resource::<hamlet_core::plans::Plans>()
     .init_resource::<SettingsPane>()
     .init_resource::<Charter>()
     .init_resource::<CharterRequests>()
@@ -117,7 +118,7 @@ pub fn plugin(app: &mut App) {
             "Endpoints",
             Glyph::Signal,
             10,
-            || crate::models::endpoints().boxed(),
+            || hamlet_core::models::endpoints().boxed(),
         )
         .now(endpoints_now),
     )
@@ -127,7 +128,7 @@ pub fn plugin(app: &mut App) {
             "Models",
             Glyph::Chip,
             20,
-            crate::models::shelf,
+            hamlet_core::models::shelf,
         )
         .now(models_now)
         .wide(),
@@ -173,7 +174,7 @@ pub fn plugin(app: &mut App) {
         "Realm Limits",
         Glyph::Globe,
         70,
-        crate::limits::realm,
+        hamlet_core::limits::realm,
     ))
     .add_settings_page(
         SettingsPage::new(SOUND, "Sound", Glyph::Speaker, 80, || {
@@ -225,7 +226,7 @@ fn endpoints_now() -> Prop<String> {
 
 fn models_now() -> Prop<String> {
     shown::<Settings>(|s| {
-        crate::models::model_name(&s.0.model).to_string()
+        hamlet_core::models::model_name(&s.0.model).to_string()
     })
 }
 
@@ -308,7 +309,7 @@ fn not_enforced() -> AnyView {
 }
 
 const EFFORTS: [(Option<Effort>, &str); 8] =
-    crate::models::efforts("Model's own");
+    hamlet_core::models::efforts("Model's own");
 
 /// Who can let a profile into the city, as the pick shows them.
 const NEWCOMERS: [(protocol::Newcomers, &str); 3] = [

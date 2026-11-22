@@ -36,6 +36,7 @@ use hamlet_client::realm::{
     Shown, name_of,
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
+use hamlet_core::models::{Shelf, model_title};
 use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
 use hamlet_core::toasts::WatchRequest;
@@ -54,7 +55,6 @@ use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::chat;
 use crate::hub::{Hub, Sheet, Showing};
-use crate::models::{Shelf, model_title};
 use crate::screens::wait::{self, ChatWaits, Need, answers};
 use crate::updates::{self, Offer, Ready};
 

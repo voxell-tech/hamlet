@@ -420,9 +420,9 @@ fn answered(response: On<Response>, mut commands: Commands) {
                 let local =
                     world.resource::<Welcome>().step == Step::Local;
                 // The rows read prices from the newest catalogue.
-                if let Some(mut shelf) =
-                    world.get_resource_mut::<crate::models::Shelf>()
-                {
+                if let Some(mut shelf) = world
+                    .get_resource_mut::<hamlet_core::models::Shelf>(
+                ) {
                     shelf.models.clone_from(&models);
                 }
                 let endpoints =

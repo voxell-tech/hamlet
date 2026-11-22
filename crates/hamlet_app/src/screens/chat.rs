@@ -89,8 +89,9 @@ const FIELD_LEAST: f32 = 150.0;
 const MOST_LINES: usize = 8;
 
 pub fn plugin(app: &mut App) {
-    // A reply its plan refused reads them, filled by `plans::plugin`.
-    app.init_resource::<crate::plans::Plans>()
+    // A reply its plan refused reads them, filled by
+    // `hamlet_core::plans::plugin`.
+    app.init_resource::<hamlet_core::plans::Plans>()
         .init_resource::<Requests>()
         .init_resource::<ChatSettings>()
         .init_resource::<Changes>()

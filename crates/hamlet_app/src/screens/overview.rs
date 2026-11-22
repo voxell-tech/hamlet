@@ -58,8 +58,9 @@ use crate::{chat, world_menu};
 pub fn plugin(app: &mut App) {
     app.add_plugins((record::plugin, crate::naming::plugin))
         .init_resource::<Erasing>()
-        // Its plans part reads them, filled by `plans::plugin`.
-        .init_resource::<crate::plans::Plans>()
+        // Its plans part reads them, filled by
+        // `hamlet_core::plans::plugin`.
+        .init_resource::<hamlet_core::plans::Plans>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
         .add_observer(disarm)
@@ -118,7 +119,7 @@ pub fn overview(hub: Entity) -> impl View {
                 .boxed(),
             ]),
             scroll_area((column((
-                crate::plans::part(),
+                hamlet_core::plans::part(),
                 needs(),
                 hamlets(hub),
                 closed(hub),

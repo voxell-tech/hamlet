@@ -216,7 +216,9 @@ pub(super) fn agent_rows(
                 let account = account
                     .map(|account| {
                         let model = own.map(|_| {
-                            crate::models::model_name(&account.model)
+                            hamlet_core::models::model_name(
+                                &account.model,
+                            )
                         });
                         let spent = (account.spent.micros > 0)
                             .then_some(account.cost.as_str());

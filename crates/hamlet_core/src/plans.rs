@@ -29,9 +29,6 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
-use hamlet_core::panels::PanelSystems;
-use hamlet_core::settings::{ENDPOINTS, OpenSettings, SettingsPane};
-use hamlet_core::toasts::Toast;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, action, bare, close, icon_button, note, pill,
@@ -42,8 +39,11 @@ use hamlet_ui::{AnyView, with_cx};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
-pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
+pub use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
 use crate::models::mark;
+use crate::panels::PanelSystems;
+use crate::settings::{ENDPOINTS, OpenSettings, SettingsPane};
+use crate::toasts::Toast;
 
 /// The width of a window's name before its bar, of what it used after
 /// it, and the gap between them.
@@ -76,11 +76,11 @@ pub fn plugin(app: &mut App) {
 /// Each signed-in provider that told its limits, as the chief reads
 /// them now.
 #[derive(Resource, Default, Clone, PartialEq)]
-pub struct Plans(pub(crate) Vec<Plan>);
+pub struct Plans(pub Vec<Plan>);
 
 /// A provider's plan and how it stands.
 #[derive(Clone, PartialEq)]
-pub(crate) struct Plan {
+pub struct Plan {
     pub provider: String,
     /// Its provider's name and the plan's, as "Claude · Max".
     pub title: String,
@@ -91,7 +91,7 @@ pub(crate) struct Plan {
 
 impl Plans {
     /// The plan of `provider`, once it told its limits.
-    pub(crate) fn of(&self, provider: &str) -> Option<&Plan> {
+    pub fn of(&self, provider: &str) -> Option<&Plan> {
         self.0.iter().find(|plan| plan.provider == provider)
     }
 }
@@ -235,13 +235,13 @@ fn warn(
 }
 
 /// Opens `provider`'s limits under it in Settings' endpoints.
-pub(crate) fn open(world: &mut World) {
+pub fn open(world: &mut World) {
     world.trigger(OpenSettings(Some(ENDPOINTS)));
 }
 
 /// The colour of `mood`: green with plenty left, yellow with some,
 /// orange when low, red when used up, and none while unknown.
-pub(crate) fn status_of(mood: Mood) -> Option<StatusKind> {
+pub fn status_of(mood: Mood) -> Option<StatusKind> {
     match mood {
         Mood::Unknown => None,
         Mood::Plenty => Some(StatusKind::Success),
@@ -252,7 +252,7 @@ pub(crate) fn status_of(mood: Mood) -> Option<StatusKind> {
 }
 
 /// The status of a plan that needs the chief: low or used up.
-pub(crate) fn alert_of(mood: Mood) -> Option<StatusKind> {
+pub fn alert_of(mood: Mood) -> Option<StatusKind> {
     status_of(mood).filter(|_| mood >= Mood::Low)
 }
 
@@ -452,7 +452,7 @@ fn detail(plan: &Plan) -> AnyView {
 
 /// The limits of `provider` under its row in Settings, once it told
 /// them.
-pub(crate) fn of_provider(provider: String) -> AnyView {
+pub fn of_provider(provider: String) -> AnyView {
     keyed(
         resource::<Plans, _>(move |plans| {
             plans.of(&provider).cloned()
@@ -468,7 +468,7 @@ pub(crate) fn of_provider(provider: String) -> AnyView {
 
 /// The name of `provider`'s plan beside the provider's name in
 /// Settings, once it told it.
-pub(crate) fn plan_name(provider: String) -> AnyView {
+pub fn plan_name(provider: String) -> AnyView {
     keyed(
         resource::<Plans, _>(move |plans| {
             plans.of(&provider).and_then(|plan| plan.name.clone())
@@ -562,7 +562,7 @@ fn line(plan: &Plan) -> AnyView {
 /// The plans at a glance, for the Hub's realm page: one line each,
 /// drawn only while a subscription told its limits, with when the
 /// oldest of them was read.
-pub(crate) fn part() -> AnyView {
+pub fn part() -> AnyView {
     keyed(resource::<Plans, _>(glanced), |plans| {
         if plans.is_empty() {
             return frame().boxed();
@@ -631,7 +631,7 @@ fn glanced(plans: &Plans) -> Vec<Plan> {
 /// Words for a reply the plan of the chat's model refused: what was
 /// used up and, where the provider says, when it lifts. None when the
 /// failure was not a plan's limit.
-pub(crate) fn refusal(
+pub fn refusal(
     world: &World,
     model: &str,
     error: &str,
@@ -669,105 +669,4 @@ pub(crate) fn refusal(
     } else {
         format!("{} stopped at a usage limit.", plan.title)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy_fynix::mount;
-    use hamlet_core::testing::{all_words, sent, settle};
-    use hamlet_ui::theme::HamletTheme;
-    use serde_json::json;
-
-    use super::*;
-    use crate::testing::panel_app;
-
-    /// The window on the realm's page, connected, with the provider
-    /// `claude` signed in.
-    fn realm_page() -> App {
-        let mut app = panel_app();
-        app.init_resource::<Toasted>()
-            .add_observer(
-                |_: On<Toast>, mut toasted: ResMut<Toasted>| {
-                    toasted.0 += 1;
-                },
-            )
-            .add_plugins(plugin)
-            .add_systems(
-                PreUpdate,
-                crate::hub::ask_limits.in_set(PanelSystems::Follow),
-            );
-        app.world_mut().spawn(crate::hub::Showing::Realm);
-        app.world_mut().resource_mut::<Connection>().state =
-            Contact::Connected;
-        app.world_mut().resource_mut::<Providers>().0 =
-            vec![protocol::ProviderView {
-                configured: true,
-                id: "claude".into(),
-                label: "Sign in to Claude".into(),
-                limits: None,
-                methods: vec![protocol::LoginMethod::Subscription],
-                name: "Claude".into(),
-            }];
-        settle(&mut app);
-        app
-    }
-
-    fn told(app: &mut App, limits: serde_json::Value) {
-        let limits = serde_json::from_value(limits).unwrap();
-        app.world_mut().resource_mut::<Providers>().0[0].limits =
-            Some(limits);
-        settle(app);
-    }
-
-    /// The toasts raised.
-    #[derive(Resource, Default)]
-    struct Toasted(usize);
-
-    fn toasted(app: &App) -> usize {
-        app.world().resource::<Toasted>().0
-    }
-
-    #[test]
-    fn the_realm_page_asks_for_the_limits_and_toasts_a_refusal_once()
-    {
-        let mut app = realm_page();
-        // Mounted before any plan told its limits, as the page opens.
-        mount::<HamletTheme>(app.world_mut(), part());
-        let asked = sent(&mut app)
-            .into_iter()
-            .filter(|m| m["type"] == "check")
-            .collect::<Vec<_>>();
-        assert_eq!(asked.len(), 1, "{asked:?}");
-        assert_eq!(asked[0]["what"], "limits");
-
-        let now = Timestamp::now().as_millisecond();
-        let window = |used: f64| {
-            json!({"id": "five_hour", "name": "Session", "length": 300,
-                   "used": used, "resets": now + 3_600_000})
-        };
-        told(
-            &mut app,
-            json!({"checked": now, "plan": "Max", "state": "ok",
-                   "windows": [window(46.0)]}),
-        );
-        let shown = all_words(&mut app);
-        for text in ["Plans", "Claude · Max", "Session", "54% left"]
-        {
-            assert!(shown.contains(text), "{shown}");
-        }
-        assert_eq!(toasted(&app), 0);
-
-        // A refusal is toasted once, however often it is told again.
-        let refused = json!({"checked": now, "plan": "Max",
-            "state": "refused", "windows": [window(100.0)]});
-        told(&mut app, refused.clone());
-        assert_eq!(toasted(&app), 1);
-        told(
-            &mut app,
-            json!({"checked": now + 1, "plan": "Max",
-            "state": "refused", "windows": [window(100.0)]}),
-        );
-        assert_eq!(toasted(&app), 1);
-        assert!(all_words(&mut app).contains("0% left"));
-    }
 }
