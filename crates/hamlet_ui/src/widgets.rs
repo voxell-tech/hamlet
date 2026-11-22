@@ -10,6 +10,7 @@ pub mod forms;
 pub mod hint;
 pub mod icons;
 pub mod keys;
+pub mod lasting;
 pub mod pixels;
 pub mod platform;
 pub mod providers;
@@ -49,6 +50,7 @@ pub fn plugin(app: &mut App) {
     ))
     .add_plugins((
         forms::plugin,
+        lasting::plugin,
         search::plugin,
         secret::plugin,
     ));

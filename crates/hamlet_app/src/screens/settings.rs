@@ -51,10 +51,10 @@ use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::keys::Keys;
+use hamlet_ui::widgets::lasting::Lasting;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use crate::root::Lasting;
 use crate::world_menu::{self, Action};
 
 /// The keys that bring Settings forward.

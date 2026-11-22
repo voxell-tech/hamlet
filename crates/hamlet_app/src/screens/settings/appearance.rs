@@ -25,12 +25,12 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::lasting::Lasting;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::{field, shown};
 use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
-use crate::root::Lasting;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_settings_page(
