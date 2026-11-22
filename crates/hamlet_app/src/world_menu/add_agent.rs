@@ -282,7 +282,7 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
             label(format!("Add Agent Under {}", under))
                 .size(heading)
                 .bold(true),
-            crate::search::search(
+            hamlet_ui::widgets::search::search(
                 "Search profiles",
                 String::new(),
                 |world, text| {

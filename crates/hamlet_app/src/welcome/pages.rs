@@ -498,7 +498,7 @@ fn providers_shown() -> AnyView {
         // Built once, keeping its focus and text.
         let search = built(|cx| {
             let seek = cx.world.resource::<Welcome>().seek.clone();
-            cx.build(crate::search::search(
+            cx.build(hamlet_ui::widgets::search::search(
                 "Search providers",
                 seek,
                 |world, text| providers::search(world, &text),
@@ -685,7 +685,7 @@ fn models() -> AnyView {
     .within(bare());
     let search = built(|cx| {
         let narrow = cx.world.resource::<Welcome>().narrow.clone();
-        cx.build(crate::search::search(
+        cx.build(hamlet_ui::widgets::search::search(
             "Search models",
             narrow,
             |world, text| {

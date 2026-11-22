@@ -6,6 +6,7 @@ pub mod edges;
 pub mod effects;
 pub mod ellipsis;
 pub mod floats;
+pub mod forms;
 pub mod hint;
 pub mod icons;
 pub mod keys;
@@ -14,10 +15,13 @@ pub mod platform;
 pub mod providers;
 pub mod rainbow;
 pub mod range;
+pub mod search;
+pub mod secret;
 pub mod shimmer;
 pub mod spoken;
 pub mod switch;
 pub mod tabs;
+pub mod trail;
 
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
@@ -42,6 +46,11 @@ pub fn plugin(app: &mut App) {
         rainbow::plugin,
         shimmer::plugin,
         spoken::plugin,
+    ))
+    .add_plugins((
+        forms::plugin,
+        search::plugin,
+        secret::plugin,
     ));
 }
 

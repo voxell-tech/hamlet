@@ -726,7 +726,7 @@ pub fn shelf() -> AnyView {
             row((built(|cx| {
                 let narrow =
                     cx.world.resource::<Draft>().narrow.clone();
-                cx.build(crate::search::search(
+                cx.build(hamlet_ui::widgets::search::search(
                     "Search models",
                     narrow,
                     |world, text| {

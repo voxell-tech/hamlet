@@ -134,7 +134,7 @@ pub(super) fn channel(agent: Entity, at: Vec2) -> impl View {
             label(format!("A channel from {}", from))
                 .size(heading)
                 .bold(true),
-            crate::search::search(
+            hamlet_ui::widgets::search::search(
                 "Search agents",
                 String::new(),
                 |world, text| {

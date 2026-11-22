@@ -18,14 +18,14 @@ const KEPT: usize = 50;
 
 /// A way along a trail.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Way {
+pub enum Way {
     Back,
     Forward,
 }
 
 /// The pages behind the one a panel shows and those ahead of it.
 #[derive(Clone, Debug)]
-pub(crate) struct Trail<T> {
+pub struct Trail<T> {
     behind: Vec<T>,
     ahead: Vec<T>,
     now: Option<T>,
@@ -44,7 +44,7 @@ impl<T> Default for Trail<T> {
 impl<T: Copy + PartialEq> Trail<T> {
     /// Keeps the page left behind as the panel turns to `here`. A
     /// page reached afresh leaves nothing ahead.
-    pub(crate) fn keep(&mut self, here: T) {
+    pub fn keep(&mut self, here: T) {
         match self.now.replace(here) {
             Some(was) if was != here => {
                 self.behind.push(was);
@@ -60,7 +60,7 @@ impl<T: Copy + PartialEq> Trail<T> {
     /// The nearest page `way` of `now` that `stands`, which the trail
     /// then takes as shown. Pages passed over that no longer stand
     /// are dropped.
-    pub(crate) fn travel(
+    pub fn travel(
         &mut self,
         way: Way,
         now: T,
@@ -87,7 +87,7 @@ impl<T: Copy + PartialEq> Trail<T> {
 
 /// Whether the mouse's back or forward button was pressed this
 /// frame: the condition of a system that travels by them.
-pub(crate) fn mouse_pressed(
+pub fn mouse_pressed(
     mouse: Option<Res<ButtonInput<MouseButton>>>,
 ) -> bool {
     mouse.is_some_and(|mouse| {
@@ -100,7 +100,7 @@ pub(crate) fn mouse_pressed(
 
 /// The way the mouse's back or forward button pressed this frame
 /// leads, if one was.
-pub(crate) fn mouse_way(world: &World) -> Option<Way> {
+pub fn mouse_way(world: &World) -> Option<Way> {
     let mouse = world.get_resource::<ButtonInput<MouseButton>>()?;
     if mouse.just_pressed(MouseButton::Back) {
         Some(Way::Back)
@@ -113,7 +113,7 @@ pub(crate) fn mouse_way(world: &World) -> Option<Way> {
 
 /// Whether the mouse's pointer is over a panel of `scope`: the node
 /// nearest under it, or one it is inside of, stands for the scope.
-pub(crate) fn pointer_over(world: &World, scope: ScopeId) -> bool {
+pub fn pointer_over(world: &World, scope: ScopeId) -> bool {
     under_pointer(world, |node| {
         world.get::<Scope>(node).is_some_and(|s| s.0 == scope)
     })
@@ -122,7 +122,7 @@ pub(crate) fn pointer_over(world: &World, scope: ScopeId) -> bool {
 
 /// The node nearest under the mouse's pointer, or one it is inside
 /// of, that `is` holds for.
-pub(crate) fn under_pointer(
+pub fn under_pointer(
     world: &World,
     is: impl Fn(Entity) -> bool,
 ) -> Option<Entity> {

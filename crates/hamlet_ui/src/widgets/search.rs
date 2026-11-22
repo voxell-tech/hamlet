@@ -12,9 +12,10 @@ use bevy::ecs::world::World;
 use bevy::text::EditableText;
 use bevy_fynix::views::{BehaviorExt, text_field};
 use bevy_fynix::{Binding, ScopedExt};
-use hamlet_ui::View;
-use hamlet_ui::styles::text_input;
-use hamlet_ui::widgets::hint;
+
+use crate::View;
+use crate::styles::text_input;
+use crate::widgets::hint;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(Update, follow);
@@ -42,7 +43,7 @@ fn follow(
 
 /// A search field after a lens, holding `text` at first and `word`
 /// while it is empty; `write` takes the text as it is typed.
-pub(crate) fn search(
+pub fn search(
     word: &'static str,
     text: String,
     write: impl Fn(&mut World, String) + Send + Sync + 'static,

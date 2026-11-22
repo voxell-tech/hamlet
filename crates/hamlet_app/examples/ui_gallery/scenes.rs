@@ -103,11 +103,9 @@ impl Plugin for GalleryPlugin {
             .init_resource::<welcome::projects::Projects>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
-                hamlet_app::search::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::plans::plugin,
-                hamlet_app::secret::plugin,
                 hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,

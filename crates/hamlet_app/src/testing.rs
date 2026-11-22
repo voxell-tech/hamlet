@@ -51,7 +51,11 @@ pub(crate) fn panel_app() -> App {
         app.world_mut(),
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
     );
-    app.add_plugins((crate::roll::plugin, crate::asking::plugin));
+    app.add_plugins((
+        crate::roll::plugin,
+        crate::asking::plugin,
+        hamlet_ui::widgets::forms::plugin,
+    ));
     app.init_resource::<DockTree>()
         .init_resource::<crate::select::Selecting>()
         .add_message::<ThemeChanged>();
@@ -106,7 +110,7 @@ pub(crate) fn welcome_app() -> App {
         ClientPlugin { server: None },
         FynixPlugin::<HamletTheme>::default(),
         crate::welcome::plugin,
-        crate::secret::plugin,
+        hamlet_ui::widgets::secret::plugin,
         crate::panel_sets,
     ));
     theme::show(app.world_mut(), HamletTheme::designed());
@@ -130,9 +134,12 @@ pub(crate) fn connect(app: &mut App, unset: bool) {
 /// The settings screen open on `pane`, over [`panel_app`].
 pub(crate) fn settings_page(pane: Pane) -> App {
     let mut app = panel_app();
-    app.add_plugins((settings::plugin, crate::secret::plugin))
-        .init_resource::<KeepAwake>()
-        .insert_resource(pane);
+    app.add_plugins((
+        settings::plugin,
+        hamlet_ui::widgets::secret::plugin,
+    ))
+    .init_resource::<KeepAwake>()
+    .insert_resource(pane);
     bevy_fynix::mount::<HamletTheme>(
         app.world_mut(),
         settings::screen(),

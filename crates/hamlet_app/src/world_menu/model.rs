@@ -869,7 +869,7 @@ fn nothing(title: &'static str, then: &'static str) -> AnyView {
 
 /// The search and the models it finds.
 fn models(agent: Entity, search: String) -> impl View {
-    let search = crate::search::search(
+    let search = hamlet_ui::widgets::search::search(
         "Search models",
         search,
         |world, text| {

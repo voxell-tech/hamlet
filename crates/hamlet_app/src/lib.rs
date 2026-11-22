@@ -11,7 +11,6 @@ pub mod cursor;
 pub mod desk;
 mod dock;
 mod folder;
-mod forms;
 mod hover;
 pub mod limits;
 pub mod lists;
@@ -27,8 +26,6 @@ mod remember;
 mod roll;
 mod root;
 mod saving;
-pub mod search;
-pub mod secret;
 
 pub mod screens;
 pub mod select;
@@ -37,7 +34,6 @@ mod standing;
 #[cfg(test)]
 mod testing;
 pub mod toasts;
-mod trail;
 mod tuning;
 mod updates;
 pub mod welcome;
@@ -105,7 +101,6 @@ impl Plugin for UiPlugin {
                 dock::plugin,
                 window::plugin,
                 saving::plugin,
-                secret::plugin,
                 chrome::plugin,
                 menu::plugin,
                 remember::plugin,
@@ -130,7 +125,6 @@ impl Plugin for UiPlugin {
                 appearance::plugin,
                 world_menu::plugin,
                 hover::plugin,
-                search::plugin,
                 reference::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,

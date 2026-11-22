@@ -30,6 +30,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::forms::{self, Asking};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::rainbow::rainbow_bar;
@@ -39,10 +40,12 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
-use crate::forms::{self, Asking};
 use crate::hub::Showing;
 use crate::roll::{either, moved};
 use crate::{profile_tag, words, world_menu};
+
+/// What the form of a hamlet's worker asks.
+const WORKER: &str = "worker";
 
 /// Gives the chief's command `text` to the hamlet `id`.
 fn decree(world: &mut World, id: &str, text: String) {
@@ -95,7 +98,7 @@ fn size(hamlet: Entity, id: String) -> AnyView {
 /// The form a worker is started in the hamlet `id` with.
 fn worker_form(hamlet: Entity, id: String) -> AnyView {
     forms::form(
-        Asking::Worker(hamlet),
+        Asking::about(WORKER, hamlet),
         "Start a worker on one task in this hamlet. It answers once \
          and ends.",
         &[("Task", "")],
@@ -511,7 +514,10 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 Glyph::Robot,
                 "Start a Worker",
                 move |world| {
-                    forms::toggle(world, Asking::Worker(hamlet));
+                    forms::toggle(
+                        world,
+                        Asking::about(WORKER, hamlet),
+                    );
                 },
             ));
         }

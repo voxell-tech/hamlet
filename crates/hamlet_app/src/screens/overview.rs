@@ -65,7 +65,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
-        .init_resource::<crate::forms::OpenForm>()
         .add_systems(Update, tabs::mark_on::<Page>);
 }
 

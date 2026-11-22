@@ -12,11 +12,11 @@ use bevy_fynix::shortcut::{
     CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
 use hamlet_ui::widgets::keys::Keys;
-
-use super::Pane;
-use crate::trail::{
+use hamlet_ui::widgets::trail::{
     Trail, Way, mouse_pressed, mouse_way, pointer_over,
 };
+
+use super::Pane;
 
 /// The keys of Settings, in force while the pointer is over it.
 pub(super) const KEYS: ScopeId = ScopeId("settings");

@@ -22,12 +22,12 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
 
 use super::{Pane, alone, field};
 use crate::PanelSystems;
 use crate::overview::heading;
-use crate::secret::secret_field;
 use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {

@@ -12,10 +12,12 @@ use bevy_fynix::shortcut::{
 };
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::widgets::keys::Keys;
+use hamlet_ui::widgets::trail::{
+    Trail, Way, mouse_pressed, mouse_way,
+};
 
 use super::{Sheet, Showing, show};
 use crate::convo::seat;
-use crate::trail::{Trail, Way, mouse_pressed, mouse_way};
 
 /// The Hub's keys, in force while the pointer is over it.
 pub(super) const KEYS: ScopeId = ScopeId("hub");

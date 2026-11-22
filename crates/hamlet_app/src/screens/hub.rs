@@ -70,7 +70,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Active>()
         .init_resource::<PressedIn>()
         .add_observer(pressed)
-        .init_resource::<crate::forms::OpenForm>()
         .add_systems(Update, tabs::mark_on::<Sheet>)
         .init_resource::<papers::Requests>()
         .add_observer(papers::response)
@@ -238,9 +237,10 @@ pub(crate) fn holding(world: &World, node: Entity) -> Option<Entity> {
 
 /// The Hub under the mouse's pointer.
 pub(crate) fn under_pointer(world: &World) -> Option<Entity> {
-    let node = crate::trail::under_pointer(world, |node| {
-        world.get::<rail::Frame>(node).is_some()
-    })?;
+    let node =
+        hamlet_ui::widgets::trail::under_pointer(world, |node| {
+            world.get::<rail::Frame>(node).is_some()
+        })?;
     Some(world.get::<rail::Frame>(node)?.0)
 }
 

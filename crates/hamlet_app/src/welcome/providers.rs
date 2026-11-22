@@ -32,12 +32,12 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::secret::secret_field;
 
 use super::pages::{card, footed, linked, news, said, to_providers};
 use super::{Pick, Step, Welcome, commit, go, read_models};
 use crate::models::mark;
 use crate::roll::{either, moved};
-use crate::secret::secret_field;
 
 /// The browser used for the server's login URLs.
 #[derive(Resource)]
