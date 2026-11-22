@@ -9,7 +9,7 @@ use bevy_fynix::dock::{
     Edge,
 };
 use bevy_fynix::views::{FrameProps, column};
-use hamlet_app::{hub, layout, menu, settings, terminal};
+use hamlet_app::{hub, layout, menu, terminal};
 use hamlet_core::panels::panel;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
@@ -51,8 +51,10 @@ pub(super) fn seed_dock(world: &mut World) {
     registry.register("hub", hub::window("hub"));
     registry.register(
         "settings",
-        DockWindowKind::new("Settings", || panel(settings::screen()))
-            .icon(Glyph::Sliders.image(ICON)),
+        DockWindowKind::new("Settings", || {
+            panel(hamlet_settings::screen())
+        })
+        .icon(Glyph::Sliders.image(ICON)),
     );
     let mut tree = world.resource_mut::<DockTree>();
     let centre = tree.set_root_leaf(

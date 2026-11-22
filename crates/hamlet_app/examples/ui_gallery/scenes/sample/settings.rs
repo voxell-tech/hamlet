@@ -2,7 +2,7 @@
 //! appearance gallery scenes.
 
 use bevy::ecs::world::World;
-use hamlet_app::{pages, settings};
+use hamlet_app::pages;
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
 use hamlet_core::settings::{ENDPOINTS, MODELS, SettingsPane};
@@ -43,14 +43,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     world.init_resource::<hamlet_desktop::awake::KeepAwake>();
     world.init_resource::<hamlet_realm::sky::Quality>();
     if scene == Scene::Charter {
-        world.insert_resource(settings::Charter {
+        world.insert_resource(hamlet_settings::Charter {
             text: include_str!(
                 "../../../../../hamlet_server/assets/charter.md"
             )
             .into(),
             own: true,
         });
-        world.insert_resource(SettingsPane(Some(settings::CHARTER)));
+        world.insert_resource(SettingsPane(Some(
+            hamlet_settings::CHARTER,
+        )));
     }
     if scene == Scene::SettingsModels {
         world.resource_mut::<hamlet_core::models::Shelf>().models =
@@ -68,12 +70,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                 moving: None,
             };
         world.insert_resource(SettingsPane(Some(
-            settings::workspace::WORKSPACE,
+            hamlet_settings::workspace::WORKSPACE,
         )));
     }
     if scene == Scene::Mcp {
         world.resource_mut::<Settings>().0.mcp = mcp();
-        world.insert_resource(SettingsPane(Some(settings::MCP)));
+        world.insert_resource(SettingsPane(Some(
+            hamlet_settings::MCP,
+        )));
     }
     if scene == Scene::Sight {
         world.init_resource::<SkySettings>();

@@ -25,7 +25,6 @@ use image::{ImageFormat, RgbaImage};
 use crate::appearance::Appearance;
 use crate::desk::{self, Desks};
 use crate::remember::Remembered;
-use crate::screens::settings;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
@@ -89,7 +88,7 @@ pub(crate) fn welcome_app() -> App {
 pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     let mut app = panel_app();
     app.add_plugins((
-        settings::plugin,
+        hamlet_settings::plugin,
         crate::pages::plugin,
         hamlet_ui::widgets::secret::plugin,
     ))
@@ -97,7 +96,7 @@ pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     .insert_resource(SettingsPane(pane));
     bevy_fynix::mount::<HamletTheme>(
         app.world_mut(),
-        settings::screen(),
+        hamlet_settings::screen(),
     );
     settle(&mut app);
     app

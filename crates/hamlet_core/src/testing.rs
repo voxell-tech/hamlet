@@ -12,6 +12,8 @@ use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
 use hamlet_protocol::client as protocol;
+/// The fixture state the tests of the window's parts start from.
+pub use hamlet_testing::realm;
 use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
 
 use crate::browser::Browser;
@@ -48,7 +50,7 @@ pub fn panel_app() -> App {
     theme::show(app.world_mut(), HamletTheme::designed());
     receive(
         app.world_mut(),
-        protocol::ServerMessage::State(hamlet_testing::realm::state()),
+        protocol::ServerMessage::State(realm::state()),
     );
     app.add_plugins((
         crate::roll::plugin,
@@ -61,7 +63,7 @@ pub fn panel_app() -> App {
 /// Connects and receives the fixture state, its settings `unset` or
 /// not.
 pub fn connect(app: &mut App, unset: bool) {
-    let mut state = hamlet_testing::realm::state();
+    let mut state = realm::state();
     state.settings.unset = unset;
     receive(app.world_mut(), protocol::ServerMessage::State(state));
     app.world_mut().resource_mut::<Connection>().state =

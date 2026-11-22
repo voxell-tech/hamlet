@@ -8,29 +8,29 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{frame, label, text_field};
-use bevy_fynix::{
+use hamlet_core::client::messages::Response;
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::Settings;
+use hamlet_core::confirm::Confirm;
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{frame, label, text_field};
+use hamlet_core::fynix::{
     Binding, Prop, ScopedExt, ViewExt, keyed, resource,
 };
-use hamlet_client::messages::Response;
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::Settings;
-use hamlet_core::confirm::Confirm;
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::protocol::client as protocol;
 use hamlet_core::settings::{
     SettingsAppExt, SettingsPage, SettingsPane, alone, field, shown,
 };
-use hamlet_protocol::client as protocol;
-use hamlet_ui::kinds::card;
-use hamlet_ui::styles::{
+use hamlet_core::ui::kinds::card;
+use hamlet_core::ui::styles::{
     bad_action, bare, beside, good_action, heading, note, parts,
     segmented_words, text_input,
 };
-use hamlet_ui::widgets::hint::hinted;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::secret::secret_field;
-use hamlet_ui::{AnyView, View};
+use hamlet_core::ui::widgets::hint::hinted;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::secret::secret_field;
+use hamlet_core::ui::{AnyView, View};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -351,12 +351,12 @@ mod tests {
     use bevy::text::{
         EditableText, FontSize, FontSource, TextEdit, TextFont,
     };
-    use hamlet_client::outbox::Outbox;
+    use hamlet_core::client::outbox::Outbox;
+    use hamlet_core::protocol::client as protocol;
     use hamlet_core::settings::SettingsPane;
     use hamlet_core::testing::{
         control, press, requests, settle, words_and_spans,
     };
-    use hamlet_protocol::client as protocol;
 
     use super::WORKSPACE;
     use crate::testing::settings_page;
@@ -377,13 +377,14 @@ mod tests {
         running: Option<&str>,
         moving: Option<protocol::SettingsViewWorkspaceMove>,
     ) {
-        let mut settings = hamlet_testing::realm::state().settings;
+        let mut settings =
+            hamlet_core::testing::realm::state().settings;
         settings.workspace = protocol::SettingsViewWorkspace {
             url: url.map(Into::into),
             running: running.map(Into::into),
             moving,
         };
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
@@ -467,9 +468,9 @@ mod tests {
         let mono = bevy::asset::uuid_handle!(
             "6f1c1d3e-0b7a-4c55-9a43-2d0f7a1c9e21"
         );
-        app.insert_resource(hamlet_ui::widgets::platform::Mono(
-            mono.clone(),
-        ));
+        app.insert_resource(
+            hamlet_core::ui::widgets::platform::Mono(mono.clone()),
+        );
         let field = control::<EditableText>(&mut app, "Access token");
         app.world_mut()
             .get_mut::<TextFont>(field)
@@ -519,7 +520,7 @@ mod tests {
                 }}
             })]
         );
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,

@@ -8,12 +8,12 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
-use bevy_fynix::shortcut::{
+use hamlet_core::fynix::shortcut::{
     CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
 use hamlet_core::settings::SettingsPane;
-use hamlet_ui::widgets::keys::Keys;
-use hamlet_ui::widgets::trail::{
+use hamlet_core::ui::widgets::keys::Keys;
+use hamlet_core::ui::widgets::trail::{
     Trail, Way, mouse_pressed, mouse_way, pointer_over,
 };
 

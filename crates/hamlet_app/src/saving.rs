@@ -193,7 +193,7 @@ mod tests {
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
-            crate::settings::plugin,
+            hamlet_settings::plugin,
         ));
         app.init_resource::<Opened>();
         let opener = app.world_mut().register_system(
@@ -265,7 +265,7 @@ mod tests {
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
-            crate::settings::plugin,
+            hamlet_settings::plugin,
         ));
         app.init_resource::<Opened>().init_resource::<Steps>();
         let opener = app.world_mut().register_system(
@@ -326,7 +326,7 @@ mod tests {
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
-            crate::settings::plugin,
+            hamlet_settings::plugin,
         ));
         app.init_resource::<Opened>();
         let opener = app.world_mut().register_system(

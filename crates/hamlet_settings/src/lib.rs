@@ -1,5 +1,11 @@
-//! The settings screen, a page for each part.
+//! The Settings panel and the pages it has of its own: endpoints,
+//! models, MCP servers, agent behaviour, workspace, charter and
+//! realm limits. The window's other parts add their own pages with
+//! [`hamlet_core::settings::SettingsAppExt::add_settings_page`].
 
+pub mod mcp;
+#[cfg(test)]
+mod testing;
 mod visits;
 pub mod workspace;
 
@@ -12,49 +18,49 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::ui::{AlignItems, Overflow, OverflowAxis, px};
-use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
-};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll,
-};
-use bevy_fynix::{
-    Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
-};
-use hamlet_client::messages::{Reconnected, Response};
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{
+use hamlet_core::client::messages::{Reconnected, Response};
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::{
     Confinement, Grants, Providers, Settings,
 };
 use hamlet_core::confirm::Confirm;
+use hamlet_core::desktop::awake::KeepAwake;
+use hamlet_core::desktop::editor::{Edit, Edited};
+use hamlet_core::fynix::dock::DockWindowKind;
+use hamlet_core::fynix::shortcut::{
+    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
+};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll,
+};
+use hamlet_core::fynix::{
+    Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_core::menus::{MenuAppExt, MenuItem};
 use hamlet_core::orders::Decree;
 use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
+use hamlet_core::protocol::{Effort, client as protocol};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::saving::Saving;
 use hamlet_core::settings::{
     ENDPOINTS, MODELS, PANEL, SettingsAppExt, SettingsPage,
     SettingsPages, SettingsPane, field, shown, told,
 };
-use hamlet_core::welcome::{OpenProjects, OpenWelcome};
-use hamlet_desktop::awake::KeepAwake;
-use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::{Effort, client as protocol};
-use hamlet_ui::styles::{
+use hamlet_core::ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
     buttons, close, description, filling, list, nav_list, note,
     parts, pill, small_rules, text_input, title, valued_row,
 };
-use hamlet_ui::widgets::edges::faded;
-use hamlet_ui::widgets::ellipsis::cut;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::keys::Keys;
-use hamlet_ui::widgets::lasting::Lasting;
-use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_core::ui::widgets::edges::faded;
+use hamlet_core::ui::widgets::ellipsis::cut;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::keys::Keys;
+use hamlet_core::ui::widgets::lasting::Lasting;
+use hamlet_core::ui::widgets::switch::switch;
+use hamlet_core::ui::{AnyView, View, built, with_cx};
+use hamlet_core::welcome::{OpenProjects, OpenWelcome};
 
 /// The keys that bring Settings forward.
 const KEYS: Chord = Keys::new(KeyCode::Comma).primary().chord();
@@ -82,7 +88,7 @@ pub fn plugin(app: &mut App) {
         })
         .keys(KEYS),
     )
-    .add_plugins((workspace::plugin, visits::plugin))
+    .add_plugins((mcp::plugin, visits::plugin, workspace::plugin))
     // Each provider's limits are under it, filled by
     // `hamlet_core::plans::plugin`.
     .init_resource::<hamlet_core::plans::Plans>()
@@ -131,7 +137,7 @@ pub fn plugin(app: &mut App) {
             "MCP Servers",
             Glyph::Bolt,
             30,
-            || crate::mcp::page().boxed(),
+            || mcp::page().boxed(),
         )
         .now(mcp_now),
     )
@@ -462,14 +468,14 @@ fn permissions() -> AnyView {
                         grant.source == protocol::GrantSource::Grant
                     })
                     .map(|grant| {
-                        let shown = hamlet_client::realm::named(
+                        let shown = hamlet_core::client::realm::named(
                             world,
                             &grant.name,
                         )
                         .map_or_else(
                             || grant.name.clone(),
                             |agent| {
-                                hamlet_client::realm::shown_of(
+                                hamlet_core::client::realm::shown_of(
                                     world, agent,
                                 )
                             },
@@ -712,7 +718,9 @@ fn charter_page() -> impl View {
     .within(bare());
     let shown = keyed(
         resource::<Charter, _>(|c| with_heads(&c.text)),
-        |text| hamlet_ui::markdown::page(text, Tone::Body).boxed(),
+        |text| {
+            hamlet_core::ui::markdown::page(text, Tone::Body).boxed()
+        },
     )
     .within(bare());
     parts((
@@ -765,7 +773,7 @@ fn nav_item(page: &SettingsPage) -> AnyView {
 
 /// The way back to the first-run screen, as a row of the index.
 fn again() -> AnyView {
-    hamlet_ui::styles::nav_row(
+    hamlet_core::ui::styles::nav_row(
         Glyph::Restore,
         "First-Run Setup",
         None,
@@ -775,7 +783,7 @@ fn again() -> AnyView {
 
 /// The index row that opens the projects card.
 fn projects() -> AnyView {
-    hamlet_ui::styles::nav_row(
+    hamlet_core::ui::styles::nav_row(
         Glyph::Hamlet,
         "Bring In Projects",
         None,
@@ -854,8 +862,8 @@ mod tests {
     use bevy::text::EditableText;
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
+    use hamlet_core::protocol::client as protocol;
     use hamlet_core::testing::{control, requests, settle};
-    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::testing::settings_page;
@@ -914,10 +922,11 @@ mod tests {
             })]
         );
 
-        let mut settings = hamlet_testing::realm::state().settings;
+        let mut settings =
+            hamlet_core::testing::realm::state().settings;
         settings.allow_net = true;
         settings.reflect_every = 7;
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,
