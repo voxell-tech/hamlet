@@ -22,6 +22,7 @@ use bevy_fynix::{
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
+use hamlet_core::browser::{Browser, is_browsable};
 use hamlet_core::roll::{either, moved};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
@@ -38,18 +39,6 @@ use hamlet_ui::widgets::secret::secret_field;
 use super::pages::{card, footed, linked, news, said, to_providers};
 use super::{Pick, Step, Welcome, commit, go, read_models};
 use crate::models::mark;
-
-/// The browser used for the server's login URLs.
-#[derive(Resource)]
-pub struct Browser(pub fn(&mut World, &str));
-
-impl Default for Browser {
-    fn default() -> Self {
-        Self(|_, url| {
-            hamlet_desktop::open::browse(url);
-        })
-    }
-}
 
 #[derive(Resource, Default)]
 pub(super) struct Login {
@@ -501,23 +490,6 @@ pub(super) fn receive(
         }
     }
     Received::Login
-}
-
-pub(crate) fn is_browsable(text: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(text) else {
-        return false;
-    };
-    match url.scheme() {
-        "https" => true,
-        "http" => url.host_str().is_some_and(|host| {
-            host == "localhost"
-                || host
-                    .trim_matches(['[', ']'])
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        }),
-        _ => false,
-    }
 }
 
 fn prompt() -> AnyView {

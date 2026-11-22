@@ -19,3 +19,4 @@ hamlet_ui.workspace = true
 bevy = { workspace = true, features = ["bevy_input_focus", "bevy_picking", "bevy_ui"] }
 bevy_fynix.workspace = true
 jiff.workspace = true
+reqwest.workspace = true

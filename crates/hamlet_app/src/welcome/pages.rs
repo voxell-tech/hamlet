@@ -799,7 +799,7 @@ fn manual() -> AnyView {
 pub fn view() -> impl View {
     built(|cx| {
         cx.world.init_resource::<providers::Login>();
-        cx.world.init_resource::<super::Browser>();
+        cx.world.init_resource::<hamlet_core::browser::Browser>();
         cx.world.init_resource::<super::Committing>();
         cx.build(screen())
     })

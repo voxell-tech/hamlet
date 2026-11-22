@@ -16,6 +16,7 @@ use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, ViewFolder, receive};
+use hamlet_core::browser::Browser;
 use hamlet_core::pick::Selected;
 use hamlet_core::roll::Roll;
 use hamlet_core::settings::SettingsPane;
@@ -34,7 +35,6 @@ use crate::appearance::Appearance;
 use crate::desk::{self, Desks};
 use crate::remember::Remembered;
 use crate::screens::settings;
-use crate::welcome::Browser;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 

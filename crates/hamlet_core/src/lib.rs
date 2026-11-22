@@ -6,6 +6,7 @@
 //! this one, as a plugin does.
 
 pub mod age;
+pub mod browser;
 pub mod clock;
 pub mod confirm;
 pub mod drops;
@@ -34,6 +35,7 @@ pub use hamlet_ui as ui;
 /// What every part of the window needs before it is added.
 pub fn plugin(app: &mut App) {
     app.add_plugins((
+        browser::plugin,
         drops::plugin,
         menus::plugin,
         paints::plugin,

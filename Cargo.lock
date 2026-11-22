@@ -4548,6 +4548,7 @@ dependencies = [
  "hamlet_protocol",
  "hamlet_ui",
  "jiff",
+ "reqwest",
 ]
 
 [[package]]

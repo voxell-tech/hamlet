@@ -380,9 +380,9 @@ fn sign_in(name: &str, address: Option<&str>) -> AnyView {
 
 /// Opens `address` in the chief's browser, when it is a web page.
 fn browse(world: &mut World, address: &str) {
-    if crate::welcome::providers::is_browsable(address) {
+    if hamlet_core::browser::is_browsable(address) {
         let browse =
-            world.resource::<crate::welcome::providers::Browser>().0;
+            world.resource::<hamlet_core::browser::Browser>().0;
         browse(world, address);
     }
 }
