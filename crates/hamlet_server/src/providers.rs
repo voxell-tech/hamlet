@@ -1011,11 +1011,25 @@ impl Core<'_, '_> {
             .lists
             .get(&pending.provider)
             .map_or(0, Vec::len);
+        let name = self
+            .providers
+            .providers
+            .iter()
+            .find(|p| p.id == pending.provider)
+            .map_or(pending.provider.as_str(), |p| p.name.as_str());
         let words = match &result.error {
             Some(error) => plainly(error, &pending.action),
-            None => result.text.clone().unwrap_or_else(|| {
-                format!("Connected, {count} model(s)")
-            }),
+            None => {
+                result.text.clone().unwrap_or_else(|| match count {
+                    1 => format!(
+                        "Connected to {name}: 1 model available."
+                    ),
+                    _ => format!(
+                        "Connected to {name}: {count} models \
+                         available."
+                    ),
+                })
+            }
         };
         // A request no chief made, such as the refresh at start, does
         // not settle a check under way; the check's own result does.
@@ -1058,6 +1072,9 @@ impl Core<'_, '_> {
     }
 
     fn named_model(&mut self, name: &str) -> Done<(String, String)> {
+        if name.is_empty() {
+            return Ok(Err(Rejection::NoDefaultModel));
+        }
         let Some((provider, id)) = name
             .split_once("::")
             .filter(|(p, m)| !p.is_empty() && !m.is_empty())

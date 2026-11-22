@@ -57,7 +57,7 @@ async fn tries_the_model_and_the_connection_and_keeps_the_link() {
         .await;
     assert_eq!(
         (reply.kind, reply.text.as_str()),
-        (ReplyKind::Notice, "Connected, 1 model(s)")
+        (ReplyKind::Notice, "Connected to local: 1 model available.")
     );
     let late = s.join().await.realm().settings.link;
     assert_eq!(
