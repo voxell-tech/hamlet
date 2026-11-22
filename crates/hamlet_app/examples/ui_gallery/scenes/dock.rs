@@ -9,7 +9,7 @@ use bevy_fynix::dock::{
     Edge,
 };
 use bevy_fynix::views::{FrameProps, column};
-use hamlet_app::{hub, layout, menu, terminal};
+use hamlet_app::{hub, layout, menu};
 use hamlet_core::panels::panel;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
@@ -128,7 +128,7 @@ fn shown(cx: &Cx) -> impl View {
         layout(cx),
         hamlet_app::toasts::stack(),
         menu::open_menu(),
-        terminal::open_menu(),
+        hamlet_terminal::open_menu(),
     ))
     .width(percent(100.0))
     .height(percent(100.0))

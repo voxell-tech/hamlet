@@ -18,24 +18,26 @@ use bevy::ui::{
     AlignItems, Display, JustifyContent, PositionType, UiRect, Val,
     percent, px,
 };
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::client::realm::Identity;
+use hamlet_core::client::terminals::Terminal;
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, menu_item, overlay, popup, row, text_field,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
     resource,
 };
-use hamlet_client::realm::Identity;
-use hamlet_client::terminals::Terminal;
 use hamlet_core::menus::{ThingItem, ThingMenuAppExt};
 use hamlet_core::pick::Thing;
-use hamlet_protocol::client::{AgentKind, TerminalKind};
-use hamlet_ui::styles::{ICON, guides, link_row, note, text_input};
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::rect_of;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_core::protocol::client::{AgentKind, TerminalKind};
+use hamlet_core::ui::styles::{
+    ICON, guides, link_row, note, text_input,
+};
+use hamlet_core::ui::widgets::icons::{Glyph, glyph};
+use hamlet_core::ui::widgets::rect_of;
+use hamlet_core::ui::{AnyView, View, with_cx};
 
 use super::list::{Branch, Group, Listed, Row, What};
 use super::{PanelId, Pins, open};

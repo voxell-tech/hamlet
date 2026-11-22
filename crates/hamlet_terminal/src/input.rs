@@ -26,7 +26,7 @@ use bevy::picking::events::{
 use bevy::picking::pointer::PointerButton;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::window::WindowFocused;
-use hamlet_client::terminals::{
+use hamlet_core::client::terminals::{
     self, Terminal, TerminalKind, TerminalScreen,
 };
 
@@ -706,12 +706,12 @@ mod tests {
 #[cfg(test)]
 mod reporting {
     use bevy::ecs::system::SystemState;
-    use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::client as protocol;
+    use hamlet_core::client::outbox::Outbox;
+    use hamlet_core::protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
-    use crate::screens::terminal::PanelId;
+    use crate::PanelId;
 
     fn view(id: &str, kind: &str) -> terminals::TerminalView {
         serde_json::from_value(json!({
@@ -758,12 +758,12 @@ mod reporting {
     #[test]
     fn a_press_reaches_a_shells_program_that_reads_the_mouse_unless_shift_is_held()
      {
-        let mut app = crate::testing::panel_app();
-        let mut state = hamlet_testing::realm::state();
+        let mut app = hamlet_core::testing::panel_app();
+        let mut state = hamlet_core::testing::realm::state();
         state.revision = 1;
         state.terminals =
             vec![view("t1", "shell"), view("t2", "commands")];
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );

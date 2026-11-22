@@ -49,9 +49,7 @@ pub use self::desk::still as desk_still;
 pub use self::dock::register_numbered;
 pub use self::remember::Remembered;
 pub use self::root::layout;
-pub use self::screens::{
-    chat, hub, links, overview, pictures, terminal, wait,
-};
+pub use self::screens::{chat, hub, links, overview, pictures, wait};
 pub use self::window::window_plugin;
 
 /// The app's panels.

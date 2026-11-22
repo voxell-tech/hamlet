@@ -4462,6 +4462,7 @@ dependencies = [
  "hamlet_protocol",
  "hamlet_realm",
  "hamlet_settings",
+ "hamlet_terminal",
  "hamlet_testing",
  "hamlet_ui",
  "hamlet_update",
@@ -4477,7 +4478,6 @@ dependencies = [
  "tokio",
  "toml",
  "unicode-segmentation",
- "vt100",
 ]
 
 [[package]]
@@ -4734,6 +4734,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "hamlet_terminal"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "serde_json",
+ "vt100",
 ]
 
 [[package]]

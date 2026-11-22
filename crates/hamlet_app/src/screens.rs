@@ -5,7 +5,6 @@ pub mod hub;
 pub mod links;
 pub mod overview;
 pub mod pictures;
-pub mod terminal;
 pub mod viewer;
 pub mod wait;
 
@@ -18,7 +17,7 @@ pub fn plugin(app: &mut App) {
         chat::plugin,
         links::plugin,
         pictures::plugin,
-        terminal::plugin,
+        hamlet_terminal::plugin,
         viewer::plugin,
         wait::plugin,
     ));

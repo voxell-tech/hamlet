@@ -24,11 +24,11 @@ use bevy::ui::{
     BackgroundColor, BorderColor, ComputedNode, Display, Node,
     PositionType, UiRect, Val, ZIndex, percent, px,
 };
-use hamlet_client::terminals::{
+use hamlet_core::client::terminals::{
     self, Terminal, TerminalKind, TerminalScreen,
 };
-use hamlet_ui::theme::{HamletTheme, TerminalLook};
-use hamlet_ui::widgets::platform::TerminalFace;
+use hamlet_core::ui::theme::{HamletTheme, TerminalLook};
+use hamlet_core::ui::widgets::platform::TerminalFace;
 
 use super::{PanelId, Panels};
 
@@ -307,7 +307,7 @@ pub(crate) fn draw(world: &mut World) {
         return;
     };
     let Some(look) = world
-        .get_resource::<bevy_fynix::Theme<HamletTheme>>()
+        .get_resource::<hamlet_core::fynix::Theme<HamletTheme>>()
         .map(|theme| theme.0.terminal.clone())
     else {
         return;
@@ -609,7 +609,7 @@ fn draw_row(
 /// room for, once the canvas has held that size a moment.
 pub(crate) fn fit(world: &mut World) {
     let Some(settle) = world
-        .get_resource::<bevy_fynix::Theme<HamletTheme>>()
+        .get_resource::<hamlet_core::fynix::Theme<HamletTheme>>()
         .map(|theme| theme.0.terminal.settle)
     else {
         return;

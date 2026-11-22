@@ -35,7 +35,6 @@ use serde::{Deserialize, Serialize};
 use crate::appearance::{Appearance, Pick, Zoom};
 use crate::desk::{Desks, Part};
 use crate::hub;
-use crate::screens::terminal;
 use crate::updates::UpdateChannel;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -372,9 +371,10 @@ pub fn restore(world: &mut World) {
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
-    world.insert_resource(terminal::Restoring(view.terminals));
-    world.insert_resource(terminal::Folds(view.terminal_folds));
-    world.insert_resource(terminal::Pins(view.terminal_pins));
+    world.insert_resource(hamlet_terminal::Restoring(view.terminals));
+    world
+        .insert_resource(hamlet_terminal::Folds(view.terminal_folds));
+    world.insert_resource(hamlet_terminal::Pins(view.terminal_pins));
     world.insert_resource(hub::CollapsedRails(view.collapsed_rails));
 }
 
@@ -424,9 +424,9 @@ pub fn keep(
         Res<NorthTarget>,
         Res<Favorites>,
         Res<LastSide>,
-        Res<terminal::Shown>,
-        Res<terminal::Folds>,
-        Res<terminal::Pins>,
+        Res<hamlet_terminal::Shown>,
+        Res<hamlet_terminal::Folds>,
+        Res<hamlet_terminal::Pins>,
     ),
     (fog, far, wind, appearance, zoom, rails, channel): (
         Res<VolumetricFogSettings>,

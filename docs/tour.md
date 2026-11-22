@@ -53,6 +53,7 @@ every crate. `xtask/` is a workspace of its own, run as `cargo xtask`
 | `hamlet_app` | `hamlet_app`, the window: panels, menus, chat and pointer, and the examples |
 | `hamlet_core` | What the window's parts are built on: Bevy, fynix, the widget kit and the client as one crate, the panels' steps and the counts of what changed (`roll.rs`) |
 | `hamlet_settings` | The Settings panel and its pages: endpoints, models, MCP servers, agents, workspace, charter and realm limits |
+| `hamlet_terminal` | The Terminal panel: terminals of the realm's machines and agents' command logs |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime: conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types, `client` and `runtime`; `State::apply`; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realms |

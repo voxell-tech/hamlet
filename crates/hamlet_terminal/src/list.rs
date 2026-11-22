@@ -22,26 +22,26 @@ use bevy::text::{EditableText, TextEdit};
 use bevy::ui::{
     AlignItems, JustifyContent, Overflow, UiRect, percent, px,
 };
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::client::realm;
+use hamlet_core::client::terminals::{self, Terminal, TerminalKind};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, row, text_field,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
     resource,
 };
-use hamlet_client::realm;
-use hamlet_client::terminals::{self, Terminal, TerminalKind};
 use hamlet_core::panels::PanelSystems;
-use hamlet_protocol::client::{AgentId, AgentKind};
-use hamlet_ui::styles::{
+use hamlet_core::protocol::client::{AgentId, AgentKind};
+use hamlet_core::ui::styles::{
     Fills, ICON, caption, close_button, hairline, link_row, note,
     scroll_area, text_input,
 };
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::MonoText;
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_core::ui::widgets::icons::{Glyph, glyph};
+use hamlet_core::ui::widgets::platform::MonoText;
+use hamlet_core::ui::{AnyView, View, with_cx};
 
 use super::resize::NARROWEST;
 use super::{Folds, Handing, PanelId, Panels, Pins, activate};
@@ -1037,7 +1037,7 @@ fn close(world: &mut World, panel: &PanelId, terminal: Entity) {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::client as protocol;
+    use hamlet_core::protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
@@ -1062,7 +1062,7 @@ mod tests {
         parent: Option<u64>,
     ) -> protocol::Agent {
         let mut worker =
-            hamlet_testing::realm::agent(id, "home", false);
+            hamlet_core::testing::realm::agent(id, "home", false);
         worker.kind = AgentKind::Worker;
         worker.address = format!("worker#{id}");
         worker.hamlet = hamlet.map(String::from);
@@ -1102,13 +1102,15 @@ mod tests {
 
     #[test]
     fn terminals_are_a_tree_of_the_agents_they_are_under_by_hamlet() {
-        let mut app = crate::testing::panel_app();
-        let mut state = hamlet_testing::realm::state();
+        let mut app = hamlet_core::testing::panel_app();
+        let mut state = hamlet_core::testing::realm::state();
         state.revision = 1;
-        state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
+        state
+            .hamlets
+            .push(hamlet_core::testing::realm::hamlet("mill", 3));
         state.agents.extend([
-            hamlet_testing::realm::agent(3, "mill", true),
-            hamlet_testing::realm::agent(4, "home", false),
+            hamlet_core::testing::realm::agent(3, "mill", true),
+            hamlet_core::testing::realm::agent(4, "home", false),
             worker(5, Some("home"), Some(4)),
             worker(6, Some("home"), None),
             worker(7, None, Some(1)),
@@ -1126,7 +1128,7 @@ mod tests {
             of("w7", None, Some(7), "shell"),
             of("w8", None, Some(8), "shell"),
         ];
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );

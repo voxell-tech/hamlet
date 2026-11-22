@@ -20,6 +20,7 @@ repository = "https://github.com/voxell-tech/hamlet"
 hamlet_client = { version = "0.1.0", path = "crates/hamlet_client" }
 hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
 hamlet_settings = { version = "0.1.0", path = "crates/hamlet_settings" }
+hamlet_terminal = { version = "0.1.0", path = "crates/hamlet_terminal" }
 hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_os = { version = "0.1.0", path = "crates/hamlet_os" }
