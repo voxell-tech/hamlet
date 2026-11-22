@@ -46,13 +46,13 @@ use hamlet_client::files::{
 };
 use hamlet_client::images::{ImageKept, ImageRejected, Upload};
 use hamlet_client::realm::Account;
+use hamlet_core::drops::FileDropped;
 use hamlet_core::roll::{either, moved};
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
 use hamlet_protocol::client::{
     AttachedFile, AttachedImage, ImageId, ImageInput,
 };
-use hamlet_realm::hand::FileDropped;
 use hamlet_ui::markdown::ATOM;
 use hamlet_ui::styles::{
     ICON, Looks, Tipped, bare, close_button, note,

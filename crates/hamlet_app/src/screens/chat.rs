@@ -49,11 +49,11 @@ use hamlet_client::messages::{
     Withdraw,
 };
 use hamlet_client::realm as agents;
+use hamlet_core::drops::FileDrop;
 use hamlet_core::orders::{Decree, Tell};
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::hand::FileDrop;
 use hamlet_ui::markdown::{Inks, marks};
 use hamlet_ui::styles::{ICON, Looks, Tipped, note, text_input};
 use hamlet_ui::theme::HamletTheme;
