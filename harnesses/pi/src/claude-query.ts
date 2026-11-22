@@ -41,8 +41,16 @@ import {
     getSessionPath,
     normalizeProjectPath,
 } from "cc-session-io";
-import { emptyAnswer, environment, type Folders } from "./claude.ts";
+import { emptyAnswer, environment, type Folders, PROVIDER } from "./claude.ts";
 import { importSession, TOOL_PREFIX, userContent } from "./claude-history.ts";
+import {
+    type ClaudeUsage,
+    claudeEvent,
+    claudeUsage,
+    seen,
+    unknown,
+} from "./limits.ts";
+import type { Limits } from "./protocol.ts";
 
 /** How long a query waits at its tool calls before it is stopped; their results then start a new one. */
 const IDLE_MS = 5 * 60_000;
@@ -401,6 +409,7 @@ class Run {
                 }
                 return;
             case "rate_limit_event":
+                seen(PROVIDER, claudeEvent(message.rate_limit_info));
                 if (message.rate_limit_info.isUsingOverage === true) {
                     this.#refusal = OVERAGE;
                     this.close();
@@ -836,5 +845,70 @@ class Input implements AsyncIterable<SDKUserMessage> {
             });
             this.#wake = undefined;
         }
+    }
+}
+
+/**
+ * The Claude plan's limits, asked of the Claude program: the call is the SDK's `/usage`, which the SDK names
+ * experimental, so a program that lacks it, or answers with something else, gives none.
+ */
+export async function limits(
+    claude: Program,
+    signal: AbortSignal,
+): Promise<Limits> {
+    const input = new Waiting();
+    // The program counts reading its limits as nonessential traffic, so
+    // the guard against that traffic would leave them out.
+    const { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: _, ...env } = environment(
+        claude.at,
+    );
+    const asked = query({
+        prompt: input,
+        options: {
+            pathToClaudeCodeExecutable: claude.program,
+            cwd: claude.at.work,
+            env,
+            tools: [],
+            settingSources: [],
+            strictMcpConfig: true,
+            stderr: (data) => process.stderr.write(`claude: ${data}`),
+        },
+    });
+    const stop = () => asked.close();
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+        const read =
+            asked.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+        if (typeof read !== "function") return unknown();
+        const usage: ClaudeUsage = await read.call(asked, {
+            skipBehaviors: true,
+        });
+        if (signal.aborted) throw new Error("in time");
+        return claudeUsage(usage);
+    } finally {
+        signal.removeEventListener("abort", stop);
+        input.end();
+        asked.close();
+    }
+}
+
+/** A prompt that sends nothing until it ends, so the program only answers control requests. */
+class Waiting implements AsyncIterable<SDKUserMessage> {
+    #end: (() => void) | undefined;
+    readonly #ended = new Promise<void>((resolve) => {
+        this.#end = resolve;
+    });
+
+    end(): void {
+        this.#end?.();
+    }
+
+    [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+        return {
+            next: async () => {
+                await this.#ended;
+                return { done: true, value: undefined };
+            },
+        };
     }
 }

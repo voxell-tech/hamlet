@@ -1,5 +1,6 @@
 //! Models: trying the chosen model and the connection, signing in
-//! with a key, and an endpoint's listing, prices and refusals.
+//! with a key, an endpoint's listing, prices and refusals, and a
+//! provider's limits.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -56,7 +57,7 @@ async fn tries_the_model_and_the_connection_and_keeps_the_link() {
         .await;
     assert_eq!(
         (reply.kind, reply.text.as_str()),
-        (ReplyKind::Notice, "Connected, 1 model(s)")
+        (ReplyKind::Notice, "Connected to local: 1 model available.")
     );
     let late = s.join().await.realm().settings.link;
     assert_eq!(
@@ -289,6 +290,29 @@ async fn signs_in_with_a_key_without_sending_it_to_any_client() {
     assert!(stored["models"].get("spare").is_none(), "{stored}");
     assert_eq!(stored["models"]["local"]["key"], key);
     assert_eq!(stored["models"]["openai"]["key"], "sk-openai-own");
+    // Removing a provider forgets its key, for every client and on
+    // disk, and leaves the others.
+    let removed = s
+        .chief
+        .request(|id| {
+            ClientMessage::Login(Login::Forget {
+                forget: "openai".into(),
+                id,
+            })
+        })
+        .await;
+    assert_eq!(
+        (removed.kind, removed.text.as_str()),
+        (ReplyKind::Notice, "OpenAI is removed.")
+    );
+    other
+        .until("openai removed elsewhere", |c| {
+            !configured(c, "openai")
+        })
+        .await;
+    let stored = credentials();
+    assert!(stored["models"].get("openai").is_none(), "{stored}");
+    assert_eq!(stored["models"]["local"]["key"], key);
 }
 
 #[tokio::test]
@@ -445,5 +469,109 @@ async fn the_faux_model_answers_every_agents_check() {
     assert_eq!(
         (reply.kind, reply.text.as_str()),
         (ReplyKind::Notice, "Every agent runs the faux model here.")
+    );
+}
+
+/// What the faux provider last told of its limits, as the chief sees
+/// it.
+fn faux_limits(c: &Client) -> Option<ProviderLimits> {
+    c.realm()
+        .providers
+        .into_iter()
+        .find(|p| p.id == "faux")
+        .and_then(|p| p.limits)
+}
+
+#[tokio::test]
+async fn reads_a_providers_limits_and_lays_what_a_turn_learns_over_them()
+ {
+    let resets = 4_102_444_800_000_i64;
+    let mut s = Session::start(
+        Faux::new()
+            .limits(serde_json::json!({
+                "plan": "Faux plan",
+                "state": "ok",
+                "windows": [
+                    {"id": "five_hour", "name": "Session", "length": 300,
+                     "used": 40, "resets": resets},
+                    {"id": "seven_day", "name": "Week", "length": 10_080,
+                     "used": 10},
+                ],
+            }))
+            .responses([words("Close.").learning(serde_json::json!({
+                "state": "warning",
+                "windows": [
+                    {"id": "five_hour", "name": "Session", "length": 300,
+                     "used": 91},
+                ],
+            }))]),
+    )
+    .await;
+    // The server knows its providers once the runtime described them.
+    s.chief
+        .until("the providers were described", |c| {
+            c.realm().providers.iter().any(|p| p.id == "faux")
+        })
+        .await;
+    assert_eq!(faux_limits(&s.chief), None);
+    let reply = s
+        .chief
+        .request(|id| ClientMessage::Check(Check::Limits { id }))
+        .await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "Limits checked.")
+    );
+    s.chief
+        .until("the limits were told", |c| faux_limits(c).is_some())
+        .await;
+    let read = faux_limits(&s.chief).unwrap();
+    assert_eq!(
+        (read.plan.as_deref(), read.state),
+        (Some("Faux plan"), LimitsState::Ok)
+    );
+    let windows = |l: &ProviderLimits| {
+        l.windows
+            .iter()
+            .map(|w| (w.id.clone(), w.used, w.resets, w.length))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        windows(&read),
+        [
+            ("five_hour".into(), Some(40.0), Some(resets), Some(300)),
+            ("seven_day".into(), Some(10.0), None, Some(10_080)),
+        ]
+    );
+
+    // Asked again within the minute, it is not read again.
+    let reply = s
+        .chief
+        .request(|id| ClientMessage::Check(Check::Limits { id }))
+        .await;
+    assert_eq!(reply.text, "Limits checked.");
+    assert_eq!(faux_limits(&s.chief).unwrap().checked, read.checked);
+
+    // A turn lays the window it learnt about over the read, keeping
+    // the reset it leaves out.
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "a").await;
+    s.chief.shows(&now, "Close.").await;
+    s.chief
+        .until("the turn's limits", |c| {
+            faux_limits(c)
+                .is_some_and(|l| l.state == LimitsState::Warning)
+        })
+        .await;
+    let learnt = faux_limits(&s.chief).unwrap();
+    assert_eq!(learnt.plan.as_deref(), Some("Faux plan"));
+    assert_eq!(
+        windows(&learnt),
+        [
+            ("five_hour".into(), Some(91.0), Some(resets), Some(300)),
+            ("seven_day".into(), Some(10.0), None, Some(10_080)),
+        ]
     );
 }

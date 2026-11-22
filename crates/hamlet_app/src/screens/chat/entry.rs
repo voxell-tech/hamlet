@@ -619,6 +619,81 @@ fn thought_row(
         .min_width(px(0.0))
 }
 
+/// The model the chat in `session` runs on, `provider::id`.
+fn model_of(world: &World, session: Entity) -> String {
+    world
+        .get::<Chat>(session)
+        .and_then(|chat| {
+            hamlet_client::realm::agent(world, chat.0.with)
+        })
+        .and_then(|agent| {
+            world.get::<hamlet_client::realm::Account>(agent)
+        })
+        .map(|account| account.model.clone())
+        .unwrap_or_default()
+}
+
+/// Why the reply of entry `id` failed: in the plan's words when its
+/// plan refused it for a limit, else the provider's.
+fn failure(
+    session: Entity,
+    id: String,
+) -> bevy_fynix::Signal<String> {
+    derived(move |world| {
+        let error = world
+            .get::<Transcript>(session)
+            .and_then(|t| t.item(&id).map(|item| &item.entry))
+            .and_then(|entry| match entry {
+                Entry::Error(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let model = model_of(world, session);
+        match crate::plans::refusal(world, &model, &error) {
+            Some(words) => format!(
+                "{words} Try again to carry on from where it ended."
+            ),
+            None => format!(
+                "Could not finish that reply: {}. Try again to \
+                 carry on from where it ended.",
+                error.trim_end_matches('.')
+            ),
+        }
+    })
+    .when(crate::roll::moved::<crate::plans::Plans>())
+}
+
+/// Where to see the limits of the plan that refused a reply in
+/// `session`: the plan's limits in Settings. Nothing when it was not
+/// a plan's limit.
+fn plan_action(session: Entity) -> AnyView {
+    keyed(
+        derived(move |world| {
+            let model = model_of(world, session);
+            let provider =
+                crate::models::provider_of(&model).to_string();
+            world
+                .get_resource::<crate::plans::Plans>()
+                .and_then(|plans| plans.of(&provider))
+                .filter(|plan| {
+                    plan.reading.mood == crate::plans::Mood::Out
+                })
+                .map(|_| provider)
+        })
+        .when(crate::roll::moved::<crate::plans::Plans>()),
+        |provider| match provider.as_deref() {
+            Some(_) => hamlet_ui::styles::action(
+                Glyph::Meter,
+                "Open limits",
+                crate::plans::open,
+            ),
+            None => frame().boxed(),
+        },
+    )
+    .within(hamlet_ui::styles::bare())
+    .boxed()
+}
+
 /// Why a tool call failed, in a red block under its request.
 fn failed(why: String) -> impl View {
     with_cx(move |cx| {
@@ -694,32 +769,27 @@ pub(crate) fn entry_view(
                 step_row(hub, chat, id).boxed()
             }
             Some(Entry::Error(_)) => column((
-                label(text(|e| match e {
-                    Entry::Error(s) => format!(
-                        "Could not finish that reply: {}. Try again \
-                         to carry on from where it ended.",
-                        s.trim_end_matches('.')
+                label(failure(chat, id.clone())).tone(Tone::Critical),
+                row((
+                    plan_action(chat),
+                    tinted_action(
+                        StatusKind::Warning,
+                        Glyph::Restore,
+                        "Try Again",
+                        move |world| {
+                            let Some(to) = world
+                                .get::<Chat>(chat)
+                                .map(|chat| chat.0.with)
+                            else {
+                                return;
+                            };
+                            world.trigger(ChiefMessage::words(
+                                to,
+                                "/retry".into(),
+                            ));
+                        },
                     ),
-                    _ => String::new(),
-                }))
-                .tone(Tone::Critical),
-                row((tinted_action(
-                    StatusKind::Warning,
-                    Glyph::Restore,
-                    "Try Again",
-                    move |world| {
-                        let Some(to) = world
-                            .get::<Chat>(chat)
-                            .map(|chat| chat.0.with)
-                        else {
-                            return;
-                        };
-                        world.trigger(ChiefMessage::words(
-                            to,
-                            "/retry".into(),
-                        ));
-                    },
-                ),)),
+                )),
             ))
             .gap(8.0)
             .padding(UiRect::axes(px(12.0), px(4.0)))

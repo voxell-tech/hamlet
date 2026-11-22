@@ -42,6 +42,7 @@ import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
 import { FAUX, queueOf, readScript, scriptedProvider } from "./faux.ts";
 import { blocksOf, itemOf } from "./items.ts";
+import { onSeen } from "./limits.ts";
 import {
     ANSWER_SHARE,
     allowedStreams,
@@ -257,6 +258,10 @@ class Runtime {
         this.#channel = channel;
         this.#providers = available;
         this.#recovery = recoveryTask(harness, channel);
+        // What a turn learns of a provider's limits goes to the server as it is learnt.
+        onSeen((provider, limits) =>
+            channel.send({ type: "limits", provider, limits }),
+        );
         this.#gate = {
             credentials: (scope, provider) =>
                 serverCredentials(

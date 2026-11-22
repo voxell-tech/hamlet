@@ -76,10 +76,13 @@ impl ClientMessage {
             | Self::Login(
                 Login::Start { id, .. }
                 | Login::Reply { id, .. }
-                | Login::Cancel { id, .. },
+                | Login::Cancel { id, .. }
+                | Login::Forget { id, .. },
             )
             | Self::Check(
-                Check::Model { id, .. } | Check::Connection { id },
+                Check::Model { id, .. }
+                | Check::Connection { id }
+                | Check::Limits { id },
             )
             | Self::Read(
                 Read::Prompt { id, .. }

@@ -67,6 +67,8 @@ pub struct Shelf {
     showing: bool,
     problem: Option<String>,
     requests: BTreeMap<protocol::RequestId, Asked>,
+    /// The provider whose Remove asks to be confirmed.
+    removing: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -203,6 +205,21 @@ fn edit(
     let mut shelf = world.resource_mut::<Shelf>();
     shelf.requests.insert(id, Asked::Edit);
     shelf.problem = None;
+}
+
+/// Signs out of `provider`, or removes its key, on the server; the
+/// catalogue is read again once it answers.
+fn forget(world: &mut World, provider: String) {
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Login(protocol::Login::Forget {
+            forget: provider,
+            id,
+        })
+    });
+    let mut shelf = world.resource_mut::<Shelf>();
+    shelf.requests.insert(id, Asked::Edit);
+    shelf.problem = None;
+    shelf.removing = None;
 }
 
 fn problem() -> impl hamlet_ui::View {
@@ -359,6 +376,34 @@ mod tests {
             .set_text(text);
         app.world_mut().resource_mut::<InputFocus>().clear();
         app.update();
+    }
+
+    #[test]
+    fn removing_a_provider_asks_first_then_tells_the_server() {
+        let mut app = with_catalogue();
+        app.init_resource::<crate::plans::Plans>();
+        app.world_mut().resource_mut::<Providers>().0 =
+            vec![protocol::ProviderView {
+                configured: true,
+                id: "chatgpt".into(),
+                label: "Continue with ChatGPT".into(),
+                limits: None,
+                methods: vec![protocol::LoginMethod::Subscription],
+                name: "ChatGPT".into(),
+            }];
+        mount::<HamletTheme>(app.world_mut(), endpoints());
+        app.update();
+        press_and_update(&mut app, "Remove");
+        assert!(
+            sent(&mut app).is_empty(),
+            "nothing before confirming"
+        );
+        assert!(all_words(&mut app).contains("Remove ChatGPT?"));
+        press_and_update(&mut app, "Yes, remove");
+        let forget = sent(&mut app).remove(0);
+        assert_eq!(forget["type"], "login");
+        assert_eq!(forget["forget"], "chatgpt");
+        assert!(!all_words(&mut app).contains("Yes, remove"));
     }
 
     #[test]

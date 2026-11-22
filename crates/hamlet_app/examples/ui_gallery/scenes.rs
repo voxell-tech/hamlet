@@ -106,6 +106,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::search::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
+                hamlet_app::plans::plugin,
                 hamlet_app::secret::plugin,
                 hamlet_app::desk_still,
                 welcome::key_plugin,
@@ -221,6 +222,9 @@ pub enum Scene {
     Settings,
     /// The Settings panel at its Models page.
     SettingsModels,
+    /// The Settings panel at its Endpoints page, each signed-in plan
+    /// with its limits.
+    SettingsEndpoints,
     /// The Settings panel at its Charter page.
     Charter,
     /// The Settings panel at its Workspace page, a remote one chosen.

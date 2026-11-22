@@ -27,6 +27,7 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
     download,
     downloadable,
+    downloaded,
     forLibc,
     machine,
     useDownloaded,
@@ -63,6 +64,22 @@ const PACKAGES = [
     "@modelcontextprotocol/sdk/server/mcp.js",
     "cc-session-io",
 ];
+
+/** Where to find the Claude program and its folders, by the provider made with them. */
+const programs = new WeakMap<
+    Provider,
+    () => { at: Folders; program: string } | undefined
+>();
+
+/**
+ * The Claude program `provider` runs, when it is the provider `claude` and the program is installed with pi or
+ * already downloaded. It is never downloaded here.
+ */
+export function programOf(
+    provider: Provider,
+): { at: Folders; program: string } | undefined {
+    return programs.get(provider)?.();
+}
 
 /**
  * The provider, with its folders in `home`; none when this computer has no Claude program. Where pi was installed
@@ -122,7 +139,7 @@ export function claudeProvider(home: string): Provider | undefined {
             );
         return out;
     };
-    return createProvider({
+    const made = createProvider({
         id: PROVIDER,
         name: "Claude",
         auth: {
@@ -155,6 +172,14 @@ export function claudeProvider(home: string): Provider | undefined {
             .map((m) => ({ ...m, provider: PROVIDER })),
         api: { stream: streamed, streamSimple: streamed },
     });
+    programs.set(made, () => {
+        const from = local ? undefined : downloaded(home);
+        if (!local && from === undefined) return undefined;
+        if (from !== undefined) useDownloaded(from);
+        const program = executable(from);
+        return program === undefined ? undefined : { at, program };
+    });
+    return made;
 }
 
 /** Whether `name` resolves from pi. */
@@ -295,6 +320,50 @@ async function signIn(
         signal.removeEventListener("abort", stop);
         child.kill();
         rmSync(link, { force: true });
+    }
+}
+
+/** Runs `claude auth logout`, so the Claude program forgets the login it keeps. */
+export async function signOut(
+    { at, program }: { at: Folders; program: string },
+    signal: AbortSignal,
+): Promise<void> {
+    const script = /\.(mjs|cjs|js)$/.test(program);
+    const args = ["auth", "logout"];
+    const child = spawn(
+        script ? process.execPath : program,
+        script ? [program, ...args] : args,
+        {
+            cwd: at.work,
+            env: environment(at),
+            stdio: ["ignore", "pipe", "pipe"],
+            windowsHide: true,
+        },
+    );
+    let said = "";
+    child.stdout.on("data", (chunk) => {
+        said += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+        said += String(chunk);
+    });
+    const stop = () => child.kill();
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+        const code = await new Promise<number | null>((resolve, reject) => {
+            child.once("close", resolve);
+            // A program that cannot start never closes.
+            child.once("error", (error) =>
+                reject(
+                    new Error(`Claude's sign-out could not start. ${error}`),
+                ),
+            );
+        });
+        if (signal.aborted) throw new Error("Claude's sign-out took too long.");
+        if (code !== 0)
+            throw new Error(`Claude's sign-out failed. ${lastLine(said)}`);
+    } finally {
+        signal.removeEventListener("abort", stop);
     }
 }
 

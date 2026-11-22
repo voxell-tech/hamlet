@@ -20,6 +20,7 @@ pub mod mcp;
 pub mod menu;
 pub mod models;
 mod naming;
+pub mod plans;
 mod profile_tag;
 mod reference;
 mod remember;
@@ -117,6 +118,7 @@ impl Plugin for UiPlugin {
                 limits::plugin,
                 models::plugin,
                 mcp::plugin,
+                plans::plugin,
                 asking::plugin,
                 select::plugin,
                 welcome::plugin,

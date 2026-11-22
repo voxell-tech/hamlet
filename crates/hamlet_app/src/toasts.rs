@@ -269,6 +269,12 @@ impl Toasts {
             .retain(|toast| !matches!(toast.what, What::Update(_)));
     }
 
+    /// How many toasts are on show.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.shown.len()
+    }
+
     /// The [`Place`] of toast `id` in the stack.
     fn place(&self, id: u64) -> Place {
         let Some(at) =

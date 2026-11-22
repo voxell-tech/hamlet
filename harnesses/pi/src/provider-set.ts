@@ -2,22 +2,22 @@
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { zaiProvider } from "@earendil-works/pi-ai/providers/zai";
 import { claudeProvider } from "./claude.ts";
+import {
+    CHATGPT_REFUSAL,
+    chatgptHeaders,
+    chatgptRefused,
+    seen,
+} from "./limits.ts";
 
 /** The providers a chief signs in to with a subscription (ADR 0006). */
 export const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
 
 /** Built-in providers with Hamlet's supported sign-in methods; Claude too with its folders in `home`. */
 export function providers(home?: string): Provider[] {
-    const openai: Provider = openaiProvider();
-    const served = new Set(
-        openaiCodexProvider()
-            .getModels()
-            .map((m) => m.id),
-    );
+    const codex: Provider = openaiCodexProvider();
     const result = builtinProviders()
         .filter((p) => p.id !== "zai" && p.id !== "zai-coding-cn")
         .map((p) => ({
@@ -31,38 +31,50 @@ export function providers(home?: string): Provider[] {
                     : {}),
             },
         }));
-    if (openai.auth.oauth !== undefined)
+    // ChatGPT through Codex's sign-in and address (ADR 0006): its token
+    // also reads the plan's usage, and each answer tells its limits.
+    const oauth = codex.auth.oauth;
+    if (oauth !== undefined)
         result.push(
             createProvider({
                 id: "chatgpt",
                 name: "ChatGPT",
                 auth: {
                     oauth: {
-                        ...openai.auth.oauth,
+                        ...oauth,
                         loginLabel: "Continue with ChatGPT",
+                        // The browser sign-in, without asking which.
+                        login: (interaction, options) =>
+                            oauth.login(
+                                {
+                                    ...interaction,
+                                    prompt: (prompt) =>
+                                        prompt.type === "select"
+                                            ? Promise.resolve("browser")
+                                            : interaction.prompt(prompt),
+                                },
+                                options,
+                            ),
                     },
                 },
-                // A ChatGPT sign-in serves only the models of the
-                // Codex list, not every model of the API.
-                models: openai
+                models: codex
                     .getModels()
-                    .filter((m) => served.has(m.id))
                     .map((m) => ({ ...m, provider: "chatgpt" })),
                 api: {
                     stream: (model, input, options) =>
                         alias(
-                            openai.stream(
-                                { ...model, provider: "openai" },
+                            codex.stream(
+                                { ...model, provider: "openai-codex" },
                                 input,
-                                options,
+                                watched(options),
                             ),
                         ),
                     streamSimple: (model, input, options) =>
                         alias(
-                            openai.streamSimple(
-                                { ...model, provider: "openai" },
+                            codex.streamSimple(
+                                { ...model, provider: "openai-codex" },
                                 input,
-                                options,
+                                watched(options),
                             ),
                         ),
                 },
@@ -105,7 +117,35 @@ function zai(): Provider {
     });
 }
 
+/** `options` that also tell the plan's limits from each answer's headers. */
+function watched<O extends { onResponse?: unknown }>(
+    options: O | undefined,
+): O {
+    const before = options?.onResponse as
+        | ((
+              response: { status: number; headers: Record<string, string> },
+              model: unknown,
+          ) => unknown)
+        | undefined;
+    return {
+        ...(options as O),
+        onResponse: async (
+            response: { status: number; headers: Record<string, string> },
+            model: unknown,
+        ) => {
+            const limits = chatgptHeaders(response.headers);
+            if (limits !== undefined) seen("chatgpt", limits);
+            await before?.(response, model);
+        },
+    };
+}
+
+/** When the ChatGPT plan last refused, so that the next call made after it tells the refusal lifted. */
+let refused: number | undefined;
+
+/** `source` as the provider `chatgpt`'s, telling a refusal for the plan's limits as it passes. */
 function alias(source: ReturnType<Provider["stream"]>) {
+    const started = Date.now();
     const out = createAssistantMessageEventStream();
     void (async () => {
         for await (const event of source) {
@@ -116,6 +156,26 @@ function alias(source: ReturnType<Provider["stream"]>) {
                       ? event.error
                       : event.partial;
             message.provider = "chatgpt";
+            if (
+                event.type === "error" &&
+                CHATGPT_REFUSAL.test(message.errorMessage ?? "")
+            ) {
+                refused = Date.now();
+                seen("chatgpt", chatgptRefused());
+            } else if (
+                event.type === "done" &&
+                refused !== undefined &&
+                started > refused
+            ) {
+                // The plan answers a call made since: the refusal
+                // lifted. One made before tells nothing of it.
+                refused = undefined;
+                seen("chatgpt", {
+                    checked: Date.now(),
+                    state: "ok",
+                    windows: [],
+                });
+            }
             out.push(event);
         }
         const message = await source.result();

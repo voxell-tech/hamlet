@@ -23,6 +23,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         scene,
         Scene::Settings
             | Scene::SettingsModels
+            | Scene::SettingsEndpoints
             | Scene::Charter
             | Scene::Workspace
             | Scene::Mcp
@@ -54,6 +55,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.resource_mut::<hamlet_app::models::Shelf>().models =
             super::hub::catalogue();
         world.insert_resource(settings::Pane::Models);
+    }
+    if scene == Scene::SettingsEndpoints {
+        world.insert_resource(settings::Pane::Endpoints);
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =

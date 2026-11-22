@@ -272,6 +272,11 @@ pub(crate) enum Rejection {
     )]
     NoEndpointNamed { name: String },
     #[error(
+        "No default model is chosen yet. Choose one in Settings › \
+         Models, then test again."
+    )]
+    NoDefaultModel,
+    #[error(
         "`{name}` is served by the endpoint `{endpoint}`, which the \
          settings do not have."
     )]

@@ -25,6 +25,8 @@ pub struct Faux {
     price: Option<Price>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tokens_per_second: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limits: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -90,6 +92,14 @@ impl Faux {
     /// Streams each answer at `rate` tokens a second.
     pub fn tokens_per_second(mut self, rate: f64) -> Self {
         self.tokens_per_second = Some(rate);
+        self
+    }
+
+    /// What a read of the faux provider's limits answers:
+    /// `{state, windows, plan?}`, as a runtime protocol `Limits`
+    /// without its `checked`.
+    pub fn limits(mut self, limits: serde_json::Value) -> Self {
+        self.limits = Some(limits);
         self
     }
 
