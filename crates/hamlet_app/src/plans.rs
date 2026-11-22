@@ -31,7 +31,8 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
-use hamlet_core::panels::{PanelSystems, ShowPanel};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::settings::{OpenSettings, SettingsPane};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, action, bare, close, icon_button, note, pill,
@@ -45,7 +46,7 @@ use jiff::tz::TimeZone;
 pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
 use crate::hub::Showing;
 use crate::models::mark;
-use crate::settings::Pane;
+use crate::settings::ENDPOINTS;
 use crate::toasts::Toasts;
 
 /// The width of a window's name before its bar, of what it used after
@@ -110,7 +111,7 @@ struct Asking(Option<RequestId>);
 fn ask(
     turned: Query<(), Changed<Showing>>,
     hubs: Query<&Showing>,
-    pane: Option<Res<Pane>>,
+    pane: Option<Res<SettingsPane>>,
     connection: Res<Connection>,
     mut commands: Commands,
 ) {
@@ -118,7 +119,7 @@ fn ask(
         || !turned.is_empty()
         || pane.as_ref().is_some_and(DetectChanges::is_changed);
     let shown = hubs.iter().any(|showing| *showing == Showing::Realm)
-        || pane.is_some_and(|pane| *pane == Pane::Endpoints);
+        || pane.is_some_and(|pane| pane.0 == Some(ENDPOINTS));
     if moved && shown {
         commands.queue(check);
     }
@@ -242,8 +243,7 @@ fn warn(
 
 /// Opens `provider`'s limits under it in Settings' endpoints.
 pub(crate) fn open(world: &mut World) {
-    *world.resource_mut::<Pane>() = Pane::Endpoints;
-    world.trigger(ShowPanel("settings".into()));
+    world.trigger(OpenSettings(Some(ENDPOINTS)));
 }
 
 /// The colour of `mood`: green with plenty left, yellow with some,

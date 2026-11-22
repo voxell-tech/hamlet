@@ -21,6 +21,7 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Account, Providers};
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::settings::SettingsPane;
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
@@ -29,7 +30,7 @@ pub use self::home::{endpoints, shelf};
 pub(crate) use self::row::{
     Detail, ModelRow, legend, mark, model_row, over_rows, tag,
 };
-use crate::settings::Pane;
+use crate::settings::MODELS;
 
 /// How many models a page of the catalogue shows.
 const SHOWN: usize = 10;
@@ -51,7 +52,7 @@ pub(crate) fn plugin(app: &mut App) {
                     resource_changed::<Shelf>
                         .or_eager(resource_changed::<Connection>)
                         .or_eager(
-                            resource_exists_and_changed::<Pane>,
+                            resource_exists_and_changed::<SettingsPane>,
                         ),
                 )
                 .in_set(PanelSystems::Follow),
@@ -165,7 +166,9 @@ pub(crate) fn account_words(account: &Account) -> String {
 }
 
 fn follow(world: &mut World) {
-    let showing = world.get_resource::<Pane>() == Some(&Pane::Models);
+    let showing = world
+        .get_resource::<SettingsPane>()
+        .is_some_and(|pane| pane.0 == Some(MODELS));
     let shelf = world.resource::<Shelf>();
     let read =
         !shelf.asking && (!shelf.loaded || showing && !shelf.showing);

@@ -17,6 +17,7 @@ use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, ViewFolder, receive};
 use hamlet_core::roll::Roll;
+use hamlet_core::settings::SettingsPane;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::North;
@@ -32,7 +33,7 @@ use image::{ImageFormat, RgbaImage};
 use crate::appearance::Appearance;
 use crate::desk::{self, Desks};
 use crate::remember::Remembered;
-use crate::screens::settings::{self, Pane};
+use crate::screens::settings;
 use crate::welcome::Browser;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -132,14 +133,14 @@ pub(crate) fn connect(app: &mut App, unset: bool) {
 }
 
 /// The settings screen open on `pane`, over [`panel_app`].
-pub(crate) fn settings_page(pane: Pane) -> App {
+pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     let mut app = panel_app();
     app.add_plugins((
         settings::plugin,
         hamlet_ui::widgets::secret::plugin,
     ))
     .init_resource::<KeepAwake>()
-    .insert_resource(pane);
+    .insert_resource(SettingsPane(pane));
     bevy_fynix::mount::<HamletTheme>(
         app.world_mut(),
         settings::screen(),

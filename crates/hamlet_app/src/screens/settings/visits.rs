@@ -11,12 +11,11 @@ use bevy::input::keyboard::KeyCode;
 use bevy_fynix::shortcut::{
     CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
+use hamlet_core::settings::SettingsPane;
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::trail::{
     Trail, Way, mouse_pressed, mouse_way, pointer_over,
 };
-
-use super::Pane;
 
 /// The keys of Settings, in force while the pointer is over it.
 pub(super) const KEYS: ScopeId = ScopeId("settings");
@@ -58,20 +57,20 @@ pub(super) fn plugin(app: &mut App) {
 
 /// The pages behind the one shown and those ahead of it.
 #[derive(Resource, Default)]
-struct Visits(Trail<Pane>);
+struct Visits(Trail<SettingsPane>);
 
 /// Keeps the page left behind whenever Settings turns to another.
-fn record(pane: Res<Pane>, mut visits: ResMut<Visits>) {
+fn record(pane: Res<SettingsPane>, mut visits: ResMut<Visits>) {
     visits.0.keep(*pane);
 }
 
 /// Turns Settings to the page behind, or the one ahead.
 fn travel(world: &mut World, way: Way) {
-    let now = *world.resource::<Pane>();
+    let now = *world.resource::<SettingsPane>();
     let next =
         world.resource_mut::<Visits>().0.travel(way, now, |_| true);
     if let Some(next) = next {
-        *world.resource_mut::<Pane>() = next;
+        *world.resource_mut::<SettingsPane>() = next;
     }
 }
 

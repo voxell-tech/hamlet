@@ -9,6 +9,7 @@ pub mod age;
 pub mod clock;
 pub mod panels;
 pub mod roll;
+pub mod settings;
 pub mod standing;
 pub mod words;
 
@@ -23,5 +24,5 @@ pub use hamlet_ui as ui;
 
 /// What every part of the window needs before it is added.
 pub fn plugin(app: &mut App) {
-    app.add_plugins((panels::plugin, roll::plugin));
+    app.add_plugins((panels::plugin, roll::plugin, settings::plugin));
 }

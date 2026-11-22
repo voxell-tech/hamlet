@@ -1,10 +1,10 @@
 //! The settings screen, a page for each part.
 
-mod appearance;
-mod sight;
+pub mod appearance;
+pub mod sight;
 mod updates;
 mod visits;
-pub(crate) mod workspace;
+pub mod workspace;
 
 use bevy::app::{App, Update};
 use bevy::ecs::observer::On;
@@ -31,10 +31,12 @@ use hamlet_client::realm::{
 };
 use hamlet_core::panels::{PanelAppExt, panel};
 use hamlet_core::roll::{either, moved};
+use hamlet_core::settings::{
+    PANEL, SettingsAppExt, SettingsPage, SettingsPages, SettingsPane,
+};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
-use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
@@ -47,21 +49,25 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use crate::appearance::Appearance;
 use crate::root::Lasting;
-use crate::updates::UpdateChannel;
 use crate::world_menu::{self, Action};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
-        "settings",
+        PANEL,
         DockWindowKind::new("Settings", || panel(screen()))
             .icon(Glyph::Sliders.image(ICON)),
     )
-    .add_plugins((sight::plugin, workspace::plugin, visits::plugin))
+    .add_plugins((
+        sight::plugin,
+        workspace::plugin,
+        appearance::plugin,
+        updates::plugin,
+        visits::plugin,
+    ))
     // Each provider's limits are under it, filled by `plans::plugin`.
     .init_resource::<crate::plans::Plans>()
-    .init_resource::<Pane>()
+    .init_resource::<SettingsPane>()
     .init_resource::<Charter>()
     .init_resource::<CharterRequests>()
     .add_observer(charter_received)
@@ -69,7 +75,7 @@ pub fn plugin(app: &mut App) {
     .add_observer(default_character_saved)
     .add_observer(
         |_: On<Reconnected>,
-         pane: Res<Pane>,
+         pane: Res<SettingsPane>,
          outbox: ResMut<Outbox>,
          requests: ResMut<CharterRequests>| {
             read_charter(pane, outbox, requests);
@@ -77,7 +83,77 @@ pub fn plugin(app: &mut App) {
     )
     .add_systems(
         Update,
-        read_charter.run_if(resource_changed::<Pane>),
+        read_charter.run_if(resource_changed::<SettingsPane>),
+    )
+    .add_settings_page(
+        SettingsPage::new(
+            ENDPOINTS,
+            "Endpoints",
+            Glyph::Signal,
+            10,
+            || crate::models::endpoints().boxed(),
+        )
+        .now(endpoints_now),
+    )
+    .add_settings_page(
+        SettingsPage::new(
+            MODELS,
+            "Models",
+            Glyph::Chip,
+            20,
+            crate::models::shelf,
+        )
+        .now(models_now)
+        .wide(),
+    )
+    .add_settings_page(
+        SettingsPage::new(
+            MCP,
+            "MCP Servers",
+            Glyph::Bolt,
+            30,
+            || crate::mcp::page().boxed(),
+        )
+        .now(mcp_now),
+    )
+    .add_settings_page(
+        SettingsPage::new(
+            AGENTS,
+            "Agent Behaviour",
+            Glyph::Robot,
+            40,
+            || agents().boxed(),
+        )
+        .now(agents_now),
+    )
+    .add_settings_page(
+        SettingsPage::new(
+            CHARTER,
+            "Charter",
+            Glyph::Notes,
+            60,
+            || charter_page().boxed(),
+        )
+        .now(charter_now)
+        .beside_title(|| {
+            pill(resource::<Charter, _>(|charter| {
+                charter_state(charter).to_string()
+            }))
+            .boxed()
+        }),
+    )
+    .add_settings_page(SettingsPage::new(
+        REALM,
+        "Realm Limits",
+        Glyph::Globe,
+        70,
+        crate::limits::realm,
+    ))
+    .add_settings_page(
+        SettingsPage::new(SOUND, "Sound", Glyph::Speaker, 80, || {
+            sound().boxed()
+        })
+        .now(sound_now),
     );
 }
 
@@ -86,150 +162,82 @@ fn field(name: &'static str, value: impl View) -> impl View {
     close((section(name), value))
 }
 
-/// A part of the settings, each on a page of its own.
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Pane {
-    /// The list of the others.
-    #[default]
-    Front,
-    Endpoints,
-    Models,
-    /// The MCP servers whose tools agents are offered.
-    Mcp,
-    Agents,
-    /// Where agents' commands run: this computer or a remote server.
-    Workspace,
-    /// The words every agent's prompt opens with.
-    Charter,
-    /// The limits that hold for every hamlet.
-    Realm,
-    Sound,
-    /// How the world is drawn: quality, the hour and the fog.
-    Sight,
-    /// Light, dark, or as the computer is set.
-    Appearance,
-    /// This copy's version and the channel it updates from.
-    Updates,
+/// The id of the Endpoints page.
+pub const ENDPOINTS: &str = "endpoints";
+/// The id of the Models page.
+pub const MODELS: &str = "models";
+/// The id of the page of the MCP servers whose tools agents are
+/// offered.
+pub const MCP: &str = "mcp";
+/// The id of the Agent Behaviour page.
+pub const AGENTS: &str = "agents";
+/// The id of the page of the words every agent's prompt opens with.
+pub const CHARTER: &str = "charter";
+/// The id of the page of the limits that hold for every hamlet.
+pub const REALM: &str = "realm";
+/// The id of the Sound page.
+pub const SOUND: &str = "sound";
+
+fn endpoints_now() -> Prop<String> {
+    derived(|world: &World| {
+        let endpoints =
+            world.resource::<Settings>().0.endpoints.len();
+        let providers = world.get_resource::<Providers>().map_or(
+            0,
+            |providers| {
+                providers
+                    .0
+                    .iter()
+                    .filter(|provider| provider.configured)
+                    .count()
+            },
+        );
+        match endpoints + providers {
+            0 => "None".to_string(),
+            n => format!("{n} connected"),
+        }
+    })
+    .when(either(moved::<Settings>(), moved::<Providers>()))
+    .into()
 }
 
-impl Pane {
-    const PAGES: [Pane; 11] = [
-        Pane::Endpoints,
-        Pane::Models,
-        Pane::Mcp,
-        Pane::Agents,
-        Pane::Workspace,
-        Pane::Charter,
-        Pane::Realm,
-        Pane::Sound,
-        Pane::Sight,
-        Pane::Appearance,
-        Pane::Updates,
-    ];
+fn models_now() -> Prop<String> {
+    shown::<Settings>(|s| {
+        crate::models::model_name(&s.0.model).to_string()
+    })
+}
 
-    fn title(self) -> &'static str {
-        match self {
-            Pane::Front => "Settings",
-            Pane::Endpoints => "Endpoints",
-            Pane::Models => "Models",
-            Pane::Mcp => "MCP Servers",
-            Pane::Agents => "Agent Behaviour",
-            Pane::Workspace => "Workspace",
-            Pane::Charter => "Charter",
-            Pane::Realm => "Realm Limits",
-            Pane::Sound => "Sound",
-            Pane::Sight => "Sight",
-            Pane::Appearance => "Appearance",
-            Pane::Updates => "Updates",
+fn mcp_now() -> Prop<String> {
+    shown::<Settings>(|s| match s.0.mcp.servers.len() {
+        0 => "None".to_string(),
+        1 => "1 server".to_string(),
+        n => format!("{n} servers"),
+    })
+}
+
+fn agents_now() -> Prop<String> {
+    shown::<Settings>(|s| match s.0.reflect_every {
+        0 => "Reflection off".to_string(),
+        n => format!("Reflect every {n}"),
+    })
+}
+
+/// Read only while its page is open.
+fn charter_now() -> Prop<String> {
+    derived(|world: &World| {
+        if !world.resource::<CharterRequests>().loaded {
+            return String::new();
         }
-    }
+        charter_state(world.resource::<Charter>()).to_string()
+    })
+    .when(either(moved::<Charter>(), moved::<CharterRequests>()))
+    .into()
+}
 
-    fn glyph(self) -> Glyph {
-        match self {
-            Pane::Front => Glyph::Sliders,
-            Pane::Endpoints => Glyph::Signal,
-            Pane::Models => Glyph::Chip,
-            Pane::Mcp => Glyph::Bolt,
-            Pane::Agents => Glyph::Robot,
-            Pane::Workspace => Glyph::Shield,
-            Pane::Charter => Glyph::Notes,
-            Pane::Realm => Glyph::Globe,
-            Pane::Sound => Glyph::Speaker,
-            Pane::Sight => Glyph::Sun,
-            Pane::Appearance => Glyph::Eye,
-            Pane::Updates => Glyph::Rise,
-        }
-    }
-
-    /// What the page holds now, as the index shows it.
-    fn now(self) -> Option<Prop<String>> {
-        Some(match self {
-            Pane::Endpoints => derived(|world: &World| {
-                let endpoints =
-                    world.resource::<Settings>().0.endpoints.len();
-                let providers = world
-                    .get_resource::<Providers>()
-                    .map_or(0, |providers| {
-                        providers
-                            .0
-                            .iter()
-                            .filter(|provider| provider.configured)
-                            .count()
-                    });
-                match endpoints + providers {
-                    0 => "None".to_string(),
-                    n => format!("{n} connected"),
-                }
-            })
-            .when(either(moved::<Settings>(), moved::<Providers>()))
-            .into(),
-            Pane::Models => shown::<Settings>(|s| {
-                crate::models::model_name(&s.0.model).to_string()
-            }),
-            Pane::Mcp => {
-                shown::<Settings>(|s| match s.0.mcp.servers.len() {
-                    0 => "None".to_string(),
-                    1 => "1 server".to_string(),
-                    n => format!("{n} servers"),
-                })
-            }
-            Pane::Agents => {
-                shown::<Settings>(|s| match s.0.reflect_every {
-                    0 => "Reflection off".to_string(),
-                    n => format!("Reflect every {n}"),
-                })
-            }
-            Pane::Workspace => shown::<Settings>(|s| {
-                let remote = s.0.workspace.url.is_some();
-                workspace::CHOICES[usize::from(remote)].to_string()
-            }),
-            // Read only while its page is open.
-            Pane::Charter => derived(|world: &World| {
-                if !world.resource::<CharterRequests>().loaded {
-                    return String::new();
-                }
-                charter_state(world.resource::<Charter>()).to_string()
-            })
-            .when(either(
-                moved::<Charter>(),
-                moved::<CharterRequests>(),
-            ))
-            .into(),
-            Pane::Sound => shown::<SoundSettings>(|s| {
-                if s.muted { "Off" } else { "On" }.to_string()
-            }),
-            Pane::Sight => {
-                shown::<Quality>(|quality| quality.name().to_string())
-            }
-            Pane::Appearance => shown::<Appearance>(|appearance| {
-                appearance.pick().mode.name().to_string()
-            }),
-            Pane::Updates => shown::<UpdateChannel>(|channel| {
-                channel.followed().name().to_string()
-            }),
-            Pane::Front | Pane::Realm => return None,
-        })
-    }
+fn sound_now() -> Prop<String> {
+    shown::<SoundSettings>(|s| {
+        if s.muted { "Off" } else { "On" }.to_string()
+    })
 }
 
 /// What `read` makes of `R`, or nothing while there is no `R`.
@@ -568,11 +576,11 @@ struct CharterRequests {
 }
 
 fn read_charter(
-    pane: Res<Pane>,
+    pane: Res<SettingsPane>,
     mut outbox: ResMut<Outbox>,
     mut requests: ResMut<CharterRequests>,
 ) {
-    if *pane == Pane::Charter {
+    if pane.0 == Some(CHARTER) {
         requests.read = Some(outbox.send(|id| {
             protocol::ClientMessage::Read(protocol::Read::Charter {
                 id,
@@ -841,10 +849,16 @@ fn sound() -> impl View {
     ))
 }
 
-fn nav_item(pane: Pane) -> AnyView {
-    valued_row(pane.glyph(), pane.title(), pane.now(), move |world| {
-        *world.resource_mut::<Pane>() = pane;
-    })
+fn nav_item(page: &SettingsPage) -> AnyView {
+    let id = page.id;
+    valued_row(
+        page.glyph,
+        page.title,
+        page.now.map(|now| now()),
+        move |world| {
+            world.resource_mut::<SettingsPane>().0 = Some(id);
+        },
+    )
 }
 
 /// The way back to the first-run screen, as a row of the index.
@@ -869,12 +883,12 @@ fn projects() -> AnyView {
 
 /// The Settings panel's contents.
 pub fn screen() -> AnyView {
-    keyed(resource::<Pane, _>(|pane| *pane), |&pane| {
-        let (head, body) = parts_of(pane);
+    keyed(resource::<SettingsPane, _>(|pane| *pane), |&pane| {
         with_cx(move |cx| {
+            let pages = cx.world.resource::<SettingsPages>();
+            let (head, body, wide) = parts_of(pane, pages);
             let space = &cx.theme().space;
-            // The table of models is wider than a page of settings.
-            let width = px(if pane == Pane::Models {
+            let width = px(if wide {
                 space.table_width
             } else {
                 space.page_width
@@ -887,7 +901,10 @@ pub fn screen() -> AnyView {
                         x: OverflowAxis::Clip,
                         y: OverflowAxis::Scroll,
                     })
-                    .tagged(Lasting(format!("settings.{pane:?}")));
+                    .tagged(Lasting(format!(
+                        "settings.{}",
+                        pane.0.unwrap_or("front")
+                    )));
             column((
                 column((head,)).max_width(width),
                 faded(scrolled),
@@ -901,48 +918,33 @@ pub fn screen() -> AnyView {
     .boxed()
 }
 
-/// The head of the page of `pane`, and what is under it.
-fn parts_of(pane: Pane) -> (AnyView, AnyView) {
-    if pane == Pane::Front {
-        let mut pages: Vec<AnyView> =
-            Pane::PAGES.map(nav_item).into();
-        pages.push(projects());
-        pages.push(again());
-        let list = with_cx(move |cx| nav_list(cx, pages)).boxed();
-        return (title(Pane::Front.title()).boxed(), list);
-    }
-    let body = match pane {
-        Pane::Endpoints => crate::models::endpoints().boxed(),
-        Pane::Models => crate::models::shelf().boxed(),
-        Pane::Mcp => crate::mcp::page().boxed(),
-        Pane::Agents => agents().boxed(),
-        Pane::Workspace => workspace::page().boxed(),
-        Pane::Charter => charter_page().boxed(),
-        Pane::Realm => crate::limits::realm().boxed(),
-        Pane::Sight => sight::page().boxed(),
-        Pane::Appearance => appearance::page().boxed(),
-        Pane::Updates => updates::page().boxed(),
-        Pane::Front | Pane::Sound => sound().boxed(),
+/// The head of the page of `pane`, what is under it, and whether it
+/// is as wide as a table.
+fn parts_of(
+    pane: SettingsPane,
+    pages: &SettingsPages,
+) -> (AnyView, AnyView, bool) {
+    let Some(page) = pane.0.and_then(|id| pages.get(id)) else {
+        let mut rows: Vec<AnyView> =
+            pages.iter().map(nav_item).collect();
+        rows.push(projects());
+        rows.push(again());
+        let list = with_cx(move |cx| nav_list(cx, rows)).boxed();
+        return (title("Settings").boxed(), list, false);
     };
-    // The path names the page; the charter's state stands beside it.
+    // The path names the page; what the page has stands beside it.
     let path = breadcrumb(
         vec!["Settings".into()],
-        pane.title(),
+        page.title,
         |world, _| {
-            *world.resource_mut::<Pane>() = Pane::Front;
+            world.resource_mut::<SettingsPane>().0 = None;
         },
     );
-    let head = match pane {
-        Pane::Charter => beside((
-            path,
-            pill(resource::<Charter, _>(|charter| {
-                charter_state(charter).to_string()
-            })),
-        ))
-        .boxed(),
-        _ => path.boxed(),
+    let head = match page.beside_title {
+        Some(beside_title) => beside((path, beside_title())).boxed(),
+        None => path.boxed(),
     };
-    (head, body)
+    (head, (page.body)(), page.wide)
 }
 
 #[cfg(test)]
@@ -958,7 +960,7 @@ mod tests {
     #[test]
     fn agent_controls_send_only_the_changed_setting_and_follow_received_changes()
      {
-        let mut app = settings_page(Pane::Agents);
+        let mut app = settings_page(Some(AGENTS));
         let network =
             control::<Checkbox>(&mut app, "Tools network access");
         app.world_mut().trigger(ValueChange {

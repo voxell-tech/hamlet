@@ -5,6 +5,7 @@ use bevy::ecs::world::World;
 use hamlet_app::settings;
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
+use hamlet_core::settings::SettingsPane;
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sky::{
@@ -49,15 +50,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .into(),
             own: true,
         });
-        world.insert_resource(settings::Pane::Charter);
+        world.insert_resource(SettingsPane(Some(settings::CHARTER)));
     }
     if scene == Scene::SettingsModels {
         world.resource_mut::<hamlet_app::models::Shelf>().models =
             super::hub::catalogue();
-        world.insert_resource(settings::Pane::Models);
+        world.insert_resource(SettingsPane(Some(settings::MODELS)));
     }
     if scene == Scene::SettingsEndpoints {
-        world.insert_resource(settings::Pane::Endpoints);
+        world
+            .insert_resource(SettingsPane(Some(settings::ENDPOINTS)));
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =
@@ -66,11 +68,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                 running: None,
                 moving: None,
             };
-        world.insert_resource(settings::Pane::Workspace);
+        world.insert_resource(SettingsPane(Some(
+            settings::workspace::WORKSPACE,
+        )));
     }
     if scene == Scene::Mcp {
         world.resource_mut::<Settings>().0.mcp = mcp();
-        world.insert_resource(settings::Pane::Mcp);
+        world.insert_resource(SettingsPane(Some(settings::MCP)));
     }
     if scene == Scene::Sight {
         world.init_resource::<SkySettings>();
@@ -85,7 +89,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             ..Sky::default()
         });
         world.insert_resource(North::default());
-        world.insert_resource(settings::Pane::Sight);
+        world.insert_resource(SettingsPane(Some(
+            settings::sight::SIGHT,
+        )));
     }
     if let Scene::Appearance(shade) = scene {
         // The computer's, which the panels follow by default.
@@ -102,7 +108,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             world,
             HamletTheme::new(palette, &Measures::designed()),
         );
-        world.insert_resource(settings::Pane::Appearance);
+        world.insert_resource(SettingsPane(Some(
+            settings::appearance::APPEARANCE,
+        )));
     }
 }
 

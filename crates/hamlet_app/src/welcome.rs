@@ -449,10 +449,10 @@ fn answered(response: On<Response>, mut commands: Commands) {
                             .into()
                     });
                 } else if welcome.adding {
-                    if let Some(mut pane) = world
-                        .get_resource_mut::<crate::settings::Pane>()
-                    {
-                        *pane = crate::settings::Pane::Models;
+                    if let Some(mut pane) = world.get_resource_mut::<
+                        hamlet_core::settings::SettingsPane,
+                    >() {
+                        pane.0 = Some(crate::settings::MODELS);
                     }
                     close(world);
                 } else {
