@@ -13,6 +13,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::Works;
+use hamlet_core::orders::decree_for;
 use hamlet_core::pick::{Switched, Thing, select};
 use hamlet_core::roll::hamlets_moved;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
@@ -23,8 +24,6 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
-
-use crate::overview::tell;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
@@ -49,7 +48,11 @@ fn chosen(chosen: On<FolderChosen>, mut commands: Commands) {
 }
 
 fn work_on(world: &mut World, hamlet: Entity, folder: &Path) {
-    tell(world, hamlet, format!("/folder add {}", folder.display()));
+    decree_for(
+        world,
+        hamlet,
+        format!("/folder add {}", folder.display()),
+    );
 }
 
 /// `part` of what `hamlet` works on, rebuilt when it changes.
@@ -133,7 +136,7 @@ fn held_row(hamlet: Entity, folder: String) -> AnyView {
         lettered("Drop")
             .variant(Variant::Default)
             .on_activate(move |world| {
-                tell(
+                decree_for(
                     world,
                     hamlet,
                     format!("/folder drop {dropped}"),

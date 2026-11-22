@@ -5,7 +5,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
 use bevy::ecs::name::Name;
 use bevy::ecs::world::World;
-use hamlet_client::realm::{self as agents, Actions};
+use hamlet_client::realm::{self as agents, Actions, HamletId};
 
 /// A chief's command for the hamlet `hamlet`, or for the Hand when
 /// there is none, as the chief would type it.
@@ -53,6 +53,21 @@ fn name(world: &World, agent: Entity) -> Option<String> {
 pub fn decree(world: &mut World, agent: Entity, text: String) {
     let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);
     world.trigger(Decree { hamlet, text });
+    world.flush();
+}
+
+/// A chief's command for the hamlet `hamlet`, as the chief would type
+/// it.
+pub fn decree_for(world: &mut World, hamlet: Entity, text: String) {
+    let Some(name) =
+        world.get::<HamletId>(hamlet).map(|id| id.0.clone())
+    else {
+        return;
+    };
+    world.trigger(Decree {
+        hamlet: Some(name),
+        text,
+    });
     world.flush();
 }
 

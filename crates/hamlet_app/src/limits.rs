@@ -412,7 +412,7 @@ fn budget(hamlet: Entity) -> impl View {
                 Glyph::Restore,
                 "Start It Again Now",
                 move |world| {
-                    crate::overview::tell(
+                    hamlet_core::orders::decree_for(
                         world,
                         hamlet,
                         "/reset-budget".into(),

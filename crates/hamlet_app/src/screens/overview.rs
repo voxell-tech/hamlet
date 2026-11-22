@@ -688,16 +688,6 @@ fn closed(hub: Entity) -> AnyView {
     .boxed()
 }
 
-/// Gives a chief's command to `hamlet`, whoever the chat is with.
-pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
-    let Some(name) =
-        world.get::<HamletId>(hamlet).map(|id| id.0.clone())
-    else {
-        return;
-    };
-    chat::decree(world, &name, text);
-}
-
 #[cfg(test)]
 mod tests {
     use hamlet_protocol::client as protocol;
