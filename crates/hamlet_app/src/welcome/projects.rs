@@ -26,6 +26,7 @@ use hamlet_client::ViewFolder;
 use hamlet_client::imports::{BringIn, FindProjects, Imports};
 use hamlet_client::realm::HamletId;
 use hamlet_core::toasts::Toast;
+use hamlet_core::welcome::OpenProjects;
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_import::{Found, Project};
 use hamlet_ui::styles::{
@@ -50,6 +51,11 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Projects>()
         .init_resource::<Asker>()
         .add_observer(chosen)
+        .add_observer(
+            |_: On<OpenProjects>, mut commands: Commands| {
+                commands.queue(open);
+            },
+        )
         .add_systems(
             Update,
             (

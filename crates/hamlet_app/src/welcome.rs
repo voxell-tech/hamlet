@@ -19,6 +19,7 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Seen, Settings};
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
@@ -41,6 +42,14 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
             commands.queue(providers::reconnected);
         })
+        .add_observer(
+            |open: On<OpenWelcome>, mut commands: Commands| {
+                commands.queue(match *open {
+                    OpenWelcome::Again => again,
+                    OpenWelcome::AddProvider => add,
+                });
+            },
+        )
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
         .add_plugins((key_plugin, projects::plugin))
         // After the field's text is committed, so it replies this

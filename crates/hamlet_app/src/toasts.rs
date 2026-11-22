@@ -39,6 +39,7 @@ use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
 use hamlet_core::toasts::WatchRequest;
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
     Setup, SetupCause, WaitDetail,
@@ -731,7 +732,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 let buttons = buttons(vec![
                     action(Glyph::Chip, "Set Up Models", |world| {
-                        crate::welcome::again(world);
+                        world.trigger(OpenWelcome::Again);
                     }),
                     action(
                         Glyph::Cross,

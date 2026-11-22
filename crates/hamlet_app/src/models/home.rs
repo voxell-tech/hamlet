@@ -13,6 +13,7 @@ use bevy_fynix::{
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_core::roll::{either, moved};
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, Tipped, action, bad_action, bare, beside, close,
@@ -224,11 +225,9 @@ pub fn endpoints() -> impl View {
         description("Credentials stay on the server."),
         super::problem(),
         sources,
-        row((good_action(
-            Glyph::Plus,
-            "Add Provider",
-            crate::welcome::add,
-        ),)),
+        row((good_action(Glyph::Plus, "Add Provider", |world| {
+            world.trigger(OpenWelcome::AddProvider);
+        }),)),
         crate::root::connection_test(),
     ))
 }

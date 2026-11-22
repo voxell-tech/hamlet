@@ -19,6 +19,7 @@ pub mod settings;
 pub mod sound;
 pub mod standing;
 pub mod toasts;
+pub mod welcome;
 pub mod words;
 
 pub use bevy;

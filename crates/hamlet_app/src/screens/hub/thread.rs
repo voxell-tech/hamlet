@@ -29,6 +29,7 @@ use hamlet_client::realm::{
 use hamlet_core::pick::Thing;
 use hamlet_core::roll::rolled;
 use hamlet_core::standing::Standing;
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_core::words;
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
@@ -949,7 +950,7 @@ fn model_or_setup(agent: Entity) -> impl View {
             .tooltip(|| {
                 note("No model is set up yet, so nothing can answer")
             })
-            .on_activate(crate::welcome::again)
+            .on_activate(|world| world.trigger(OpenWelcome::Again))
             .boxed()
         },
     )

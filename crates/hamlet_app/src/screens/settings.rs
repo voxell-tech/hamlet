@@ -39,6 +39,7 @@ use hamlet_core::roll::{either, moved};
 use hamlet_core::settings::{
     PANEL, SettingsAppExt, SettingsPage, SettingsPages, SettingsPane,
 };
+use hamlet_core::welcome::{OpenProjects, OpenWelcome};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
@@ -897,7 +898,7 @@ fn again() -> AnyView {
         Glyph::Restore,
         "First-Run Setup",
         None,
-        crate::welcome::again,
+        |world| world.trigger(OpenWelcome::Again),
     )
 }
 
@@ -907,7 +908,7 @@ fn projects() -> AnyView {
         Glyph::Hamlet,
         "Bring In Projects",
         None,
-        crate::welcome::projects::open,
+        |world| world.trigger(OpenProjects),
     )
 }
 
