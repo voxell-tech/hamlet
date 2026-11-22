@@ -367,8 +367,8 @@ mod tests {
     fn founding_goes_to_the_hand_even_from_another_chat() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let mut state = realm::state();
         state.actions = realm::actions(&["create-hamlet"]);
         state.agents.push(realm::agent(3, "home", false));

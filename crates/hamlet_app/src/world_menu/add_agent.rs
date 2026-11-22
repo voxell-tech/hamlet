@@ -356,8 +356,8 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let mut state = realm::state();
         state.actions = realm::actions(&["add-agent"]);
         hamlet_client::receive(

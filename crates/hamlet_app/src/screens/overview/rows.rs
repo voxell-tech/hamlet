@@ -14,10 +14,10 @@ use hamlet_client::realm::{
     Account, HamletId, Identity, Kind, Lead, Left, LivesIn,
     MergedInto, OwnModel, Parent, Treasury,
 };
+use hamlet_core::pick::Thing;
 use hamlet_core::roll::Roll;
 use hamlet_core::standing::{Standing, need_you};
 use hamlet_protocol::client::{AgentId, AgentKind};
-use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;

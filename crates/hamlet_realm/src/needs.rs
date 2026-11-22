@@ -10,9 +10,10 @@ use bevy::ui::UiSystems;
 use hamlet_assets::tint;
 use hamlet_client::realm::Lead;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
+use hamlet_core::pick::Thing;
 
 use super::label::{self, Lens};
-use super::pick::{Footprint, Named, Pressable, Thing};
+use super::pick::{Footprint, Named, Pressable};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<TagSettings>()

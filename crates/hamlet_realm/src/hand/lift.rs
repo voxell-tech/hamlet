@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use hamlet_client::realm::{
     self, Channel, ChannelsFrom, ChannelsTo, Lead,
 };
+use hamlet_core::pick::{Hovered, Taken, Thing};
 
 use super::{
     Hand, Held, Mood, PlaySettings, Wish, is_free, liftable, met,
@@ -17,9 +18,7 @@ use crate::generator::{Passage, Robot};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
 use crate::moving::Carrying;
-use crate::pick::{
-    Hovered, PickSettings, Reach, Taken, Thing, Travel, WorldSurface,
-};
+use crate::pick::{PickSettings, Reach, Travel, WorldSurface};
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
 

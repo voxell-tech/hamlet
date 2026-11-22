@@ -13,9 +13,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::Works;
+use hamlet_core::pick::{Thing, select};
 use hamlet_core::roll::hamlets_moved;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
-use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
     ICON, Looks, action, bare, buttons, description,

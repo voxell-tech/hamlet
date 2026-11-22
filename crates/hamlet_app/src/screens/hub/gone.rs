@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
-use hamlet_realm::pick::{Thing, select};
+use hamlet_core::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, action, bad_action, breadcrumb, buttons, scroll_area,
     status_pill, tinted_action,

@@ -26,12 +26,12 @@ use hamlet_client::realm::{
     Activity, Busy, HamletAgent, Kind, Left, LivesIn, Parent,
     Profile, id_of, name_of, shown_of,
 };
+use hamlet_core::pick::Thing;
 use hamlet_core::roll::rolled;
 use hamlet_core::standing::Standing;
 use hamlet_core::words;
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
@@ -1215,7 +1215,7 @@ mod tests {
     fn ada_app() -> (App, Entity) {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
-        app.insert_resource(hamlet_realm::pick::Selected(Some(
+        app.insert_resource(hamlet_core::pick::Selected(Some(
             Thing::Agent(ada),
         )));
         let hub = crate::testing::hub(&mut app);

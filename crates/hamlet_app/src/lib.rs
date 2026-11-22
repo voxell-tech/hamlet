@@ -44,7 +44,7 @@ use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_core::panels::PanelSystems;
-use hamlet_realm::pick::Selected;
+use hamlet_core::pick::Selected;
 use hamlet_ui::theme::{HamletTheme, ThemeState};
 
 pub use self::convo::Convo;

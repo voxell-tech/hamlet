@@ -4,8 +4,8 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
 use hamlet_client::realm::HamletId;
+use hamlet_core::pick::{Selected, Thing};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing};
 
 use crate::scenes::Scene;
 

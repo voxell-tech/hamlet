@@ -99,8 +99,8 @@ impl Plugin for GalleryPlugin {
                 ),
             )
             // The menus, and what the world asks of them.
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>()
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>()
             .init_resource::<welcome::projects::Projects>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,

@@ -10,7 +10,7 @@ use bevy::input::keyboard::KeyCode;
 use bevy_fynix::shortcut::{
     CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_core::pick::{Selected, Thing, select};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::trail::{
     Trail, Way, mouse_pressed, mouse_way,
@@ -214,7 +214,7 @@ mod tests {
         app.add_plugins(plugin);
         let ada = realm::named(app.world_mut(), "agent#2").unwrap();
         app.init_resource::<Selected>()
-            .init_resource::<hamlet_realm::pick::Also>();
+            .init_resource::<hamlet_core::pick::Also>();
         let hub = crate::testing::hub(&mut app);
         app.update();
         crate::convo::talk_to(app.world_mut(), ada);

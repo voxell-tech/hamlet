@@ -20,9 +20,9 @@ use bevy::time::{Real, Time};
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{HamletAgent, HamletId, Left};
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::pick::{Selected, Thing, select};
 use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
-use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, VolumetricFogSettings,
 };
@@ -676,7 +676,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Time<Real>>();
         world.init_resource::<Selected>();
-        world.init_resource::<hamlet_realm::pick::Also>();
+        world.init_resource::<hamlet_core::pick::Also>();
         world.init_resource::<Kept>();
         world.insert_resource(Pending {
             chosen: Some(Chosen::House("scout".into())),

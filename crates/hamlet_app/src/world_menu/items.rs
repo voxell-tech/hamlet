@@ -13,10 +13,10 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left, LivesIn,
 };
+use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
 use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
-use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -175,7 +175,7 @@ fn make_profile(world: &World, agent: Entity) -> Option<AnyView> {
 
 fn focus(thing: Thing) -> AnyView {
     item(Glyph::Aim, Tone::Dim, "Focus", move |w| {
-        focus_on(w, thing, false);
+        w.trigger(FocusOn { thing, stay: false });
     })
 }
 
@@ -460,7 +460,10 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
             Tone::Warning,
             "Go to the Hearth",
             move |w| {
-                focus_on(w, home, false);
+                w.trigger(FocusOn {
+                    thing: home,
+                    stay: false,
+                });
             },
         ),
         item(

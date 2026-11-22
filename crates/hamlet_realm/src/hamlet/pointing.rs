@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use hamlet_client::realm::{Identity, Lead, Left};
+use hamlet_core::pick::Thing;
 
 use super::{Housed, Returning, Sited, housing};
 use crate::generator::house::Remains;
@@ -14,9 +15,7 @@ use crate::generator::land::Land;
 use crate::generator::society::AgentId;
 use crate::generator::{Common, House, Passage, Robot};
 use crate::keeper::Act;
-use crate::pick::{
-    self, Footprint, Named, PickSettings, Thing, hit_box,
-};
+use crate::pick::{self, Footprint, Named, PickSettings, hit_box};
 use crate::{RealmSystems, adopt};
 
 pub(super) fn plugin(app: &mut App) {

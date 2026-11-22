@@ -14,12 +14,13 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_client::realm::{Busy, HandId, Identity, Left, Profile};
+use hamlet_core::pick::Thing;
 
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::library::Raising;
 use crate::palette::Palette;
-use crate::pick::{self, Footprint, Named, Thing, hit_box};
+use crate::pick::{self, Footprint, Named, hit_box};
 use crate::{Clock, RealmSystems, Sky, Stock};
 
 pub(crate) fn plugin(app: &mut App) {

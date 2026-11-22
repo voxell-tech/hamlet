@@ -16,12 +16,12 @@ use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, ViewFolder, receive};
+use hamlet_core::pick::Selected;
 use hamlet_core::roll::Roll;
 use hamlet_core::settings::SettingsPane;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::North;
-use hamlet_realm::pick::Selected;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, VolumetricFogSettings,
 };

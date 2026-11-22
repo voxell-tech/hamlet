@@ -31,12 +31,12 @@ use hamlet_client::realm::{
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::pick::{Following, Hovered, Thing};
 use hamlet_core::roll::Roll;
 use hamlet_core::standing::Standing;
 use hamlet_core::words;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
-use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::{EffectSettings, Tuned};

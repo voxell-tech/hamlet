@@ -41,7 +41,7 @@ use hamlet_client::realm::{HamletId, Left, Seen};
 use hamlet_core::panels::{
     PanelAppExt, ShowPanel, highlight_panel, number,
 };
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
+use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Highlight, Updated};
@@ -438,7 +438,7 @@ pub(crate) fn look_at(world: &mut World, hub: Entity, thing: Thing) {
         && world.contains_resource::<Selected>()
     {
         select(world, Some(thing));
-        bring_into_view(world, thing);
+        world.trigger(BringIntoView(thing));
     }
 }
 

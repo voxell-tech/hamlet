@@ -3,8 +3,11 @@
 
 use bevy::input::mouse::MouseScrollUnit;
 use bevy::prelude::*;
+use hamlet_core::pick::{
+    BringIntoView, FocusOn, Following, Selected, Taken, Thing, select,
+};
 
-use super::{Selected, Taken, Thing, Travel, WorldSurface, select};
+use super::{Travel, WorldSurface};
 use crate::RealmSystems;
 use crate::play::{Play, Played};
 use crate::sky::CameraSettings;
@@ -20,6 +23,20 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(drag)
         .add_observer(drag_end)
         .add_observer(scroll)
+        .add_observer(
+            |bring: On<BringIntoView>, mut commands: Commands| {
+                let thing = bring.0;
+                commands.queue(move |world: &mut World| {
+                    bring_into_view(world, thing);
+                });
+            },
+        )
+        .add_observer(|focus: On<FocusOn>, mut commands: Commands| {
+            let FocusOn { thing, stay } = *focus;
+            commands.queue(move |world: &mut World| {
+                focus_on(world, thing, stay);
+            });
+        })
         .add_systems(
             Update,
             (focus_keys, follow, glide)
@@ -117,10 +134,6 @@ impl Leash {
         self.zoom.unwrap_or(camera.zoom)
     }
 }
-
-/// A thing the camera stays on, until the ground is slid by hand.
-#[derive(Resource, Default, PartialEq)]
-pub struct Following(pub Option<Thing>);
 
 /// The place of `thing` on the ground.
 fn place(

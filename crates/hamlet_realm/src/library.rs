@@ -8,6 +8,7 @@ mod librarian;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
+use hamlet_core::pick::Thing;
 
 pub use self::librarian::Librarian;
 use self::librarian::{ATTENDS, LOOK, STANDS, sage};
@@ -17,7 +18,7 @@ use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
 use crate::lantern::NightLight;
 use crate::palette::Palette;
-use crate::pick::{self, Footprint, Named, Thing, hit_box};
+use crate::pick::{self, Footprint, Named, hit_box};
 use crate::{Clock, RealmSystems, Sky, Stock};
 
 pub(crate) fn plugin(app: &mut App) {

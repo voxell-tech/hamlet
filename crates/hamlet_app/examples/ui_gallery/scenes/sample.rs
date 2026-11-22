@@ -17,8 +17,8 @@ use bevy::ecs::world::World;
 use hamlet_app::Convo;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewFolder, realm};
+use hamlet_core::pick::{Also, Selected, Thing};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Also, Selected, Thing};
 pub(super) use welcome::first_run;
 
 use super::Scene;

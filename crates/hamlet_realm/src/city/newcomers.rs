@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use hamlet_client::realm::Profile;
+use hamlet_core::pick::Thing;
 use hamlet_protocol::client::Arrival;
 
 use super::houses;
@@ -10,7 +11,7 @@ use crate::Clock;
 use crate::generator::land::{IslandId, Land};
 use crate::harbor::Harbor;
 use crate::keeper::{self, Kit, Motion, Trip, Who};
-use crate::pick::{self, Named, PickSettings, Thing, hit_box};
+use crate::pick::{self, Named, PickSettings, hit_box};
 
 /// The figure of a profile waiting on the pier.
 #[derive(Component, Clone, Copy, Debug)]

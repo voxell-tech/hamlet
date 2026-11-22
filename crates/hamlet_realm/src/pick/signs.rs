@@ -4,8 +4,9 @@
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
 use hamlet_client::realm::{AgentName, Lodging, Shown};
+use hamlet_core::pick::{Hovered, Names, Thing};
 
-use super::{Footprint, Hovered, Names, PickSettings, Thing};
+use super::{Footprint, PickSettings};
 use crate::label::{self, Lens};
 
 pub(super) fn plugin(app: &mut App) {

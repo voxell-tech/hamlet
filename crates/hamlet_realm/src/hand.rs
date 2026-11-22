@@ -18,6 +18,7 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
 use hamlet_client::realm::Lead;
+use hamlet_core::pick::{Hovered, Taken, Thing};
 
 pub use self::greet::greet;
 use self::lift::Fall;
@@ -29,7 +30,7 @@ use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
 use crate::moving::Carrying;
-use crate::pick::{Hovered, Reach, Taken, Thing, Travel};
+use crate::pick::{Reach, Travel};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()

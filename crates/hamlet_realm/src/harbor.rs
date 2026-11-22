@@ -8,11 +8,12 @@ mod tests;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use hamlet_core::pick::Following;
 
 use crate::generator::Robot;
 use crate::generator::land::{IslandId, Land};
 use crate::palette::Palette;
-use crate::pick::{Centre, Following, Orbit, glide_to};
+use crate::pick::{Centre, Orbit, glide_to};
 use crate::{RealmSystems, Stock};
 
 pub(crate) fn plugin(app: &mut App) {

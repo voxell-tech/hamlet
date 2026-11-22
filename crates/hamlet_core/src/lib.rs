@@ -9,6 +9,7 @@ pub mod age;
 pub mod clock;
 pub mod menus;
 pub mod panels;
+pub mod pick;
 pub mod roll;
 pub mod settings;
 pub mod standing;
@@ -29,6 +30,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         menus::plugin,
         panels::plugin,
+        pick::plugin,
         roll::plugin,
         settings::plugin,
     ));

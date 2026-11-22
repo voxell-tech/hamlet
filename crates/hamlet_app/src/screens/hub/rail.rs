@@ -45,10 +45,10 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_core::age::Age;
 use hamlet_core::clock::now_ms;
+use hamlet_core::pick::{BringIntoView, Selected, Thing};
 use hamlet_core::standing::{Standing, need_you};
 use hamlet_core::words;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, bring_into_view};
 use hamlet_ui::styles::{
     ICON, STATUS_PAD, note, scroll_area, status_icon_at, text_input,
     transparent,
@@ -1809,7 +1809,7 @@ fn go(world: &mut World, hub: Entity, target: Target) {
             crate::chat::focus(world, hub);
             if follows && world.contains_resource::<Selected>() {
                 let home = crate::convo::home_of(world, agent);
-                bring_into_view(world, home);
+                world.trigger(BringIntoView(home));
             }
         }
         Target::Hamlet(hamlet) => {

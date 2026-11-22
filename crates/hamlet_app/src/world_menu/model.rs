@@ -1347,8 +1347,8 @@ mod tests {
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)
             .init_resource::<Shelf>()
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let listed = |name: &str| protocol::Listed {
             context: None,
             default_effort: Some(Effort::Medium),

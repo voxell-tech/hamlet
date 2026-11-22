@@ -1,4 +1,5 @@
 use bevy::ecs::system::SystemState;
+use hamlet_core::pick::{Names, Thing};
 
 use super::*;
 use crate::sky::CameraSettings;
