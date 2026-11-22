@@ -5,6 +5,7 @@ use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
+use hamlet_core::orders::CarryLibrary;
 use hamlet_core::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, action, bad_action, breadcrumb, buttons, scroll_area,
@@ -114,10 +115,7 @@ pub(super) fn library(hub: Entity) -> impl View {
             ),
             // Wraps when the panel is narrow.
             buttons(vec![action(Glyph::Move, "Move", |world| {
-                hamlet_realm::moving::pick_up(
-                    world,
-                    hamlet_realm::generator::society::Ground::Library,
-                );
+                world.trigger(CarryLibrary);
             })]),
             dim("Every agent shares these skills. An agent offers \
                  one and the librarian decides whether to keep it."),

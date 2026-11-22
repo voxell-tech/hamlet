@@ -13,12 +13,10 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left, LivesIn,
 };
-use hamlet_core::orders::{self, CarryHouse};
+use hamlet_core::orders::{self, CarryHouse, CarryLibrary};
 use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
 use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::generator::society::Ground;
-use hamlet_realm::moving;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
@@ -480,7 +478,7 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
         item(Glyph::Move, Tone::Dim, "Move", |w| {
-            moving::pick_up(w, Ground::Library);
+            w.trigger(CarryLibrary);
         }),
     ]
 }

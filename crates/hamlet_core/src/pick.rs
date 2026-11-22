@@ -4,7 +4,7 @@
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::event::Event;
+use bevy::ecs::event::{EntityEvent, Event};
 use bevy::ecs::name::Name;
 use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
@@ -214,6 +214,33 @@ pub struct Taken {
 /// A thing the camera stays on, until the ground is slid by hand.
 #[derive(Resource, Default, PartialEq)]
 pub struct Following(pub Option<Thing>);
+
+/// The chief answered a tag over a robot with its check or its cross.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+pub struct TagAnswered {
+    #[event_target]
+    pub item: Entity,
+    pub agree: bool,
+}
+
+/// The chief clicked a tag's paper, to read it in full.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+pub struct TagOpened {
+    #[event_target]
+    pub item: Entity,
+}
+
+/// The chief pressed the clockwork of `hamlet`.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+pub struct Switched {
+    #[event_target]
+    pub hamlet: Entity,
+}
+
+/// Glides the camera to the pier of the island it is not over,
+/// letting go of any thing it was following.
+#[derive(Event, Clone, Copy, Debug, PartialEq)]
+pub struct CrossHarbor;
 
 /// Brings a thing into view, chosen from a panel: where it is already
 /// well inside the view nothing moves, and otherwise the view slides

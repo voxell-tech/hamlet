@@ -31,12 +31,11 @@ use hamlet_client::realm::{
     Treasury,
 };
 use hamlet_client::waits::Waiting;
-use hamlet_core::pick::Thing;
+use hamlet_core::pick::{CrossHarbor, Thing};
 use hamlet_core::standing::{Standing, need_you};
 use hamlet_core::toasts::WatchRequest;
 use hamlet_core::words;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, card_button,
@@ -153,9 +152,11 @@ pub fn overview(hub: Entity) -> impl View {
                 )
                 .tooltip(|| note(words::HEARTH))
                 .boxed(),
-                action(Glyph::Anchor, "Harbor", glide_to_other_pier)
-                    .tooltip(|| note("Cross to the other island"))
-                    .boxed(),
+                action(Glyph::Anchor, "Harbor", |world| {
+                    world.trigger(CrossHarbor);
+                })
+                .tooltip(|| note("Cross to the other island"))
+                .boxed(),
                 action(
                     Glyph::Profile,
                     "New Profile",

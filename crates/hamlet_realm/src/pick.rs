@@ -24,7 +24,8 @@ use bevy::prelude::*;
 use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
 use hamlet_core::pick::{
-    Also, Asked, AskedGround, Hovered, Selected, Taken, Thing,
+    Also, Asked, AskedGround, Hovered, Selected, Switched, Taken,
+    Thing,
 };
 
 pub use self::camera::{
@@ -38,7 +39,6 @@ pub use self::signs::{
 };
 use crate::play::Played;
 use crate::sky::CameraSettings;
-use crate::works::Switched;
 use crate::{RealmSystems, WorldCamera};
 
 /// Hover, selection and the camera moved by hand. What can be

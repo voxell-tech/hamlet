@@ -6,6 +6,7 @@ use std::f32::consts::TAU;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use hamlet_assets::tint;
+use hamlet_core::orders::CarryLibrary;
 use hamlet_core::pick::Taken;
 
 use super::generator::land::{Land, Unfit};
@@ -22,6 +23,13 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<CarrySettings>()
         .add_message::<SetDown>()
         .add_observer(click)
+        .add_observer(
+            |_: On<CarryLibrary>, mut commands: Commands| {
+                commands.queue(|world: &mut World| {
+                    pick_up(world, Ground::Library);
+                });
+            },
+        )
         .add_systems(Startup, prepare)
         .add_systems(
             Update,

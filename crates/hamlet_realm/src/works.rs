@@ -8,7 +8,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
 use hamlet_client::realm::{Mode, Works};
-use hamlet_core::pick::Thing;
+use hamlet_core::pick::{Switched, Thing};
 use hamlet_vfx::inlay;
 
 use crate::generator::Common;
@@ -69,13 +69,6 @@ pub struct WorksSettings {
     pub lamp_glow: f32,
     pub lumens: f32,
     pub reach: f32,
-}
-
-/// The chief pressed the clockwork of `hamlet`.
-#[derive(EntityEvent, Clone, Copy, Debug)]
-pub struct Switched {
-    #[event_target]
-    pub hamlet: Entity,
 }
 
 /// On a common that has its workbench.

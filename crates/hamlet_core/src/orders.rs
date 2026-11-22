@@ -37,6 +37,11 @@ pub struct Carry(pub Entity);
 #[derive(Event, Clone, Copy, Debug, PartialEq)]
 pub struct CarryHouse(pub Entity);
 
+/// Takes the library in hand, to be set down with a click on the
+/// ground.
+#[derive(Event, Clone, Copy, Debug, PartialEq)]
+pub struct CarryLibrary;
+
 fn name(world: &World, agent: Entity) -> Option<String> {
     world
         .get::<Name>(agent)

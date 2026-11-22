@@ -24,12 +24,12 @@ use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
 use hamlet_core::age::Age;
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::pick::{TagAnswered, TagOpened};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::standing::Standing;
 use hamlet_protocol::client::{
     Change, Lasting, Questions, RequestId, WaitDanger, WaitDetail,
 };
-use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Looks, bare, buttons, command_block, marked, marked_wrapping,
