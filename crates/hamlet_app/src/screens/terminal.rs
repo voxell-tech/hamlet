@@ -43,6 +43,9 @@ use hamlet_client::outbox::RequestId;
 use hamlet_client::terminals::{
     self, TerminalId, TerminalOpened, Watched,
 };
+use hamlet_core::panels::{
+    PanelAppExt, ShowPanel, flush_panel, number, on_a_desk,
+};
 use hamlet_ui::styles::{
     Fills, ICON, caption, description, link_row, note,
 };
@@ -53,9 +56,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 use self::list::Listed;
 pub use self::pick::{open_menu, pin, show_menu};
 pub use self::screen::Canvas;
-use crate::dock::{
-    PanelAppExt, flush_panel, number, on_a_desk, show_tab,
-};
 
 /// The size a terminal opens at before its canvas has been measured.
 const FIRST_SIZE: (u16, u16) = (80, 24);
@@ -474,7 +474,7 @@ fn opened(opened: On<TerminalOpened>, mut commands: Commands) {
             _ => return,
         };
         world.resource_mut::<Opening>().0 = None;
-        show_tab(world, &panel.0);
+        world.trigger(ShowPanel(panel.0.clone()));
         activate(world, &panel, terminal);
     });
 }
@@ -524,7 +524,7 @@ fn activate(world: &mut World, panel: &PanelId, terminal: Entity) {
     });
     let panel = match elsewhere {
         Some(other) => {
-            show_tab(world, &other.0);
+            world.trigger(ShowPanel(other.0.clone()));
             other
         }
         None => {

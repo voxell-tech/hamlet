@@ -80,7 +80,8 @@ client entities. The realm's steps before the world are `RealmSystems`
 in `hamlet_realm/src/stage.rs`, and [`bevy.md`](bevy.md#order) says what
 goes in each. The panels' steps before fynix mounts are `PanelSystems`
 in `hamlet_core/src/panels.rs`. Panels live in `hamlet_app/src/screens/` and
-register their dock window in `dock.rs`; they are built from
+register their dock window with `PanelAppExt` from
+`hamlet_core/src/panels.rs`; they are built from
 `hamlet_ui`, which reads no client state.
 
 ## The store and the repositories

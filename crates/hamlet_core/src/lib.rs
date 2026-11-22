@@ -23,5 +23,5 @@ pub use hamlet_ui as ui;
 
 /// What every part of the window needs before it is added.
 pub fn plugin(app: &mut App) {
-    app.add_plugins((panels::sets, roll::plugin));
+    app.add_plugins((panels::plugin, roll::plugin));
 }

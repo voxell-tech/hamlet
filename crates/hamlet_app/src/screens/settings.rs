@@ -29,6 +29,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
     Confinement, Grants, Providers, Settings,
 };
+use hamlet_core::panels::{PanelAppExt, panel};
 use hamlet_core::roll::{either, moved};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
@@ -47,7 +48,6 @@ use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::appearance::Appearance;
-use crate::dock::{PanelAppExt, panel};
 use crate::root::Lasting;
 use crate::updates::UpdateChannel;
 use crate::world_menu::{self, Action};

@@ -49,7 +49,7 @@ use hamlet_ui::theme::{HamletTheme, ThemeState};
 
 pub use self::convo::Convo;
 pub use self::desk::still as desk_still;
-pub use self::dock::{highlight_panel, panel, register_numbered};
+pub use self::dock::register_numbered;
 pub use self::remember::Remembered;
 pub use self::root::layout;
 pub use self::screens::{

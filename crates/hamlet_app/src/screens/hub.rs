@@ -38,6 +38,9 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{HamletId, Left, Seen};
+use hamlet_core::panels::{
+    PanelAppExt, ShowPanel, highlight_panel, number,
+};
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::theme::HamletTheme;
@@ -53,9 +56,7 @@ pub(crate) use self::rail::under_name;
 pub use self::thread::{Briefing, Sheet, open_context};
 use crate::convo::{Convo, seat};
 use crate::desk::Desks;
-use crate::dock::{
-    HUB, PanelAppExt, highlight_panel, number, show_tab,
-};
+use crate::dock::HUB;
 use crate::overview;
 
 pub fn plugin(app: &mut App) {
@@ -250,10 +251,10 @@ pub(crate) fn bring_following(world: &mut World) -> Option<Entity> {
     match following(world) {
         Some(hub) => {
             let id = world.get::<Hub>(hub)?.0.clone();
-            show_tab(world, &id);
+            world.trigger(ShowPanel(id));
         }
         None => {
-            show_tab(world, HUB);
+            world.trigger(ShowPanel(HUB.into()));
             let _ = world.run_system_cached(keep_hubs);
         }
     }

@@ -24,6 +24,7 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
+use hamlet_core::panels::ShowPanel;
 use hamlet_realm::pick::Taken;
 use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
@@ -33,7 +34,6 @@ use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::dock::show_tab;
 use crate::screens::viewer::Viewing;
 use crate::updates::{self, Updates};
 use crate::window;
@@ -267,7 +267,7 @@ fn item(
 }
 
 fn settings(world: &mut World) {
-    show_tab(world, "settings");
+    world.trigger(ShowPanel("settings".into()));
 }
 
 /// What the Hamlet menu offers for updates.

@@ -36,7 +36,7 @@ use hamlet_client::realm::{
     Shown, name_of,
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
-use hamlet_core::panels::PanelSystems;
+use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
@@ -524,9 +524,9 @@ fn keep(
             *showing == Showing::Thread
                 && sheet != Some(&Sheet::Details)
                 && waits.holds(wait)
-                && tree.as_ref().is_none_or(|tree| {
-                    crate::dock::is_in_front(tree, &hub.0)
-                })
+                && tree
+                    .as_ref()
+                    .is_none_or(|tree| is_in_front(tree, &hub.0))
         })
     };
     let mut next = toasts.shown.clone();

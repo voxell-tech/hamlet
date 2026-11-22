@@ -31,7 +31,7 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
-use hamlet_core::panels::PanelSystems;
+use hamlet_core::panels::{PanelSystems, ShowPanel};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, action, bare, close, icon_button, note, pill,
@@ -243,7 +243,7 @@ fn warn(
 /// Opens `provider`'s limits under it in Settings' endpoints.
 pub(crate) fn open(world: &mut World) {
     *world.resource_mut::<Pane>() = Pane::Endpoints;
-    crate::dock::show_tab(world, "settings");
+    world.trigger(ShowPanel("settings".into()));
 }
 
 /// The colour of `mood`: green with plenty left, yellow with some,

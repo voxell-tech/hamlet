@@ -266,7 +266,7 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         app.add_plugins((
-            hamlet_core::panels::sets,
+            hamlet_core::panels::plugin,
             hamlet_core::roll::plugin,
             crate::links::plugin,
         ));

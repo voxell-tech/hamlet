@@ -9,7 +9,8 @@ use bevy_fynix::dock::{
     Edge,
 };
 use bevy_fynix::views::{FrameProps, column};
-use hamlet_app::{hub, layout, menu, panel, settings, terminal};
+use hamlet_app::{hub, layout, menu, settings, terminal};
+use hamlet_core::panels::panel;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;

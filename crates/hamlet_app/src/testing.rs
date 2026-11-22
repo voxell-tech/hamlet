@@ -44,7 +44,7 @@ pub(crate) fn panel_app() -> App {
         bevy::time::TimePlugin,
         ClientPlugin { server: None },
         FynixPlugin::<HamletTheme>::default(),
-        hamlet_core::panels::sets,
+        hamlet_core::panels::plugin,
     ));
     theme::show(app.world_mut(), HamletTheme::designed());
     receive(
@@ -111,7 +111,7 @@ pub(crate) fn welcome_app() -> App {
         FynixPlugin::<HamletTheme>::default(),
         crate::welcome::plugin,
         hamlet_ui::widgets::secret::plugin,
-        hamlet_core::panels::sets,
+        hamlet_core::panels::plugin,
     ));
     theme::show(app.world_mut(), HamletTheme::designed());
     app.insert_resource(Browser(|_, url| {
