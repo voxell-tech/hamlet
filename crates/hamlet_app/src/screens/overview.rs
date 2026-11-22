@@ -32,6 +32,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_core::standing::{Standing, need_you};
+use hamlet_core::toasts::WatchRequest;
 use hamlet_core::words;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
@@ -259,11 +260,10 @@ fn stop_all() -> AnyView {
         |&any| {
             let stop = bad_action(Glyph::Stop, "Stop All", |world| {
                 let request = RequestId::new();
-                crate::toasts::announce(
-                    world,
-                    request.clone(),
-                    "Stopped every agent",
-                );
+                world.trigger(WatchRequest {
+                    request: request.clone(),
+                    head: Some("Stopped every agent".into()),
+                });
                 world.trigger(Veto {
                     request,
                     agent: None,

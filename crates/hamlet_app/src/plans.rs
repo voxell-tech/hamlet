@@ -15,7 +15,6 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::time::Time;
 use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, percent,
     px,
@@ -33,6 +32,7 @@ use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::settings::{OpenSettings, SettingsPane};
+use hamlet_core::toasts::Toast;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, action, bare, close, icon_button, note, pill,
@@ -47,7 +47,6 @@ pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
 use crate::hub::Showing;
 use crate::models::mark;
 use crate::settings::ENDPOINTS;
-use crate::toasts::Toasts;
 
 /// The width of a window's name before its bar, of what it used after
 /// it, and the gap between them.
@@ -192,16 +191,14 @@ fn follow(
 /// window, until it resets. What stood when the window began is not
 /// new.
 fn warn(
-    time: Res<Time>,
     plans: Res<Plans>,
-    mut toasts: ResMut<Toasts>,
+    mut commands: Commands,
     mut told: Local<HashSet<(String, String, i64)>>,
     mut primed: Local<bool>,
 ) {
     if !plans.is_changed() {
         return;
     }
-    let now = time.elapsed_secs();
     for plan in &plans.0 {
         let reading = &plan.reading;
         let near =
@@ -235,7 +232,11 @@ fn warn(
             key.1,
         );
         if told.insert(key) && *primed {
-            toasts.note(kind, head, reading.sentence.clone(), now);
+            commands.trigger(Toast {
+                kind,
+                head,
+                line: reading.sentence.clone(),
+            });
         }
     }
     *primed = true;
@@ -691,7 +692,13 @@ mod tests {
     /// `claude` signed in.
     fn realm_page() -> App {
         let mut app = panel_app();
-        app.init_resource::<Toasts>().add_plugins(plugin);
+        app.init_resource::<Toasted>()
+            .add_observer(
+                |_: On<Toast>, mut toasted: ResMut<Toasted>| {
+                    toasted.0 += 1;
+                },
+            )
+            .add_plugins(plugin);
         app.world_mut().spawn(Showing::Realm);
         app.world_mut().resource_mut::<Connection>().state =
             Contact::Connected;
@@ -715,8 +722,12 @@ mod tests {
         settle(app);
     }
 
+    /// The toasts raised.
+    #[derive(Resource, Default)]
+    struct Toasted(usize);
+
     fn toasted(app: &App) -> usize {
-        app.world().resource::<Toasts>().len()
+        app.world().resource::<Toasted>().0
     }
 
     #[test]

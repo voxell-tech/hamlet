@@ -12,7 +12,6 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
-use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -26,6 +25,7 @@ use bevy_fynix::{
 use hamlet_client::ViewFolder;
 use hamlet_client::imports::{BringIn, FindProjects, Imports};
 use hamlet_client::realm::HamletId;
+use hamlet_core::toasts::Toast;
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_import::{Found, Project};
 use hamlet_ui::styles::{
@@ -40,7 +40,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Welcome;
 use super::pages::{footed, over, sheet};
-use crate::toasts::Toasts;
 
 /// The file that marks the projects as offered on this machine.
 const OFFERED: &str = "projects-offered";
@@ -266,26 +265,24 @@ fn bring(world: &mut World) {
 fn toast_failures(
     imports: Res<Imports>,
     projects: Res<Projects>,
-    time: Res<Time>,
-    toasts: Option<ResMut<Toasts>>,
+    mut commands: Commands,
     mut told: Local<usize>,
 ) {
     // A new bringing in begins its outcomes again.
     if imports.outcomes.len() < *told {
         *told = 0;
     }
-    let Some(mut toasts) = toasts.filter(|_| !projects.open) else {
+    if projects.open {
         *told = imports.outcomes.len();
         return;
-    };
+    }
     for outcome in &imports.outcomes[*told..] {
         if let Err(why) = &outcome.said {
-            toasts.note(
-                StatusKind::Danger,
-                format!("{} was not brought in", outcome.name),
-                why.clone(),
-                time.elapsed_secs(),
-            );
+            commands.trigger(Toast {
+                kind: StatusKind::Danger,
+                head: format!("{} was not brought in", outcome.name),
+                line: why.clone(),
+            });
         }
     }
     *told = imports.outcomes.len();

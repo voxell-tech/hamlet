@@ -38,6 +38,7 @@ use hamlet_client::realm::{
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
+use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
     Setup, SetupCause, WaitDetail,
@@ -83,6 +84,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(answered)
         .add_observer(failed)
         .add_observer(responded)
+        .add_observer(watched)
+        .add_observer(toasted)
         .add_systems(
             PreUpdate,
             (raise, judged, keep.after(wait::follow), settle)
@@ -270,12 +273,6 @@ impl Toasts {
             .retain(|toast| !matches!(toast.what, What::Update(_)));
     }
 
-    /// How many toasts are on show.
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.shown.len()
-    }
-
     /// The [`Place`] of toast `id` in the stack.
     fn place(&self, id: u64) -> Place {
         let Some(at) =
@@ -438,25 +435,21 @@ fn failed(
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashMap<RequestId, Option<String>>);
 
-/// Watches the request `id`, so that its rejection is toasted.
-pub(crate) fn watch(world: &mut World, id: RequestId) {
-    decree(world, id, None);
+fn watched(watch: On<WatchRequest>, mut decreed: ResMut<Decreed>) {
+    decreed.0.insert(watch.request.clone(), watch.head.clone());
 }
 
-/// Watches the request `id`, toasting its response under `head`.
-pub(crate) fn announce(
-    world: &mut World,
-    id: RequestId,
-    head: impl Into<String>,
+fn toasted(
+    toast: On<hamlet_core::toasts::Toast>,
+    time: Res<Time>,
+    mut toasts: ResMut<Toasts>,
 ) {
-    decree(world, id, Some(head.into()));
-}
-
-fn decree(world: &mut World, id: RequestId, head: Option<String>) {
-    // A window drawn without toasts watches nothing.
-    if let Some(mut decreed) = world.get_resource_mut::<Decreed>() {
-        decreed.0.insert(id, head);
-    }
+    toasts.note(
+        toast.kind,
+        toast.head.clone(),
+        toast.line.clone(),
+        time.elapsed_secs(),
+    );
 }
 
 /// Toasts the response to a watched command.

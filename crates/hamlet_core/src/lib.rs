@@ -12,6 +12,7 @@ pub mod panels;
 pub mod roll;
 pub mod settings;
 pub mod standing;
+pub mod toasts;
 pub mod words;
 
 pub use bevy;

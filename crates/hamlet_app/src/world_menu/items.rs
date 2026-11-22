@@ -13,6 +13,7 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left, LivesIn,
 };
+use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
@@ -224,7 +225,10 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
 fn stop_item(agent: Entity, head: String) -> AnyView {
     item(Glyph::Stop, Tone::Warning, "Stop", move |w| {
         let request = stop(w, agent);
-        crate::toasts::announce(w, request, head.clone());
+        w.trigger(WatchRequest {
+            request,
+            head: Some(head.clone()),
+        });
     })
 }
 
@@ -233,11 +237,10 @@ fn for_lead(world: &World) -> Vec<AnyView> {
         vec![item(Glyph::Stop, Tone::Warning, "Stop", |w| {
             if let Some(lead) = agents::first_lead(w) {
                 let request = stop(w, lead);
-                crate::toasts::announce(
-                    w,
+                w.trigger(WatchRequest {
                     request,
-                    "Stopped the Lead",
-                );
+                    head: Some("Stopped the Lead".into()),
+                });
             }
         })];
     if let Some(lead) = agents::first_lead(world) {

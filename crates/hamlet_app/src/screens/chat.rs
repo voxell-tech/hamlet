@@ -50,6 +50,7 @@ use hamlet_client::messages::{
 };
 use hamlet_client::realm as agents;
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
@@ -481,7 +482,10 @@ pub(crate) fn command(world: &mut World, text: String) {
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
         let message = ChiefMessage::words(to, text);
-        crate::toasts::watch(world, message.request.clone());
+        world.trigger(WatchRequest {
+            request: message.request.clone(),
+            head: None,
+        });
         world.trigger(message);
     }
 }
