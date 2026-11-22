@@ -228,7 +228,7 @@ pub fn endpoints() -> impl View {
         row((good_action(Glyph::Plus, "Add Provider", |world| {
             world.trigger(OpenWelcome::AddProvider);
         }),)),
-        crate::root::connection_test(),
+        super::connection::connection_test(),
     ))
 }
 

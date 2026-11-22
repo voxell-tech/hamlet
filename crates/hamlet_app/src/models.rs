@@ -1,7 +1,10 @@
 //! The server's catalogue and each hamlet's choices of models.
 
 mod choice;
+mod connection;
 mod home;
+
+pub use self::connection::test_connection;
 mod row;
 
 use std::collections::BTreeMap;
@@ -36,7 +39,8 @@ use crate::settings::MODELS;
 const SHOWN: usize = 10;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Shelf>()
+    app.add_plugins(connection::plugin)
+        .init_resource::<Shelf>()
         .init_resource::<Draft>()
         .add_observer(answered)
         .add_observer(
