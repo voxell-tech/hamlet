@@ -29,6 +29,7 @@ pub mod stock;
 pub mod works;
 
 mod label;
+mod paints;
 #[cfg(test)]
 mod testing;
 
@@ -71,6 +72,7 @@ impl Plugin for RealmPlugin {
             ),
             // The client's entities, drawn.
             hamlet::plugin,
+            paints::plugin,
         ));
     }
 }

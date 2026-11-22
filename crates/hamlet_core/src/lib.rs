@@ -10,6 +10,7 @@ pub mod clock;
 pub mod drops;
 pub mod menus;
 pub mod orders;
+pub mod paints;
 pub mod panels;
 pub mod pick;
 pub mod roll;
@@ -33,6 +34,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins((
         drops::plugin,
         menus::plugin,
+        paints::plugin,
         panels::plugin,
         pick::plugin,
         roll::plugin,
