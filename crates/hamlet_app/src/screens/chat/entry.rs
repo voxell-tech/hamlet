@@ -20,7 +20,8 @@ use hamlet_protocol::client::{Change, ToolCall};
 use hamlet_ui::kinds::{card, tile};
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
-    note, small_rules, status_mark, text_button, tinted_action,
+    note, quiet_rules, quiet_text_button, small_rules, status_mark,
+    tinted_action,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
@@ -32,6 +33,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::change::{counted, diff};
 use super::lines::INSET;
 use crate::markdown;
+use crate::reference::agent_chip;
 
 fn clip(s: &str, max: usize) -> String {
     let flat: String =
@@ -167,6 +169,9 @@ struct Step {
     failed: bool,
     /// What it acts on.
     object: String,
+    /// The agent it is sent to, drawn as its chip in place of the
+    /// object.
+    agent: Option<Entity>,
     whole: String,
     /// A command or a tool's own name, set as code.
     code: bool,
@@ -182,23 +187,26 @@ fn file_name(path: &str) -> String {
         .to_string()
 }
 
-/// `to` with its agent's name, as `agent#4 (Mira)`. A call still
-/// running has no `agent` yet, so its address finds it.
+/// The agent `to` names, and `to` with its name, as `agent#4
+/// (Mira)`. A call still running has no `agent` yet, so its address
+/// finds it.
 fn whom(
     world: &World,
     to: &str,
     agent: Option<hamlet_protocol::client::AgentId>,
-) -> String {
-    let shown = match agent {
+) -> (Option<Entity>, String) {
+    let found = match agent {
         Some(agent) => hamlet_client::realm::agent(world, agent),
         None => hamlet_client::realm::named(world, to),
-    }
-    .map(|agent| shown_of(world, agent))
-    .filter(|shown| !shown.is_empty() && shown != to);
-    match shown {
+    };
+    let shown = found
+        .map(|agent| shown_of(world, agent))
+        .filter(|shown| !shown.is_empty() && shown != to);
+    let words = match shown {
         Some(shown) => format!("{to} ({shown})"),
         None => to.to_string(),
-    }
+    };
+    (found, words)
 }
 
 /// The line of the tool call at entry `id` of `chat`.
@@ -225,6 +233,7 @@ fn step_of(world: &World, chat: Entity, id: &str) -> Option<Step> {
         running,
         failed: exit.is_some_and(|code| code != 0),
         object: tool_text(call, summary),
+        agent: None,
         whole: request(call, summary),
         code: false,
         counts: change.clone(),
@@ -233,13 +242,13 @@ fn step_of(world: &World, chat: Entity, id: &str) -> Option<Step> {
         (ToolCall::Notification { to, .. }, _) => {
             step.glyph = Glyph::Talk;
             step.verb = "Notification to";
-            step.object = whom(world, to, *agent);
+            (step.agent, step.object) = whom(world, to, *agent);
             step.whole = step.object.clone();
         }
         (ToolCall::Request { to, .. }, _) => {
             step.glyph = Glyph::Talk;
             step.verb = "Request to";
-            step.object = whom(world, to, *agent);
+            (step.agent, step.object) = whom(world, to, *agent);
             step.whole = step.object.clone();
         }
         (ToolCall::Command { .. }, _) => {
@@ -290,39 +299,54 @@ fn step_of(world: &World, chat: Entity, id: &str) -> Option<Step> {
 fn step_line(step: &Step) -> AnyView {
     let step = step.clone();
     with_cx(move |cx| {
-        let tone = if step.failed {
-            Tone::Critical
-        } else {
-            Tone::Dim
+        // A failed step is red and at full strength in a faded row.
+        let failed = step.failed;
+        let word = move |text: String, tone: Tone| match failed {
+            true => label(text).tone(Tone::Critical).opacity(1.0),
+            false => label(text).tone(tone),
+        };
+        let mark = move |which: Glyph| match failed {
+            true => {
+                glyph(which, 12.0).tone(Tone::Critical).opacity(1.0)
+            }
+            false => glyph(which, 12.0).tone(Tone::Dim),
         };
         let verb = match step.running {
             true => shimmer(step.verb).boxed(),
-            false => label(step.verb).wrap(false).tone(tone).boxed(),
+            false => word(step.verb.to_string(), Tone::Dim)
+                .wrap(false)
+                .boxed(),
         };
         let whole = step.whole.clone();
-        // Cut in the middle: the end often tells calls apart.
-        let object =
-            one_line(label(step.object.clone()).tone(Tone::Faint))
-                .keep(Keep::Ends);
-        let object = match step.code {
-            true => object.tagged(MonoText).boxed(),
-            false => object.boxed(),
+        // A failed step names its agent in red words, not its chip.
+        let object = match (step.agent.filter(|_| !failed), step.code)
+        {
+            (Some(agent), _) => {
+                row((agent_chip(cx.world, agent),)).boxed()
+            }
+            // Cut in the middle: the end often tells calls apart.
+            (None, code) => {
+                let object =
+                    one_line(word(step.object.clone(), Tone::Faint))
+                        .keep(Keep::Ends);
+                match code {
+                    true => object.tagged(MonoText).boxed(),
+                    false => object.boxed(),
+                }
+            }
         };
         let object = column((object,))
             .grow(1.0)
             .min_width(px(0.0))
             .overflow(Overflow::clip_x())
             .tooltip(move || note(whole.clone()));
-        let mut parts = vec![
-            glyph(step.glyph, 12.0).tone(tone).boxed(),
-            verb,
-            object.boxed(),
-        ];
+        let mut parts =
+            vec![mark(step.glyph).boxed(), verb, object.boxed()];
         if let Some(change) = &step.counts {
             parts.push(counted(change));
         }
-        if step.failed {
-            parts.push(glyph(Glyph::Cross, 12.0).tone(tone).boxed());
+        if failed {
+            parts.push(mark(Glyph::Cross).boxed());
         }
         row(parts)
             .gap(cx.theme().space.gap / 2.0)
@@ -357,7 +381,7 @@ fn step_row(hub: Entity, chat: Entity, id: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(text_button)
+        .rules(quiet_text_button)
         .on_activate(move |world| toggle(world, key.clone()));
     let read = {
         let id = id.clone();
@@ -396,6 +420,7 @@ fn step_row(hub: Entity, chat: Entity, id: String) -> impl View {
                         _ => String::new(),
                     }))
                     .tagged(MonoText)
+                    .rules(quiet_rules)
                     .boxed(),
                     keyed(
                         read(|e| match e {
@@ -518,6 +543,7 @@ fn reasoning_row(hub: Entity, chat: Entity, id: String) -> impl View {
                 .min_width(px(0.0))
                 .overflow(Overflow::clip_x())
                 .padding(UiRect::axes(px(INSET), px(2.0)))
+                .rules(quiet_rules)
                 .boxed()
             }
             false => thought_row(hub, chat, id, *took).boxed(),
@@ -561,7 +587,7 @@ fn thought_row(
         .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(INSET), px(2.0)))
-    .rules(text_button)
+    .rules(quiet_text_button)
     .on_activate(move |world| toggle(world, pressed.clone()));
     let body = keyed(
         resource::<OpenTools, _>(move |open| open.0.contains(&key)),
@@ -579,6 +605,7 @@ fn thought_row(
                         px(INSET + cx.theme().space.gap * 2.0),
                         px(2.0),
                     ))
+                    .rules(quiet_rules)
                 }
             })
             .boxed(),
@@ -587,6 +614,7 @@ fn thought_row(
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
     column((head, body))
+        .align(AlignItems::FlexStart)
         .width(percent(100.0))
         .min_width(px(0.0))
 }

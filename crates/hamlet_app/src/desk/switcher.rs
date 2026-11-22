@@ -350,7 +350,7 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .height(px(space.underline))
-            .fill(palette.gold_4)
+            .fill(palette.accent_fill)
             .tagged(glow)
             .tagged(Underline);
         column((line,))

@@ -86,7 +86,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
         Kind::Me | Kind::Chief => Glyph::Hearth,
     };
     let ink = contrast::clearer(
-        theme.palette.gold_1,
+        theme.palette.text,
         theme.palette.surface,
         who.paint,
     );
@@ -103,11 +103,11 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
         Kind::Lead | Kind::Hand => face
             .radius(size / 2.0)
             .border(1.5)
-            .border_color(theme.palette.gold_3),
+            .border_color(theme.palette.accent_mark),
         Kind::Me | Kind::Chief => face
             .radius(theme.space.round)
             .border(theme.space.border)
-            .border_color(theme.palette.gold_2),
+            .border_color(theme.palette.text_pressable),
     }
 }
 
@@ -281,7 +281,7 @@ fn said<B: Board>(
         let (gap, padding_x) =
             (cx.theme().space.gap, cx.theme().space.card_padding_x);
         let fill: fn(&Palette) -> Color =
-            if mine { |p| p.gold_6 } else { |p| p.card };
+            if mine { |p| p.button_hover } else { |p| p.card };
         // A queued line has no hour yet.
         let time = match queued {
             true => String::new(),
@@ -385,7 +385,7 @@ fn said<B: Board>(
                     let said = quote::drawn(
                         &words,
                         reserve,
-                        palette.gold_4,
+                        palette.accent_fill,
                         atoms,
                     );
                     (said, None)
@@ -429,7 +429,7 @@ fn said<B: Board>(
                 hub,
                 chat,
                 id.clone(),
-                palette.gold_6,
+                palette.hairline,
                 palette.accent,
             ))
             .corners({

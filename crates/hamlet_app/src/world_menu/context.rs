@@ -105,7 +105,7 @@ pub(crate) fn fill(tone: Tone, theme: &HamletTheme) -> Color {
     match tone {
         Tone::Critical => status.danger.mark,
         Tone::Warning => status.warning.mark,
-        _ => theme.palette.gold_3,
+        _ => theme.palette.accent_mark,
     }
 }
 

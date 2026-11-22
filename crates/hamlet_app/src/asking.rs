@@ -178,13 +178,13 @@ fn option(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The option picked: the selected fill in a gold border.
+/// The option picked: the selected fill in an accent border.
 fn picked(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.selected)
                 .border(t.space.border)
-                .border_color(t.palette.gold_4)
+                .border_color(t.palette.accent_fill)
                 .radius(t.space.round)
         })
         .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))

@@ -206,8 +206,7 @@ impl People<'_, '_> {
             name: titled(name),
             tag: String::new(),
             kind: if name == me { Kind::Me } else { Kind::Chief },
-            paint: cloak
-                .map_or(self.theme.palette.gold_5, Self::shown),
+            paint: cloak.map_or(self.theme.palette.mark, Self::shown),
         }
     }
 }
@@ -251,7 +250,7 @@ impl Cast<'_, '_, '_> {
                     name: "The Hand".to_string(),
                     tag: "Hand".to_string(),
                     kind: Kind::Hand,
-                    paint: people.theme.palette.gold_5,
+                    paint: people.theme.palette.mark,
                 },
             })
         })
@@ -270,7 +269,7 @@ impl Cast<'_, '_, '_> {
         {
             return self.agent(agent, Some(name));
         }
-        let paint = self.people.theme.palette.gold_5;
+        let paint = self.people.theme.palette.mark;
         self.place(Id::Peer(name.into()), || Who {
             name: name.into(),
             tag: "Agent".into(),

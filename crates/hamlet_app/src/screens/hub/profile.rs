@@ -657,7 +657,7 @@ fn action_menu(
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .fill(theme.palette.button)
         .border(theme.space.border)
-        .border_color(theme.palette.gold_5)
+        .border_color(theme.palette.mark)
         .radius(theme.space.round)
         .tooltip(move || note(tip))
     })

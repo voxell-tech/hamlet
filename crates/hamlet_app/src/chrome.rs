@@ -254,8 +254,8 @@ pub fn buttons() -> impl View {
         };
         cx.build(
             row((
-                one(small, "Minimise", |p| p.gold_hover, minimise),
-                one(large, "Maximise", |p| p.gold_hover, maximise),
+                one(small, "Minimise", |p| p.accent_wash, minimise),
+                one(large, "Maximise", |p| p.accent_wash, maximise),
                 one(shut, "Close", |p| p.red, close),
             ))
             .gap(2.0)

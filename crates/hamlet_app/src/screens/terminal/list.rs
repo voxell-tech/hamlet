@@ -753,7 +753,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
                     .width(px(7.0))
                     .height(px(7.0))
                     .radius(3.5)
-                    .fill(theme.palette.gold_4)
+                    .fill(theme.palette.accent_fill)
                     .tooltip(|| note("Running"))
                     .boxed(),
             );
@@ -787,7 +787,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
             Color::NONE
         };
         let bar = if active {
-            theme.palette.gold_4
+            theme.palette.accent_fill
         } else {
             Color::NONE
         };

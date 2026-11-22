@@ -78,7 +78,7 @@ fn held(inside: impl View + 'static) -> impl View {
             .width(px(LINE))
             .shrink(0.0)
             .margin(UiRect::left(px(INSET + GUIDE)))
-            .fill(cx.theme().palette.gold_6);
+            .fill(cx.theme().palette.hairline);
         row((
             guide,
             column((inside,)).gap(6.0).grow(1.0).min_width(px(0.0)),
@@ -101,7 +101,7 @@ fn between(head: AnyView, body: AnyView) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
         let (line, gap) =
-            (theme.palette.gold_6, theme.space.gap / 2.0);
+            (theme.palette.hairline, theme.space.gap / 2.0);
         let rule = || {
             frame()
                 .height(px(theme.space.border))

@@ -220,7 +220,7 @@ fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
 
 /// The guides and elbow in front of a row at `depth`.
 fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
-    let colour = cx.theme().palette.gold_6;
+    let colour = cx.theme().palette.hairline;
     let shown = |on: bool| if on { colour } else { Color::NONE };
     // Where the elbow meets the row: the middle of its first line.
     let elbow = TOP + cx.theme().text.body * 0.6;
@@ -441,8 +441,8 @@ pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
                 vec![
                     AngularColorStop::new(fill, 0.0),
                     AngularColorStop::new(fill, turn),
-                    AngularColorStop::new(palette.gold_6, turn),
-                    AngularColorStop::new(palette.gold_6, TAU),
+                    AngularColorStop::new(palette.hairline, turn),
+                    AngularColorStop::new(palette.hairline, TAU),
                 ],
             );
             parts.push(

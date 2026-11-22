@@ -222,7 +222,7 @@ fn file(
 fn quote(content: impl View + 'static) -> impl View {
     with_cx(move |cx| {
         row((
-            frame().width(px(2.0)).fill(cx.theme().palette.gold_5),
+            frame().width(px(2.0)).fill(cx.theme().palette.mark),
             column((content,)).grow(1.0).min_width(px(0.0)),
         ))
         .gap(8.0)

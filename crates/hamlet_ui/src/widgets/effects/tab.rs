@@ -116,7 +116,7 @@ pub(super) fn highlight_tabs(
 
     // The line under the tab in front, as under a tab within a panel,
     // and the light rising from it.
-    let line = theme.palette.gold_4;
+    let line = theme.palette.accent_fill;
     let underline = BackgroundGradient(vec![
         Gradient::from(LinearGradient::to_top(vec![
             ColorStop::new(line, px(0.0)),

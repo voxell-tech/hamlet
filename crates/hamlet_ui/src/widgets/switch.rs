@@ -83,8 +83,8 @@ fn switch_of(
         let travel = width - height;
         let accent = theme.accent();
         let tracks = (accent, palette.button);
-        let frames = (accent, palette.gold_5);
-        let knobs = (theme.tone(Tone::OnAccent), palette.grey_1);
+        let frames = (accent, palette.mark);
+        let knobs = (theme.tone(Tone::OnAccent), palette.text_dim);
         cx.scope(|cx| {
             style::<HamletTheme>()
                 .tone(Tone::Faint)

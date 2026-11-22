@@ -421,7 +421,7 @@ fn chip_style(cx: &mut Cx) {
         .when::<ChipOpen>(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.selected)
-                    .border_color(t.palette.gold_4)
+                    .border_color(t.palette.accent_fill)
             })
             .tone(Tone::Body)
         })
@@ -1138,7 +1138,7 @@ fn prompt_sections(
         .collect::<Vec<_>>();
     // Clear of the scroll bar, which is drawn over the right edge.
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
+        let line = cx.theme().palette.hairline;
         let gap = cx.theme().space.panel;
         let mut parts = Vec::new();
         for section in sections {

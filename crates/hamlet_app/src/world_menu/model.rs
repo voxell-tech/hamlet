@@ -752,7 +752,7 @@ fn rail() -> impl View {
                 "Favourites".into(),
             )];
             tabs.push(
-                with_cx(|cx| hairline(cx.theme().palette.gold_6))
+                with_cx(|cx| hairline(cx.theme().palette.hairline))
                     .boxed(),
             );
             for (id, name) in providers {
@@ -1044,7 +1044,7 @@ fn tier(agent: Entity) -> impl View {
             }
             let fast = *fast;
             column((
-                with_cx(|cx| hairline(cx.theme().palette.gold_6)),
+                with_cx(|cx| hairline(cx.theme().palette.hairline)),
                 column((label("Speed")
                     .tone(Tone::Faint)
                     .bold(true)

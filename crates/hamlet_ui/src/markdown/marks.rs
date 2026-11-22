@@ -43,7 +43,7 @@ impl Inks {
             small: theme.text.small,
             reference: theme.tone(Tone::Reference),
             dim: theme.tone(Tone::Dim),
-            bar: theme.palette.gold_5,
+            bar: theme.palette.mark,
             code_fill: theme.palette.status.info.fill,
             block_fill: theme.palette.code,
             mono,

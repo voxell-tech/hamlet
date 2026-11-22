@@ -187,9 +187,9 @@ pub fn inks(p: &Palette) -> Inks {
         flame: p.glow_core,
         lamp: p.glow,
         ember: p.particle,
-        wax: p.gold_1,
-        shade: p.gold_2,
-        brass: p.gold_4,
+        wax: p.text,
+        shade: p.text_pressable,
+        brass: p.accent_fill,
         coal: p.danger_glow,
         edge: p.surface,
     }

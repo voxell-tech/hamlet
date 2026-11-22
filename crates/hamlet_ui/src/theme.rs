@@ -66,7 +66,7 @@ fn paint_scrollbars(
     let Some(mut style) = style else {
         return;
     };
-    let ink = theme.palette.gold_1;
+    let ink = theme.palette.text;
     let painted = ScrollbarStyle {
         rest: ink.with_alpha(BAR_REST),
         hot: ink.with_alpha(BAR_HOT),
@@ -195,7 +195,7 @@ pub struct Palette {
     pub surface: Color,
     /// Text that stands back.
     #[serde(with = "tint")]
-    pub grey_1: Color,
+    pub text_dim: Color,
     /// A button's fill, and its fill under the pointer.
     #[serde(with = "tint")]
     pub button: Color,
@@ -209,21 +209,26 @@ pub struct Palette {
     pub selected: Color,
     /// The colour of text that is read.
     #[serde(with = "tint")]
-    pub gold_1: Color,
-    /// Gold, from the text of a button down to a hairline.
+    pub text: Color,
+    /// Text that can be pressed.
     #[serde(with = "tint")]
-    pub gold_2: Color,
+    pub text_pressable: Color,
+    /// A mark of the accent, between the text and the accent.
     #[serde(with = "tint")]
-    pub gold_3: Color,
+    pub accent_mark: Color,
+    /// The accent where it fills a button or a bar under words.
     #[serde(with = "tint")]
-    pub gold_4: Color,
+    pub accent_fill: Color,
+    /// A shape that needs only the contrast of a mark.
     #[serde(with = "tint")]
-    pub gold_5: Color,
+    pub mark: Color,
+    /// The hairline of a card, and the highlight behind selected
+    /// words in a field.
     #[serde(with = "tint")]
-    pub gold_6: Color,
+    pub hairline: Color,
     /// A button's fill under the pointer.
     #[serde(with = "tint")]
-    pub gold_hover: Color,
+    pub accent_wash: Color,
     /// Text and icons that are live, wait or can be followed, a
     /// border under the pointer, and the ring of what has focus.
     #[serde(with = "tint")]
@@ -398,18 +403,18 @@ impl Palette {
         // No `..`: a new colour does not build until it has a part.
         let Self {
             surface,
-            grey_1,
+            text_dim,
             button,
             button_hover,
             border,
             selected,
-            gold_1,
-            gold_2,
-            gold_3,
-            gold_4,
-            gold_5,
-            gold_6,
-            gold_hover,
+            text,
+            text_pressable,
+            accent_mark,
+            accent_fill,
+            mark,
+            hairline,
+            accent_wash,
             accent,
             glow,
             glow_core,
@@ -440,8 +445,8 @@ impl Palette {
             ("code", Part::Fill, code),
             ("button", Part::Fill, button),
             ("button_hover", Part::Fill, button_hover),
-            ("gold_hover", Part::Fill, gold_hover),
-            ("gold_6", Part::Fill, gold_6),
+            ("accent_wash", Part::Fill, accent_wash),
+            ("hairline", Part::Light, hairline),
             ("selected", Part::Fill, selected),
             ("primary_low", Part::Fill, primary_low),
             ("danger", Part::Fill, danger),
@@ -449,15 +454,15 @@ impl Palette {
             ("green_deep", Part::Fill, green_deep),
             ("bottom_glow", Part::Fill, bottom_glow),
             ("text_selection", Part::Fill, text_selection),
-            ("gold_1", Part::Ink, gold_1),
-            ("grey_1", Part::Ink, grey_1),
-            ("gold_2", Part::Ink, gold_2),
+            ("text", Part::Ink, text),
+            ("text_dim", Part::Ink, text_dim),
+            ("text_pressable", Part::Ink, text_pressable),
             ("accent", Part::Ink, accent),
             ("red", Part::Status, red),
             ("green", Part::Status, green),
-            ("gold_5", Part::Mark, gold_5),
-            ("gold_3", Part::Mark, gold_3),
-            ("gold_4", Part::Mark, gold_4),
+            ("mark", Part::Mark, mark),
+            ("accent_mark", Part::Mark, accent_mark),
+            ("accent_fill", Part::Mark, accent_fill),
             ("danger_border", Part::Mark, danger_border),
             ("border", Part::Light, border),
             ("glow", Part::Light, glow),
@@ -757,15 +762,15 @@ impl TextTokens for HamletTheme {
     fn tone(&self, tone: Tone) -> Color {
         let palette = &self.palette;
         match tone {
-            Tone::Body => palette.gold_1,
-            Tone::Dim => palette.grey_1,
-            // Gold 2 marks what can be pressed.
-            Tone::Faint => palette.gold_2,
+            Tone::Body => palette.text,
+            Tone::Dim => palette.text_dim,
+            // Pressable text.
+            Tone::Faint => palette.text_pressable,
             Tone::Accent => palette.accent,
             Tone::OnAccent => contrast::clearer(
                 palette.surface,
-                palette.gold_1,
-                palette.gold_4,
+                palette.text,
+                palette.accent_fill,
             ),
             Tone::Critical => palette.status.danger.ink,
             Tone::Success => palette.status.success.mark,
@@ -818,14 +823,13 @@ impl SurfaceTokens for HamletTheme {
     fn hairline(&self) -> Color {
         // Firmer than the border of a card: an input's edge and a
         // slider's groove are what find them.
-        self.palette.border.mix(&self.palette.gold_5, HAIRLINE_FIRM)
+        self.palette.border.mix(&self.palette.mark, HAIRLINE_FIRM)
     }
 
     /// The edge of a field and of a slider's groove: found at a
     /// glance, where a divider is a quiet line.
     fn edge(&self) -> Color {
-        let (border, mark) =
-            (self.palette.border, self.palette.gold_5);
+        let (border, mark) = (self.palette.border, self.palette.mark);
         (0..=20)
             .map(|step| {
                 EDGE_FIRM + (1.0 - EDGE_FIRM) * step as f32 / 20.0
@@ -869,7 +873,7 @@ impl SurfaceTokens for HamletTheme {
     }
 
     fn selection(&self) -> Color {
-        self.palette.gold_6
+        self.palette.hairline
     }
 
     #[expect(
@@ -877,7 +881,7 @@ impl SurfaceTokens for HamletTheme {
         reason = "fynix's accent is a fill; the palette's is an ink"
     )]
     fn accent(&self) -> Color {
-        self.palette.gold_4
+        self.palette.accent_fill
     }
 
     /// The accent fill under the pointer, moved away from the
@@ -908,8 +912,25 @@ const MENU_HOVER_NEED: f32 = 1.3;
 /// How far the groove of a slider is from the button's fill toward
 /// the edge of a field, before more is added for its contrast.
 const GROOVE: f32 = 0.6;
+/// How opaque the work behind a reply is over a dark panel and over
+/// paper, where a fade washes out sooner.
+const QUIET: [f32; 2] = [0.5, 0.7];
 
 impl HamletTheme {
+    /// How opaque the work behind a reply is drawn, so it blends into
+    /// the panel in its own colours.
+    pub fn quiet_opacity(&self) -> f32 {
+        let palette = &self.palette;
+        let [dark, light] = QUIET;
+        if contrast::light(palette.surface)
+            < contrast::light(palette.text)
+        {
+            dark
+        } else {
+            light
+        }
+    }
+
     /// How opaque the words of an empty field are: as faint as dim
     /// text can be while it still reads on the field.
     pub fn hint_opacity(&self) -> f32 {
@@ -930,7 +951,7 @@ impl HamletTheme {
     pub(crate) fn hint(&self, opacity: f32) -> Color {
         let ground = Srgba::from(self.palette.input);
         ground
-            .mix(&Srgba::from(self.palette.grey_1), opacity)
+            .mix(&Srgba::from(self.palette.text_dim), opacity)
             .into()
     }
 

@@ -65,7 +65,7 @@ fn shown(
                     ..Node::default()
                 },
                 BackgroundColor(theme.palette.code),
-                BorderColor::all(theme.palette.gold_6),
+                BorderColor::all(theme.palette.hairline),
                 ImageNode::new(image)
                     .with_mode(NodeImageMode::Stretch),
                 EntityCursor(SystemCursorIcon::Pointer),

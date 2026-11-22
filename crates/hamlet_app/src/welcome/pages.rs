@@ -145,7 +145,7 @@ pub(super) fn sheet(
     with_cx(move |cx| {
         let theme = cx.theme();
         let space = &theme.space;
-        let line = theme.palette.gold_6;
+        let line = theme.palette.hairline;
         let pad = UiRect::all(px(space.overlay_padding));
         // Only the body scrolls, and only up and down.
         let body = faded(
@@ -215,7 +215,7 @@ fn track(at: usize) -> AnyView {
                                 .fill(if walked {
                                     palette.accent
                                 } else {
-                                    palette.gold_6
+                                    palette.hairline
                                 })
                                 .boxed(),
                         );
@@ -250,7 +250,7 @@ fn track(at: usize) -> AnyView {
                         .border_color(if lit || done {
                             palette.accent
                         } else {
-                            palette.gold_6
+                            palette.hairline
                         })
                         .align(AlignItems::Center)
                         .justify(JustifyContent::Center);

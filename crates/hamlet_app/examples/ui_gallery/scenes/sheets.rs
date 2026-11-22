@@ -143,7 +143,7 @@ fn tabs() -> Ui {
         tab(Glyph::Talk, "Talk")
             .tagged(Underglow::new(true))
             .tagged(tabs::Shown),
-        frame().height(px(2.0)).fill(theme.palette.gold_3),
+        frame().height(px(2.0)).fill(theme.palette.accent_mark),
     ))
     .gap(0.0);
     row((
@@ -186,7 +186,7 @@ fn popups() -> Ui {
     .gap(3.0)
     .padding(UiRect::axes(px(12.0), px(9.0)))
     .border(1.0)
-    .border_color(theme.palette.gold_5)
+    .border_color(theme.palette.mark)
     .radius(theme.space.soft)
     .fill(theme.palette.card)
     .with(theme.shadow());

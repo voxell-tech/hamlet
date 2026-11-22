@@ -14,7 +14,8 @@ use bevy_fynix::views::{
     column, frame, label, menu_item, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
-    Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
+    Bevy, Focused, Prop, ScopedExt, Style, ViewExt, ViewSeq, Visual,
+    style,
 };
 
 use crate::kinds::{chip, inset};
@@ -43,7 +44,7 @@ pub fn pad() -> UiRect {
     UiRect::axes(px(14.0), px(0.0))
 }
 
-/// A standard button: a fill with the edge of a field, and gold
+/// A standard button: a fill with the edge of a field, and accent
 /// text. It steps up under the pointer and down while pressed, and
 /// is only an outline while it cannot be pressed.
 pub fn button(cx: &mut Cx) {
@@ -77,7 +78,7 @@ fn framed_button(cx: &mut Cx, tone: Tone, bold: bool) {
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
                 f.fill(transparent(t.palette.button))
-                    .border_color(t.palette.gold_6)
+                    .border_color(t.palette.hairline)
             })
             .tone(Tone::Dim)
         })
@@ -93,7 +94,7 @@ pub fn primary_button(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(t.palette.primary_low)
                 .border(t.space.border)
-                .border_color(t.palette.gold_4)
+                .border_color(t.palette.accent_fill)
                 .radius(t.space.round)
         })
         .label(|l, t| {
@@ -109,14 +110,14 @@ pub fn primary_button(cx: &mut Cx) {
         .pressed(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.primary_low)
-                    .border_color(t.palette.gold_5)
+                    .border_color(t.palette.mark)
             })
             .tone(Tone::Body)
         })
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.button)
-                    .border_color(t.palette.gold_6)
+                    .border_color(t.palette.hairline)
             })
             .tone(Tone::Dim)
         })
@@ -150,6 +151,47 @@ pub fn text_button(cx: &mut Cx) {
         .apply(cx);
 }
 
+/// `look`, with every element in the view drawn at the opacity
+/// `opacity` takes from the theme.
+fn opaque(
+    look: Style<HamletTheme>,
+    opacity: fn(&HamletTheme) -> f32,
+) -> Style<HamletTheme> {
+    look.with(move |cx| {
+        cx.set::<Visual>(move |visual, t| visual.opacity(opacity(t)));
+    })
+}
+
+/// The rules of the work behind a reply: every element in the view
+/// at [`HamletTheme::quiet_opacity`], at full strength under the
+/// pointer.
+pub fn quiet_rules(cx: &mut Cx) {
+    opaque(style::<HamletTheme>(), HamletTheme::quiet_opacity)
+        .hovered(|s| opaque(s, |_| 1.0))
+        .transition(HamletTheme::interact)
+        .apply(cx);
+}
+
+/// A [`text_button`] faded as [`quiet_rules`] fades, for the work
+/// behind a reply, coming up to full strength under the pointer and
+/// focus.
+pub fn quiet_text_button(cx: &mut Cx) {
+    let loud = |s: Style<HamletTheme>| {
+        opaque(s.fill(|_| Color::NONE).tone(Tone::Body), |_| 1.0)
+    };
+    opaque(
+        style::<HamletTheme>()
+            .frame(|f, _| f.fill(Color::NONE))
+            .tone(Tone::Dim),
+        HamletTheme::quiet_opacity,
+    )
+    .hovered(loud)
+    .pressed(loud)
+    .when::<Focused>(loud)
+    .transition(HamletTheme::interact)
+    .apply(cx);
+}
+
 /// A view before it comes in and after it goes: transparent, at its
 /// size.
 pub fn hidden(cx: &mut Cx) {
@@ -173,12 +215,13 @@ pub fn text_input(cx: &mut Cx) {
         })
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.gold_5)
+                f.fill(t.palette.input).border_color(t.palette.mark)
             })
         })
         .when::<Focused>(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.input).border_color(t.palette.gold_4)
+                f.fill(t.palette.input)
+                    .border_color(t.palette.accent_fill)
             })
         })
         .when::<Refused>(|s| {
@@ -377,7 +420,7 @@ pub fn beside(
 pub fn list(rows: Vec<AnyView>) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        let line = cx.theme().palette.gold_6;
+        let line = cx.theme().palette.hairline;
         let rows = rows
             .into_iter()
             .enumerate()
@@ -857,7 +900,7 @@ fn tinted_button(cx: &mut Cx, kind: StatusKind) {
         .when::<InteractionDisabled>(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.button)
-                    .border_color(t.palette.gold_6)
+                    .border_color(t.palette.hairline)
             })
             .tone(Tone::Dim)
         })
@@ -956,7 +999,7 @@ where
             .padding(UiRect::all(px(space.track_padding)))
             .fill(theme.palette.input)
             .border(space.border)
-            .border_color(theme.palette.gold_5)
+            .border_color(theme.palette.mark)
             .radius(space.track_radius)
             .align(AlignItems::Stretch)
             .tagged(Wraps),))
@@ -1002,7 +1045,8 @@ fn segment(
         });
     let rules = if picked {
         base.frame(|f, t| {
-            f.fill(t.palette.selected).border_color(t.palette.gold_4)
+            f.fill(t.palette.selected)
+                .border_color(t.palette.accent_fill)
         })
         .tone(Tone::Body)
         .icon(|i, _| i.tone(Tone::Body))
@@ -1021,13 +1065,13 @@ fn segment(
         .hovered(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.button_hover)
-                    .border_color(t.palette.gold_5)
+                    .border_color(t.palette.mark)
             })
             .tone(Tone::Body)
         })
         .pressed(|s| {
             s.frame(|f, t| {
-                f.fill(t.pressed()).border_color(t.palette.gold_5)
+                f.fill(t.pressed()).border_color(t.palette.mark)
             })
         })
     };
@@ -1049,7 +1093,8 @@ pub fn choice(
         });
     let rules = if picked {
         base.frame(|f, t| {
-            f.fill(t.palette.selected).border_color(t.palette.gold_4)
+            f.fill(t.palette.selected)
+                .border_color(t.palette.accent_fill)
         })
         .tone(Tone::Body)
         .hovered(|s| {
@@ -1283,7 +1328,7 @@ pub fn nav_list(cx: &Cx, items: Vec<AnyView>) -> impl View + use<> {
     let mut rows = Vec::new();
     for item in items {
         if !rows.is_empty() {
-            rows.push(hairline(cx.theme().palette.gold_6).boxed());
+            rows.push(hairline(cx.theme().palette.hairline).boxed());
         }
         rows.push(item);
     }
@@ -1445,7 +1490,7 @@ pub fn radio(on: bool) -> impl View {
             .border_color(if on {
                 palette.accent
             } else {
-                palette.gold_5
+                palette.mark
             })
             .align(AlignItems::Center)
             .justify(JustifyContent::Center)
