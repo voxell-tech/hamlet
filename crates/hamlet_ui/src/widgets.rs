@@ -28,8 +28,9 @@ use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
 use bevy::ecs::system::Query;
-use bevy::math::{Affine2, Vec2};
-use bevy::ui::UiGlobalTransform;
+use bevy::ecs::world::World;
+use bevy::math::{Affine2, Rect, Vec2};
+use bevy::ui::{ComputedNode, UiGlobalTransform};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
@@ -54,6 +55,16 @@ pub fn plugin(app: &mut App) {
         search::plugin,
         secret::plugin,
     ));
+}
+
+/// The rect of `title`, in the window's logical pixels.
+pub fn rect_of(world: &World, title: Entity) -> Option<Rect> {
+    let (node, at) = world
+        .get::<ComputedNode>(title)
+        .zip(world.get::<UiGlobalTransform>(title))?;
+    let scale = node.inverse_scale_factor();
+    let (_, _, centre) = at.to_scale_angle_translation();
+    Some(Rect::from_center_size(centre * scale, node.size() * scale))
 }
 
 /// Moves the laid-out node `at` and all inside it by `by`, in

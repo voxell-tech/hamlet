@@ -25,8 +25,9 @@ use bevy_fynix::{
     resource,
 };
 use hamlet_protocol::client::AgentKind;
-use hamlet_ui::styles::{ICON, link_row, note, text_input};
+use hamlet_ui::styles::{ICON, guides, link_row, note, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::rect_of;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::list::{Branch, Group, Listed, Row, What};
@@ -67,8 +68,7 @@ pub(super) fn toggle(
     world.resource_mut::<Adding>().0 = if shut {
         None
     } else {
-        crate::menu::rect_of(world, node)
-            .map(|anchor| (anchor, panel.clone()))
+        rect_of(world, node).map(|anchor| (anchor, panel.clone()))
     };
 }
 
@@ -340,12 +340,7 @@ fn agent_row(
         };
         let mut parts = Vec::<AnyView>::new();
         if tree.depth > 0 {
-            parts.push(
-                crate::screens::hub::guides(
-                    tree.rails, tree.last, ROW,
-                )
-                .boxed(),
-            );
+            parts.push(guides(tree.rails, tree.last, ROW).boxed());
         }
         parts.extend([
             glyph(who, ICON).tone(Tone::Dim).boxed(),

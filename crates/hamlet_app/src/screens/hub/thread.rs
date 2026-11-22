@@ -45,12 +45,12 @@ use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph, share_ring};
+use hamlet_ui::widgets::rect_of;
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
-use crate::menu::rect_of;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
 use crate::screens::wait;
 use crate::world_menu::ChipName;

@@ -60,11 +60,11 @@ use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
+use hamlet_ui::widgets::rect_of;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
 use crate::desk::{DeskSettings, Desks, Turn};
-use crate::menu::rect_of;
 
 /// `keys` with Ctrl, on macOS too, where the primary key is Command.
 const fn ctrl_tab(keys: Keys) -> Chord {

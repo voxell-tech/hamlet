@@ -8,7 +8,6 @@ mod memory;
 mod papers;
 mod rail;
 
-pub(crate) use self::rail::guides;
 mod profile;
 pub(crate) mod thread;
 mod visits;

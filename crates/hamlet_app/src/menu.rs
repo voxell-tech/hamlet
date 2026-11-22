@@ -10,10 +10,7 @@ use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::math::Rect;
-use bevy::ui::{
-    AlignItems, ComputedNode, UiGlobalTransform, UiRect, UiScale,
-    percent, px,
-};
+use bevy::ui::{AlignItems, UiRect, UiScale, percent, px};
 use bevy::window::Window;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
@@ -32,6 +29,7 @@ use hamlet_ui::widgets::effects::Underglow;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::widgets::rect_of;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::screens::viewer::Viewing;
@@ -98,16 +96,6 @@ pub(crate) fn hold_escape(
     if taken.over != over {
         taken.over = over;
     }
-}
-
-/// The rect of `title`, in the window's logical pixels.
-pub(crate) fn rect_of(world: &World, title: Entity) -> Option<Rect> {
-    let (node, at) = world
-        .get::<ComputedNode>(title)
-        .zip(world.get::<UiGlobalTransform>(title))?;
-    let scale = node.inverse_scale_factor();
-    let (_, _, centre) = at.to_scale_angle_translation();
-    Some(Rect::from_center_size(centre * scale, node.size() * scale))
 }
 
 /// Closes the open menu, or opens the one whose title is pressed.
