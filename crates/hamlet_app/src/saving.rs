@@ -7,6 +7,7 @@ use bevy::ecs::prelude::*;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::saving::Saving;
 use hamlet_desktop::editor;
 use hamlet_protocol::client as protocol;
@@ -16,6 +17,7 @@ use hamlet_ui::{AnyView, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Saves>()
+        .add_overlay(80, || screen().boxed())
         .add_observer(
             |saving: On<Saving>, mut saves: ResMut<Saves>| {
                 saves.pending.insert(saving.0.clone(), None);

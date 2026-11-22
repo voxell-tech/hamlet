@@ -43,6 +43,7 @@ use hamlet_client::outbox::RequestId;
 use hamlet_client::terminals::{
     self, TerminalId, TerminalOpened, Watched,
 };
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::panels::{
     DeskCapture, PanelAppExt, ShowPanel, flush_panel, number,
     on_a_desk,
@@ -66,6 +67,7 @@ pub const PANEL: &str = "terminal";
 
 pub fn plugin(app: &mut App) {
     app.add_numbered_panel(PANEL, window)
+        .add_overlay(30, || open_menu().boxed())
         .init_resource::<Panels>()
         .init_resource::<Handing>()
         .init_resource::<Opening>()

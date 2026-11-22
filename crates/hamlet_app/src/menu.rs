@@ -22,6 +22,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_core::menus::{MenuItem, MenuItems};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::pick::Taken;
 use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
@@ -45,6 +46,7 @@ const UPDATES: u32 = 20;
 pub fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()
         .init_resource::<Updates>()
+        .add_overlay(20, || open_menu().boxed())
         .add_command(
             CommandSpec {
                 id: CommandId("app.close"),

@@ -21,7 +21,7 @@ use hamlet_core::panels::DeskCapture;
 use hamlet_ui::theme::HamletTheme;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use self::switcher::{popups, switcher};
+pub(crate) use self::switcher::switcher;
 use crate::dock;
 
 /// The name of the first desk.

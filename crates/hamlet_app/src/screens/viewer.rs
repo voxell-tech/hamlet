@@ -26,6 +26,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, frame, label, overlay, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_protocol::client::ImageId;
 use hamlet_ui::styles::{ICON, bare, icon_button};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -38,6 +39,7 @@ const VEIL: f32 = 0.85;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Viewing>()
+        .add_overlay(50, || view().boxed())
         .add_observer(click_veil)
         .add_systems(Update, close_on_escape.run_if(is_viewing))
         .add_systems(

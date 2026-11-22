@@ -52,6 +52,7 @@ use bevy_fynix::{
     Binding, EntityCursor, ModifierExt, ScopedExt, ViewExt, keyed,
     resource, style,
 };
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_ui::styles::{
     ICON, Tipped, action, bad_action, close_button, description,
     note, text_input,
@@ -104,6 +105,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Tabs>()
         .init_resource::<Renaming>()
         .init_resource::<Opened>()
+        .add_overlay(60, || popups().boxed())
         .add_observer(click)
         .add_observer(press_close)
         .add_observer(click_close)

@@ -15,12 +15,13 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
 use bevy_fynix::{ViewExt, keyed, resource};
+use hamlet_core::overlays::overlays;
 use hamlet_ui::styles::{Fills, hairline};
 use hamlet_ui::theme::{HamletTheme, ThemeChanged};
 use hamlet_ui::widgets::platform::Glow;
 use hamlet_ui::{Cx, View, built};
 
-use crate::{chrome, desk, hover, menu, welcome, world_menu};
+use crate::{chrome, desk, menu, welcome};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -53,25 +54,18 @@ fn rebuild(world: &mut World) {
 
 fn root() -> impl View {
     built(|cx| {
+        // The layout, then what floats over it, in the overlays'
+        // order.
+        let mut parts = vec![layout(cx).boxed()];
+        parts.extend(overlays(cx));
         cx.build(
-            column((
-                layout(cx),
-                crate::toasts::stack(),
-                menu::open_menu(),
-                crate::screens::terminal::open_menu(),
-                crate::select::quote_button(),
-                crate::screens::viewer::view(),
-                desk::popups(),
-                world_menu::view(),
-                crate::saving::screen(),
-                hover::view(),
-            ))
-            .width(percent(100.0))
-            .height(percent(100.0))
-            .min_width(px(0.0))
-            .min_height(px(0.0))
-            .fill(cx.theme().background())
-            .gap(0.0),
+            column(parts)
+                .width(percent(100.0))
+                .height(percent(100.0))
+                .min_width(px(0.0))
+                .min_height(px(0.0))
+                .fill(cx.theme().background())
+                .gap(0.0),
         )
     })
 }
