@@ -555,8 +555,12 @@ pub fn realm() -> AnyView {
     .boxed()
 }
 
-/// The bylaws of `hamlet`, for its chief to change.
-pub fn panel(hamlet: Entity) -> AnyView {
+/// The bylaws of `hamlet`, for its chief to change, opening on
+/// `front` for it.
+pub fn panel(
+    hamlet: Entity,
+    front: fn(Entity) -> AnyView,
+) -> AnyView {
     let page =
         keyed(resource::<Part, _>(|part| *part), move |part| {
             if *part == Part::Front {
@@ -572,9 +576,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 .boxed()
                         };
                         // Open on the front; the others are pages.
-                        let open = [padded(
-                            crate::folder::section(hamlet).boxed(),
-                        )];
+                        let open = [padded(front(hamlet))];
                         let rows =
                             Part::PAGES.into_iter().map(|part| {
                                 nav_row(
@@ -786,7 +788,7 @@ mod tests {
         *app.world_mut().resource_mut::<Part>() = part;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            panel(hamlet),
+            panel(hamlet, |_| column(()).boxed()),
         );
         app.update();
         (app, hamlet)

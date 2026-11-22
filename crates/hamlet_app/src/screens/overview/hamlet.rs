@@ -597,7 +597,9 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
         }),
         move |page| match page {
             Page::Agents => list_of(hub, hamlet).boxed(),
-            Page::Limits => crate::limits::panel(hamlet),
+            Page::Limits => crate::limits::panel(hamlet, |hamlet| {
+                crate::folder::section(hamlet).boxed()
+            }),
             Page::History => record_of(hamlet).boxed(),
         },
     )
