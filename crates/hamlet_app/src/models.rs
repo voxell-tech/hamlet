@@ -24,7 +24,7 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Account, Providers};
 use hamlet_core::panels::PanelSystems;
-use hamlet_core::settings::SettingsPane;
+use hamlet_core::settings::{MODELS, SettingsPane};
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
@@ -33,7 +33,6 @@ pub use self::home::{endpoints, shelf};
 pub(crate) use self::row::{
     Detail, ModelRow, legend, mark, model_row, over_rows, tag,
 };
-use crate::settings::MODELS;
 
 /// How many models a page of the catalogue shows.
 const SHOWN: usize = 10;

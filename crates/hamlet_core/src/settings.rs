@@ -21,6 +21,11 @@ pub fn plugin(app: &mut App) {
 /// The id of the Settings panel.
 pub const PANEL: &str = "settings";
 
+/// The id of the Endpoints page.
+pub const ENDPOINTS: &str = "endpoints";
+/// The id of the Models page.
+pub const MODELS: &str = "models";
+
 /// A page of Settings.
 #[derive(Clone)]
 pub struct SettingsPage {

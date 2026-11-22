@@ -37,7 +37,8 @@ use hamlet_core::menus::{MenuAppExt, MenuItem};
 use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::settings::{
-    PANEL, SettingsAppExt, SettingsPage, SettingsPages, SettingsPane,
+    ENDPOINTS, MODELS, PANEL, SettingsAppExt, SettingsPage,
+    SettingsPages, SettingsPane,
 };
 use hamlet_core::welcome::{OpenProjects, OpenWelcome};
 use hamlet_desktop::awake::KeepAwake;
@@ -187,10 +188,6 @@ fn field(name: &'static str, value: impl View) -> impl View {
     close((section(name), value))
 }
 
-/// The id of the Endpoints page.
-pub const ENDPOINTS: &str = "endpoints";
-/// The id of the Models page.
-pub const MODELS: &str = "models";
 /// The id of the page of the MCP servers whose tools agents are
 /// offered.
 pub const MCP: &str = "mcp";

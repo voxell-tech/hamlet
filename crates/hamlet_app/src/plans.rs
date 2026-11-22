@@ -30,7 +30,7 @@ use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
 use hamlet_core::panels::PanelSystems;
-use hamlet_core::settings::{OpenSettings, SettingsPane};
+use hamlet_core::settings::{ENDPOINTS, OpenSettings, SettingsPane};
 use hamlet_core::toasts::Toast;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -44,7 +44,6 @@ use jiff::tz::TimeZone;
 
 pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
 use crate::models::mark;
-use crate::settings::ENDPOINTS;
 
 /// The width of a window's name before its bar, of what it used after
 /// it, and the gap between them.

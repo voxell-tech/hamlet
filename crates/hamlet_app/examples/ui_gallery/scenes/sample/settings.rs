@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 use hamlet_app::settings;
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
-use hamlet_core::settings::SettingsPane;
+use hamlet_core::settings::{ENDPOINTS, MODELS, SettingsPane};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sky::{
@@ -55,11 +55,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::SettingsModels {
         world.resource_mut::<hamlet_app::models::Shelf>().models =
             super::hub::catalogue();
-        world.insert_resource(SettingsPane(Some(settings::MODELS)));
+        world.insert_resource(SettingsPane(Some(MODELS)));
     }
     if scene == Scene::SettingsEndpoints {
-        world
-            .insert_resource(SettingsPane(Some(settings::ENDPOINTS)));
+        world.insert_resource(SettingsPane(Some(ENDPOINTS)));
     }
     if scene == Scene::Workspace {
         world.resource_mut::<Settings>().0.workspace =

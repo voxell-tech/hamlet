@@ -461,7 +461,7 @@ fn answered(response: On<Response>, mut commands: Commands) {
                     if let Some(mut pane) = world.get_resource_mut::<
                         hamlet_core::settings::SettingsPane,
                     >() {
-                        pane.0 = Some(crate::settings::MODELS);
+                        pane.0 = Some(hamlet_core::settings::MODELS);
                     }
                     close(world);
                 } else {
