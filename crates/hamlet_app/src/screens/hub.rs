@@ -15,19 +15,19 @@ mod visits;
 
 use std::collections::BTreeSet;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::{
     resource_changed, resource_exists_and_changed,
 };
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Query, ResMut};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::PointerPress;
 use bevy::ui::{percent, px};
@@ -37,9 +37,10 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
+use hamlet_client::Connection;
 use hamlet_client::realm::{HamletId, Left, Seen};
 use hamlet_core::panels::{
-    PanelAppExt, ShowPanel, highlight_panel, number,
+    PanelAppExt, PanelSystems, ShowPanel, highlight_panel, number,
 };
 use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
@@ -72,6 +73,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<PressedIn>()
         .add_observer(pressed)
         .add_systems(Update, tabs::mark_on::<Sheet>)
+        .add_systems(
+            PreUpdate,
+            ask_limits.in_set(PanelSystems::Follow),
+        )
         .init_resource::<papers::Requests>()
         .add_observer(papers::response)
         .add_observer(papers::edited)
@@ -118,6 +123,21 @@ pub enum Showing {
     Chief(Entity),
     /// The library's shelves.
     Library,
+}
+
+/// Asks the server for the limits when a Hub's realm page opens, or
+/// the connection comes back while one is open.
+pub fn ask_limits(
+    turned: Query<(), Changed<Showing>>,
+    hubs: Query<&Showing>,
+    connection: Res<Connection>,
+    mut commands: Commands,
+) {
+    let moved = connection.is_changed() || !turned.is_empty();
+    if moved && hubs.iter().any(|showing| *showing == Showing::Realm)
+    {
+        commands.queue(crate::plans::check);
+    }
 }
 
 /// The panel ids of the Hubs whose rails are collapsed, as the view

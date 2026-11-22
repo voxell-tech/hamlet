@@ -10,10 +10,9 @@ use std::collections::HashSet;
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::observer::On;
-use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, percent,
@@ -44,7 +43,6 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
 pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
-use crate::hub::Showing;
 use crate::models::mark;
 use crate::settings::ENDPOINTS;
 
@@ -103,29 +101,24 @@ impl Plans {
 #[derive(Resource, Default)]
 struct Asking(Option<RequestId>);
 
-/// Asks the server for the limits when a page that shows them opens,
-/// or the connection comes back while one is open: a Hub's realm
-/// page, or Settings' endpoints. The server reads a provider at most
-/// once a minute however often it is asked.
+/// Asks the server for the limits when Settings' endpoints page
+/// opens, or the connection comes back while it is open. The server
+/// reads a provider at most once a minute however often it is asked.
 fn ask(
-    turned: Query<(), Changed<Showing>>,
-    hubs: Query<&Showing>,
     pane: Option<Res<SettingsPane>>,
     connection: Res<Connection>,
     mut commands: Commands,
 ) {
     let moved = connection.is_changed()
-        || !turned.is_empty()
         || pane.as_ref().is_some_and(DetectChanges::is_changed);
-    let shown = hubs.iter().any(|showing| *showing == Showing::Realm)
-        || pane.is_some_and(|pane| pane.0 == Some(ENDPOINTS));
+    let shown = pane.is_some_and(|pane| pane.0 == Some(ENDPOINTS));
     if moved && shown {
         commands.queue(check);
     }
 }
 
 /// Asks the server to read each signed-in provider's limits again.
-pub(crate) fn check(world: &mut World) {
+pub fn check(world: &mut World) {
     if world.resource::<Connection>().state != Contact::Connected
         || world.resource::<Asking>().0.is_some()
     {
@@ -698,8 +691,12 @@ mod tests {
                     toasted.0 += 1;
                 },
             )
-            .add_plugins(plugin);
-        app.world_mut().spawn(Showing::Realm);
+            .add_plugins(plugin)
+            .add_systems(
+                PreUpdate,
+                crate::hub::ask_limits.in_set(PanelSystems::Follow),
+            );
+        app.world_mut().spawn(crate::hub::Showing::Realm);
         app.world_mut().resource_mut::<Connection>().state =
             Contact::Connected;
         app.world_mut().resource_mut::<Providers>().0 =
