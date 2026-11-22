@@ -16,9 +16,8 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{self as agents, Actions, Profile};
-use hamlet_core::words;
+use hamlet_core::{orders, words};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders;
 use hamlet_ui::styles::{
     self, ICON, Looks, choice, description, lettered, note,
     scroll_area, section, text_input,

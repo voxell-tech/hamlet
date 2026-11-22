@@ -13,11 +13,12 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left, LivesIn,
 };
+use hamlet_core::orders::{self, CarryHouse};
 use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
 use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
-use hamlet_realm::{moving, orders};
+use hamlet_realm::moving;
 use hamlet_ui::styles::ICON;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
@@ -539,7 +540,7 @@ pub(super) fn items(
                     Tone::Dim,
                     "Move",
                     move |w| {
-                        orders::carry_house(w, profile);
+                        w.trigger(CarryHouse(profile));
                     },
                 ));
             }

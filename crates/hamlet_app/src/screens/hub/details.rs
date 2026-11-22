@@ -16,8 +16,8 @@ use hamlet_client::realm::{
     Account, Actions, Allowance, Bylaws, Channel, Kind, LivesIn,
     Profile, ToolsOff, channels_of, id_of, name_of, shown_of,
 };
+use hamlet_core::orders;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, hairline, lettered,
     note, scroll_area, text_input,

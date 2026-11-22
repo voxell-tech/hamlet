@@ -18,6 +18,7 @@ use bevy_fynix::{
 use hamlet_client::realm::{
     Actions, Learned, LivesIn, Pin, Profile, name_of, profile_address,
 };
+use hamlet_core::orders::CarryHouse;
 use hamlet_core::standing::Standing;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -521,9 +522,7 @@ fn arrival(hub: Entity, shown: &Shown) -> AnyView {
                 let profile = shown.entity;
                 buttons_row.push(
                     action(Glyph::Move, "Move House", move |world| {
-                        hamlet_realm::orders::carry_house(
-                            world, profile,
-                        );
+                        world.trigger(CarryHouse(profile));
                     })
                     .tooltip(|| {
                         note(

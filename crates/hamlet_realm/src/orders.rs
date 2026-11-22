@@ -3,8 +3,9 @@
 
 use bevy::prelude::*;
 use hamlet_client::ViewFolder;
-use hamlet_client::realm::{
-    self as agents, Actions, HamletId, Profile,
+use hamlet_client::realm::{Actions, HamletId, Profile};
+use hamlet_core::orders::{
+    Carry, CarryHouse, Decree, Introduce, channel,
 };
 
 use crate::chief::{Kept, Player, Stands};
@@ -16,71 +17,39 @@ use crate::library::Stood;
 use crate::moving::{self, SetDown};
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, grant);
-}
-
-/// A chief's command for the hamlet `hamlet`, or for the Hand when
-/// there is none, as the chief would type it.
-#[derive(Event, Clone, Debug, PartialEq)]
-pub struct Decree {
-    pub hamlet: Option<String>,
-    pub text: String,
-}
-
-/// Words from the chief to `agent`, in its own chat.
-#[derive(Event, Clone, Debug, PartialEq)]
-pub struct Tell {
-    pub agent: Entity,
-    pub text: String,
-}
-
-fn name(world: &World, agent: Entity) -> Option<String> {
-    world
-        .get::<Name>(agent)
-        .map(|name| name.as_str().to_string())
-}
-
-/// A chief's command sent to the lead of `agent`'s hamlet, or to the
-/// Hand when it has none.
-pub fn decree(world: &mut World, agent: Entity, text: String) {
-    let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);
-    world.trigger(Decree { hamlet, text });
-    world.flush();
-}
-
-/// Opens a channel between two agents at the chief's word.
-fn channel(world: &mut World, a: Entity, b: Entity) {
-    if !Actions::is_allowed(world, "channel") {
-        return;
-    }
-    if let (Some(a_name), Some(b_name)) =
-        (name(world, a), name(world, b))
-    {
-        decree(world, a, format!("/channel {a_name} {b_name}"));
-    }
-}
-
-/// Closes the channel between two agents at the chief's word.
-pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if !Actions::is_allowed(world, "unchannel") {
-        return;
-    }
-    if let (Some(a_name), Some(b_name)) =
-        (name(world, a), name(world, b))
-    {
-        decree(world, a, format!("/unchannel {a_name} {b_name}"));
-    }
+    app.add_systems(Update, grant)
+        .add_observer(
+            |asked: On<Introduce>, mut commands: Commands| {
+                let Introduce(a, b) = *asked;
+                commands.queue(move |world: &mut World| {
+                    introduce(world, a, b);
+                });
+            },
+        )
+        .add_observer(|asked: On<Carry>, mut commands: Commands| {
+            let hamlet = asked.0;
+            commands
+                .queue(move |world: &mut World| carry(world, hamlet));
+        })
+        .add_observer(
+            |asked: On<CarryHouse>, mut commands: Commands| {
+                let profile = asked.0;
+                commands.queue(move |world: &mut World| {
+                    carry_house(world, profile);
+                });
+            },
+        );
 }
 
 /// Has two agents greet each other and opens a channel between them.
-pub fn introduce(world: &mut World, a: Entity, b: Entity) {
+fn introduce(world: &mut World, a: Entity, b: Entity) {
     hand::greet(world, a, b);
     channel(world, a, b);
 }
 
 /// Takes the town of `hamlet` in hand, to be set down with a click
 /// on the ground.
-pub fn carry(world: &mut World, hamlet: Entity) {
+fn carry(world: &mut World, hamlet: Entity) {
     if !Actions::is_allowed(world, "move-hamlet") {
         return;
     }
@@ -91,7 +60,7 @@ pub fn carry(world: &mut World, hamlet: Entity) {
 
 /// Takes the house of `profile` in hand, to be set down with a click
 /// on the ground.
-pub fn carry_house(world: &mut World, profile: Entity) {
+fn carry_house(world: &mut World, profile: Entity) {
     if !Actions::is_allowed(world, "move-house") {
         return;
     }

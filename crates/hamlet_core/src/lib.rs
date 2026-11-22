@@ -8,6 +8,7 @@
 pub mod age;
 pub mod clock;
 pub mod menus;
+pub mod orders;
 pub mod panels;
 pub mod pick;
 pub mod roll;

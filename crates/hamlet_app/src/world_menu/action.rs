@@ -19,7 +19,7 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletAgent, HamletId, Left,
     LivesIn,
 };
-use hamlet_realm::orders;
+use hamlet_core::orders;
 use hamlet_ui::styles::{Looks, button, lettered};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;

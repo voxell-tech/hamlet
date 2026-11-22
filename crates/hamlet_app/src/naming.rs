@@ -32,8 +32,8 @@ use hamlet_client::realm::{
     self as agents, Actions, HamletId, Kind, Left, Profile,
     profile_address,
 };
+use hamlet_core::orders::Decree;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders::Decree;
 use hamlet_ui::styles::{bare, crumb_here, note, text_input};
 use hamlet_ui::{AnyView, built};
 

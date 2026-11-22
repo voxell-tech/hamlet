@@ -20,10 +20,10 @@ use bevy_fynix::{
     keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
+use hamlet_core::orders::{Carry, Decree};
 use hamlet_core::pick::{Thing, select};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::words;
-use hamlet_realm::orders::Decree;
 use hamlet_ui::styles::{
     Fills, ICON, LINE, action, bare, buttons, crumb, crumb_slash,
     crumbs, group, more_button, note, note_rules, raised,
@@ -528,7 +528,7 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 Glyph::Move,
                 "Move It",
                 move |world| {
-                    hamlet_realm::orders::carry(world, hamlet);
+                    world.trigger(Carry(hamlet));
                 },
             ));
         }

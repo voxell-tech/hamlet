@@ -14,8 +14,8 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
     self as agents, Actions, Kind, Left, LivesIn, channel_between,
 };
+use hamlet_core::orders::Introduce;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders;
 use hamlet_ui::styles::{
     self, choice, description, lettered, scroll_area,
 };
@@ -98,9 +98,8 @@ fn list(agent: Entity) -> impl View {
                                 close(world);
                                 *world.resource_mut::<Channeling>() =
                                     Channeling::default();
-                                orders::introduce(
-                                    world, agent, other,
-                                );
+                                world
+                                    .trigger(Introduce(agent, other));
                             })
                             .boxed()
                     })

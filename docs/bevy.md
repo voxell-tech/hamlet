@@ -113,7 +113,8 @@ not in front still runs its signals (see `hamlet_core/src/roll.rs`).
 
 A command about a hamlet goes through `chat::decree`, to its lead; one
 about the realm through `chat::command`, to the Hand; `chat::send` is for
-what the chief typed in a Hub's field.
+what the chief typed in a Hub's field. Another part triggers
+`hamlet_core::orders::Decree`, which the chat sends.
 
 ## The server
 
