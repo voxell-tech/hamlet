@@ -109,7 +109,7 @@ system. The pattern that fits: an ordinary system with queries and change
 detection writes a small `PartialEq` resource only when it differs, and
 the view binds to that resource (`hub::Papers`). A signal on
 `every_frame()` does its whole read each frame, and a dock tab that is
-not in front still runs its signals (see `roll.rs`).
+not in front still runs its signals (see `hamlet_core/src/roll.rs`).
 
 A command about a hamlet goes through `chat::decree`, to its lead; one
 about the realm through `chat::command`, to the Hand; `chat::send` is for

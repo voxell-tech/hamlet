@@ -15,7 +15,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::Waiting;
 
-use crate::PanelSystems;
+use crate::panels::PanelSystems;
 
 type AgentMoved = (
     With<HamletAgent>,
@@ -51,7 +51,7 @@ type AgentLost<'w, 's> = (
     RemovedComponents<'w, 's, Lead>,
 );
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Roll>()
         .add_systems(PreUpdate, turn_roll.in_set(PanelSystems::Bind));
 }
@@ -69,13 +69,13 @@ pub struct Roll {
 
 impl Roll {
     /// The count of changes to the hamlets and their files.
-    pub(crate) fn hamlets(&self) -> u64 {
+    pub fn hamlets(&self) -> u64 {
         self.hamlets
     }
 }
 
 /// A check that fires when an agent changed.
-pub(crate) fn agents_moved()
+pub fn agents_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;
     move |world: &World| {
@@ -88,7 +88,7 @@ pub(crate) fn agents_moved()
 }
 
 /// A check that fires when a hamlet or its record changed.
-pub(crate) fn hamlets_moved()
+pub fn hamlets_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;
     move |world: &World| {
@@ -101,7 +101,7 @@ pub(crate) fn hamlets_moved()
 }
 
 /// A signal over the agents, read again when they changed.
-pub(crate) fn rolled<T>(
+pub fn rolled<T>(
     read: impl Fn(&World) -> T + Send + Sync + 'static,
 ) -> Signal<T> {
     derived(read).when(agents_moved())
@@ -126,7 +126,7 @@ pub fn either(
     }
 }
 
-pub(crate) fn turn_roll(
+pub fn turn_roll(
     agents: Query<(), AgentMoved>,
     hamlets: Query<(), HamletMoved>,
     waits: Query<(), Changed<Waiting>>,

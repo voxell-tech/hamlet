@@ -4,12 +4,12 @@
 use bevy::ecs::world::World;
 use bevy_fynix::views::label;
 use bevy_fynix::{ViewExt, derived, keyed};
+use hamlet_core::roll::{either, moved};
 use hamlet_ui::styles::{description, parts, segmented_words};
 use hamlet_ui::{AnyView, View};
 use hamlet_update::Channel;
 
 use super::{alone, field, told};
-use crate::roll::{either, moved};
 use crate::updates::{UpdateChannel, Updates};
 
 pub(super) fn page() -> impl View {

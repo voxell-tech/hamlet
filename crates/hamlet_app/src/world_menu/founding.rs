@@ -23,6 +23,7 @@ use bevy_fynix::{
 use hamlet_client::realm::{
     self, Actions, HamletId, Profile, profile_address,
 };
+use hamlet_core::words;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -33,8 +34,8 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
 use super::{asks, asks_first, close, optional};
+use crate::chat;
 use crate::hub::{Showing, bring_following, show};
-use crate::{chat, words};
 
 /// Seconds a founding is waited for before it is let go.
 const WAIT: f64 = 60.0;

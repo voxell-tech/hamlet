@@ -18,6 +18,7 @@ use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
     Fills, action, bare, beside, breadcrumb, close, description,
@@ -29,7 +30,6 @@ use hamlet_ui::widgets::switch::switch as toggle;
 use hamlet_ui::{AnyView, View, with_cx};
 use serde_json::Value;
 
-use crate::PanelSystems;
 use crate::overview::heading;
 
 const CONTROLS: f32 = 150.0;

@@ -660,7 +660,7 @@ fn failure(
             ),
         }
     })
-    .when(crate::roll::moved::<crate::plans::Plans>())
+    .when(hamlet_core::roll::moved::<crate::plans::Plans>())
 }
 
 /// Where to see the limits of the plan that refused a reply in
@@ -680,7 +680,7 @@ fn plan_action(session: Entity) -> AnyView {
                 })
                 .map(|_| provider)
         })
-        .when(crate::roll::moved::<crate::plans::Plans>()),
+        .when(hamlet_core::roll::moved::<crate::plans::Plans>()),
         |provider| match provider.as_deref() {
             Some(_) => hamlet_ui::styles::action(
                 Glyph::Meter,

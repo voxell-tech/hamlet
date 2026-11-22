@@ -27,6 +27,8 @@ use bevy_fynix::{
 };
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::Chief as SignedIn;
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::roll::{agents_moved, either, moved};
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -45,10 +47,8 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::portrait::{Portrait, Sitter};
-use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::hub::Following;
-use crate::roll::{agents_moved, either, moved};
 
 mod portrait;
 

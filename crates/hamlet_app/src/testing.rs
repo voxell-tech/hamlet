@@ -16,6 +16,7 @@ use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, ViewFolder, receive};
+use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::North;
@@ -31,7 +32,6 @@ use image::{ImageFormat, RgbaImage};
 use crate::appearance::Appearance;
 use crate::desk::{self, Desks};
 use crate::remember::Remembered;
-use crate::roll::Roll;
 use crate::screens::settings::{self, Pane};
 use crate::welcome::Browser;
 use crate::world_menu::Favorites;
@@ -44,7 +44,7 @@ pub(crate) fn panel_app() -> App {
         bevy::time::TimePlugin,
         ClientPlugin { server: None },
         FynixPlugin::<HamletTheme>::default(),
-        crate::panel_sets,
+        hamlet_core::panels::sets,
     ));
     theme::show(app.world_mut(), HamletTheme::designed());
     receive(
@@ -52,7 +52,7 @@ pub(crate) fn panel_app() -> App {
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
     );
     app.add_plugins((
-        crate::roll::plugin,
+        hamlet_core::roll::plugin,
         crate::asking::plugin,
         hamlet_ui::widgets::forms::plugin,
     ));
@@ -111,7 +111,7 @@ pub(crate) fn welcome_app() -> App {
         FynixPlugin::<HamletTheme>::default(),
         crate::welcome::plugin,
         hamlet_ui::widgets::secret::plugin,
-        crate::panel_sets,
+        hamlet_core::panels::sets,
     ));
     theme::show(app.world_mut(), HamletTheme::designed());
     app.insert_resource(Browser(|_, url| {

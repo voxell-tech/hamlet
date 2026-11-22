@@ -17,6 +17,7 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use hamlet_client::waits::Waiting;
+use hamlet_core::panels::PanelSystems;
 use hamlet_ui::styles::Fills;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{
@@ -26,7 +27,7 @@ use hamlet_ui::widgets::platform::{ClipInside, Glow};
 use hamlet_ui::{AnyView, Cx, View};
 
 use crate::desk::{Desks, Part};
-use crate::{PanelSystems, desk, remember};
+use crate::{desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
 const LEAST: f32 = 300.0;

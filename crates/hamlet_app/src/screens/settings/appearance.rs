@@ -13,6 +13,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use hamlet_core::roll::{either, moved};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
     ICON, bare, card_choice, card_name, group, note, parts,
@@ -25,7 +26,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::field;
 use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
-use crate::roll::{either, moved};
 use crate::root::Lasting;
 
 /// The width of each variant's painted panel on a theme's tile, and

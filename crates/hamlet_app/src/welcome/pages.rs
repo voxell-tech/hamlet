@@ -14,6 +14,7 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, keyed, resource, style,
 };
 use hamlet_client::realm::{Providers, Settings};
+use hamlet_core::roll::{either, moved};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
@@ -34,7 +35,6 @@ use super::{NOTHING_LOCAL, Pick, Step, Welcome, go, look, pick};
 use crate::models::{
     Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
 };
-use crate::roll::{either, moved};
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
     description(text.into()).boxed()

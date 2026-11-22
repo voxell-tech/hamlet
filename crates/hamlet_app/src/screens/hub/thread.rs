@@ -26,6 +26,9 @@ use hamlet_client::realm::{
     Activity, Busy, HamletAgent, Kind, Left, LivesIn, Parent,
     Profile, id_of, name_of, shown_of,
 };
+use hamlet_core::roll::rolled;
+use hamlet_core::standing::Standing;
+use hamlet_core::words;
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::Thing;
@@ -48,11 +51,9 @@ use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
 use crate::menu::rect_of;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
-use crate::roll::rolled;
 use crate::screens::wait;
-use crate::standing::Standing;
 use crate::world_menu::ChipName;
-use crate::{chat, words, world_menu};
+use crate::{chat, world_menu};
 
 /// The tabs between the chat and the details of `hub`'s thread.
 fn sheets_of(

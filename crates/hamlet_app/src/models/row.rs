@@ -9,6 +9,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
+use hamlet_core::roll::moved;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::chip;
 use hamlet_ui::styles::{ICON, note, note_rules, small_rules};
@@ -22,7 +23,6 @@ use super::{
     Shelf, context_words, model_name, model_title, provider_of,
     source_of,
 };
-use crate::roll::moved;
 
 /// The side of a provider's mark in a row.
 const MARK: f32 = 16.0;

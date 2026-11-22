@@ -11,11 +11,11 @@ use bevy::time::Time;
 use hamlet_client::realm::{
     self as agents, Closed, Identity, Kind, Left, LivesIn, Parent,
 };
+use hamlet_core::panels::PanelSystems;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::theme::StatusKind;
 
 use super::{Showing, show, talk_in};
-use crate::PanelSystems;
 use crate::toasts::Toasts;
 
 pub(super) fn plugin(app: &mut App) {

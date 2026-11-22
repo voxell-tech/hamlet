@@ -18,11 +18,11 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Seen, Settings};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
 pub use self::providers::{Browser, search};
-use crate::PanelSystems;
 
 /// What the local-model search says when nothing answered.
 pub const NOTHING_LOCAL: &str = "Nothing answered yet. Install \

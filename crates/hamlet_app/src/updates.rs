@@ -17,6 +17,7 @@ use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_client::Tokio;
+use hamlet_core::panels::PanelSystems;
 use hamlet_ui::theme::StatusKind;
 use hamlet_update::{Channel, Feed, Install, Version};
 use tokio::sync::mpsc::{
@@ -24,7 +25,6 @@ use tokio::sync::mpsc::{
 };
 use tokio::sync::watch;
 
-use crate::PanelSystems;
 use crate::remember::Remembered;
 use crate::toasts::Toasts;
 

@@ -21,6 +21,7 @@ workspace = true
 # Named for the `hot-reload` feature; only the examples use it.
 hamlet_assets.workspace = true
 hamlet_client.workspace = true
+hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_import.workspace = true
 hamlet_protocol.workspace = true

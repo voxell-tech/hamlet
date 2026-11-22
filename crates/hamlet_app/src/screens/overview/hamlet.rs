@@ -20,6 +20,8 @@ use bevy_fynix::{
     keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
+use hamlet_core::roll::{either, moved};
+use hamlet_core::words;
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
@@ -41,8 +43,7 @@ use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::hub::Showing;
-use crate::roll::{either, moved};
-use crate::{profile_tag, words, world_menu};
+use crate::{profile_tag, world_menu};
 
 /// What the form of a hamlet's worker asks.
 const WORKER: &str = "worker";

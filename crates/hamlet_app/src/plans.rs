@@ -31,6 +31,7 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::Providers;
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, action, bare, close, icon_button, note, pill,
@@ -42,7 +43,6 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
 pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
-use crate::PanelSystems;
 use crate::hub::Showing;
 use crate::models::mark;
 use crate::settings::Pane;

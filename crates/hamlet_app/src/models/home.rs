@@ -12,6 +12,7 @@ use bevy_fynix::{
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
+use hamlet_core::roll::{either, moved};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, Tipped, action, bad_action, bare, beside, close,
@@ -29,7 +30,6 @@ use super::{
     Asked, Draft, SHOWN, Shelf, catalogue, context_words, edit, mark,
     provider_name, provider_of, read_models, title_of,
 };
-use crate::roll::{either, moved};
 
 fn remove(world: &mut World, name: &str) {
     let endpoints = world

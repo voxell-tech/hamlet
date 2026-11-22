@@ -20,6 +20,7 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Account, Providers};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client as protocol;
 
 pub(crate) use self::choice::{efforts, of_hamlet};
@@ -28,7 +29,6 @@ pub use self::home::{endpoints, shelf};
 pub(crate) use self::row::{
     Detail, ModelRow, legend, mark, model_row, over_rows, tag,
 };
-use crate::PanelSystems;
 use crate::settings::Pane;
 
 /// How many models a page of the catalogue shows.
@@ -230,7 +230,7 @@ fn problem() -> impl hamlet_ui::View {
                 .and_then(|shelf| shelf.problem.clone())
                 .unwrap_or_default()
         })
-        .when(crate::roll::moved::<Shelf>()),
+        .when(hamlet_core::roll::moved::<Shelf>()),
     )
 }
 
@@ -344,7 +344,7 @@ mod tests {
     }
     fn with_catalogue() -> App {
         let mut app = welcome_app();
-        app.add_plugins((plugin, crate::roll::plugin));
+        app.add_plugins((plugin, hamlet_core::roll::plugin));
         connect(&mut app, false);
         let read = sent(&mut app).remove(0);
         incoming(

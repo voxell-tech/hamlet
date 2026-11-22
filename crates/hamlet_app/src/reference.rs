@@ -23,6 +23,7 @@ use hamlet_client::realm::{
     self as agents, HamletId, Identity, Kind, Lead, Left, Profile,
     Shown,
 };
+use hamlet_core::panels::PanelSystems;
 use hamlet_desktop::clipboard::CopyRich;
 use hamlet_protocol::address::{Address, is_address};
 use hamlet_protocol::client as protocol;
@@ -34,7 +35,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use crate::convo::{talk_to, talk_to_hand};
-use crate::{PanelSystems, hub, sounds};
+use crate::{hub, sounds};
 
 /// The attribute rich text carries the words of a reference in.
 const ATTRIBUTE: &str = "data-hamlet-reference";

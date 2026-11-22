@@ -610,7 +610,10 @@ fn working<B: Board>(hub: Entity, key: RowKey) -> impl View {
         match start {
             Some(start) if start > 0 => format!(
                 " for {}",
-                lasted(crate::clock::now_ms().saturating_sub(start))
+                lasted(
+                    hamlet_core::clock::now_ms()
+                        .saturating_sub(start)
+                )
             ),
             _ => String::new(),
         }

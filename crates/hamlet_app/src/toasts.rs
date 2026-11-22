@@ -36,6 +36,8 @@ use hamlet_client::realm::{
     Shown, name_of,
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::standing::Standing;
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
     Setup, SetupCause, WaitDetail,
@@ -48,12 +50,11 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
+use crate::chat;
 use crate::hub::{Hub, Sheet, Showing};
 use crate::models::{Shelf, model_title};
 use crate::screens::wait::{self, ChatWaits, Need, answers};
-use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
-use crate::{PanelSystems, chat};
 
 /// The most toasts kept at once.
 const MOST: usize = 5;

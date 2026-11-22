@@ -9,7 +9,7 @@ const DATED: u64 = 7;
 
 /// How long ago a moment was: minutes, hours, days, then its date.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Age {
+pub enum Age {
     Now,
     Minutes(u64),
     Hours(u64),
@@ -20,7 +20,7 @@ pub(crate) enum Age {
 
 impl Age {
     /// The age of `then` at `now`, both in milliseconds since 1970.
-    pub(crate) fn of(now: u64, then: u64) -> Self {
+    pub fn of(now: u64, then: u64) -> Self {
         let seconds = now.saturating_sub(then) / 1000;
         match seconds {
             0..60 => Self::Now,
@@ -43,7 +43,7 @@ impl Age {
     }
 
     /// For a column: `now`, `5m`, `3h`, `2d`, `4 Mar`.
-    pub(crate) fn short(self) -> String {
+    pub fn short(self) -> String {
         match self {
             Self::Now => "now".into(),
             Self::Minutes(n) => format!("{n}m"),

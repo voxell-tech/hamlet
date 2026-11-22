@@ -267,9 +267,9 @@ pub(crate) fn reseat(world: &mut World) {
 mod tests {
     use bevy::app::PreUpdate;
     use bevy::ecs::schedule::IntoScheduleConfigs;
+    use hamlet_core::panels::PanelSystems;
 
     use super::*;
-    use crate::PanelSystems;
     use crate::testing::{convo, panel_app};
 
     #[test]

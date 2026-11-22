@@ -19,6 +19,8 @@ use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{HamletAgent, HamletId, Left};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_realm::sky::{
@@ -32,12 +34,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::appearance::{Appearance, Pick, Zoom};
 use crate::desk::{self, Desks, Part};
-use crate::roll::Roll;
+use crate::hub;
 use crate::screens::terminal;
 use crate::updates::UpdateChannel;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
-use crate::{PanelSystems, hub};
 
 /// Seconds a change waits before it is written, so that dragging a
 /// divider writes once.

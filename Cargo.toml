@@ -18,6 +18,7 @@ repository = "https://github.com/voxell-tech/hamlet"
 [workspace.dependencies]
 # hamlet
 hamlet_client = { version = "0.1.0", path = "crates/hamlet_client" }
+hamlet_core = { version = "0.1.0", path = "crates/hamlet_core" }
 hamlet_protocol = { version = "0.1.0", path = "crates/hamlet_protocol" }
 hamlet_desktop = { version = "0.1.0", path = "crates/hamlet_desktop" }
 hamlet_os = { version = "0.1.0", path = "crates/hamlet_os" }

@@ -13,6 +13,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
 use hamlet_client::realm::Works;
+use hamlet_core::roll::hamlets_moved;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
@@ -25,7 +26,6 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::overview::{heading_line, tell};
-use crate::roll::hamlets_moved;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;

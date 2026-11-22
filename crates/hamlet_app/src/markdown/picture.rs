@@ -184,7 +184,7 @@ pub(crate) fn picture_view(
         derived(|world: &World| {
             world.get_resource::<crate::links::Roots>().cloned()
         })
-        .when(crate::roll::moved::<crate::links::Roots>()),
+        .when(hamlet_core::roll::moved::<crate::links::Roots>()),
         move |_| {
             let (caption, target) = (caption.clone(), target.clone());
             AnyView::new(move |cx: &mut Cx| {

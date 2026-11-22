@@ -18,13 +18,14 @@ use bevy::picking::pointer::PointerButton;
 use hamlet_client::chats::TalksTo;
 use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{LivesIn, RealmFolder, Works};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::roll::{self, Roll};
 use hamlet_desktop::open;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::{Anchor, PathLinks};
 
 use crate::convo::Convo;
-use crate::roll::{self, Roll};
-use crate::{PanelSystems, sounds};
+use crate::sounds;
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;

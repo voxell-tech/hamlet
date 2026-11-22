@@ -14,6 +14,7 @@ use bevy_fynix::views::{
     FrameProps, TooltipExt, column, dropdown, label, row, slider,
 };
 use bevy_fynix::{Binding, ViewExt, derived, every_frame, resource};
+use hamlet_core::roll::moved;
 use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
@@ -29,7 +30,6 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use hamlet_vfx::wind::WindChoice;
 
 use super::{alone, field};
-use crate::roll::moved;
 use crate::window::{self, FrameCap, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
 

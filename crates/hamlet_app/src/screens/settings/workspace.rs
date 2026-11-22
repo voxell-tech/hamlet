@@ -14,6 +14,7 @@ use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
@@ -26,7 +27,6 @@ use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
 
 use super::{Pane, alone, field};
-use crate::PanelSystems;
 use crate::overview::heading;
 use crate::world_menu::{self, Action};
 

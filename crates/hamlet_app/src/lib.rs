@@ -1,11 +1,9 @@
 //! The window (I4): the world and the panels around it.
 
-mod age;
 pub mod appearance;
 pub mod asking;
 mod chief;
 pub mod chrome;
-mod clock;
 mod convo;
 pub mod cursor;
 pub mod desk;
@@ -23,14 +21,12 @@ pub mod plans;
 mod profile_tag;
 mod reference;
 mod remember;
-mod roll;
 mod root;
 mod saving;
 
 pub mod screens;
 pub mod select;
 mod sounds;
-mod standing;
 #[cfg(test)]
 mod testing;
 pub mod toasts;
@@ -38,19 +34,16 @@ mod tuning;
 mod updates;
 pub mod welcome;
 mod window;
-mod words;
 pub mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, PreUpdate};
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy::input::InputSystems;
-use bevy::picking::PickingSystems;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
-use hamlet_client::connection::ClientSystems;
+use hamlet_core::panels::PanelSystems;
 use hamlet_realm::pick::Selected;
 use hamlet_ui::theme::{HamletTheme, ThemeState};
 
@@ -58,33 +51,11 @@ pub use self::convo::Convo;
 pub use self::desk::still as desk_still;
 pub use self::dock::{highlight_panel, panel, register_numbered};
 pub use self::remember::Remembered;
-pub use self::roll::Roll;
 pub use self::root::layout;
 pub use self::screens::{
     chat, hub, links, overview, pictures, settings, terminal, wait,
 };
 pub use self::window::window_plugin;
-
-/// The panels' steps before fynix mounts the views.
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum PanelSystems {
-    /// The panels' state follows what was received or clicked.
-    Follow,
-    /// The values the views read, worked out from Follow's.
-    Bind,
-}
-
-pub(crate) fn panel_sets(app: &mut App) {
-    app.configure_sets(
-        // fynix mounts in `Update`, in sets it keeps private.
-        PreUpdate,
-        (PanelSystems::Follow, PanelSystems::Bind)
-            .chain()
-            .after(ClientSystems::Receive)
-            .after(InputSystems)
-            .after(PickingSystems::Last),
-    );
-}
 
 /// The app's panels.
 pub struct UiPlugin;
@@ -92,11 +63,10 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            panel_sets,
+            hamlet_core::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (
-                roll::plugin,
                 root::plugin,
                 dock::plugin,
                 window::plugin,
@@ -218,6 +188,7 @@ mod tests {
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
         use hamlet_client::realm::{first_lead, hamlet, name_of};
+        use hamlet_core::roll::{self, Roll};
         use hamlet_protocol::client as protocol;
         use hamlet_protocol::client::discovery::ServerAddress;
 
@@ -239,8 +210,7 @@ mod tests {
                 }),
             },
             FynixPlugin::<HamletTheme>::default(),
-            panel_sets,
-            roll::plugin,
+            hamlet_core::plugin,
         ))
         .insert_resource(Tokio(runtime.handle().clone()))
         .insert_resource(Wake::new(move || {

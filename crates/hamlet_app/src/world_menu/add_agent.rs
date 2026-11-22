@@ -16,6 +16,7 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{self as agents, Actions, Profile};
+use hamlet_core::words;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
@@ -27,7 +28,6 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built};
 
 use super::{TakesFocus, close, optional};
-use crate::words;
 
 /// How tall the list of profiles grows before it scrolls.
 const LIST: f32 = 220.0;

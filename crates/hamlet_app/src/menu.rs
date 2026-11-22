@@ -373,12 +373,14 @@ pub fn open_menu() -> impl View {
                 Updating::of(world),
             )
         })
-        .when(crate::roll::either(
-            crate::roll::either(
-                crate::roll::moved::<OpenMenu>(),
-                crate::roll::moved::<hamlet_client::realm::Actions>(),
+        .when(hamlet_core::roll::either(
+            hamlet_core::roll::either(
+                hamlet_core::roll::moved::<OpenMenu>(),
+                hamlet_core::roll::moved::<
+                    hamlet_client::realm::Actions,
+                >(),
             ),
-            crate::roll::moved::<Updates>(),
+            hamlet_core::roll::moved::<Updates>(),
         )),
         |(open, found, updating)| match open {
             Some((menu, anchor)) => {

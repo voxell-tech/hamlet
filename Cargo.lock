@@ -4456,6 +4456,7 @@ dependencies = [
  "bevy_fynix",
  "hamlet_assets",
  "hamlet_client",
+ "hamlet_core",
  "hamlet_desktop",
  "hamlet_import",
  "hamlet_protocol",
@@ -4533,6 +4534,20 @@ dependencies = [
  "tokio-tungstenite",
  "uuid",
  "vt100",
+]
+
+[[package]]
+name = "hamlet_core"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_fynix",
+ "hamlet_assets",
+ "hamlet_client",
+ "hamlet_desktop",
+ "hamlet_protocol",
+ "hamlet_ui",
+ "jiff",
 ]
 
 [[package]]

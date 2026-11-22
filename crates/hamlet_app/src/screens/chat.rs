@@ -49,6 +49,7 @@ use hamlet_client::messages::{
     Withdraw,
 };
 use hamlet_client::realm as agents;
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
@@ -72,7 +73,7 @@ pub use self::lines::{
 pub(crate) use self::lines::{close_merged, keep_merged};
 use self::lines::{remember_place, restore_place};
 pub use self::rewind::{Rewinds, ask as ask_rewind, rewind_to};
-use crate::{PanelSystems, convo};
+use crate::convo;
 
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;

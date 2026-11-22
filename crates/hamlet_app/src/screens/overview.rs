@@ -31,6 +31,8 @@ use hamlet_client::realm::{
     Treasury,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::standing::{Standing, need_you};
+use hamlet_core::words;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::Thing;
@@ -52,9 +54,8 @@ pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
-use crate::standing::{Standing, need_you};
 use crate::wait::Queue;
-use crate::{chat, words, world_menu};
+use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((record::plugin, crate::naming::plugin))

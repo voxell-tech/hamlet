@@ -43,6 +43,10 @@ use hamlet_client::realm::{
     Skills, name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::age::Age;
+use hamlet_core::clock::now_ms;
+use hamlet_core::standing::{Standing, need_you};
+use hamlet_core::words;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view};
 use hamlet_ui::styles::{
@@ -59,12 +63,8 @@ use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{RailState, Showing, look_at, show};
-use crate::age::Age;
-use crate::clock::now_ms;
 use crate::convo::{Convo, seat, talk_to_hand};
 use crate::profile_tag::{self, ProfileTag};
-use crate::standing::{Standing, need_you};
-use crate::words;
 use crate::world_menu::Asks;
 
 /// The width of the rail at first, the least and the most.
