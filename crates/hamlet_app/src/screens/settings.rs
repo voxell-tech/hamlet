@@ -34,8 +34,10 @@ use hamlet_client::realm::{
 };
 use hamlet_core::confirm::Confirm;
 use hamlet_core::menus::{MenuAppExt, MenuItem};
+use hamlet_core::orders::Decree;
 use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
 use hamlet_core::roll::{either, moved};
+use hamlet_core::saving::Saving;
 use hamlet_core::settings::{
     ENDPOINTS, MODELS, PANEL, SettingsAppExt, SettingsPage,
     SettingsPages, SettingsPane,
@@ -559,13 +561,13 @@ fn permissions() -> AnyView {
                             Glyph::Cross,
                             "Revoke",
                             move |world| {
-                                crate::chat::command(
-                                    world,
-                                    format!(
+                                world.trigger(Decree {
+                                    hamlet: None,
+                                    text: format!(
                                         "/revoke {agent} \
                                          {permission}"
                                     ),
-                                );
+                                });
                                 world.flush();
                             },
                         ),
@@ -687,7 +689,7 @@ fn charter_saved(
                 text: Some(text),
             })
         });
-        crate::saving::track(world, id.clone());
+        world.trigger(Saving(id.clone()));
         let mut requests = world.resource_mut::<CharterRequests>();
         requests.error.clear();
         requests.edit = Some(id);

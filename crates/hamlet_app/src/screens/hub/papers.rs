@@ -13,6 +13,7 @@ use hamlet_client::chats::TalksTo;
 use hamlet_client::messages::{JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{OfProfile, Profile, id_of};
+use hamlet_core::saving::Saving;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
 
@@ -298,7 +299,7 @@ pub(super) fn remove_memory(
             text: String::new(),
         })
     });
-    crate::saving::track(world, id);
+    world.trigger(Saving(id));
 }
 
 /// Opens `text` in the editor as the document of `target`, from
@@ -371,7 +372,7 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
                 },
             })
         });
-        crate::saving::track(world, id.clone());
+        world.trigger(Saving(id.clone()));
         let mut requests = world.resource_mut::<Requests>();
         if let Some(doc) = requests
             .documents

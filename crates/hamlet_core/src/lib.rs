@@ -19,6 +19,7 @@ pub mod panels;
 pub mod pick;
 pub mod plans;
 pub mod roll;
+pub mod saving;
 pub mod settings;
 pub mod sound;
 pub mod standing;
