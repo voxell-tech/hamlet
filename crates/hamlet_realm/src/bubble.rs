@@ -6,12 +6,12 @@ use bevy::prelude::*;
 use bevy::ui::UiSystems;
 use hamlet_assets::tint;
 use hamlet_client::realm::{Activity, Busy, Doing, Saying};
+use hamlet_core::sound::{Cue, Sound};
 
 use self::words::{action, gist, tail};
 use super::generator::Robot;
 use super::hamlet::Housed;
 use super::label::{self, Lens};
-use super::sound::{Cue, Sound};
 use crate::pick::PickSettings;
 
 /// Draws the balloons of every agent that is [`Saying`] something.

@@ -20,8 +20,8 @@ use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{LivesIn, RealmFolder, Works};
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::roll::{self, Roll};
+use hamlet_core::sound::{Cue, Sound};
 use hamlet_desktop::open;
-use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::{Anchor, PathLinks};
 
 use crate::convo::Convo;

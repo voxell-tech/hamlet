@@ -3,11 +3,12 @@
 
 use std::f32::consts::TAU;
 
+use hamlet_core::sound::Sound;
+
 use super::{
     DT, Hiss, Low, air, bar, burst, empty, finish, glass, glide, hit,
     knock, pitch, rustle, strike, tine,
 };
-use crate::sound::Sound;
 
 /// A thing chosen: a small knock, and a glass note over it.
 fn select() -> Vec<f32> {

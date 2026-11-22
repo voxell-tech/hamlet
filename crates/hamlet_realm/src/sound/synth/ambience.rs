@@ -2,8 +2,9 @@
 
 use std::f32::consts::TAU;
 
+use hamlet_core::sound::Sound;
+
 use super::{Band, DT, Hiss, Low, RATE, empty, finish};
-use crate::sound::Sound;
 
 /// Wind in the trees. A loop.
 fn wind() -> Vec<f32> {

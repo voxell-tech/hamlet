@@ -24,10 +24,10 @@ use hamlet_client::realm::{
     Shown,
 };
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::sound::{Cue, Sound};
 use hamlet_desktop::clipboard::CopyRich;
 use hamlet_protocol::address::{Address, is_address};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::AgentLinks;
 use hamlet_ui::styles::{note, raised};
 use hamlet_ui::theme::HamletTheme;

@@ -22,8 +22,9 @@ use hamlet_app::appearance::{Appearance, Zoom};
 use hamlet_app::{asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_core::roll::Roll;
+use hamlet_core::sound::Cue;
 use hamlet_desktop::color_scheme::ColorScheme;
-use hamlet_realm::sound::{Cue, SoundSettings};
+use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::theme::{self, HamletTheme, Measures, Theme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};

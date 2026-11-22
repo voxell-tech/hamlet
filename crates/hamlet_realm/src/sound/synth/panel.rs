@@ -3,11 +3,12 @@
 
 use std::f32::consts::TAU;
 
+use hamlet_core::sound::Sound;
+
 use super::{
     Band, DT, Hiss, Low, RATE, air, bell, burst, empty, finish,
     glass, hit, knock, pitch, strike, tine,
 };
-use crate::sound::Sound;
 
 /// The pointer coming onto a button: one small, high tick.
 fn tick() -> Vec<f32> {

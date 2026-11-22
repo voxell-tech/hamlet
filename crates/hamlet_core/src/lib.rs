@@ -13,6 +13,7 @@ pub mod panels;
 pub mod pick;
 pub mod roll;
 pub mod settings;
+pub mod sound;
 pub mod standing;
 pub mod toasts;
 pub mod words;
@@ -34,5 +35,6 @@ pub fn plugin(app: &mut App) {
         pick::plugin,
         roll::plugin,
         settings::plugin,
+        sound::plugin,
     ));
 }

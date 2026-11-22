@@ -11,8 +11,8 @@ use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{ChatOutput, ChiefMessage};
+use hamlet_core::sound::{Cue, Sound};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::widgets::effects::ControlSound;
 
 use crate::chat::ChatError;

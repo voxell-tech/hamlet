@@ -3,10 +3,11 @@
 
 use std::f32::consts::TAU;
 
+use hamlet_core::sound::Sound;
+
 use super::{
     Band, DT, Hiss, Low, burst, empty, finish, hit, hump, strike,
 };
-use crate::sound::Sound;
 
 /// A foot on grass or on a yard's paving.
 fn step() -> Vec<f32> {

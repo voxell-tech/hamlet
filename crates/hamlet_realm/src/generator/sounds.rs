@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
 use bevy::prelude::*;
+use hamlet_core::sound::{Cue, Sound};
 use hamlet_vfx::magic::MagicSettings;
 
 use super::magic::Musing;
@@ -16,7 +17,7 @@ use super::traffic::Trips;
 use super::work::Robot;
 use super::{House, HouseMotion};
 use crate::keeper::{Keeper, KeeperState};
-use crate::sound::{Cue, Cues, Ears, Sound, SoundSettings};
+use crate::sound::{Cues, Ears, SoundSettings};
 use crate::{Clock, Step};
 
 /// Tells the sound what the generated world is doing.

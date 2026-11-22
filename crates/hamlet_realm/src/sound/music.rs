@@ -4,7 +4,8 @@
 
 pub(super) mod band;
 
-use super::Sound;
+use hamlet_core::sound::Sound;
+
 use super::synth::Hiss;
 use super::voices::{Tape, Voice, bounce, pad, play, room, soften};
 use crate::DayPart;

@@ -786,7 +786,7 @@ mod tests {
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy_fynix::views::RichField;
     use hamlet_client::outbox::Outbox;
-    use hamlet_realm::sound::Cue;
+    use hamlet_core::sound::Cue;
 
     use super::*;
     use crate::testing::convo;

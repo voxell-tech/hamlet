@@ -21,9 +21,11 @@ the same sound has just played. Volumes and limits are in `SoundSettings` in
 
 ## Adding a sound
 
-`kinds.rs` names every sound and its family; `synth.rs` has the parts a clip
-is built from and `synth/` builds the clips. To add a sound, name it in
-`kinds.rs`, build its clip in `synth/` and write a `Cue` where it happens.
+`hamlet_core/src/sound.rs` names every sound and its family, and holds the
+`Cue`; `kinds.rs` gives each its steps, samples and speed; `synth.rs` has the
+parts a clip is built from and `synth/` builds the clips. To add a sound,
+name it in `hamlet_core/src/sound.rs`, give it its part in `kinds.rs`, build
+its clip in `synth/` and write a `Cue` where it happens.
 World events are in `generator/sounds.rs` and panel sounds in
 `hamlet_app/src/sounds.rs`.
 
