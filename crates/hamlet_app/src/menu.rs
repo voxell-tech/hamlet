@@ -24,7 +24,7 @@ use bevy_fynix::views::{
     overlay, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
-use hamlet_core::panels::ShowPanel;
+use hamlet_core::menus::{MenuItem, MenuItems};
 use hamlet_realm::pick::Taken;
 use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
@@ -38,33 +38,24 @@ use crate::screens::viewer::Viewing;
 use crate::updates::{self, Updates};
 use crate::window;
 
-/// The key that brings Settings forward.
-const SETTINGS: Chord = Keys::new(KeyCode::Comma).primary().chord();
-
 /// The key that closes the window.
 const CLOSE: Chord = Keys::new(KeyCode::KeyQ).primary().chord();
 
+/// Where the item for updates stands among the parts' items.
+const UPDATES: u32 = 20;
+
 pub fn plugin(app: &mut App) {
-    let command = |id, label, run| CommandSpec {
-        id: CommandId(id),
-        label,
-        scope: GLOBAL,
-        run,
-        enabled: |_| true,
-        repeat: false,
-    };
     app.init_resource::<OpenMenu>()
         .init_resource::<Updates>()
         .add_command(
-            command("app.settings", "Settings", |world, _| {
-                settings(world);
-            }),
-            &[SETTINGS],
-        )
-        .add_command(
-            command("app.close", "Close Window", |world, _| {
-                window::quit(world);
-            }),
+            CommandSpec {
+                id: CommandId("app.close"),
+                label: "Close Window",
+                scope: GLOBAL,
+                run: |world, _| window::quit(world),
+                enabled: |_| true,
+                repeat: false,
+            },
             &[CLOSE],
         )
         .add_systems(Update, light_titles)
@@ -239,7 +230,7 @@ fn item(
     which: Glyph,
     name: impl Into<String>,
     keys: Option<Chord>,
-    act: fn(&mut World),
+    act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
     let name = name.into();
     with_cx(move |cx| {
@@ -264,10 +255,6 @@ fn item(
         })
     })
     .boxed()
-}
-
-fn settings(world: &mut World) {
-    world.trigger(ShowPanel("settings".into()));
 }
 
 /// What the Hamlet menu offers for updates.
@@ -319,28 +306,36 @@ impl Updating {
     }
 }
 
+/// The view of an item a part added.
+fn added(added: &MenuItem) -> AnyView {
+    let act = added.act;
+    item(added.glyph, added.name, added.keys, move |world| {
+        act(&mut world.commands());
+        world.flush();
+    })
+}
+
+/// The items of `menu`: of the parts' items, those at `shown`.
 fn items(
+    added_items: &MenuItems,
     menu: Menu,
-    found: bool,
+    shown: &[usize],
     updating: &Updating,
 ) -> Vec<AnyView> {
     match menu {
         Menu::App => {
-            let mut items = vec![item(
-                Glyph::Sliders,
-                "Settings",
-                Some(SETTINGS),
-                settings,
-            )];
-            items.extend(updating.item());
-            if found {
-                items.push(item(
-                    Glyph::Hamlet,
-                    "Create a Hamlet",
-                    None,
-                    crate::world_menu::ask_found,
-                ));
-            }
+            let mut ordered = added_items
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| shown.contains(at))
+                .map(|(_, one)| (one.order, added(one)))
+                .collect::<Vec<_>>();
+            ordered.extend(updating.item().map(|one| (UPDATES, one)));
+            ordered.sort_by_key(|(order, _)| *order);
+            let mut items = ordered
+                .into_iter()
+                .map(|(_, one)| one)
+                .collect::<Vec<_>>();
             items.push(
                 with_cx(|cx| {
                     hairline(cx.theme().palette.hairline)
@@ -366,10 +361,13 @@ pub fn open_menu() -> impl View {
         bevy_fynix::derived(|world: &World| {
             (
                 world.resource::<OpenMenu>().0,
-                hamlet_client::realm::Actions::is_allowed(
-                    world,
-                    "create-hamlet",
-                ),
+                world
+                    .resource::<MenuItems>()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| (item.shown)(world))
+                    .map(|(at, _)| at)
+                    .collect::<Vec<_>>(),
                 Updating::of(world),
             )
         })
@@ -382,11 +380,17 @@ pub fn open_menu() -> impl View {
             ),
             hamlet_core::roll::moved::<Updates>(),
         )),
-        |(open, found, updating)| match open {
+        |(open, shown, updating)| match open {
             Some((menu, anchor)) => {
-                let (anchor, items) =
-                    (*anchor, items(*menu, *found, updating));
+                let (anchor, menu, shown, updating) =
+                    (*anchor, *menu, shown.clone(), updating.clone());
                 with_cx(move |cx| {
+                    let items = items(
+                        cx.world.resource::<MenuItems>(),
+                        menu,
+                        &shown,
+                        &updating,
+                    );
                     popup(anchor, items)
                         .on_dismiss(|world, _| dismiss(world))
                         .min_width(px(cx.theme().space.menu_width))

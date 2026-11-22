@@ -42,6 +42,7 @@ use bevy_fynix::{
 use hamlet_client::messages::Veto;
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self as agents, Actions};
+use hamlet_core::menus::{MenuAppExt, MenuItem};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -70,6 +71,17 @@ pub fn plugin(app: &mut App) {
         repeat: false,
     };
     app.add_plugins(model::plugin)
+        .add_menu_item(
+            MenuItem::new(
+                Glyph::Hamlet,
+                "Create a Hamlet",
+                30,
+                |commands| commands.queue(ask_found),
+            )
+            .shown(|world| {
+                Actions::is_allowed(world, "create-hamlet")
+            }),
+        )
         .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<founding::FolderAsker>()

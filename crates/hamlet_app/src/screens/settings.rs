@@ -13,9 +13,12 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::keyboard::KeyCode;
 use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
 use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::shortcut::Scope;
+use bevy_fynix::shortcut::{
+    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
@@ -29,7 +32,8 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
     Confinement, Grants, Providers, Settings,
 };
-use hamlet_core::panels::{PanelAppExt, panel};
+use hamlet_core::menus::{MenuAppExt, MenuItem};
+use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::settings::{
     PANEL, SettingsAppExt, SettingsPage, SettingsPages, SettingsPane,
@@ -46,17 +50,38 @@ use hamlet_ui::styles::{
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::root::Lasting;
 use crate::world_menu::{self, Action};
 
+/// The keys that bring Settings forward.
+const KEYS: Chord = Keys::new(KeyCode::Comma).primary().chord();
+
 pub fn plugin(app: &mut App) {
     app.add_panel(
         PANEL,
         DockWindowKind::new("Settings", || panel(screen()))
             .icon(Glyph::Sliders.image(ICON)),
+    )
+    .add_command(
+        CommandSpec {
+            id: CommandId("app.settings"),
+            label: "Settings",
+            scope: GLOBAL,
+            run: |world, _| world.trigger(ShowPanel(PANEL.into())),
+            enabled: |_| true,
+            repeat: false,
+        },
+        &[KEYS],
+    )
+    .add_menu_item(
+        MenuItem::new(Glyph::Sliders, "Settings", 10, |commands| {
+            commands.trigger(ShowPanel(PANEL.into()));
+        })
+        .keys(KEYS),
     )
     .add_plugins((
         sight::plugin,
