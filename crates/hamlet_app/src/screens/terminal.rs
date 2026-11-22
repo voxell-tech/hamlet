@@ -44,7 +44,8 @@ use hamlet_client::terminals::{
     self, TerminalId, TerminalOpened, Watched,
 };
 use hamlet_core::panels::{
-    PanelAppExt, ShowPanel, flush_panel, number, on_a_desk,
+    DeskCapture, PanelAppExt, ShowPanel, flush_panel, number,
+    on_a_desk,
 };
 use hamlet_ui::styles::{
     Fills, ICON, caption, description, link_row, note,
@@ -79,7 +80,7 @@ pub fn plugin(app: &mut App) {
                 (
                     forget_closed
                         .run_if(resource_changed::<DockTree>)
-                        .after(crate::desk::capture),
+                        .after(DeskCapture),
                     hand_keys,
                     keep_watching,
                     screen::draw,

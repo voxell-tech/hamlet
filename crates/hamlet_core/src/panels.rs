@@ -50,6 +50,10 @@ pub enum PanelSystems {
     Bind,
 }
 
+/// The step in which the desks take in the dock's changes.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeskCapture;
+
 /// Registers a panel's dock window from its own plugin.
 pub trait PanelAppExt {
     fn add_panel(

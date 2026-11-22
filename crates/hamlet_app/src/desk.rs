@@ -17,6 +17,7 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
+use hamlet_core::panels::DeskCapture;
 use hamlet_ui::theme::HamletTheme;
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +39,9 @@ pub fn plugin(app: &mut App) {
             Update,
             (
                 show.run_if(resource_changed::<Desks>),
-                capture.run_if(resource_changed::<DockTree>),
+                capture
+                    .run_if(resource_changed::<DockTree>)
+                    .in_set(DeskCapture),
             )
                 .chain(),
         );

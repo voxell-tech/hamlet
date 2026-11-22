@@ -19,7 +19,7 @@ use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{HamletAgent, HamletId, Left};
-use hamlet_core::panels::PanelSystems;
+use hamlet_core::panels::{DeskCapture, PanelSystems};
 use hamlet_core::pick::{Selected, Thing, select};
 use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
@@ -33,7 +33,7 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::appearance::{Appearance, Pick, Zoom};
-use crate::desk::{self, Desks, Part};
+use crate::desk::{Desks, Part};
 use crate::hub;
 use crate::screens::terminal;
 use crate::updates::UpdateChannel;
@@ -78,7 +78,7 @@ pub(crate) fn plugin(app: &mut App) {
                 keep,
             )
                 .chain()
-                .after(desk::capture),
+                .after(DeskCapture),
         );
 }
 
@@ -519,6 +519,7 @@ mod tests {
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
+    use crate::desk;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();

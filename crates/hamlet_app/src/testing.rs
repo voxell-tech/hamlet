@@ -5,9 +5,11 @@ use std::path::PathBuf;
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::math::UVec2;
 use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::ViewFolder;
+use hamlet_core::panels::DeskCapture;
 use hamlet_core::pick::Selected;
 use hamlet_core::roll::Roll;
 use hamlet_core::settings::SettingsPane;
@@ -128,7 +130,7 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<crate::screens::terminal::Pins>()
         .init_resource::<crate::hub::CollapsedRails>()
         .init_resource::<crate::updates::UpdateChannel>()
-        .add_systems(Update, desk::capture)
+        .add_systems(Update, desk::capture.in_set(DeskCapture))
         .add_plugins(crate::remember::plugin);
 }
 
