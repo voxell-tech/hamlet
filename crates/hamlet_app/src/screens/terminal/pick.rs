@@ -1,5 +1,8 @@
 //! The menu the list's plus opens: a new terminal, or an agent's log
 //! to pin.
+
+use std::sync::Arc;
+
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
@@ -24,7 +27,11 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
     resource,
 };
-use hamlet_protocol::client::AgentKind;
+use hamlet_client::realm::Identity;
+use hamlet_client::terminals::Terminal;
+use hamlet_core::menus::{ThingItem, ThingMenuAppExt};
+use hamlet_core::pick::Thing;
+use hamlet_protocol::client::{AgentKind, TerminalKind};
 use hamlet_ui::styles::{ICON, guides, link_row, note, text_input};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::rect_of;
@@ -36,6 +43,7 @@ use super::{PanelId, Pins, open};
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Adding>()
         .init_resource::<Typed>()
+        .add_thing_item(pin_bash)
         .add_systems(PostUpdate, (read_search, focus_search));
 }
 
@@ -375,6 +383,34 @@ fn agent_row(
             .padding(UiRect::new(px(26.0), px(4.0), px(0.0), px(0.0)))
     })
     .boxed()
+}
+
+/// Pins an agent's command log to the Terminal list, or lets it go,
+/// from the agent's menu.
+fn pin_bash(world: &World, thing: Thing) -> Option<ThingItem> {
+    let (Thing::Agent(agent) | Thing::House(agent)) = thing else {
+        return None;
+    };
+    let id = world.get::<Identity>(agent)?.0;
+    let logged =
+        world.try_query::<&Terminal>()?.iter(world).any(|t| {
+            t.0.kind == TerminalKind::Commands
+                && t.0.agent == Some(id)
+        });
+    let key = format!("agent#{}", id.0);
+    let pinned = world.get_resource::<Pins>()?.0.contains(&key);
+    logged.then(|| {
+        let (glyph, text) = match pinned {
+            true => (Glyph::Pinned, "Unpin Bash"),
+            false => (Glyph::Pin, "Pin Bash"),
+        };
+        ThingItem {
+            glyph,
+            tone: Tone::Info,
+            text,
+            act: Arc::new(move |world| pin(world, &key)),
+        }
+    })
 }
 
 /// Pins the bash of the agent of `key`, or lets it go.
