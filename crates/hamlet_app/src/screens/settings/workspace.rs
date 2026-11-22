@@ -16,6 +16,7 @@ use bevy_fynix::{
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
+use hamlet_core::confirm::Confirm;
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::settings::{
     SettingsAppExt, SettingsPage, SettingsPane,
@@ -32,7 +33,6 @@ use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
 
 use super::{alone, field, shown};
-use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -129,7 +129,7 @@ fn save(world: &mut World) {
 }
 
 /// Asks the server to copy the worktrees to the saved workspace.
-pub(crate) fn move_worktrees(world: &mut World) {
+fn move_worktrees(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveWorktrees(
             protocol::MoveWorktrees { id },
@@ -242,7 +242,15 @@ fn moving() -> AnyView {
         |offered| {
             if *offered {
                 bad_action(Glyph::Send, "Move Worktrees", |world| {
-                    world_menu::ask(world, Action::MoveWorktrees);
+                    world.trigger(Confirm {
+                        question: "Move every worktree?",
+                        outcome: "Each agent's worktree is copied to the \
+                                  saved workspace, and the worktrees \
+                                  already there are replaced. This \
+                                  cannot be undone.",
+                        yes: "Replace Them",
+                        act: move_worktrees,
+                    });
                 })
             } else {
                 frame().boxed()

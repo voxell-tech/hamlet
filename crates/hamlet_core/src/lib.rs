@@ -7,6 +7,7 @@
 
 pub mod age;
 pub mod clock;
+pub mod confirm;
 pub mod drops;
 pub mod menus;
 pub mod orders;

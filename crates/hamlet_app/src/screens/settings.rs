@@ -32,6 +32,7 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
     Confinement, Grants, Providers, Settings,
 };
+use hamlet_core::confirm::Confirm;
 use hamlet_core::menus::{MenuAppExt, MenuItem};
 use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
 use hamlet_core::roll::{either, moved};
@@ -54,8 +55,6 @@ use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::lasting::Lasting;
 use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
-
-use crate::world_menu::{self, Action};
 
 /// The keys that bring Settings forward.
 const KEYS: Chord = Keys::new(KeyCode::Comma).primary().chord();
@@ -697,7 +696,7 @@ fn charter_saved(
 }
 
 /// A request to restore the server's default charter.
-pub(crate) fn default_charter(world: &mut World) {
+fn default_charter(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Edit(protocol::Edit::Charter {
             id,
@@ -751,7 +750,13 @@ fn charter_page() -> impl View {
                 Glyph::Restore,
                 "Back to the Default",
                 |world| {
-                    world_menu::ask(world, Action::DefaultCharter);
+                    world.trigger(Confirm {
+                        question: "Go back to the default charter?",
+                        outcome: "Your own charter is deleted from \
+                                  disk. This cannot be undone.",
+                        yes: "Use the Default",
+                        act: default_charter,
+                    });
                 },
             ));
         }

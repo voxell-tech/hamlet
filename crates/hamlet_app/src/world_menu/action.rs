@@ -19,6 +19,7 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletAgent, HamletId, Left,
     LivesIn,
 };
+use hamlet_core::confirm::Confirm;
 use hamlet_core::orders;
 use hamlet_ui::styles::{Looks, button, lettered};
 use hamlet_ui::theme::StatusKind;
@@ -60,10 +61,8 @@ pub(crate) enum Action {
         /// The time of the message, in milliseconds since 1970.
         at: u64,
     },
-    /// Ends the realm's own charter, so the built-in one stands.
-    DefaultCharter,
-    /// Copies every worktree to the saved workspace.
-    MoveWorktrees,
+    /// What another part asks the chief to confirm.
+    Confirm(Confirm),
 }
 
 /// The reason typed under a question, and whether its field is shown.
@@ -138,12 +137,7 @@ impl Action {
             Action::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
-            Action::DefaultCharter => {
-                crate::settings::default_charter(world);
-            }
-            Action::MoveWorktrees => {
-                crate::settings::workspace::move_worktrees(world);
-            }
+            Action::Confirm(confirm) => (confirm.act)(world),
             Action::Rewind {
                 hub, chat, entry, ..
             } => {
@@ -174,9 +168,7 @@ impl Action {
             Self::Unshelve(_) => "unshelve",
             Self::Lead(_) => "lead",
             Self::Reparent { .. } => "reparent",
-            Self::DefaultCharter
-            | Self::MoveWorktrees
-            | Self::Rewind { .. } => return true,
+            Self::Confirm(_) | Self::Rewind { .. } => return true,
         };
         Actions::is_allowed(world, command)
     }
@@ -212,12 +204,7 @@ impl Action {
                 )
             }
             Action::Rewind { .. } => "Rewind to here?".to_string(),
-            Action::DefaultCharter => {
-                "Go back to the default charter?".to_string()
-            }
-            Action::MoveWorktrees => {
-                "Move every worktree?".to_string()
-            }
+            Action::Confirm(confirm) => confirm.question.to_string(),
         }
     }
 
@@ -279,16 +266,7 @@ impl Action {
                         .map_or(Entity::PLACEHOLDER, |to| to.0)
                 )
             ),
-            Action::DefaultCharter => "Your own charter is deleted \
-                                       from disk. This cannot be \
-                                       undone."
-                .to_string(),
-            Action::MoveWorktrees => {
-                "Each agent's worktree is copied to the saved \
-                 workspace, and the worktrees already there are \
-                 replaced. This cannot be undone."
-                    .to_string()
-            }
+            Action::Confirm(confirm) => confirm.outcome.to_string(),
         }
     }
 
@@ -311,8 +289,7 @@ impl Action {
             Action::Lead(_) => "Make Lead",
             Action::Reparent { .. } => "Move",
             Action::Rewind { .. } => "Rewind",
-            Action::DefaultCharter => "Use the Default",
-            Action::MoveWorktrees => "Replace Them",
+            Action::Confirm(confirm) => confirm.yes,
         }
     }
 
@@ -337,8 +314,7 @@ impl Action {
             | Action::Lead(_)
             | Action::Reparent { .. }
             | Action::Rewind { .. }
-            | Action::DefaultCharter
-            | Action::MoveWorktrees => Vec::new(),
+            | Action::Confirm(_) => Vec::new(),
             Action::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (
