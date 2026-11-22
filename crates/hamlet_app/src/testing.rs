@@ -90,6 +90,7 @@ pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     let mut app = panel_app();
     app.add_plugins((
         settings::plugin,
+        crate::pages::plugin,
         hamlet_ui::widgets::secret::plugin,
     ))
     .init_resource::<KeepAwake>()

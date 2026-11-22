@@ -19,7 +19,7 @@ use hamlet_client::realm::Settings;
 use hamlet_core::confirm::Confirm;
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::settings::{
-    SettingsAppExt, SettingsPage, SettingsPane,
+    SettingsAppExt, SettingsPage, SettingsPane, alone, field, shown,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::card;
@@ -31,8 +31,6 @@ use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
-
-use super::{alone, field, shown};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()

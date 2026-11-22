@@ -1,8 +1,5 @@
 //! The settings screen, a page for each part.
 
-pub mod appearance;
-pub mod sight;
-mod updates;
 mod visits;
 pub mod workspace;
 
@@ -14,7 +11,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
-use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
+use bevy::ui::{AlignItems, Overflow, OverflowAxis, px};
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
@@ -22,7 +19,7 @@ use bevy_fynix::shortcut::{
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll, slider,
+    label, number_field, row, scroll,
 };
 use bevy_fynix::{
     Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
@@ -40,17 +37,16 @@ use hamlet_core::roll::{either, moved};
 use hamlet_core::saving::Saving;
 use hamlet_core::settings::{
     ENDPOINTS, MODELS, PANEL, SettingsAppExt, SettingsPage,
-    SettingsPages, SettingsPane,
+    SettingsPages, SettingsPane, field, shown, told,
 };
 use hamlet_core::welcome::{OpenProjects, OpenWelcome};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::{Effort, client as protocol};
-use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
     buttons, close, description, filling, list, nav_list, note,
-    parts, pill, section, small_rules, text_input, title, valued_row,
+    parts, pill, small_rules, text_input, title, valued_row,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
@@ -86,13 +82,7 @@ pub fn plugin(app: &mut App) {
         })
         .keys(KEYS),
     )
-    .add_plugins((
-        sight::plugin,
-        workspace::plugin,
-        appearance::plugin,
-        updates::plugin,
-        visits::plugin,
-    ))
+    .add_plugins((workspace::plugin, visits::plugin))
     // Each provider's limits are under it, filled by
     // `hamlet_core::plans::plugin`.
     .init_resource::<hamlet_core::plans::Plans>()
@@ -177,18 +167,7 @@ pub fn plugin(app: &mut App) {
         Glyph::Globe,
         70,
         hamlet_core::limits::realm,
-    ))
-    .add_settings_page(
-        SettingsPage::new(SOUND, "Sound", Glyph::Speaker, 80, || {
-            sound().boxed()
-        })
-        .now(sound_now),
-    );
-}
-
-/// A part of a page: its name over `value`.
-fn field(name: &'static str, value: impl View) -> impl View {
-    close((section(name), value))
+    ));
 }
 
 /// The id of the page of the MCP servers whose tools agents are
@@ -200,8 +179,6 @@ pub const AGENTS: &str = "agents";
 pub const CHARTER: &str = "charter";
 /// The id of the page of the limits that hold for every hamlet.
 pub const REALM: &str = "realm";
-/// The id of the Sound page.
-pub const SOUND: &str = "sound";
 
 fn endpoints_now() -> Prop<String> {
     derived(|world: &World| {
@@ -257,37 +234,6 @@ fn charter_now() -> Prop<String> {
     })
     .when(either(moved::<Charter>(), moved::<CharterRequests>()))
     .into()
-}
-
-fn sound_now() -> Prop<String> {
-    shown::<SoundSettings>(|s| {
-        if s.muted { "Off" } else { "On" }.to_string()
-    })
-}
-
-/// What `read` makes of `R`, or nothing while there is no `R`.
-fn shown<R: Resource>(
-    read: impl Fn(&R) -> String + Send + Sync + 'static,
-) -> Prop<String> {
-    derived(move |world: &World| {
-        world.get_resource::<R>().map(&read).unwrap_or_default()
-    })
-    .when(moved::<R>())
-    .into()
-}
-
-/// A setting's switch or field, and under it its words.
-fn told(control: impl View, words: impl View) -> impl View {
-    with_cx(move |cx| {
-        column((control, words))
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::FlexStart)
-    })
-}
-
-/// A setting's control alone, as wide as itself.
-fn alone(control: impl View) -> impl View {
-    column((control,)).align(AlignItems::FlexStart)
 }
 
 /// A warning under the network switch while it is not enforced.
@@ -803,81 +749,6 @@ fn save(
             set,
         })
     });
-}
-
-/// A kind of sound's switch and level.
-fn level(
-    on: fn(&SoundSettings) -> bool,
-    turn: fn(&mut SoundSettings, bool),
-    at: fn(&SoundSettings) -> f32,
-    set: fn(&mut SoundSettings, f32),
-) -> impl View {
-    with_cx(move |cx| {
-        row((
-            switch(
-                resource::<SoundSettings, _>(on),
-                move |world, to| {
-                    turn(
-                        &mut world.resource_mut::<SoundSettings>(),
-                        to,
-                    );
-                },
-            ),
-            slider(Binding::new(
-                resource::<SoundSettings, _>(at),
-                move |world, to| {
-                    set(
-                        &mut world.resource_mut::<SoundSettings>(),
-                        to,
-                    );
-                },
-            ))
-            .grow(1.0),
-        ))
-        .gap(cx.theme().space.gap)
-        .width(percent(100.0))
-        .align(AlignItems::Center)
-    })
-}
-
-/// A switch alone: a group of sounds that is on or off.
-fn sound_switch(
-    on: fn(&SoundSettings) -> bool,
-    turn: fn(&mut SoundSettings, bool),
-) -> impl View {
-    switch(resource::<SoundSettings, _>(on), move |world, to| {
-        turn(&mut world.resource_mut::<SoundSettings>(), to);
-    })
-}
-
-fn sound() -> impl View {
-    parts((
-        field(
-            "Sound",
-            level(
-                |s| !s.muted,
-                |s, on| s.muted = !on,
-                |s| s.sound_level,
-                |s, level| s.sound_level = level,
-            ),
-        ),
-        field(
-            "Music",
-            level(
-                |s| s.music_on,
-                |s, on| s.music_on = on,
-                |s| s.music_level,
-                |s, level| s.music_level = level,
-            ),
-        ),
-        field(
-            "Ambience",
-            alone(sound_switch(
-                |s| s.ambience_on,
-                |s, on| s.ambience_on = on,
-            )),
-        ),
-    ))
 }
 
 fn nav_item(page: &SettingsPage) -> AnyView {

@@ -2,7 +2,7 @@
 //! appearance gallery scenes.
 
 use bevy::ecs::world::World;
-use hamlet_app::settings;
+use hamlet_app::{pages, settings};
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
 use hamlet_core::settings::{ENDPOINTS, MODELS, SettingsPane};
@@ -88,9 +88,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             ..Sky::default()
         });
         world.insert_resource(North::default());
-        world.insert_resource(SettingsPane(Some(
-            settings::sight::SIGHT,
-        )));
+        world
+            .insert_resource(SettingsPane(Some(pages::sight::SIGHT)));
     }
     if let Scene::Appearance(shade) = scene {
         // The computer's, which the panels follow by default.
@@ -108,7 +107,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             HamletTheme::new(palette, &Measures::designed()),
         );
         world.insert_resource(SettingsPane(Some(
-            settings::appearance::APPEARANCE,
+            pages::appearance::APPEARANCE,
         )));
     }
 }

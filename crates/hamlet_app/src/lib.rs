@@ -15,6 +15,7 @@ mod markdown;
 pub mod mcp;
 pub mod menu;
 mod naming;
+pub mod pages;
 mod profile_tag;
 mod reference;
 mod remember;
@@ -78,6 +79,7 @@ impl Plugin for UiPlugin {
                 chief::plugin,
                 folder::plugin,
                 mcp::plugin,
+                pages::plugin,
                 asking::plugin,
                 select::plugin,
                 welcome::plugin,
