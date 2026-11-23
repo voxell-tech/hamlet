@@ -22,7 +22,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
+};
 use hamlet_protocol::client::web_page_or_search;
 use hamlet_ui::styles::{
     Fills, ICON, action, description, link_row, note, text_input,
@@ -176,7 +178,7 @@ fn address(panel: &PanelId) -> impl View + use<> {
     let shown = panel.clone();
     let typed = panel.clone();
     let searched = panel.clone();
-    let field = text_field(
+    let field = text_field(Binding::new(
         derived(move |world: &World| {
             world
                 .resource::<Addresses>()
@@ -186,8 +188,8 @@ fn address(panel: &PanelId) -> impl View + use<> {
                 .unwrap_or_default()
         })
         .when(every_frame()),
-        move |world, words| go(world, &typed, &words),
-    )
+        move |world, words: String| go(world, &typed, &words),
+    ))
     .grow(1.0)
     .min_width(px(0.0))
     .padding(UiRect::new(px(8.0), px(30.0), px(0.0), px(0.0)))

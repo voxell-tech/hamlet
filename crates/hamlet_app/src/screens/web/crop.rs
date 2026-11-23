@@ -43,8 +43,8 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{
-    EntityCursor, ScopedExt, ViewExt, derived, every_frame, keyed,
-    resource, style,
+    Binding, EntityCursor, ScopedExt, ViewExt, derived, every_frame,
+    keyed, resource, style,
 };
 use hamlet_ui::styles::{ICON, link_row, note};
 use hamlet_ui::theme::HamletTheme;
@@ -293,7 +293,7 @@ fn shade() -> impl View {
             .map_or(Rect::default(), |drawn| drawn.on_sheet())
     };
     with_cx(move |cx| {
-        let lamp = cx.theme().palette.gold_4;
+        let lamp = cx.theme().palette.accent_fill;
         column((frame()
             .width(percent(100.0))
             .height(percent(100.0))
@@ -327,22 +327,26 @@ fn shade() -> impl View {
 fn note_field() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
-        let lamp = theme.palette.gold_4;
+        let lamp = theme.palette.accent_fill;
         let fill = theme.palette.input;
         row((
             column((
-                text_field("", |world, _| {
-                    let entered = world
-                        .resource::<ButtonInput<KeyCode>>()
-                        .any_just_pressed([
-                            KeyCode::Enter,
-                            KeyCode::NumpadEnter,
-                        ]);
-                    // Focus leaving commits too, which adds nothing.
-                    if entered {
-                        add_drawn(world);
-                    }
-                })
+                text_field(Binding::new(
+                    String::new(),
+                    |world, _| {
+                        let entered = world
+                            .resource::<ButtonInput<KeyCode>>()
+                            .any_just_pressed([
+                                KeyCode::Enter,
+                                KeyCode::NumpadEnter,
+                            ]);
+                        // Focus leaving commits too, which adds
+                        // nothing.
+                        if entered {
+                            add_drawn(world);
+                        }
+                    },
+                ))
                 .grow(1.0)
                 .min_width(px(0.0))
                 .rules(bare_field)

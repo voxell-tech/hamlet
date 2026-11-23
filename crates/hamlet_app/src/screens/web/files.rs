@@ -309,7 +309,7 @@ fn choices() -> impl View {
                 },
             ),
             with_cx(|cx| {
-                hairline(cx.theme().palette.gold_6)
+                hairline(cx.theme().palette.hairline)
                     .margin(UiRect::vertical(px(4.0)))
             })
             .boxed(),
@@ -372,7 +372,7 @@ fn listed(world: &World) -> Listed {
         .map(|(hamlet, name)| {
             let folder = world
                 .get::<Works>(hamlet)
-                .and_then(|works| works.folder.clone())
+                .and_then(|works| works.folder().cloned())
                 .unwrap_or_else(|| "No folder yet".to_owned());
             (hamlet, name, folder)
         })
@@ -483,7 +483,7 @@ fn ask(world: &mut World) {
     };
     let folder = world
         .get::<Works>(hamlet)
-        .and_then(|works| works.folder.clone());
+        .and_then(|works| works.folder().cloned());
     let wanted = Some((id.clone(), folder));
     if world.resource::<Asked>().for_ == wanted {
         return;
