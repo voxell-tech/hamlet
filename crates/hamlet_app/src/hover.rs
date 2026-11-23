@@ -41,18 +41,17 @@ use hamlet_realm::hand::Proud;
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::{EffectSettings, Tuned};
+use hamlet_ui::widgets::ellipsis::short;
 use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built, kinds, rules};
 
+use crate::hub::thread::PURPOSE_SHOWN;
 use crate::overview::standing;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
 /// under the menus.
 const CARD_Z: i32 = 950;
-
-/// The most of an agent's purpose the card shows, in letters.
-pub(crate) const PURPOSE_SHOWN: usize = 96;
 
 /// The state of an agent, for its card.
 type Doing<'a> = (
@@ -92,20 +91,6 @@ pub(crate) struct Card {
 /// The card's node.
 #[derive(Component)]
 pub(crate) struct CardBox;
-
-/// Words cut to `most` letters at a word's end.
-pub(crate) fn short(text: &str, most: usize) -> String {
-    if text.chars().count() <= most {
-        return text.to_string();
-    }
-    let cut = text
-        .char_indices()
-        .nth(most)
-        .map_or(text.len(), |(at, _)| at);
-    let kept = &text[..cut];
-    let kept = kept.rsplit_once(' ').map_or(kept, |(kept, _)| kept);
-    format!("{kept}...")
-}
 
 /// The queries a card is made from.
 #[derive(SystemParam)]

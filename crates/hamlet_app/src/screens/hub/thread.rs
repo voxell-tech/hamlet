@@ -43,7 +43,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::ellipsis::{one_line, short};
 use hamlet_ui::widgets::icons::{Glyph, glyph, share_ring};
 use hamlet_ui::widgets::rect_of;
 use hamlet_ui::widgets::tabs::{self, Spread};
@@ -101,10 +101,13 @@ impl Briefing {
     }
 }
 
+/// The most of an agent's purpose shown before the pointer is over
+/// it, in letters.
+pub(crate) const PURPOSE_SHOWN: usize = 96;
+
 /// An agent's purpose cut short, whole under the pointer.
 pub(super) fn said(purpose: String) -> AnyView {
-    let shown =
-        crate::hover::short(&purpose, crate::hover::PURPOSE_SHOWN);
+    let shown = short(&purpose, PURPOSE_SHOWN);
     if shown == purpose {
         return dim(purpose).boxed();
     }
