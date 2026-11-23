@@ -4550,6 +4550,7 @@ dependencies = [
  "jiff",
  "reqwest",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

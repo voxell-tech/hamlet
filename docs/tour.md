@@ -87,7 +87,9 @@ in `hamlet_core/src/panels.rs`. Panels live in `hamlet_hub`,
 `hamlet_settings`, `hamlet_terminal`, `hamlet_welcome` and
 `hamlet_app/src/` and register their dock window with `PanelAppExt`
 from `hamlet_core/src/panels.rs`; they are built from `hamlet_ui`,
-which reads no client state.
+which reads no client state. A part other than `hamlet_app` reaches
+the other Hamlet crates only through `hamlet_core`, as a plugin does;
+`hamlet_core/tests/layers.rs` fails when one names another.
 
 ## The store and the repositories
 
