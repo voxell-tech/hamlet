@@ -14,7 +14,9 @@ use hamlet_client::realm::{
     LivesIn,
 };
 use hamlet_core::menus::ThingItems;
-use hamlet_core::orders::{self, CarryHouse, CarryLibrary};
+use hamlet_core::orders::{
+    self, CarryHearth, CarryHouse, CarryLibrary,
+};
 use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
 use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
@@ -461,12 +463,9 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
                 });
             },
         ),
-        item(
-            Glyph::Move,
-            Tone::Dim,
-            "Move the Hearth",
-            crate::chief::carry_home,
-        ),
+        item(Glyph::Move, Tone::Dim, "Move the Hearth", |w| {
+            w.trigger(CarryHearth);
+        }),
     ]
 }
 

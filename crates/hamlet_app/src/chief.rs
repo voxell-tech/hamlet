@@ -33,9 +33,7 @@ use hamlet_core::roll::{agents_moved, either, moved};
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
-use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
-use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
 use hamlet_ui::styles::{
     Fills, breadcrumb, choice, filling, group, scroll_area, section,
@@ -91,12 +89,6 @@ pub(crate) fn enter(world: &mut World) {
     {
         stood.0 = Some(at);
     }
-}
-
-/// Takes the place of this window's chief in hand, to be set down
-/// with a click on the ground.
-pub(crate) fn carry_home(world: &mut World) {
-    moving::pick_up(world, Ground::Chief);
 }
 
 /// Selects the place of the chief this window belongs to, and

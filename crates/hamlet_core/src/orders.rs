@@ -42,6 +42,11 @@ pub struct CarryHouse(pub Entity);
 #[derive(Event, Clone, Copy, Debug, PartialEq)]
 pub struct CarryLibrary;
 
+/// Takes the Hearth of the chief this window belongs to in hand, to
+/// be set down with a click on the ground.
+#[derive(Event, Clone, Copy, Debug, PartialEq)]
+pub struct CarryHearth;
+
 fn name(world: &World, agent: Entity) -> Option<String> {
     world
         .get::<Name>(agent)
