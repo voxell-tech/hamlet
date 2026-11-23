@@ -429,9 +429,9 @@ fn hand_over(version: Version, file: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use hamlet_core::testing::all_words;
+    use hamlet_hub::testing::panel_app;
 
     use super::*;
-    use crate::testing::panel_app;
 
     /// The window with toasts and a way to the looks, the end of it
     /// the looks would send on, and the end the asks arrive at.

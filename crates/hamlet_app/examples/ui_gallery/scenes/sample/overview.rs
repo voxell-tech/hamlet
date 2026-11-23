@@ -263,7 +263,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         }
         _ => None,
     }));
-    world.insert_resource(hamlet_app::overview::Annals::received(
+    world.insert_resource(hamlet_hub::overview::Annals::received(
         first,
         "The lead created scout to read the orchard's records. The \
          chief restored smith, whose house and notes returned."
@@ -273,7 +273,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     {
         super::hub::show(
             world,
-            hamlet_app::hub::Showing::Hamlet(first),
+            hamlet_hub::hub::Showing::Hamlet(first),
         );
     }
     if scene == Scene::Merged
@@ -283,13 +283,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         )
     {
         world.insert_resource(Selected(Some(Thing::Agent(gone))));
-        super::hub::show(world, hamlet_app::hub::Showing::Gone(gone));
+        super::hub::show(world, hamlet_hub::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
-        let first = hamlet_app::hub::first(world);
+        let first = hamlet_hub::hub::first(world);
         world
             .entity_mut(first)
-            .insert(hamlet_app::overview::Page::Limits);
+            .insert(hamlet_hub::overview::Page::Limits);
     }
 }
 

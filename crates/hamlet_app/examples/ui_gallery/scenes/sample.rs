@@ -14,10 +14,10 @@ mod welcome;
 use std::path::PathBuf;
 
 use bevy::ecs::world::World;
-use hamlet_app::Convo;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewFolder, realm};
 use hamlet_core::pick::{Also, Selected, Thing};
+use hamlet_hub::convo::Convo;
 use hamlet_protocol::client as protocol;
 pub(super) use welcome::first_run;
 
@@ -161,16 +161,16 @@ pub(super) fn setup(world: &mut World) {
             Usage(usage),
         ))
         .id();
-    let first = hamlet_app::hub::first(world);
+    let first = hamlet_hub::hub::first(world);
     if scene == Scene::Chat {
         // The last turn's steps open, with its thinking and its
         // failed call opened in them.
-        world.insert_resource(hamlet_app::chat::Unfolded(vec![(
+        world.insert_resource(hamlet_hub::chat::Unfolded(vec![(
             first,
             chat,
             "last-ask".into(),
         )]));
-        world.insert_resource(hamlet_app::chat::OpenTools(vec![
+        world.insert_resource(hamlet_hub::chat::OpenTools(vec![
             (first, chat, "last-think".into()),
             (first, chat, "last-test".into()),
         ]));
@@ -204,7 +204,7 @@ pub(super) fn setup(world: &mut World) {
         world.insert_resource(Selected(Some(Thing::ChiefPlace(
             chief,
         ))));
-        hub::show(world, hamlet_app::hub::Showing::Chief(chief));
+        hub::show(world, hamlet_hub::hub::Showing::Chief(chief));
     }
 }
 

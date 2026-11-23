@@ -42,6 +42,9 @@ use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
 use hamlet_core::toasts::WatchRequest;
 use hamlet_core::welcome::OpenWelcome;
+use hamlet_hub::chat;
+use hamlet_hub::hub::{Hub, Sheet, Showing};
+use hamlet_hub::wait::{self, ChatWaits, Need, answers};
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
     Setup, SetupCause, WaitDetail,
@@ -54,9 +57,6 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
-use crate::chat;
-use crate::hub::{Hub, Sheet, Showing};
-use crate::screens::wait::{self, ChatWaits, Need, answers};
 use crate::updates::{self, Offer, Ready};
 
 /// The most toasts kept at once.
@@ -1108,9 +1108,9 @@ mod tests {
     use std::time::Duration;
 
     use bevy::time::{TimeUpdateStrategy, Virtual};
+    use hamlet_hub::testing::panel_app;
 
     use super::*;
-    use crate::testing::panel_app;
 
     fn app_with_a_wait() -> App {
         let mut app = panel_app();

@@ -19,11 +19,11 @@ use hamlet_core::panels::{
     self, DeskCapture, Numbered, OnDesks, PanelSystems, free_copy,
     number,
 };
+use hamlet_hub::hub::HUB;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Attention;
 
 use crate::desk::{Desks, Part};
-use crate::hub::HUB;
 use crate::{desk, remember};
 
 /// The least width a panel keeps, in logical pixels.

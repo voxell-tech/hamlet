@@ -32,6 +32,8 @@ use hamlet_core::chief::{ChiefPage, GoHome, Spoke};
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_core::roll::{agents_moved, either, moved};
+use hamlet_hub::convo::Convo;
+use hamlet_hub::hub::Following;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -47,8 +49,6 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::portrait::{Portrait, Sitter};
-use crate::convo::Convo;
-use crate::hub::Following;
 
 mod portrait;
 
@@ -76,7 +76,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let name = crate::convo::chief_name(world);
+    let name = hamlet_hub::convo::chief_name(world);
     if name.is_empty() {
         return;
     }
@@ -101,7 +101,7 @@ pub(crate) fn enter(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 fn go_home(world: &mut World) {
-    let name = crate::convo::chief_name(world);
+    let name = hamlet_hub::convo::chief_name(world);
     let Some(chief) = chief::named(world, &name) else {
         return;
     };

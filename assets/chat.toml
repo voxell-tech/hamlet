@@ -1,5 +1,5 @@
 # The chat's sizes and limits. What each value means is written beside
-# its field of `ChatSettings`, in crates/hamlet_app/src/screens/chat/change.rs.
+# its field of `ChatSettings`, in crates/hamlet_hub/src/chat/change.rs.
 
 change_lines = 16
 picture_width = 720.0

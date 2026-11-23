@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn closing_after_a_last_editor_save_waits_for_the_servers_receipt()
      {
-        let mut app = crate::testing::panel_app();
+        let mut app = hamlet_hub::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
@@ -263,7 +263,7 @@ mod tests {
     fn a_step_on_closing_waits_for_the_saves_and_keep_open_drops_it()
     {
         use hamlet_core::testing::press;
-        let mut app = crate::testing::panel_app();
+        let mut app = hamlet_hub::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn a_step_that_fails_keeps_the_window_open() {
-        let mut app = crate::testing::panel_app();
+        let mut app = hamlet_hub::testing::panel_app();
         app.add_plugins(super::plugin);
         super::close_then(app.world_mut(), Some(|_| false));
         app.update();
@@ -324,7 +324,7 @@ mod tests {
     fn an_in_flight_save_keeps_the_window_open_and_offers_visible_recovery_copies()
      {
         use hamlet_core::testing::{all_words, press};
-        let mut app = crate::testing::panel_app();
+        let mut app = hamlet_hub::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
             super::plugin,

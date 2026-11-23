@@ -1,28 +1,17 @@
 //! The window (I4): the world and the panels around it.
 
 pub mod appearance;
-pub mod asking;
 mod chief;
 pub mod chrome;
-mod convo;
 pub mod cursor;
 pub mod desk;
 mod dock;
-mod folder;
 mod hover;
-pub mod lists;
-mod markdown;
 pub mod menu;
-mod naming;
 pub mod pages;
-mod profile_tag;
-mod reference;
 mod remember;
 mod root;
 mod saving;
-
-pub mod screens;
-pub mod select;
 mod sounds;
 #[cfg(test)]
 mod testing;
@@ -31,25 +20,20 @@ mod tuning;
 mod updates;
 pub mod welcome;
 mod window;
-pub mod world_menu;
 mod world_view;
 
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::state::state::OnEnter;
 use bevy_fynix::FynixPlugin;
 use bevy_fynix::dock::DockPlugin;
 use hamlet_core::panels::PanelSystems;
-use hamlet_core::pick::Selected;
 use hamlet_ui::theme::{HamletTheme, ThemeState};
 
-pub use self::convo::Convo;
 pub use self::desk::still as desk_still;
 pub use self::dock::register_numbered;
 pub use self::remember::Remembered;
 pub use self::root::layout;
-pub use self::screens::{chat, hub, links, overview, pictures, wait};
 pub use self::window::window_plugin;
 
 /// The app's panels.
@@ -72,13 +56,11 @@ impl Plugin for UiPlugin {
                 desk::plugin,
             ),
             (
-                screens::plugin,
+                hamlet_hub::plugin,
+                hamlet_terminal::plugin,
                 chief::plugin,
-                folder::plugin,
                 hamlet_settings::plugin,
                 pages::plugin,
-                asking::plugin,
-                select::plugin,
                 welcome::plugin,
                 toasts::plugin,
                 updates::plugin,
@@ -86,9 +68,7 @@ impl Plugin for UiPlugin {
             (
                 world_view::plugin,
                 appearance::plugin,
-                world_menu::plugin,
                 hover::plugin,
-                reference::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
                 cursor::plugin,
@@ -102,15 +82,8 @@ impl Plugin for UiPlugin {
         )
         .add_systems(
             PreUpdate,
-            (
-                convo::reseat.run_if(convo::roster_moved),
-                hub::open_first,
-                hub::follow_selection
-                    .run_if(resource_changed::<Selected>),
-                hub::tell_page,
-                chief::accompany,
-            )
-                .chain()
+            chief::accompany
+                .after(hamlet_hub::hub::tell_page)
                 .in_set(PanelSystems::Follow),
         );
     }

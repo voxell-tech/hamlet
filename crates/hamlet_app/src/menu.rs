@@ -24,6 +24,7 @@ use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_core::menus::{MenuItem, MenuItems};
 use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::pick::Taken;
+use hamlet_hub::viewer::Viewing;
 use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
@@ -33,7 +34,6 @@ use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::widgets::rect_of;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::screens::viewer::Viewing;
 use crate::updates::{self, Updates};
 use crate::window;
 

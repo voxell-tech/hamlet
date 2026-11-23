@@ -11,13 +11,13 @@ use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{ChatOutput, ChiefMessage};
 use hamlet_core::sound::{Cue, Sound};
+use hamlet_hub::chat::ChatError;
+use hamlet_hub::hub::Showing;
+use hamlet_hub::world_menu::Open;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::widgets::effects::ControlSound;
 
-use crate::chat::ChatError;
-use crate::hub::Showing;
 use crate::menu::OpenMenu;
-use crate::world_menu::Open;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<ControlSound>()
