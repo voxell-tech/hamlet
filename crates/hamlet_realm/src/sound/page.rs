@@ -3,16 +3,17 @@
 
 use bevy::app::App;
 use bevy::ui::{AlignItems, percent};
-use bevy_fynix::views::{FrameProps, row, slider};
-use bevy_fynix::{Binding, Prop, ViewExt, resource};
+use hamlet_core::fynix::views::{FrameProps, row, slider};
+use hamlet_core::fynix::{Binding, Prop, ViewExt, resource};
 use hamlet_core::settings::{
     SettingsAppExt, SettingsPage, alone, field, shown,
 };
-use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::styles::parts;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{View, with_cx};
+use hamlet_core::ui::styles::parts;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::switch::switch;
+use hamlet_core::ui::{View, with_cx};
+
+use super::SoundSettings;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_settings_page(

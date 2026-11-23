@@ -7,6 +7,7 @@ mod heard;
 mod kinds;
 mod mix;
 pub mod music;
+pub mod page;
 mod synth;
 pub mod voices;
 
@@ -23,7 +24,8 @@ use crate::{RealmSystems, Step, WorldCamera};
 
 /// Sound for a world. Does nothing where the app has no audio.
 pub fn plugin(app: &mut App) {
-    app.init_resource::<SoundSettings>()
+    app.add_plugins(page::plugin)
+        .init_resource::<SoundSettings>()
         .add_message::<Cue>()
         .add_observer(heard::hear_answer)
         .add_observer(heard::hear_veto)
