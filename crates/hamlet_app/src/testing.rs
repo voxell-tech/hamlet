@@ -49,7 +49,7 @@ pub(crate) fn hub(app: &mut App) -> Entity {
             "side",
             bevy_fynix::dock::DockAreaStyle::TabBar,
         )
-        .with_windows(vec![crate::dock::HUB.into()]),
+        .with_windows(vec![crate::hub::HUB.into()]),
     );
     crate::hub::first(world)
 }

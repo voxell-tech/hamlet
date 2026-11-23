@@ -23,6 +23,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Attention;
 
 use crate::desk::{Desks, Part};
+use crate::hub::HUB;
 use crate::{desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
@@ -30,9 +31,6 @@ const LEAST: f32 = 300.0;
 
 /// The share of the window's width the realm takes on a new desk.
 pub(crate) const REALM_SHARE: f32 = 0.5;
-
-/// The dock window of the Hub.
-pub(crate) const HUB: &str = "hub";
 
 /// The ids of panels a stored dock may still name that the window no
 /// longer has.

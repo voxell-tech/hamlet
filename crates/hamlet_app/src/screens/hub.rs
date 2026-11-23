@@ -57,8 +57,10 @@ pub use self::rail::Tab as RailTab;
 pub(crate) use self::rail::under_name;
 pub use self::thread::{Briefing, Sheet, open_context};
 use crate::convo::{Convo, seat};
-use crate::dock::HUB;
 use crate::overview;
+
+/// The dock window of the first Hub.
+pub const HUB: &str = "hub";
 
 pub fn plugin(app: &mut App) {
     app.add_numbered_panel(HUB, window)
