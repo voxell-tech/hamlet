@@ -26,16 +26,6 @@ use crate::desk::{self, Desks};
 use crate::remember::Remembered;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
-/// First-run setup with a browser that fails the test if opened.
-pub(crate) fn welcome_app() -> App {
-    let mut app = hamlet_core::testing::app();
-    app.add_plugins((
-        crate::welcome::plugin,
-        hamlet_ui::widgets::secret::plugin,
-    ));
-    app
-}
-
 /// The settings screen open on `pane`, over the Hub's panels.
 pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     let mut app = hamlet_hub::testing::panel_app();

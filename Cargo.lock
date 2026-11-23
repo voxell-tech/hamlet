@@ -4467,6 +4467,7 @@ dependencies = [
  "hamlet_ui",
  "hamlet_update",
  "hamlet_vfx",
+ "hamlet_welcome",
  "image",
  "jiff",
  "pulldown-cmark",
@@ -4811,6 +4812,16 @@ dependencies = [
  "hamlet_assets",
  "image",
  "serde",
+]
+
+[[package]]
+name = "hamlet_welcome"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "jiff",
+ "serde_json",
 ]
 
 [[package]]

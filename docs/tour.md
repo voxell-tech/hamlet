@@ -50,11 +50,12 @@ every crate. `xtask/` is a workspace of its own, run as `cargo xtask`
 | `hamlet_git` | Profiles' and the library's repositories through gix, with no git program |
 | `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies and secret scrubbing |
 | `hamlet_os` | System calls whose form differs by OS, with no C code: `fs`, `process`, `process::pty` |
-| `hamlet_app` | `hamlet_app`, the window: the dock, desks, menu bar, chief, welcome and toasts, and the examples |
+| `hamlet_app` | `hamlet_app`, the window: the dock, desks, menu bar, chief and toasts, and the examples |
 | `hamlet_core` | What the window's parts are built on: Bevy, fynix, the widget kit and the client as one crate, the panels' steps and the counts of what changed (`roll.rs`) |
 | `hamlet_hub` | The Hub: the chat with agents, the realm's overview and the pages a Hub shows, and the menu over the world's things |
 | `hamlet_settings` | The Settings panel and its pages: endpoints, models, MCP servers, agents, workspace, charter and realm limits |
 | `hamlet_terminal` | The Terminal panel: terminals of the realm's machines and agents' command logs |
+| `hamlet_welcome` | Welcome: first-run setup through the server's settings, models and logins, and the projects to bring in |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime: conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types, `client` and `runtime`; `State::apply`; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realms |
@@ -83,10 +84,10 @@ client entities. The realm's steps before the world are `RealmSystems`
 in `hamlet_realm/src/stage.rs`, and [`bevy.md`](bevy.md#order) says what
 goes in each. The panels' steps before fynix mounts are `PanelSystems`
 in `hamlet_core/src/panels.rs`. Panels live in `hamlet_hub`,
-`hamlet_settings`, `hamlet_terminal` and `hamlet_app/src/` and
-register their dock window with `PanelAppExt` from
-`hamlet_core/src/panels.rs`; they are built from
-`hamlet_ui`, which reads no client state.
+`hamlet_settings`, `hamlet_terminal`, `hamlet_welcome` and
+`hamlet_app/src/` and register their dock window with `PanelAppExt`
+from `hamlet_core/src/panels.rs`; they are built from `hamlet_ui`,
+which reads no client state.
 
 ## The store and the repositories
 

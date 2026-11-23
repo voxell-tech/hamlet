@@ -5,33 +5,37 @@ use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, JustifyContent, Overflow, UiRect, percent, px,
 };
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::client::realm::{Providers, Settings};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     self, BehaviorExt, Frame, FrameProps, Stack, column, frame,
     label, overlay, row, scroll, text_field,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     Binding, ScopedExt, ViewExt, derived, keyed, resource, style,
 };
-use hamlet_client::realm::{Providers, Settings};
 use hamlet_core::models::{
     Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
 };
+use hamlet_core::protocol::client as protocol;
 use hamlet_core::roll::{either, moved};
-use hamlet_protocol::client as protocol;
-use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
-use hamlet_ui::styles::{
+use hamlet_core::ui::markdown::{
+    Face, Ink, Span, Style, Target, rich,
+};
+use hamlet_core::ui::styles::{
     self, CONTROL, ICON, Looks, back, bare, close_button, command,
     description, good_action, group, hairline, headed, lettered,
     marked, note, parts, scroll_area, section, small_rules,
     text_input,
 };
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::edges::faded;
-use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
-use hamlet_ui::widgets::hint::hinted;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, Cx, View, built, kinds, rules, with_cx};
+use hamlet_core::ui::theme::HamletTheme;
+use hamlet_core::ui::widgets::edges::faded;
+use hamlet_core::ui::widgets::effects::{Edge, Variant, Wash};
+use hamlet_core::ui::widgets::hint::hinted;
+use hamlet_core::ui::widgets::icons::{Glyph, glyph};
+use hamlet_core::ui::{
+    AnyView, Cx, View, built, kinds, rules, with_cx,
+};
 
 use super::providers::{self, Tile};
 use super::{NOTHING_LOCAL, Pick, Step, Welcome, go, look, pick};
@@ -175,7 +179,7 @@ pub(super) fn sheet(
                     px(space.section),
                 ))
                 .shrink(0.0)
-                .tagged(hamlet_ui::widgets::platform::Wraps),
+                .tagged(hamlet_core::ui::widgets::platform::Wraps),
         ))
         .gap(0.0)
         // It may be shorter than all it holds, so the body scrolls.
@@ -498,7 +502,7 @@ fn providers_shown() -> AnyView {
         // Built once, keeping its focus and text.
         let search = built(|cx| {
             let seek = cx.world.resource::<Welcome>().seek.clone();
-            cx.build(hamlet_ui::widgets::search::search(
+            cx.build(hamlet_core::ui::widgets::search::search(
                 "Search providers",
                 seek,
                 |world, text| providers::search(world, &text),
@@ -685,7 +689,7 @@ fn models() -> AnyView {
     .within(bare());
     let search = built(|cx| {
         let narrow = cx.world.resource::<Welcome>().narrow.clone();
-        cx.build(hamlet_ui::widgets::search::search(
+        cx.build(hamlet_core::ui::widgets::search::search(
             "Search models",
             narrow,
             |world, text| {

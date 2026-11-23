@@ -21,8 +21,8 @@ use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use bevy::window::WindowTheme;
-use hamlet_app::welcome::Step;
 use hamlet_hub::pictures::Pictures;
+use hamlet_welcome::Step;
 
 use self::offscreen::{Target, word};
 use self::scenes::{GalleryPlugin, Scene, Stand, Strike};

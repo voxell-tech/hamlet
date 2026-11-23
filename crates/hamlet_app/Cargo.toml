@@ -28,6 +28,7 @@ hamlet_protocol.workspace = true
 hamlet_settings.workspace = true
 hamlet_terminal.workspace = true
 hamlet_ui.workspace = true
+hamlet_welcome.workspace = true
 hamlet_realm.workspace = true
 hamlet_vfx.workspace = true
 hamlet_update = { workspace = true, features = ["check"] }

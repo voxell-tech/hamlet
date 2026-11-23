@@ -12,30 +12,30 @@ use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::text::EditableText;
 use bevy::ui::{AlignItems, InteractionDisabled};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::browser::{Browser, is_browsable};
+use hamlet_core::client::messages::Response;
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::{Providers, Settings};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     BehaviorExt, FrameProps, frame, label, row, text_field,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     Binding, ScopedExt, ViewExt, derived, keyed, resource,
 };
-use hamlet_client::messages::Response;
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Providers, Settings};
-use hamlet_core::browser::{Browser, is_browsable};
 use hamlet_core::models::mark;
+use hamlet_core::protocol::client as protocol;
 use hamlet_core::roll::{either, moved};
-use hamlet_protocol::client as protocol;
-use hamlet_ui::AnyView;
-use hamlet_ui::styles::{
+use hamlet_core::ui::AnyView;
+use hamlet_core::ui::styles::{
     Fills, ICON, Looks, Refused, bare, close, good_action, group,
     lettered, marked, note, parts, small_rules, text_input,
 };
-use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::ellipsis::one_line;
-use hamlet_ui::widgets::hint::hinted;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::secret::secret_field;
+use hamlet_core::ui::widgets::effects::Variant;
+use hamlet_core::ui::widgets::ellipsis::one_line;
+use hamlet_core::ui::widgets::hint::hinted;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::secret::secret_field;
 
 use super::pages::{card, footed, linked, news, said, to_providers};
 use super::{Pick, Step, Welcome, commit, go, read_models};

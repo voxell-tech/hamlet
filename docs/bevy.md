@@ -97,7 +97,7 @@ Three orders are easy to get wrong:
   Bevy sends `FocusLost` in `PostUpdate`
   (`InputFocusSystems::FocusChangeEvents`) and fynix's observer commits
   the text then. Code that clears the focus and reads the text runs after
-  that set (`welcome::run_committed`), not after a count of frames.
+  that set (`hamlet_welcome::run_committed`), not after a count of frames.
 
 ## Plugins and panels
 

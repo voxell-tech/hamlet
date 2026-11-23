@@ -13,32 +13,32 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
 use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::client::ViewFolder;
+use hamlet_core::client::imports::{
+    BringIn, FindProjects, Found, Imports, Project,
+};
+use hamlet_core::client::realm::HamletId;
+use hamlet_core::desktop::choose::{Choose, Chosen, What};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     BehaviorExt, FrameProps, button, checkbox, column, frame, label,
     overlay, row,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     Binding, ScopedExt, ViewExt, derived, each, every_frame, keyed,
     resource,
 };
-use hamlet_client::ViewFolder;
-use hamlet_client::imports::{
-    BringIn, FindProjects, Found, Imports, Project,
-};
-use hamlet_client::realm::HamletId;
 use hamlet_core::toasts::Toast;
-use hamlet_core::welcome::OpenProjects;
-use hamlet_desktop::choose::{Choose, Chosen, What};
-use hamlet_ui::styles::{
+use hamlet_core::ui::styles::{
     self, ICON, Looks, description, good_action, lettered, link_row,
     note, note_rules,
 };
-use hamlet_ui::theme::StatusKind;
-use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::ellipsis::one_line;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_core::ui::theme::StatusKind;
+use hamlet_core::ui::widgets::effects::Variant;
+use hamlet_core::ui::widgets::ellipsis::one_line;
+use hamlet_core::ui::widgets::icons::{Glyph, glyph};
+use hamlet_core::ui::{AnyView, View, with_cx};
+use hamlet_core::welcome::OpenProjects;
 
 use super::Welcome;
 use super::pages::{footed, over, sheet};

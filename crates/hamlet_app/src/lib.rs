@@ -18,7 +18,6 @@ mod testing;
 pub mod toasts;
 mod tuning;
 mod updates;
-pub mod welcome;
 mod window;
 mod world_view;
 
@@ -61,7 +60,7 @@ impl Plugin for UiPlugin {
                 chief::plugin,
                 hamlet_settings::plugin,
                 pages::plugin,
-                welcome::plugin,
+                hamlet_welcome::plugin,
                 toasts::plugin,
                 updates::plugin,
             ),

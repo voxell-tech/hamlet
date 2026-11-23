@@ -21,7 +21,7 @@ use hamlet_ui::theme::{HamletTheme, ThemeChanged};
 use hamlet_ui::widgets::platform::Glow;
 use hamlet_ui::{Cx, View, built};
 
-use crate::{chrome, desk, menu, welcome};
+use crate::{chrome, desk, menu};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -77,8 +77,8 @@ pub fn layout(cx: &Cx) -> impl View {
         // First run covers the panels but not the window's buttons.
         column((
             dock::<HamletTheme>(),
-            welcome::view(),
-            welcome::projects::view(),
+            hamlet_welcome::view(),
+            hamlet_welcome::projects::view(),
         ))
         .fills_height()
         .gap(0.0),
@@ -96,7 +96,7 @@ fn toolbar(cx: &Cx) -> impl View {
             menu::titles(),
             // No desk under first-run setup; adding models keeps it.
             keyed(
-                resource::<welcome::Welcome, _>(|welcome| {
+                resource::<hamlet_welcome::Welcome, _>(|welcome| {
                     welcome.is_shown() && !welcome.adding
                 }),
                 |shown| {

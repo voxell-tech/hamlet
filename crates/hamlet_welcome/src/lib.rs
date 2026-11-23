@@ -1,4 +1,5 @@
-//! First-run setup through the server's settings, models and logins.
+//! Welcome: first-run setup through the server's settings, models and
+//! logins.
 
 mod pages;
 pub mod projects;
@@ -13,14 +14,14 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{InputFocus, InputFocusSystems};
-use hamlet_client::Connection;
-use hamlet_client::connection::Contact;
-use hamlet_client::messages::{Reconnected, Response};
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{Seen, Settings};
+use hamlet_core::client::Connection;
+use hamlet_core::client::connection::Contact;
+use hamlet_core::client::messages::{Reconnected, Response};
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::{Seen, Settings};
 use hamlet_core::panels::PanelSystems;
+use hamlet_core::protocol::client as protocol;
 use hamlet_core::welcome::OpenWelcome;
-use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
 pub use self::providers::search;
@@ -33,7 +34,7 @@ pub const NOTHING_LOCAL: &str = "Nothing answered yet. Install \
 /// The endpoint This Computer adds: Ollama's name and address.
 const LOCAL: (&str, &str) = ("local", "http://localhost:11434/v1");
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Welcome>()
         .init_resource::<Committing>()
         .init_resource::<providers::Login>()
@@ -554,15 +555,24 @@ mod server_tests {
     use bevy::ecs::hierarchy::Children;
     use bevy::ecs::query::With;
     use bevy::text::EditableText;
-    use bevy_fynix::mount;
+    use hamlet_core::fynix::mount;
+    use hamlet_core::protocol::client as protocol;
     use hamlet_core::testing::{
         all_words, connect, incoming, press, press_and_update, sent,
     };
-    use hamlet_protocol::client as protocol;
-    use hamlet_ui::theme::HamletTheme;
+    use hamlet_core::ui::theme::HamletTheme;
 
     use super::*;
-    use crate::testing::welcome_app;
+
+    /// First-run setup with a browser that fails the test if opened.
+    fn welcome_app() -> App {
+        let mut app = hamlet_core::testing::app();
+        app.add_plugins((
+            plugin,
+            hamlet_core::ui::widgets::secret::plugin,
+        ));
+        app
+    }
 
     #[test]
     fn a_later_state_does_not_reopen_the_welcome_page() {
@@ -570,11 +580,11 @@ mod server_tests {
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "I'll Set This Up Later");
-        let mut state = hamlet_testing::realm::state();
+        let mut state = hamlet_core::testing::realm::state();
         state.settings.unset = true;
         // Differs from the held settings, so they read as changed.
         state.settings.link.words = Some("Changed".into());
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );

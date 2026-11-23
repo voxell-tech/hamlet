@@ -126,15 +126,15 @@ pub(super) fn setup(world: &mut World) {
             welcome::catalogue();
     }
     // The key that was not accepted, still in its field.
-    if scene.first_run() == Some(hamlet_app::welcome::Step::Key) {
-        hamlet_app::welcome::type_key(
+    if scene.first_run() == Some(hamlet_welcome::Step::Key) {
+        hamlet_welcome::type_key(
             world,
             "openrouter",
             "sk-or-v1-5e0d2c41a7",
         );
     }
     if let Scene::ProviderSearch(words) = scene {
-        hamlet_app::welcome::search(world, words);
+        hamlet_welcome::search(world, words);
     }
     let agent = realm::first_lead(world).expect("the received lead");
     let to = protocol::AgentId(2);
