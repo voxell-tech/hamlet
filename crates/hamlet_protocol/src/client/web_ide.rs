@@ -1,14 +1,15 @@
-//! The web IDE a Web panel shows on a hamlet's folder.
+//! The web IDE a Web panel shows on a hamlet's folders.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::RequestId;
 
-/// Asks for the address of a web IDE on `hamlet`'s folder, started
-/// if it is not running. It is answered with a reply of the kind
-/// `address` whose text is the address, or an error reply that says
-/// why there is none.
+/// Asks for the address of a web IDE on `hamlet`'s folders, and
+/// read-only on those it worked on before, started if it is not
+/// running or anew if they changed. It is answered with a reply of
+/// the kind `address` whose text is the address, or an error reply
+/// that says why there is none.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

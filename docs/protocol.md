@@ -110,7 +110,7 @@ messages and watch failures can answer with `fault` (see
 | `move-worktrees` | Copy worktrees to the workspace chosen in Settings |
 | `terminal` | Open, type into, resize, watch, rename or close a terminal |
 | `mcp` | Add, change, remove or restart an MCP server, or find and import those other programs list |
-| `web-ide` | The address of a web IDE on a hamlet's folder, started if none runs; `reply` of kind `address`, or `error` |
+| `web-ide` | The address of a web IDE on a hamlet's folders, those worked on before read-only, started if none runs or anew if they changed; `reply` of kind `address`, or `error` |
 | `web-window`, `web` | A window that draws Web panels came to the front, or answers a server `web`; no `id`; no answer |
 
 Limits a client must respect on `say`: at most 20 images, each within

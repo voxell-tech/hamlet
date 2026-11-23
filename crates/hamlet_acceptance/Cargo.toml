@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+url.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["process"] }
@@ -122,6 +123,15 @@ required-features = ["acceptance"]
 name = "mcp_echo"
 required-features = ["acceptance"]
 
+# The web IDE the `web_ide` test starts.
+[[bin]]
+name = "web_ide_stub"
+required-features = ["acceptance"]
+
 [[test]]
 name = "web"
+required-features = ["acceptance"]
+
+[[test]]
+name = "web_ide"
 required-features = ["acceptance"]

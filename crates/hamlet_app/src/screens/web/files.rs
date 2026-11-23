@@ -91,8 +91,9 @@ struct Picking(Option<Rect>);
 /// The web IDE asked for, and how the server answered.
 #[derive(Resource, Default)]
 struct Asked {
-    /// The hamlet and the folder it was asked for.
-    for_: Option<(String, Option<String>)>,
+    /// The hamlet it was asked for, with the folders it works on and
+    /// worked on then: the server starts it anew when they change.
+    for_: Option<(String, Vec<String>, Vec<String>)>,
     /// The request whose answer is awaited.
     pending: Option<RequestId>,
     /// Why there is none, as the server said.
@@ -366,14 +367,24 @@ struct Listed {
     hamlets: Vec<(Entity, String, String)>,
 }
 
+/// The project `works` names, and how many folders more it works on.
+fn folders(works: &Works) -> String {
+    match works.folders.as_slice() {
+        [] => "No folder yet".to_owned(),
+        [project] => project.clone(),
+        [project, rest @ ..] => {
+            format!("{project} + {} more", rest.len())
+        }
+    }
+}
+
 fn listed(world: &World) -> Listed {
     let hamlets = hamlets(world)
         .into_iter()
         .map(|(hamlet, name)| {
             let folder = world
                 .get::<Works>(hamlet)
-                .and_then(|works| works.folder().cloned())
-                .unwrap_or_else(|| "No folder yet".to_owned());
+                .map_or_else(|| "No folder yet".to_owned(), folders);
             (hamlet, name, folder)
         })
         .collect();
@@ -462,7 +473,7 @@ fn forget_on_reconnect(
 }
 
 /// Asks for the web IDE of the hamlet shown while the panel is open,
-/// and again when the hamlet or its folder changes. One asked for is
+/// and again when the hamlet or its folders change. One asked for is
 /// kept while the panel is closed, as its page is.
 fn ask(world: &mut World) {
     let open = world
@@ -481,10 +492,11 @@ fn ask(world: &mut World) {
     else {
         return;
     };
-    let folder = world
+    let (folders, before) = world
         .get::<Works>(hamlet)
-        .and_then(|works| works.folder().cloned());
-    let wanted = Some((id.clone(), folder));
+        .map(|works| (works.folders.clone(), works.before.clone()))
+        .unwrap_or_default();
+    let wanted = Some((id.clone(), folders, before));
     if world.resource::<Asked>().for_ == wanted {
         return;
     }
