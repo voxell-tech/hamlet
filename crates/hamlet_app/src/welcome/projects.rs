@@ -23,12 +23,13 @@ use bevy_fynix::{
     resource,
 };
 use hamlet_client::ViewFolder;
-use hamlet_client::imports::{BringIn, FindProjects, Imports};
+use hamlet_client::imports::{
+    BringIn, FindProjects, Found, Imports, Project,
+};
 use hamlet_client::realm::HamletId;
 use hamlet_core::toasts::Toast;
 use hamlet_core::welcome::OpenProjects;
 use hamlet_desktop::choose::{Choose, Chosen, What};
-use hamlet_import::{Found, Project};
 use hamlet_ui::styles::{
     self, ICON, Looks, description, good_action, lettered, link_row,
     note, note_rules,

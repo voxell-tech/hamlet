@@ -4459,7 +4459,6 @@ dependencies = [
  "hamlet_core",
  "hamlet_desktop",
  "hamlet_hub",
- "hamlet_import",
  "hamlet_protocol",
  "hamlet_realm",
  "hamlet_settings",

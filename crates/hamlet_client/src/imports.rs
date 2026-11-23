@@ -11,7 +11,9 @@ use std::time::SystemTime;
 
 use bevy_app::{App, Update};
 use bevy_ecs::prelude::*;
-use hamlet_import::Project;
+/// The projects [`Imports`] lists, and the conversations found
+/// in them.
+pub use hamlet_import::{Found, Project};
 use hamlet_protocol::client as protocol;
 use protocol::{ImportProject, Imported};
 use tokio::sync::oneshot;

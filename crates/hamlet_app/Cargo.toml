@@ -24,7 +24,6 @@ hamlet_client.workspace = true
 hamlet_core.workspace = true
 hamlet_desktop.workspace = true
 hamlet_hub.workspace = true
-hamlet_import.workspace = true
 hamlet_protocol.workspace = true
 hamlet_settings.workspace = true
 hamlet_terminal.workspace = true
