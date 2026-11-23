@@ -40,8 +40,8 @@ use hamlet_client::Connection;
 use hamlet_client::realm::{HamletId, Left, Seen};
 use hamlet_core::chief::ChiefPage;
 use hamlet_core::panels::{
-    DeskCapture, PanelAppExt, PanelSystems, ShowPanel,
-    highlight_panel, number,
+    DeskCapture, FollowingHub, OnDesks, PanelAppExt, PanelSystems,
+    ShowPanel, highlight_panel, number, on_a_desk,
 };
 use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
@@ -57,7 +57,6 @@ pub use self::rail::Tab as RailTab;
 pub(crate) use self::rail::under_name;
 pub use self::thread::{Briefing, Sheet, open_context};
 use crate::convo::{Convo, seat};
-use crate::desk::Desks;
 use crate::dock::HUB;
 use crate::overview;
 
@@ -86,9 +85,17 @@ pub fn plugin(app: &mut App) {
             Update,
             (
                 keep_hubs
-                    .run_if(resource_changed::<DockTree>.or_else(
-                        resource_exists_and_changed::<Desks>,
-                    ))
+                    .run_if(
+                        resource_changed::<DockTree>
+                            .or_else(
+                                resource_exists_and_changed::<OnDesks>,
+                            )
+                            .or_else(
+                                resource_exists_and_changed::<
+                                    FollowingHub,
+                                >,
+                            ),
+                    )
                     .after(DeskCapture),
                 note_collapsed,
                 thread::leave_prompt,
@@ -288,12 +295,13 @@ pub(crate) fn follow(world: &mut World, hub: Entity) {
     // Taken mutably only to change it, as a change runs `keep_hubs`
     // again.
     if let Some(id) = world.get::<Hub>(hub).map(|hub| hub.0.clone())
-        && world.get_resource::<Desks>().is_some_and(|desks| {
-            desks.following() != Some(id.as_str())
-        })
-        && let Some(mut desks) = world.get_resource_mut::<Desks>()
+        && world.get_resource::<FollowingHub>().is_some_and(
+            |following| following.0.as_ref() != Some(&id),
+        )
+        && let Some(mut following) =
+            world.get_resource_mut::<FollowingHub>()
     {
-        desks.follow(&id);
+        following.0 = Some(id);
     }
     if is_following(world, hub) {
         return;
@@ -329,12 +337,10 @@ fn keep_hubs(world: &mut World) {
         .iter(world)
         .map(|(entity, hub)| (entity, hub.0.clone()))
         .collect::<Vec<_>>();
-    let desks = world.get_resource::<Desks>();
     let gone = had
         .iter()
         .filter(|(_, id)| {
-            !docked.contains(id)
-                && !desks.is_some_and(|d| d.holds(id))
+            !docked.contains(id) && !on_a_desk(world, id)
         })
         .map(|(entity, _)| *entity)
         .collect::<Vec<_>>();
@@ -357,10 +363,9 @@ fn keep_hubs(world: &mut World) {
         spawn(world, id.clone(), rail);
     }
     let chosen = world
-        .get_resource::<Desks>()
-        .and_then(Desks::following)
-        .filter(|id| docked.iter().any(|docked| docked == id))
-        .map(str::to_owned);
+        .get_resource::<FollowingHub>()
+        .and_then(|following| following.0.clone())
+        .filter(|id| docked.contains(id));
     let first = docked.iter().min_by_key(|id| rank(id)).cloned();
     if let Some(hub) =
         chosen.or(first).and_then(|id| hub_of(world, &id))

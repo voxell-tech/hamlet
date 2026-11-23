@@ -16,7 +16,8 @@ use bevy_fynix::dock::{
 };
 use hamlet_client::waits::Waiting;
 use hamlet_core::panels::{
-    self, Numbered, OnDesks, PanelSystems, free_copy, number,
+    self, DeskCapture, Numbered, OnDesks, PanelSystems, free_copy,
+    number,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Attention;
@@ -46,7 +47,14 @@ pub(crate) fn plugin(app: &mut App) {
         Update,
         (
             keep_wide,
-            (hold_desked, register_numbered.before(desk::show))
+            // The Hubs keep the panels a desk holds, after the
+            // dock's changes are taken in.
+            hold_desked
+                .run_if(resource_changed::<Desks>)
+                .after(desk::capture)
+                .in_set(DeskCapture),
+            register_numbered
+                .before(desk::show)
                 .run_if(resource_changed::<Desks>),
             prune_numbered
                 .run_if(resource_changed::<DockTree>)

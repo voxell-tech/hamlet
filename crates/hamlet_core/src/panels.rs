@@ -38,6 +38,7 @@ pub fn plugin(app: &mut App) {
     )
     .init_resource::<Numbered>()
     .init_resource::<OnDesks>()
+    .init_resource::<FollowingHub>()
     .add_observer(show);
 }
 
@@ -118,6 +119,12 @@ impl Numbered {
 /// The ids of the panels on every desk, shown or not.
 #[derive(Resource, Default, PartialEq)]
 pub struct OnDesks(pub HashSet<String>);
+
+/// The id of the Hub panel that follows the world's selection on the
+/// shown desk. Each desk keeps its own, and a Hub sets it when it
+/// starts to follow.
+#[derive(Resource, Default, PartialEq)]
+pub struct FollowingHub(pub Option<String>);
 
 /// The number of `id` as another of the numbered panel `first`.
 pub fn number(first: &str, id: &str) -> Option<u32> {
