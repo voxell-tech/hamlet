@@ -49,6 +49,7 @@ use hamlet_client::messages::{
     Withdraw,
 };
 use hamlet_client::realm as agents;
+use hamlet_core::chief::Spoke;
 use hamlet_core::drops::FileDrop;
 use hamlet_core::orders::{Decree, Tell};
 use hamlet_core::panels::PanelSystems;
@@ -447,7 +448,9 @@ pub(crate) fn send(
         return false;
     };
     to_end(world, hub);
-    crate::chief::spoke(world, hub, agent);
+    if crate::hub::is_following(world, hub) {
+        world.trigger(Spoke(agent));
+    }
     let request = protocol::RequestId::new();
     world.trigger(ChiefMessage {
         request: request.clone(),

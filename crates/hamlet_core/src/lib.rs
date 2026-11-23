@@ -7,6 +7,7 @@
 
 pub mod age;
 pub mod browser;
+pub mod chief;
 pub mod clock;
 pub mod confirm;
 pub mod drops;

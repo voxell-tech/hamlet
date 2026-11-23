@@ -7,10 +7,11 @@ use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::schedule::common_conditions::resource_exists_and_changed;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::widget::ImageNode;
@@ -27,6 +28,7 @@ use bevy_fynix::{
 };
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::Chief as SignedIn;
+use hamlet_core::chief::{ChiefPage, GoHome, Spoke};
 use hamlet_core::panels::PanelSystems;
 use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_core::roll::{agents_moved, either, moved};
@@ -52,6 +54,11 @@ mod portrait;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(portrait::plugin)
+        .insert_resource(ChiefPage(panel))
+        .add_observer(|_: On<GoHome>, mut commands: Commands| {
+            commands.queue(go_home);
+        })
+        .add_observer(spoke)
         .add_systems(Startup, enter)
         // The chief enters under the name just followed, and is there
         // before the mascot is sent, which moves only when the chat
@@ -93,7 +100,7 @@ pub(crate) fn enter(world: &mut World) {
 
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
-pub(crate) fn go_home(world: &mut World) {
+fn go_home(world: &mut World) {
     let name = crate::convo::chief_name(world);
     let Some(chief) = chief::named(world, &name) else {
         return;
@@ -150,20 +157,18 @@ pub(crate) fn accompany(
 }
 
 /// A message sent from the following Hub's field with nobody selected
-/// brings the mascot from home to `agent`, whom it was sent to.
-pub(crate) fn spoke(world: &mut World, hub: Entity, agent: Entity) {
-    if !crate::hub::is_following(world, hub) {
-        return;
-    }
-    let Some(me) =
-        world.get_resource::<SignedIn>().map(|me| me.0.clone())
-    else {
+/// brings the mascot from home to the agent it was sent to.
+fn spoke(
+    spoke: On<Spoke>,
+    me: Option<Res<SignedIn>>,
+    mut chiefs: Query<(&Chief, &mut Beside)>,
+) {
+    let Some(me) = me else {
         return;
     };
-    let mut chiefs = world.query::<(&Chief, &mut Beside)>();
-    for (chief, mut beside) in chiefs.iter_mut(world) {
-        if chief.name == me && beside.0.is_none() {
-            beside.0 = Some(agent);
+    for (chief, mut beside) in &mut chiefs {
+        if chief.name == me.0 && beside.0.is_none() {
+            beside.0 = Some(spoke.0);
         }
     }
 }

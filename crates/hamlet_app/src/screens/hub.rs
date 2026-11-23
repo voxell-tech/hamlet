@@ -38,6 +38,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::Connection;
 use hamlet_client::realm::{HamletId, Left, Seen};
+use hamlet_core::chief::ChiefPage;
 use hamlet_core::panels::{
     DeskCapture, PanelAppExt, PanelSystems, ShowPanel,
     highlight_panel, number,
@@ -48,7 +49,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{View, with_cx};
+use hamlet_ui::{View, built, with_cx};
 
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
@@ -516,11 +517,21 @@ fn page(hub: Entity) -> impl View {
                 overview::hamlet(hub, *hamlet).boxed()
             }
             Showing::Gone(agent) => gone::ruin(hub, *agent).boxed(),
-            Showing::Chief(chief) => crate::chief::panel(*chief),
+            Showing::Chief(chief) => chief_page(*chief).boxed(),
             Showing::Library => gone::library(hub).boxed(),
         },
     )
     .within(filling())
+}
+
+/// The page of `chief`, as the part that draws the chiefs makes it.
+fn chief_page(chief: Entity) -> impl View {
+    built(move |cx| {
+        match cx.world.get_resource::<ChiefPage>().copied() {
+            Some(ChiefPage(page)) => cx.build(page(chief)),
+            None => cx.build(column(())),
+        }
+    })
 }
 
 /// The Hub panel `id`, once its Hub is kept.

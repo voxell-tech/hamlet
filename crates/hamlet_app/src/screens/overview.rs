@@ -29,6 +29,7 @@ use hamlet_client::realm::{
     Treasury,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::chief::GoHome;
 use hamlet_core::pick::{CrossHarbor, Thing};
 use hamlet_core::standing::{Standing, need_you};
 use hamlet_core::toasts::WatchRequest;
@@ -98,11 +99,9 @@ pub fn overview(hub: Entity) -> impl View {
             .within(bare()),
             // Ways about the world, under the figures they lead to.
             buttons(vec![
-                action(
-                    Glyph::Hearth,
-                    "Your Hearth",
-                    crate::chief::go_home,
-                )
+                action(Glyph::Hearth, "Your Hearth", |world| {
+                    world.trigger(GoHome);
+                })
                 .tooltip(|| note(words::HEARTH))
                 .boxed(),
                 action(Glyph::Anchor, "Harbor", |world| {
