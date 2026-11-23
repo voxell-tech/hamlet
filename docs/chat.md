@@ -170,8 +170,8 @@ Paper.
 ```
 
 So the log, a rewind and a replay need nothing new. At most
-`reply_chars` characters of the message are carried (`[chat]` in
-`assets/ui.toml`). A rewind to a reply puts what it answered back over
+`reply_chars` characters of the message are carried (in
+`assets/chat.toml`). A rewind to a reply puts what it answered back over
 the field.
 
 A line that opens with `> ` is a quote; the model reads it as a Markdown

@@ -1,9 +1,11 @@
 //! The change of an `edit` call: its file, count and lines.
 
+use bevy::asset::Asset;
 use bevy::color::{Alpha, Color};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
+use bevy::reflect::TypePath;
 use bevy::ui::{
     AlignItems, JustifyContent, Overflow, UiRect, percent, px,
 };
@@ -14,6 +16,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, TalksTo, Transcript};
+use hamlet_core::assets::{File, Tuning, follow};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
@@ -29,8 +32,10 @@ use super::bubble::inked;
 use super::entry::{Fold, Underway, status};
 use super::lines::INSET;
 
-/// The tuning of the chat.
-#[derive(Resource, Clone, PartialEq, serde::Deserialize)]
+/// The tuning of the chat, as `assets/chat.toml` has it.
+#[derive(
+    Resource, Asset, TypePath, Clone, PartialEq, serde::Deserialize,
+)]
 #[serde(deny_unknown_fields)]
 pub struct ChatSettings {
     /// The lines of a change shown before the rest is asked for.
@@ -47,6 +52,20 @@ pub struct ChatSettings {
     pub picture_memory: u64,
     /// The most characters of a message a reply carries.
     pub reply_chars: usize,
+}
+
+impl Tuning for ChatSettings {
+    const FILE: File = hamlet_core::assets::CHAT;
+
+    fn apply(&self, was: &Self, world: &mut World) {
+        follow(world, was, self);
+    }
+}
+
+impl Default for ChatSettings {
+    fn default() -> Self {
+        Self::designed()
+    }
 }
 
 /// The changes a chief shut, and those asked for whole, in each Hub.

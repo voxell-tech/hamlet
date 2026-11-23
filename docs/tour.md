@@ -172,7 +172,7 @@ Search the module names above first. The ones that are not obvious:
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |
-| World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
+| World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml`, `chat.toml` |
 
 ## Tuning and previewing the window
 
