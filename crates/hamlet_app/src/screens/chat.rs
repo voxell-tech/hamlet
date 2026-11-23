@@ -800,15 +800,14 @@ mod tests {
         crate::hub::following(app.world()).unwrap()
     }
 
-    fn sounding_chat() -> App {
+    /// The first Hub's message bar, mounted.
+    fn mounted_chat() -> App {
         let mut app = crate::testing::panel_app();
         app.add_message::<Cue>()
-            .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::hover::Card>()
             .insert_resource(crate::reference::links())
-            .add_plugins((plugin, crate::sounds::plugin));
+            .add_plugins(plugin);
         let hub = hub(&app);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
@@ -843,7 +842,7 @@ mod tests {
     fn a_line_is_sent_with_its_attachments_where_their_chips_are() {
         use hamlet_protocol::client::{AttachedImage, ImageId};
 
-        let mut app = sounding_chat();
+        let mut app = mounted_chat();
         let image = ImageId::try_from("a".repeat(64)).unwrap();
         // A chip after "  Which", in words typed with white space
         // around them, and a reply that puts a line before them.
@@ -1085,11 +1084,9 @@ mod tests {
     fn a_focus_asked_for_before_the_field_is_mounted_waits_for_it() {
         let mut app = crate::testing::panel_app();
         app.add_message::<Cue>()
-            .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::hover::Card>()
-            .add_plugins((plugin, crate::sounds::plugin));
+            .add_plugins(plugin);
         app.update();
         let hub = hub(&app);
         focus(app.world_mut(), hub);
@@ -1121,7 +1118,7 @@ mod tests {
         use bevy::input_focus::InputDispatchPlugin;
         use bevy::window::{PrimaryWindow, Window};
 
-        let mut app = sounding_chat();
+        let mut app = mounted_chat();
         app.add_plugins((
             bevy::input::InputPlugin,
             InputDispatchPlugin,
