@@ -1,7 +1,9 @@
 //! The channels between agents, drawn as roads, and who walks them.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{Carried, Channel, ChannelUse, Traffic};
+use hamlet_core::client::realm::{
+    Carried, Channel, ChannelUse, Traffic,
+};
 
 use super::{Housed, Laid};
 use crate::generator::Trips;

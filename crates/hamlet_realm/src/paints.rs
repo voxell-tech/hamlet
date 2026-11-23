@@ -2,10 +2,10 @@
 //! panels as [`Paints`].
 
 use bevy::prelude::*;
-use hamlet_client::realm::{HamletAgent, Identity, Kind, Lead};
+use hamlet_core::client::realm::{HamletAgent, Identity, Kind, Lead};
 use hamlet_core::paints::Paints;
 use hamlet_core::panels::PanelSystems;
-use hamlet_protocol::client::AgentKind;
+use hamlet_core::protocol::client::AgentKind;
 
 use crate::chief::{Chief, Look};
 use crate::hamlet::Housed;

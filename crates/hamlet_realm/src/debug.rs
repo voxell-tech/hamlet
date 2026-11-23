@@ -12,7 +12,7 @@ use bevy::picking::pointer::PointerInteraction;
 use bevy::prelude::*;
 use bevy::render::RenderApp;
 use bevy::shape::Aabb3d;
-use hamlet_assets::tint;
+use hamlet_core::assets::tint;
 use hamlet_core::pick::{Hovered, Selected, Thing};
 
 use super::{RealmSystems, WorldCamera};

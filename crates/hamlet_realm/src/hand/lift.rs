@@ -3,7 +3,7 @@
 use bevy::picking::Pickable;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
-use hamlet_client::realm::{
+use hamlet_core::client::realm::{
     self, Channel, ChannelsFrom, ChannelsTo, Lead,
 };
 use hamlet_core::pick::{Hovered, Taken, Thing};

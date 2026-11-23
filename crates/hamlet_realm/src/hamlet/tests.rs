@@ -1,12 +1,12 @@
 use bevy::prelude::*;
-use hamlet_client::realm::{
+use hamlet_core::client::realm::{
     Activity, Busy, Carried, Channel, ChannelUse, Doing, HamletAgent,
     HamletId, Identity, Kind, Lead, Left, Lived, LivesIn, MergedInto,
     Spot, Traffic,
 };
-use hamlet_client::{ClientPlugin, receive};
-use hamlet_protocol::client as protocol;
-use hamlet_testing::realm;
+use hamlet_core::client::{ClientPlugin, receive};
+use hamlet_core::protocol::client as protocol;
+use hamlet_core::testing::realm;
 
 use super::{Housed, Laid, Returning, Sited, Unhoused, town_of};
 use crate::generator::land::Land;
@@ -108,7 +108,7 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
 fn settle(app: &mut App, name: &str) -> Entity {
     if app
         .world()
-        .contains_resource::<hamlet_client::realm::Seen>()
+        .contains_resource::<hamlet_core::client::realm::Seen>()
     {
         // The leads take the ids after the Hand's and the first
         // lead's.
@@ -567,9 +567,11 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     }
     app.update();
     let world = app.world_mut();
-    let ada =
-        hamlet_client::realm::agent(world, protocol::AgentId(2))
-            .unwrap();
+    let ada = hamlet_core::client::realm::agent(
+        world,
+        protocol::AgentId(2),
+    )
+    .unwrap();
     let housed = world.get::<Housed>(ada).unwrap().0;
     let society = world.resource::<Society>();
     let founder = society.agent(housed).unwrap();
@@ -585,9 +587,9 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
  {
     use std::time::Duration;
 
-    use hamlet_client::Tokio;
-    use hamlet_client::connection::{Server, Wake};
-    use hamlet_protocol::client::discovery::ServerAddress;
+    use hamlet_core::client::Tokio;
+    use hamlet_core::client::connection::{Server, Wake};
+    use hamlet_core::protocol::client::discovery::ServerAddress;
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let url = realm::serve(

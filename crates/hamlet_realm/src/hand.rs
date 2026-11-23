@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_client::realm::Lead;
+use hamlet_core::client::realm::Lead;
 use hamlet_core::drops::FileDropped;
 use hamlet_core::pick::{Hovered, Taken, Thing};
 

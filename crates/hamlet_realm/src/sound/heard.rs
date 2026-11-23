@@ -2,8 +2,8 @@
 //! day and the chief's answers.
 
 use bevy::prelude::*;
-use hamlet_client::messages::{Answer, Veto};
-use hamlet_client::waits::Choice;
+use hamlet_core::client::messages::{Answer, Veto};
+use hamlet_core::client::waits::Choice;
 use hamlet_core::sound::{Cue, Sound};
 
 use super::kinds;

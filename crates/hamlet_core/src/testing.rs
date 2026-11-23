@@ -12,6 +12,8 @@ use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Connection, receive};
 use hamlet_protocol::client as protocol;
+/// A folder under the system's temp folder, removed on drop.
+pub use hamlet_testing::Scratch;
 /// The fixture state the tests of the window's parts start from.
 pub use hamlet_testing::realm;
 use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};

@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
-use hamlet_client::realm::{AgentName, Lodging, Shown};
+use hamlet_core::client::realm::{AgentName, Lodging, Shown};
 use hamlet_core::pick::{Hovered, Names, Thing};
 
 use super::{Footprint, PickSettings};

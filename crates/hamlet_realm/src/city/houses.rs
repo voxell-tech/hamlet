@@ -5,9 +5,9 @@
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use hamlet_client::realm::{Identity, Left, Profile};
+use hamlet_core::client::realm::{Identity, Left, Profile};
 use hamlet_core::pick::Thing;
-use hamlet_protocol::client::HouseAt;
+use hamlet_core::protocol::client::HouseAt;
 
 use super::{Glass, Level};
 use crate::generator::house::{self, Banner, TownStyle};
@@ -49,7 +49,7 @@ impl Home {
 
 /// The windows to glow for `agents`, those of them that live.
 fn glowing(
-    agents: &[hamlet_protocol::client::AgentId],
+    agents: &[hamlet_core::protocol::client::AgentId],
     living: &[u64],
 ) -> usize {
     agents

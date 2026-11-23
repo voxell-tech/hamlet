@@ -3,7 +3,7 @@
 //! the hand can lift.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{Busy, Identity, Profile};
+use hamlet_core::client::realm::{Busy, Identity, Profile};
 use hamlet_core::pick::Thing;
 
 use super::houses::{self, DOOR_OUT};

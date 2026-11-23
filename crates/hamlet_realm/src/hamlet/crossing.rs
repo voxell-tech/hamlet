@@ -4,8 +4,8 @@
 //! its robot is away.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{OfProfile, Profile, Seen};
-use hamlet_protocol::client::Arrival;
+use hamlet_core::client::realm::{OfProfile, Profile, Seen};
+use hamlet_core::protocol::client::Arrival;
 
 use super::Housed;
 use crate::Clock;

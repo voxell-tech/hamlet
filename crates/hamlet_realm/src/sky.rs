@@ -25,7 +25,7 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
-use hamlet_assets::tint;
+use hamlet_core::assets::tint;
 use hamlet_vfx::inlay::{self, EMBER, InlayPlugin};
 
 use super::palette::Palette;

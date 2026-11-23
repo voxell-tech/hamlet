@@ -2,9 +2,9 @@
 //! figure standing on the city's pier until it has a house.
 
 use bevy::prelude::*;
-use hamlet_client::realm::Profile;
+use hamlet_core::client::realm::Profile;
 use hamlet_core::pick::Thing;
-use hamlet_protocol::client::Arrival;
+use hamlet_core::protocol::client::Arrival;
 
 use super::houses;
 use crate::Clock;

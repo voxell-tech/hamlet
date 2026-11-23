@@ -5,7 +5,7 @@ use std::f32::consts::PI;
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
-use hamlet_client::realm::Busy;
+use hamlet_core::client::realm::Busy;
 use hamlet_core::pick::{Hovered, Taken, Thing};
 
 use super::toys::{self, Kind, Toys};

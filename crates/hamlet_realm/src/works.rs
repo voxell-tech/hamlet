@@ -7,7 +7,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_client::realm::{Mode, Works};
+use hamlet_core::client::realm::{Mode, Works};
 use hamlet_core::pick::{Switched, Thing};
 use hamlet_vfx::inlay;
 

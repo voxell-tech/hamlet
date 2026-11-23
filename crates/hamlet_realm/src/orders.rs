@@ -2,8 +2,8 @@
 //! and the moves of what the hand set down.
 
 use bevy::prelude::*;
-use hamlet_client::ViewFolder;
-use hamlet_client::realm::{Actions, HamletId, Profile};
+use hamlet_core::client::ViewFolder;
+use hamlet_core::client::realm::{Actions, HamletId, Profile};
 use hamlet_core::orders::{
     Carry, CarryHouse, Decree, Introduce, channel,
 };
@@ -128,7 +128,8 @@ fn set_down(world: &mut World, set: SetDown) {
             let Some(turn) = turn else {
                 return;
             };
-            let name = hamlet_client::realm::profile_address(id);
+            let name =
+                hamlet_core::client::realm::profile_address(id);
             let city = world
                 .resource::<Land>()
                 .island(IslandId::City)
@@ -168,8 +169,8 @@ fn grant(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_client::ClientPlugin;
-    use hamlet_testing::Scratch;
+    use hamlet_core::client::ClientPlugin;
+    use hamlet_core::testing::Scratch;
 
     use super::*;
 

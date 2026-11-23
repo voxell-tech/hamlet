@@ -357,7 +357,8 @@ fn a_house_keeps_clear_of_the_citys_middle() {
     let land = land();
     let mut s = Society::default();
     let city = land.island(IslandId::City).centre;
-    let house = Ground::House(hamlet_protocol::client::ProfileId(1));
+    let house =
+        Ground::House(hamlet_core::protocol::client::ProfileId(1));
     s.claims.push(Claim {
         place: house,
         at: city + Vec2::new(80.0, 0.0),

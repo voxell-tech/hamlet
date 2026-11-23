@@ -4636,11 +4636,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
- "hamlet_assets",
- "hamlet_client",
  "hamlet_core",
- "hamlet_protocol",
- "hamlet_testing",
  "hamlet_vfx",
  "jiff",
  "serde",

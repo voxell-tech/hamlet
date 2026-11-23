@@ -5,7 +5,7 @@ use std::f32::consts::TAU;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use hamlet_assets::tint;
+use hamlet_core::assets::tint;
 use hamlet_core::orders::CarryLibrary;
 use hamlet_core::pick::Taken;
 

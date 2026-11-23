@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_client::realm::Treasury;
+use hamlet_core::client::realm::Treasury;
 
 pub(super) mod gauge;
 
