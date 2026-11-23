@@ -20,6 +20,27 @@ pub struct Cue {
     pub turn: u32,
 }
 
+impl Cue {
+    /// `sound` made by the panels, not at a place in the world.
+    pub fn panel(sound: Sound) -> Self {
+        Self {
+            sound,
+            at: Vec3::ZERO,
+            turn: 0,
+        }
+    }
+
+    /// `sound` made by the panels with the number after `turn`, so
+    /// that one made again differs from the last.
+    pub fn next(sound: Sound, turn: &mut u32) -> Self {
+        *turn = turn.wrapping_add(1);
+        Self {
+            turn: *turn,
+            ..Self::panel(sound)
+        }
+    }
+}
+
 /// A kind of sound, with a volume and a limit of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {

@@ -35,7 +35,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
 
 use crate::convo::{talk_to, talk_to_hand};
-use crate::{hub, sounds};
+use crate::hub;
 
 /// The attribute rich text carries the words of a reference in.
 const ATTRIBUTE: &str = "data-hamlet-reference";
@@ -258,7 +258,7 @@ fn tap(
     if press.button == PointerButton::Primary
         && chips.contains(press.entity)
     {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        cues.write(Cue::next(Sound::Tap, &mut turn));
     }
 }
 

@@ -25,7 +25,6 @@ use hamlet_desktop::open;
 use hamlet_ui::markdown::{Anchor, PathLinks};
 
 use crate::convo::Convo;
-use crate::sounds;
 
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
@@ -213,7 +212,7 @@ fn tap(
     if press.button == PointerButton::Primary
         && anchors.contains(press.entity)
     {
-        sounds::write(&mut cues, &mut turn, Sound::Tap);
+        cues.write(Cue::next(Sound::Tap, &mut turn));
     }
 }
 
@@ -235,7 +234,7 @@ fn follow(
         Anchor::File(path) => open::show_file(path),
     };
     if launch == open::Launch::Failed {
-        sounds::write(&mut cues, &mut turn, Sound::Deny);
+        cues.write(Cue::next(Sound::Deny, &mut turn));
     }
 }
 
