@@ -2,10 +2,23 @@
 
 use bevy::app::App;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::world::World;
 use hamlet_ui::{AnyView, Cx};
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Overlays>();
+    app.init_resource::<Overlays>().init_resource::<Covers>();
+}
+
+/// The checks of whether a part has something open over the panels,
+/// such as a menu, that keys typed are for.
+#[derive(Resource, Default)]
+pub struct Covers(Vec<fn(&World) -> bool>);
+
+/// Whether a part has something open over the panels.
+pub fn covered(world: &World) -> bool {
+    world
+        .get_resource::<Covers>()
+        .is_some_and(|covers| covers.0.iter().any(|open| open(world)))
 }
 
 /// A view laid over the window, kept above the ones with a lower
@@ -33,6 +46,10 @@ pub trait OverlayAppExt {
         order: u32,
         view: fn() -> AnyView,
     ) -> &mut Self;
+
+    /// Adds the check of whether the part has something open over
+    /// the panels.
+    fn add_cover(&mut self, open: fn(&World) -> bool) -> &mut Self;
 }
 
 impl OverlayAppExt for App {
@@ -47,6 +64,12 @@ impl OverlayAppExt for App {
         let at =
             overlays.0.partition_point(|other| other.order <= order);
         overlays.0.insert(at, Overlay { order, view });
+        self
+    }
+
+    fn add_cover(&mut self, open: fn(&World) -> bool) -> &mut Self {
+        self.init_resource::<Covers>();
+        self.world_mut().resource_mut::<Covers>().0.push(open);
         self
     }
 }

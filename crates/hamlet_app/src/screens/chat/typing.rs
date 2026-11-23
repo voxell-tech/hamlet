@@ -10,12 +10,10 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::text::EditableText;
 use bevy_fynix::views::RichField;
+use hamlet_core::overlays::covered;
 
 use super::ChatField;
 use crate::hub::{self, Showing};
-use crate::menu::OpenMenu;
-use crate::screens::viewer::Viewing;
-use crate::world_menu::Open;
 
 /// The keys that make a chord of the one pressed with them.
 const MODIFIERS: [Key; 3] = [Key::Control, Key::Super, Key::Alt];
@@ -71,16 +69,7 @@ pub(super) fn type_into_field(
             .query_filtered::<(), Or<(With<EditableText>, With<RichField>)>>();
         fields.get(world, node).is_ok()
     });
-    let covered = world
-        .get_resource::<Open>()
-        .is_some_and(|open| *open != Open::Nothing)
-        || world
-            .get_resource::<OpenMenu>()
-            .is_some_and(OpenMenu::is_open)
-        || world
-            .get_resource::<Viewing>()
-            .is_some_and(Viewing::is_open);
-    if in_field || covered {
+    if in_field || covered(world) {
         return;
     }
     let Some(hub) = hub::under_pointer(world) else {

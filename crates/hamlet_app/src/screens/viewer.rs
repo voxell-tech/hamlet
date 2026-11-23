@@ -40,6 +40,11 @@ const VEIL: f32 = 0.85;
 pub fn plugin(app: &mut App) {
     app.init_resource::<Viewing>()
         .add_overlay(50, || view().boxed())
+        .add_cover(|world| {
+            world
+                .get_resource::<Viewing>()
+                .is_some_and(Viewing::is_open)
+        })
         .add_observer(click_veil)
         .add_systems(Update, close_on_escape.run_if(is_viewing))
         .add_systems(

@@ -74,6 +74,11 @@ pub fn plugin(app: &mut App) {
     };
     app.add_plugins(model::plugin)
         .add_overlay(70, view)
+        .add_cover(|world| {
+            world
+                .get_resource::<Open>()
+                .is_some_and(|open| *open != Open::Nothing)
+        })
         .add_observer(|asked: On<Confirm>, mut commands: Commands| {
             let confirm = asked.event().clone();
             commands.queue(move |world: &mut World| {

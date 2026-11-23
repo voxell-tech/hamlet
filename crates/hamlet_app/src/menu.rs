@@ -47,6 +47,11 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<OpenMenu>()
         .init_resource::<Updates>()
         .add_overlay(20, || open_menu().boxed())
+        .add_cover(|world| {
+            world
+                .get_resource::<OpenMenu>()
+                .is_some_and(OpenMenu::is_open)
+        })
         .add_command(
             CommandSpec {
                 id: CommandId("app.close"),
