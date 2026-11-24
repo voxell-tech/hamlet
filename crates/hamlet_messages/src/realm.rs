@@ -719,6 +719,15 @@ pub enum HireRefusal {
     /// `label` is `scholar#<id> (<name>)`.
     #[error("`{label}` has no version `{}`", version.0)]
     NoVersion { label: String, version: VersionName },
+    /// The profile did not answer before the hire's own answer was
+    /// due; nothing is kept of the call. `label` is
+    /// `scholar#<id> (<name>)`.
+    #[error(
+        "`{label}` did not answer in time to show its version `{}`; \
+         try the hire again",
+        version.0
+    )]
+    Unanswered { label: String, version: VersionName },
     #[error("say what it is for")]
     NoPurpose,
 }

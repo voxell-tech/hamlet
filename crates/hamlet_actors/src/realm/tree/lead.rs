@@ -20,13 +20,14 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use super::super::act::{self, Act, Decided, Decision};
 use super::super::callers::{self, Lead, RealmWide};
 use super::super::calls::{Calls, Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
-use super::super::peer::When;
+use super::super::peer::{self, When};
 use super::super::world::Part;
 use super::super::{
     Realm, chiefs, drop_parts, hire, laid, marker, oversight,
@@ -65,34 +66,50 @@ pub(in crate::realm) struct Pinned {
 }
 
 impl Pinned {
+    /// The hire with whether its profile lacks its version, asked of
+    /// the profile unless `key` already ran; refused when the profile
+    /// does not answer in time.
     pub(in crate::realm) async fn asked(
         realm: &Realm,
         ctx: &Ctx<Realm>,
+        key: &marker::Key,
         hire: Hire,
-    ) -> Result<Self> {
-        let mut lacked = None;
-        if let (Some(version), Some(named)) =
-            (&hire.version, hire.profile)
-            && let Ok(profile) =
-                profiles::shared(&Rows::outside(ctx)?, named).await?
-        {
-            let at = Read {
-                at: Some(Revision::Version {
-                    version: version.clone(),
-                }),
-                path: None,
-            };
-            let read = realm
-                .peers
-                .call(&Profile(profile), &at, When::BeforeAnswer)
-                .await?;
-            if version.0 == hamlet_git::MAIN
-                || matches!(read, ReadAnswer::Refused { .. })
-            {
-                lacked = Some(version.clone());
-            }
+    ) -> Result<Result<Self, HireRefusal>> {
+        let rows = Rows::outside(ctx)?;
+        let (Some(version), Some(named)) = (&hire.version, hire.profile)
+        else {
+            return Ok(Ok(Self { hire, lacked: None }));
+        };
+        if marker::find::<IgnoredAny>(&rows, key).await?.is_some() {
+            return Ok(Ok(Self { hire, lacked: None }));
         }
-        Ok(Self { hire, lacked })
+        let Ok(profile) = profiles::shared(&rows, named).await? else {
+            return Ok(Ok(Self { hire, lacked: None }));
+        };
+        let at = Read {
+            at: Some(Revision::Version {
+                version: version.clone(),
+            }),
+            path: None,
+        };
+        let read = match realm
+            .peers
+            .call(&Profile(profile), &at, When::BeforeAnswer)
+            .await
+        {
+            Ok(read) => read,
+            Err(error) if !peer::refused(&error) => {
+                return Ok(Err(HireRefusal::Unanswered {
+                    label: profiles::label_of(&rows, profile).await?,
+                    version: version.clone(),
+                }));
+            }
+            Err(error) => return Err(error),
+        };
+        let lacked = (version.0 == hamlet_git::MAIN
+            || matches!(read, ReadAnswer::Refused { .. }))
+        .then(|| version.clone());
+        Ok(Ok(Self { hire, lacked }))
     }
 }
 
@@ -120,7 +137,12 @@ impl Handler<Pinning<Asked<Hire>>> for Realm {
         let by = sender(&ctx, &asked)?;
         let id = marker::Id::Request(asked.id);
         let key = marker::Key::of(&by, id, name, &asked.act)?;
-        let pinned = Pinned::asked(&self, &ctx, asked.act).await?;
+        let pinned = match Pinned::asked(&self, &ctx, &key, asked.act)
+            .await?
+        {
+            Ok(pinned) => pinned,
+            Err(why) => return Ok(HireAnswer::refused(why)),
+        };
         act::run_keyed(&self, &ctx, by, Some(key), name, pinned).await
     }
 }
@@ -134,7 +156,13 @@ impl Handler<Pinning<Tool<Hire>>> for Realm {
         let name = <Tool<Hire> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
         let (key, called, hire) = act::called(&by, name, tool)?;
-        let pinned = Pinned::asked(&self, &ctx, hire).await?;
+        let pinned = match Pinned::asked(&self, &ctx, &key, hire).await?
+        {
+            Ok(pinned) => pinned,
+            Err(why) => {
+                return Ok(HireAnswer::refused(LeadRefusal::Act(why)));
+            }
+        };
         let ran = act::run_called(
             &self,
             &ctx,

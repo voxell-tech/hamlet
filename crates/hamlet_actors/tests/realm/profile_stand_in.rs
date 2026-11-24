@@ -147,6 +147,9 @@ impl Handler<Read> for ProfileStandIn {
         };
         let path = read.path.clone();
         self.seen.reads.lock().unwrap().push((self.profile, read));
+        self.seen
+            .called(Callee::Read, AgentNumber(self.profile.0))
+            .await?;
         if let Some(version) = lacked {
             return Ok(ReadAnswer::Refused {
                 why: Missing::NoVersion {

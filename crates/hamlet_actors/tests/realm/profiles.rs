@@ -360,6 +360,57 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
     realm.host.shutdown().await.unwrap();
 }
 
+fn at_v1() -> Hire {
+    Hire {
+        version: Some(VersionName("v1".to_owned())),
+        ..of(3)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_hire_at_a_version_answers_as_it_first_did() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let first = hire_as_mayor(&realm, "v1", at_v1()).await;
+    assert_eq!(
+        first,
+        HireAnswer::Hired {
+            agent: named_as(3, "hire#3 (Mason)")
+        }
+    );
+
+    realm.seen.hold(Callee::Read);
+    let again = hire_as_mayor(&realm, "v1", at_v1()).await;
+    realm.seen.release(Callee::Read);
+
+    assert_eq!(again, first);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_profile_does_not_show_its_version_in_time_hears_so()
+{
+    let (realm, hamlet) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let heard = "`scholar#3 (Mason)` did not answer in time to show \
+                 its version `v1`; try the hire again";
+
+    realm.seen.hold(Callee::Read);
+    let by_an_agent = hire_as_mayor(&realm, "v1", at_v1()).await;
+    let by_the_chief = chief_hires(&realm, &hamlet, at_v1()).await;
+    realm.seen.release(Callee::Read);
+
+    assert_eq!(words(by_an_agent), heard);
+    assert_eq!(words(by_the_chief), heard);
+    assert_eq!(
+        hire_as_mayor(&realm, "v1", at_v1()).await,
+        HireAnswer::Hired {
+            agent: named_as(3, "hire#3 (Mason)")
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
 type ReadProfileAnswer = ReadAnswer<AgentRefusal<ReadProfileRefusal>>;
 
 async fn read(

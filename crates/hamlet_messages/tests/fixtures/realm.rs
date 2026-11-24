@@ -522,6 +522,13 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                     version: VersionName("v9".to_owned()),
                 },
             ),
+            (
+                "unanswered",
+                HireRefusal::Unanswered {
+                    label: profiles::label(),
+                    version: VersionName("v9".to_owned()),
+                },
+            ),
         ]
     };
     answers(
