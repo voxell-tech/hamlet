@@ -229,8 +229,9 @@ function shown(answer: Text): ToolExecutionResult {
     };
 }
 
-function later(text: string): ToolExecutionResult {
-    return { ...words(text), details: { endsLater: true } };
+/** A call whose end arrives as an input, which closes its item. */
+function later(text: string, call: CallId): ToolExecutionResult {
+    return { ...words(text), details: { endsLater: true, waiting: call } };
 }
 
 export function endsLater(details: unknown): boolean {
@@ -247,12 +248,10 @@ function waits(
     needs: readonly Need[],
     call: CallId,
 ): ToolExecutionResult {
-    return {
-        ...words(
-            `${what} waits for a chief to allow it (${needs.join(", ")}). Its end arrives as a new input.`,
-        ),
-        details: { endsLater: true, waiting: call },
-    };
+    return later(
+        `${what} waits for a chief to allow it (${needs.join(", ")}). Its end arrives as a new input.`,
+        call,
+    );
 }
 
 /** The words of a command's end that arrives as an input. */
@@ -308,6 +307,7 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
                 REFUSED.some((refused) => end.output.includes(refused));
             return {
                 ...words(stopped ? `${end.output}${OUTSIDE}` : end.output),
+                ...exited(code),
                 isError: code !== 0,
                 diagnostics:
                     code === 0
@@ -325,23 +325,29 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
         case "timed_out":
             // A hand tool's limit is in its manifest, which the agent does
             // not see.
-            if (!script) return ran(end);
+            if (!script) return { ...ran(end), ...exited(-1) };
             return {
                 ...words(
                     `${end.output}\n[timed out after ${wallOf(program)}s]`,
                 ),
+                ...exited(-1),
                 isError: true,
                 diagnostics: fullOutput,
             };
         case "failed":
             return script
-                ? scriptFailed(end.output, end.exit.words)
+                ? { ...scriptFailed(end.output, end.exit.words), ...exited(-1) }
                 : thrown("tool_error", end.exit.words);
         case "cut_off":
             return interrupted(script ? "bash" : program.name);
         case "cancelled":
             return ran(end);
     }
+}
+
+/** The exit code a command's item shows, as today's tools give it. */
+function exited(code: number): Pick<ToolExecutionResult, "details"> {
+    return { details: { exitCode: code } };
 }
 
 /** A write's words; one that `created` its file says so to the transcript. */
@@ -421,6 +427,7 @@ export function endOf(outcome: Outcome): CallEnd {
             : { type: "ran", exit: 1, failure: failureOf(outcome.end.words) };
     }
     const { exit, output, took_ms } = outcome.end;
+    if (exit.type === "cancelled") return { type: "aborted" };
     if (exit.type !== "code") {
         return {
             type: "ran",
@@ -494,6 +501,7 @@ async function run(
                 case "running":
                     return later(
                         `Command ${answer.command} is still running. Its end arrives as a new input.`,
+                        callOf(api),
                     );
                 case "waits_for_chief":
                     return waits("The command", answer.needs, callOf(api));

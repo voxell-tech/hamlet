@@ -137,7 +137,7 @@ export class Fold {
         if (result === undefined || item?.tool === undefined) return [];
         this.#calls.delete(result.toolCallId);
         const details = result.details as
-            | { created?: unknown; waiting?: unknown }
+            | { created?: unknown; waiting?: unknown; exitCode?: unknown }
             | undefined;
         if (typeof details?.waiting === "string") {
             this.#held.set(details.waiting, {
@@ -156,7 +156,12 @@ export class Fold {
             .join("");
         return [
             closed(item, {
-                exit: result.isError ? 1 : 0,
+                exit:
+                    typeof details?.exitCode === "number"
+                        ? details.exitCode >>> 0
+                        : result.isError
+                          ? 1
+                          : 0,
                 ...(result.durationMs === undefined
                     ? {}
                     : { ms: u32(result.durationMs) }),

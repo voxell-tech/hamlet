@@ -1005,10 +1005,16 @@ test("a command that ends inside its call answers as today's bash does", async (
     await agent.idle();
 
     assert.deepEqual(await toolResults(agent), [
-        { output: "hi\n", isError: false, diagnostics: [] },
+        {
+            output: "hi\n",
+            isError: false,
+            diagnostics: [],
+            details: { exitCode: 0 },
+        },
         {
             output: "tail\n",
             isError: true,
+            details: { exitCode: 2 },
             diagnostics: [
                 {
                     severity: "info",
@@ -1025,16 +1031,19 @@ test("a command that ends inside its call answers as today's bash does", async (
         {
             output: "a\n\n[timed out after 1.5s]",
             isError: true,
+            details: { exitCode: -1 },
             diagnostics: [],
         },
         {
             output: "\n[timed out after 120s]",
             isError: true,
+            details: { exitCode: -1 },
             diagnostics: [],
         },
         {
             output: "Error: spawn failed. Inspect the output before trying again, or tell the chief.",
             isError: true,
+            details: { exitCode: -1 },
             diagnostics: [],
         },
         interrupted("bash"),
@@ -1047,6 +1056,7 @@ test("a command that ends inside its call answers as today's bash does", async (
         {
             output: "touch: cannot touch '/x': Permission denied\n\n[The sandbox lets a command write only inside the workspace, which is its working directory. Use a relative path there, not /tmp or another folder.]",
             isError: true,
+            details: { exitCode: 1 },
             diagnostics: [
                 {
                     severity: "error",
@@ -1055,7 +1065,12 @@ test("a command that ends inside its call answers as today's bash does", async (
                 },
             ],
         },
-        { output: "Permission denied\n", isError: false, diagnostics: [] },
+        {
+            output: "Permission denied\n",
+            isError: false,
+            diagnostics: [],
+            details: { exitCode: 0 },
+        },
     ]);
     await agent.stop();
 });
@@ -1127,10 +1142,16 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
     await agent.idle();
 
     assert.deepEqual(await toolResults(agent), [
-        { output: "3 words\n", isError: false, diagnostics: [] },
+        {
+            output: "3 words\n",
+            isError: false,
+            diagnostics: [],
+            details: { exitCode: 0 },
+        },
         {
             output: "no file\n",
             isError: true,
+            details: { exitCode: 1 },
             diagnostics: [
                 {
                     severity: "error",
@@ -1151,7 +1172,12 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
             ],
         },
         interrupted("word_count"),
-        { output: "tail\n", isError: false, diagnostics: [] },
+        {
+            output: "tail\n",
+            isError: false,
+            diagnostics: [],
+            details: { exitCode: 0 },
+        },
     ]);
     await agent.stop();
 });

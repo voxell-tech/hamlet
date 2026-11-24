@@ -19,7 +19,12 @@ import type {
     Outcome,
 } from "../src/agent/messages/agent.ts";
 import type { CallId } from "../src/agent/messages/shared.ts";
-import type { NotRunWhy } from "../src/agent/messages/workspace.ts";
+import type {
+    Exit,
+    NotRunWhy,
+    Run,
+    RunAnswer,
+} from "../src/agent/messages/workspace.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -736,6 +741,95 @@ test("a call that waits for a chief to allow it stays open, and its end closes t
         closing.map((op) => op.replaces),
         items.flatMap((item) => (item.tool === undefined ? [] : [item.id])),
         "each end closes its call's own item, once",
+    );
+});
+
+test("a command no chief holds closes with its own exit code, and one that runs on closes its own item when it ends, as today's", async (t) => {
+    const ended = (exit: Exit, output: string): RunAnswer => ({
+        type: "ended",
+        end: {
+            type: "ran",
+            command: 1,
+            exit,
+            output,
+            policy: "sandbox",
+            took_ms: 15,
+        },
+    });
+    const answers: Record<string, RunAnswer> = {
+        "exit 3": ended({ type: "code", code: 3 }, "oops\n"),
+        "sleep 200": ended({ type: "timed_out" }, ""),
+        "sleep 7": { type: "running", command: 2 },
+        "sleep 9": { type: "running", command: 3 },
+    };
+    const commands = Object.keys(answers);
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            run: (message: Run) =>
+                answers[(message.program as { script: string }).script] ??
+                assert.fail("an unknown command"),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            ...commands.map((command, n) =>
+                toolCall("bash", { command }, `c${n}`),
+            ),
+            fauxAssistantMessage("Running."),
+            fauxAssistantMessage("Heard one."),
+            fauxAssistantMessage("Heard two."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Run them." });
+
+    const runs = sent
+        .filter((one) => one.name === "run")
+        .map((one) => (one.message as { call: CallId }).call);
+    const later: Outcome[] = [
+        {
+            type: "run",
+            end: {
+                type: "ran",
+                command: 2,
+                exit: { type: "code", code: 0 },
+                output: "slept\n",
+                policy: "sandbox",
+                took_ms: 7021,
+            },
+        },
+        {
+            type: "run",
+            end: {
+                type: "ran",
+                command: 3,
+                exit: { type: "cancelled" },
+                output: "",
+                policy: "sandbox",
+                took_ms: 6004,
+            },
+        },
+    ];
+    for (const [n, outcome] of later.entries()) {
+        const call = runs[n + 2];
+        assert.ok(call !== undefined);
+        await agent.actions.finished(agent.by(from.workspace), {
+            call,
+            outcome,
+        });
+        await agent.idle();
+    }
+
+    const items = (await read(agent)).items;
+    const [failed, timedOut, ran, stopped] = ends(items);
+    assert.deepEqual([failed?.[1], failed?.[3]], [3, "oops"]);
+    assert.equal(timedOut?.[1], -1 >>> 0);
+    assert.deepEqual(ran, ["bash", 0, 7021, undefined]);
+    assert.deepEqual(stopped, ["bash", 1, undefined, "Tool bash was aborted"]);
+    assert.deepEqual(
+        items.filter((item) => item.kind === "user").map((item) => item.text),
+        ["Run them."],
     );
 });
 
