@@ -62,7 +62,18 @@ impl Held {
                 );
                 arg("name", hire.name.clone());
                 arg("purpose", hire.purpose.clone());
-                arg("scholar", hire.profile.map(profiles::address));
+                arg(
+                    "scholar",
+                    hire.profile.map(|profile| {
+                        let address = profiles::address(profile);
+                        match &hire.version {
+                            Some(version) => {
+                                format!("{address}@{}", version.0)
+                            }
+                            None => address,
+                        }
+                    }),
+                );
                 arg(
                     "under",
                     hire.under.as_ref().map(Named::to_string),
