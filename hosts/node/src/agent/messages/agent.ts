@@ -30,6 +30,7 @@ import {
 import { REALM, type ToolName } from "./realm.ts";
 import {
     type AgentNumber,
+    type CallId,
     type LetterId,
     OPEN,
     type ProfileId,
@@ -79,6 +80,8 @@ export type Input =
           readonly type: "notice";
           readonly text: string;
           readonly conversation?: string;
+          /** The society call that waited for this ruling. */
+          readonly held?: HeldCall;
       }
     | {
           readonly type: "worker_answer";
@@ -106,6 +109,19 @@ export type Input =
           readonly text: string;
           readonly conversation: string;
       };
+
+/** A section of the prompt, named as today names it. */
+export interface PromptSection {
+    readonly name: string;
+    readonly text: string;
+}
+
+/** A society call the realm kept for a chief, which a ruling ends. */
+export interface HeldCall {
+    readonly call: CallId;
+    /** Whether the chief refused it. */
+    readonly refused: boolean;
+}
 
 export interface Submit {
     /** A second `submit` with the same id is the first one. */
@@ -304,8 +320,8 @@ export interface ChatTool {
 
 export interface ChatItem {
     readonly id: string;
-    /** Whole seconds since the epoch. */
-    readonly at: number;
+    /** Milliseconds since the epoch. */
+    readonly at: Count;
     readonly kind: ItemKind;
     readonly text: string;
     readonly author?: string;
@@ -503,7 +519,7 @@ export interface ClientActions {
     rewind(message: Rewind): RewindAnswer;
     read_chat(message: Open): ChatPage;
     read_history(): { readonly sessions: readonly Session[] };
-    read_prompt(): { readonly text: string };
+    read_prompt(): { readonly sections: readonly PromptSection[] };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
     read_models(): ModelList;
@@ -595,7 +611,15 @@ const INPUT = union([
         },
         OPEN,
     ),
-    obj({ type: lit("notice"), text: str(), conversation: opt(str()) }, OPEN),
+    obj(
+        {
+            type: lit("notice"),
+            text: str(),
+            conversation: opt(str()),
+            held: opt(obj({ call: str(), refused: bool() }, OPEN)),
+        },
+        OPEN,
+    ),
     obj(
         {
             type: lit("worker_answer"),

@@ -32,7 +32,12 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                   };
         }
         case "notice":
-            return { ...base, kind: "notice", content: input.text };
+            return {
+                ...base,
+                kind: "notice",
+                content: input.text,
+                ...(input.held === undefined ? {} : { held: input.held }),
+            };
         // A worker's answer and an answer are told as their author's, and a
         // letter and a question as their words, as
         // `crates/hamlet_server/src/talk/letters.rs` keeps them.

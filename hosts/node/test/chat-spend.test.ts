@@ -61,13 +61,15 @@ test("a refused call leaves a notice naming /reset-budget", async (t) => {
         responses: [fauxAssistantMessage("never sent")],
     });
 
+    const before = Date.now();
     await say(agent, 1, "Go.");
 
     assert.equal(agent.faux.state.callCount, 0);
     const [notice, ...more] = await notices(agent);
     assert.equal(notice?.text, SPENT);
     assert.match(notice?.text ?? "", /\/reset-budget/);
-    assert.ok(Number.isInteger(notice?.at) && (notice?.at ?? 0) < 2 ** 32);
+    const at = notice?.at ?? 0;
+    assert.ok(Number.isInteger(at) && at >= before && at <= Date.now());
     assert.deepEqual(more, []);
     assert.deepEqual(agent.reported, []);
     await agent.stop();

@@ -371,9 +371,9 @@ async fn notices(
         .await
         .into_iter()
         .filter_map(|submit| match submit.input {
-            Input::Notice { text, conversation } => {
-                Some((text, conversation.map(|c| c.0)))
-            }
+            Input::Notice {
+                text, conversation, ..
+            } => Some((text, conversation.map(|c| c.0))),
             _ => None,
         })
         .collect()
@@ -1052,6 +1052,99 @@ async fn denied_reserved_calls_count_toward_the_tasks_refusals() {
                 agent: MAYOR,
                 ..refused_unasked("c2", past)
             },
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rulings_notice_names_the_call_that_waited_for_it() {
+    let (realm, hamlet) = hamlet_with(1).await;
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: Some(hamlet),
+                budget: Vec::new(),
+                limits: [ReservedAct::Hire, ReservedAct::End]
+                    .map(|act| Limit::Reserved {
+                        act,
+                        reserved: true,
+                    })
+                    .into(),
+            },
+        })
+        .await
+        .unwrap();
+    let task = chief_task(&realm, MAYOR).await;
+    realm
+        .tool(MAYOR, &in_turn("h1", hire(None), Some(&task)))
+        .await
+        .unwrap();
+    let end = End {
+        hire: super::to(super::THREE),
+        why: None,
+    };
+    realm
+        .tool(MAYOR, &in_turn("e1", end, Some(&task)))
+        .await
+        .unwrap();
+    let question = AskChief {
+        task: task.clone(),
+        conversation: ConversationId("c".to_owned()),
+        message: None,
+        questions: vec![Question {
+            question: "Oats or barley?".to_owned(),
+            description: None,
+            options: Vec::new(),
+            text_input: true,
+        }],
+    };
+    realm.tool(MAYOR, &tool("a1", question)).await.unwrap();
+    for (wait, choice, text) in [
+        ("1", Choice::Allow, None),
+        ("2", Choice::Deny, Some("keep it")),
+        ("3", Choice::Reply, Some("oats")),
+    ] {
+        let ruled =
+            realm.ask(&answer(wait, choice, text)).await.unwrap();
+        assert_eq!(ruled, Done::Done);
+    }
+    let held = || {
+        let mut told = super::submits_to(&realm, MAYOR)
+            .into_iter()
+            .filter_map(|submit| match submit.input {
+                Input::Notice {
+                    text,
+                    held: Some(held),
+                    ..
+                } => Some((held.call.0, held.refused, text)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        told.sort();
+        told
+    };
+    until("three rulings are told", || held().len() >= 3).await;
+
+    assert_eq!(
+        held(),
+        [
+            (
+                "a1".to_owned(),
+                false,
+                "The chief answers: oats".to_owned()
+            ),
+            (
+                "e1".to_owned(),
+                true,
+                "the chief refused it: keep it".to_owned()
+            ),
+            (
+                "h1".to_owned(),
+                false,
+                "Hired hire#4 (Hire 2).".to_owned()
+            ),
         ]
     );
     realm.host.shutdown().await.unwrap();

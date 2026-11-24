@@ -11,6 +11,7 @@ import {
     type Extension,
     GenerationTask,
     hook,
+    type ToolExecutionResult,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { hasWordsOrCall } from "./compaction.ts";
@@ -18,7 +19,7 @@ import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
 import type { Folder } from "./own-files.ts";
 import { type Definition, TOOLS, WAITING } from "./society-tools.ts";
-import { callOut, failed, type Peers, words } from "./turn.ts";
+import { callOf, callOut, failed, type Peers, words } from "./turn.ts";
 
 function societyTool<N extends SocietyTool>(
     peers: Peers,
@@ -38,6 +39,12 @@ function societyTool<N extends SocietyTool>(
                 folder,
             });
             if ("invalid" in made) return failed(made.invalid);
+            // The chat keeps a held call's item open until the ruling's
+            // notice names the call.
+            const said = (text: string): ToolExecutionResult =>
+                text === WAITING
+                    ? { ...words(text), details: { waiting: callOf(api) } }
+                    : words(text);
             return callOut(
                 peers,
                 api,
@@ -53,7 +60,7 @@ function societyTool<N extends SocietyTool>(
                             `the realm granted ${definition.name}, which it keeps for a chief`,
                         );
                     }
-                    return words(
+                    return said(
                         definition.said(answer as never, args as never),
                     );
                 },
@@ -65,7 +72,7 @@ function societyTool<N extends SocietyTool>(
                         why.type === "reserved"
                             ? WAITING
                             : definition.plain?.(why);
-                    return text === undefined ? undefined : words(text);
+                    return text === undefined ? undefined : said(text);
                 },
             );
         },

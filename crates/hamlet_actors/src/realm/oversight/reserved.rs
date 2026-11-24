@@ -235,6 +235,7 @@ pub(in crate::realm) async fn keep(
                 kind: Kind::Reserved,
                 task,
                 conversation: called.conversation.clone(),
+                call: Some(called.call.clone()),
                 subject,
                 detail,
             },

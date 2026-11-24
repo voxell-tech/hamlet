@@ -483,7 +483,8 @@ export interface ReadPlace {
 export interface PlaceText {
     readonly place: string;
     readonly realm?: string;
-    readonly scholars?: string;
+    /** The section today names `scholars`: the profiles a hire takes. */
+    readonly profiles?: string;
 }
 
 /** Asks for part `part` of file `file` of a parcel sent to the agent. */

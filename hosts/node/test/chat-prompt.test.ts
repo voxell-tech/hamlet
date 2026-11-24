@@ -11,13 +11,15 @@ import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
 import type { AgentInput, Copies } from "../src/agent/messages/agent.ts";
 import type { Character } from "../src/agent/messages/profile.ts";
 import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
-import { renderPrompt } from "../src/agent/prompt.ts";
+import { promptSections } from "../src/agent/prompt.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
+    joined,
     named,
+    readPrompt,
     toolCall,
     until,
     type Woken,
@@ -98,10 +100,6 @@ const HIRE: AgentInput = {
     },
     copies: {},
 };
-
-async function readPrompt(agent: Woken): Promise<string> {
-    return (await agent.actions.read_prompt(agent.by(from.client))).text;
-}
 
 async function sendCopies(agent: Woken, copies: Copies): Promise<void> {
     await agent.actions.copies(agent.by(from.realm), copies);
@@ -210,31 +208,33 @@ test("the prompt cuts each part at its limit", async (t) => {
         ),
     );
 
-    const cutByTheWorkspace = await renderPrompt({
-        copies: async () => ({}),
-        files: listedFiles({}),
-        where: async () => ({ kind: "hire", place: HIRE.place }),
-        tools: async () => ({
-            tools: [],
-            faults: [],
-            confinement: { type: "sandbox", name: "bwrap" },
+    const cutByTheWorkspace = joined(
+        await promptSections({
+            copies: async () => ({}),
+            files: listedFiles({}),
+            where: async () => ({ kind: "hire", place: HIRE.place }),
+            tools: async () => ({
+                tools: [],
+                faults: [],
+                confinement: { type: "sandbox", name: "bwrap" },
+            }),
+            readPlace: async () => ({ place: "# Your place" }),
+            report: assert.fail,
+            readFile: async () => ({
+                type: "text",
+                text: "Use tabs.",
+                notes: [],
+                truncation: {
+                    by: "lines",
+                    total_lines: 3000,
+                    total_bytes: 9000,
+                    output_lines: 2000,
+                    output_bytes: 6000,
+                    first_line_exceeds_limit: false,
+                },
+            }),
         }),
-        readPlace: async () => ({ place: "# Your place" }),
-        report: assert.fail,
-        readFile: async () => ({
-            type: "text",
-            text: "Use tabs.",
-            notes: [],
-            truncation: {
-                by: "lines",
-                total_lines: 3000,
-                total_bytes: 9000,
-                output_lines: 2000,
-                output_bytes: 6000,
-                first_line_exceeds_limit: false,
-            },
-        }),
-    });
+    );
     assert.ok(
         cutByTheWorkspace.includes(
             "# The project's AGENTS.md\nUse tabs.\n[AGENTS.md is cut here.]",
@@ -325,18 +325,66 @@ test("read_prompt answers what the next request sends", async (t) => {
     await agent.stop();
 });
 
+test("read_prompt answers the prompt's sections by today's names", async (t) => {
+    const profile = profileWithCharacter();
+    const { calls } = fakeCalls({
+        workspace: workspaceFiles({ "/work/AGENTS.md": "Use tabs." }),
+        realm: {
+            read_place: () => ({
+                place: "# Your place\nYou are `hire#2`.",
+                realm: "# The realm\nOne hamlet.",
+            }),
+        },
+        profile,
+    });
+    const record = recorder();
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HIRE,
+        files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
+        responses: [record.step(fauxAssistantMessage("Hello."))],
+    });
+    await sendCopies(agent, { charter: { version: 1, value: "Be brief." } });
+    await profile.keep(agent, 1, "Calm.");
+
+    const { sections } = await agent.actions.read_prompt(agent.by(from.client));
+    await say(agent, "Hi");
+
+    assert.deepEqual(
+        sections.map(({ name }) => name),
+        [
+            "charter",
+            "machine",
+            "project",
+            "character",
+            "memory",
+            "skills",
+            "place",
+            "realm",
+        ],
+    );
+    assert.equal(sections[0]?.text, "Be brief.");
+    assert.equal(
+        sections.map(({ text }) => text).join("\n\n"),
+        record.prompts[0],
+    );
+    await agent.stop();
+});
+
 test("an errand's prompt is its own instructions only", async () => {
     const refused = () => Promise.reject(new Error("an errand reads nothing"));
-    const text = await renderPrompt({
-        copies: refused,
-        files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
-        where: refused,
-        readFile: refused,
-        tools: refused,
-        readPlace: refused,
-        report: assert.fail,
-        errand: "Sort the library.",
-    });
+    const text = joined(
+        await promptSections({
+            copies: refused,
+            files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
+            where: refused,
+            readFile: refused,
+            tools: refused,
+            readPlace: refused,
+            report: assert.fail,
+            errand: "Sort the library.",
+        }),
+    );
     assert.equal(text, "Sort the library.");
 });
 
@@ -402,7 +450,7 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
 const PLACE_TEXT =
     "# Your place\nYou are `hire#12 (Ada)`.\n\n# The realm\nNo hamlet is founded yet.\n\n# The city's scholars\n- `scholar#2`";
 
-test("the prompt ends with the realm's place, realm and scholars, read once for each request", async (t) => {
+test("the prompt ends with the realm's three sections, read once for each request", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             read_place: () => fixture("realm/read_place.answer") as never,

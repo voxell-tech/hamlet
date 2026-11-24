@@ -155,6 +155,7 @@ async fn end(
                 kind: waits::Kind::Objection,
                 task: Some(task),
                 conversation: None,
+                call: None,
                 subject: format!(
                     "A chief told `{}`: {}\n{} objects: {reason}",
                     record::agent_name(&rows, kept.hire).await?.name,

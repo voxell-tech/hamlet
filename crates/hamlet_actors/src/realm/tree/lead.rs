@@ -593,6 +593,7 @@ pub(in crate::realm) async fn failed(
                     input: Input::Notice {
                         text,
                         conversation: None,
+                        held: None,
                     },
                 },
             })

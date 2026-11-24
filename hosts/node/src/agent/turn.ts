@@ -19,7 +19,12 @@ import type {
     Calls,
 } from "../actor/actor/mod.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import type { Author, ChatFile, ChatImage } from "./messages/agent.ts";
+import type {
+    Author,
+    ChatFile,
+    ChatImage,
+    HeldCall,
+} from "./messages/agent.ts";
 import {
     LIBRARY,
     type Offer,
@@ -144,6 +149,8 @@ export type Admission = {
     readonly note?: string;
     /** The name of the chief who said a line. */
     readonly chief?: string;
+    /** The call a ruling's notice ends. */
+    readonly held?: HeldCall;
     /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
@@ -182,6 +189,7 @@ export type Kept = {
     from?: Pick<Author, keyof Author>;
     note?: string;
     chief?: string;
+    held?: Pick<HeldCall, keyof HeldCall>;
     images?: Pick<ChatImage, keyof ChatImage>[];
     files?: Pick<ChatFile, keyof ChatFile>[];
 };
@@ -202,6 +210,7 @@ export function draftOf(
         ...(admission.from === undefined ? {} : { from: admission.from }),
         ...(admission.note === undefined ? {} : { note: admission.note }),
         ...(admission.chief === undefined ? {} : { chief: admission.chief }),
+        ...(admission.held === undefined ? {} : { held: admission.held }),
         ...(admission.images === undefined || admission.images.length === 0
             ? {}
             : { images: [...admission.images] }),

@@ -5,8 +5,8 @@ use std::fmt::{Debug, Display};
 
 use hamlet_messages::address::{Party, Profile};
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, Input,
-    InputId, Place, PlaceVersion, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, HeldCall,
+    Input, InputId, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::{Branch, Missing, VersionName};
 use hamlet_messages::realm::budget::{
@@ -45,7 +45,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::workspace::files::EditDiff;
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
-    AgentNumber, ConversationId, ReachVersion, RealmTask,
+    AgentNumber, CallId, ConversationId, ReachVersion, RealmTask,
 };
 use hamlet_protocol::{Effort, client as protocol};
 use serde::Serialize;
@@ -1547,7 +1547,7 @@ fn the_prompt_sections(fixtures: &mut Fixtures) {
             realm: Some(
                 "# The realm\nNo hamlet is founded yet.".into(),
             ),
-            scholars: Some(
+            profiles: Some(
                 "# The city's scholars\n- `scholar#2`".into(),
             ),
         },
@@ -1557,7 +1557,7 @@ fn the_prompt_sections(fixtures: &mut Fixtures) {
         &PlaceText {
             place: "# Your place\nYou are `hand`.".into(),
             realm: None,
-            scholars: None,
+            profiles: None,
         },
     );
 }
@@ -1670,6 +1670,10 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 text: "The chief answers: use the staging server"
                     .into(),
                 conversation: Some(ConversationId("c1".into())),
+                held: Some(HeldCall {
+                    call: CallId("t7".into()),
+                    refused: false,
+                }),
             },
         ),
         (

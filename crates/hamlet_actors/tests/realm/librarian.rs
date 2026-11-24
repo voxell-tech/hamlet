@@ -51,6 +51,7 @@ fn notice(n: u32, text: &str, task: &RealmTask) -> Submit {
         input: Input::Notice {
             text: text.to_owned(),
             conversation: Some(ConversationId("c".to_owned())),
+            held: None,
         },
     }
 }
@@ -320,6 +321,7 @@ async fn an_offer_not_the_callers_own_or_not_held_is_not_judged() {
                 "The librarian could not judge `well`: {why}"
             ),
             conversation: Some(ConversationId("c".to_owned())),
+            held: None,
         },
     };
     let mut seen = seen_submits(&realm, THREE, 2).await;

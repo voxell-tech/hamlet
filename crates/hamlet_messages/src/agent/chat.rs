@@ -1,5 +1,6 @@
 //! The calls a client makes to an agent about its chat, and their
-//! answers. A time in them is in whole seconds.
+//! answers. A time in them is in whole seconds, apart from an
+//! item's, which is in milliseconds.
 
 use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
@@ -195,8 +196,9 @@ pub struct Usage {
     pub summary: String,
 }
 
-/// A sum that can pass 2^32, written as decimal text: the agent's
-/// encoder writes a larger integer as a float.
+/// A whole number that can pass 2^32, such as a sum or a time in
+/// milliseconds, written as decimal text: the agent's encoder writes
+/// a larger integer as a float.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Count(pub u64);
 
@@ -221,12 +223,12 @@ impl<'de> Deserialize<'de> for Count {
     }
 }
 
-/// One item of a chat, as the client protocol's `Item` but with its
-/// time in whole seconds.
+/// One item of a chat, as the client protocol's `Item`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatItem {
     pub id: String,
-    pub at: u32,
+    /// In milliseconds.
+    pub at: Count,
     pub kind: protocol::ItemKind,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -399,6 +401,18 @@ from_client!(ReadPrompt, "read_prompt", Prompt);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prompt {
+    /// In the order the prompt holds them, the empty ones left out.
+    pub sections: Vec<PromptSection>,
+}
+
+/// A section of the prompt, as the client protocol's
+/// `PromptSection`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptSection {
+    /// Today's name for where it comes from: `charter`, `machine`,
+    /// `project`, `character`, `memory`, `skills`, `place`, `realm`,
+    /// `scholars`, or an errand's `errand`.
+    pub name: String,
     pub text: String,
 }
 

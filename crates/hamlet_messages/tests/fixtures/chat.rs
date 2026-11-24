@@ -6,10 +6,11 @@ use hamlet_messages::agent::chat::{
     Began, ChangeLine, ChatEvent, ChatFile, ChatImage, ChatItem,
     ChatOp, ChatPage, ChatRef, ChatTool, Check, Checked, Count,
     History, LineMark, ListedModel, Login, LoginAnswer, ModelList,
-    NewSession, Prompt, ReadChat, ReadHistory, ReadModels,
-    ReadPrompt, Reflect, Reflecting, Resume, ResumeAnswer,
-    ResumeRefusal, Retry, RetryRefusal, Rewind, RewindAnswer,
-    RewindRefusal, Session, Stop, Stopped, ToolChange, Usage,
+    NewSession, Prompt, PromptSection, ReadChat, ReadHistory,
+    ReadModels, ReadPrompt, Reflect, Reflecting, Resume,
+    ResumeAnswer, ResumeRefusal, Retry, RetryRefusal, Rewind,
+    RewindAnswer, RewindRefusal, Session, Stop, Stopped, ToolChange,
+    Usage,
 };
 use hamlet_messages::agent::copies::{
     AgentSettings, Copies, CopyVersion, ModelChoice, Price, Versioned,
@@ -151,7 +152,7 @@ fn tool() -> ChatTool {
 fn item(id: &str, kind: protocol::ItemKind, text: &str) -> ChatItem {
     ChatItem {
         id: id.into(),
-        at: 1_763_200_000,
+        at: Count(1_763_200_000_123),
         kind,
         text: text.into(),
         author: None,
@@ -313,7 +314,16 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     fixtures.answer(
         "agent/read_prompt",
         &Prompt {
-            text: "You are `hire#12`.".into(),
+            sections: vec![
+                PromptSection {
+                    name: "charter".into(),
+                    text: "Be brief.".into(),
+                },
+                PromptSection {
+                    name: "place".into(),
+                    text: "# Your place\nYou are `hire#12`.".into(),
+                },
+            ],
         },
     );
     fixtures.args("agent/reflect", &Reflect);

@@ -18,7 +18,7 @@ import {
 import type { AgentContext } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
-import type { AgentInput, Place } from "./messages/agent.ts";
+import type { AgentInput, Place, PromptSection } from "./messages/agent.ts";
 import type { PlaceText, ReadPlace } from "./messages/realm.ts";
 import type { ReadAnswer, ToolList } from "./messages/workspace.ts";
 import { type Peers, readFile, reasonOf } from "./turn.ts";
@@ -158,14 +158,14 @@ function partsOf(
     if (errand !== undefined) return [["errand", async () => errand]];
     return [
         ["charter", charter],
-        ["environment", environment],
+        ["machine", machine],
         ["project", project],
         ["character", keptMemory(character)],
         ["memory", keptMemory(memory)],
         ["skills", keptMemory(skills)],
         ["place", placed("place")],
         ["realm", placed("realm")],
-        ["scholars", placed("scholars")],
+        ["scholars", placed("profiles")],
     ];
 }
 
@@ -207,19 +207,27 @@ export function promptPart(sources: PromptSources): Extension {
     });
 }
 
-/** The whole prompt as the next request in the chief's chat would see it. */
-export async function renderPrompt(sources: PromptSources): Promise<string> {
+/** The prompt's sections as the next request in the chief's chat would see them. */
+export async function promptSections(
+    sources: PromptSources,
+): Promise<PromptSection[]> {
     let reading: Promise<PlaceText> | undefined;
     const place = () => {
         reading ??= sources.readPlace(undefined);
         return reading;
     };
-    const texts = await Promise.all(
-        partsOf(sources).map(([, render]) =>
-            rendered(render, sources, BACKGROUND_CONTEXT, place),
-        ),
+    const sections = await Promise.all(
+        partsOf(sources).map(async ([name, render]) => {
+            const text = await rendered(
+                render,
+                sources,
+                BACKGROUND_CONTEXT,
+                place,
+            );
+            return text === undefined ? [] : [{ name, text }];
+        }),
     );
-    return texts.filter((text) => text !== undefined).join("\n\n");
+    return sections.flat();
 }
 
 async function charter(sources: PromptSources): Promise<string | undefined> {
@@ -234,7 +242,7 @@ const SYSTEM =
           : "System: Linux.";
 
 /** As `machine` (`crates/hamlet_server/src/talk/prompt.rs`). */
-async function environment(sources: PromptSources): Promise<string> {
+async function machine(sources: PromptSources): Promise<string> {
     const { settings, model } = await sources.copies();
     const { confinement, faults } = await sources.tools();
     const sandbox =

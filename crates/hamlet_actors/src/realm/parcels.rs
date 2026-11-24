@@ -411,6 +411,7 @@ impl Sent {
                 input: Input::Notice {
                     text,
                     conversation: self.conversation.clone(),
+                    held: None,
                 },
             },
         })
@@ -614,6 +615,7 @@ async fn measured(
         kind: waits::Kind::Send,
         task: sent.task,
         conversation: sent.conversation.clone(),
+        call: None,
         subject: subject(&cx.rows()?, sent, measure).await?,
         detail,
     };
