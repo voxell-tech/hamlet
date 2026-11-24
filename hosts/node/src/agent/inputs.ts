@@ -31,7 +31,6 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                       content: `${input.text}${NOTE_BREAK}${input.note}`,
                   };
         }
-        // A refusal's notice is today's words for a blocked call.
         case "notice":
             return {
                 ...base,

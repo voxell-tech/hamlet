@@ -77,7 +77,7 @@ test("a wrong caller is refused, and nothing is taken", async (t) => {
             type: "run" as const,
             end: {
                 type: "not_run" as const,
-                why: { type: "chief_refused" },
+                why: { type: "chief_refused" as const },
                 words: "no",
             },
         },

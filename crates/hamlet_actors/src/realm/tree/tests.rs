@@ -126,7 +126,7 @@ async fn a_name_resolves_to_its_agent() {
         .await;
     let rows = started.rows();
     let named = async |hamlet: Option<&HamletId>, named: Named| {
-        resolve(&rows, hamlet, &named).await.unwrap()
+        living_named(&rows, hamlet, &named).await.unwrap()
     };
 
     assert_eq!(named(None, Named::Hand).await, Some(Hand::NUMBER));

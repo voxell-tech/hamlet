@@ -242,7 +242,6 @@ export function endsLater(details: unknown): boolean {
     );
 }
 
-/** Its item stays open until the end of `call` arrives. */
 function waits(
     what: string,
     needs: readonly Need[],
@@ -409,9 +408,8 @@ export function endWords(outcome: Outcome): string {
 }
 
 /**
- * A call's end that arrives as an input, as today closes its item: a
- * command's exit and time, and today's words for a call not run
- * (`crates/hamlet_server/src/calls.rs`).
+ * A call's end that arrives as an input, with today's words for a call
+ * not run (`crates/hamlet_server/src/calls.rs`).
  */
 export function endOf(outcome: Outcome): CallEnd {
     if (outcome.end.type === "not_run") {

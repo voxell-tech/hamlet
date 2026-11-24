@@ -59,12 +59,20 @@ export interface CommandEnd {
     readonly took_ms: number;
 }
 
-/** Why a call was not run; a wait's end names its reason or lapse. */
-export interface NotRunWhy {
-    readonly type: string;
-    readonly reason?: string;
-    readonly lapse?: string;
-}
+export type NotRunWhy =
+    | { readonly type: "chief_refused"; readonly reason?: string }
+    | {
+          readonly type: "lapsed";
+          readonly lapse: "stopped" | "rewound" | "ended";
+      }
+    | {
+          readonly type:
+              | "reach_refuses"
+              | "reach_needs"
+              | "tool_not_found"
+              | "tool_arguments"
+              | "file_changed";
+      };
 
 export type RunEnd =
     | ({ readonly type: "ran" } & CommandEnd)

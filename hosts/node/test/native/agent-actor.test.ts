@@ -168,7 +168,11 @@ const ENDED: Finished = {
     call: "t999",
     outcome: {
         type: "run",
-        end: { type: "not_run", why: { type: "denied" }, words: "Not run." },
+        end: {
+            type: "not_run",
+            why: { type: "chief_refused" },
+            words: "Not run.",
+        },
     },
 };
 

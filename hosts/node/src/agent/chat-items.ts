@@ -32,8 +32,7 @@ interface Held {
     readonly item: ChatItem;
     readonly made?: ChatTool["change"];
     readonly began: number;
-    /** The call's own time, which an allowed call's item shows. */
-    readonly ms?: number;
+    readonly ownMs?: number;
 }
 
 interface Shown {
@@ -147,7 +146,7 @@ export class Fold {
                 began: result.timestamp - (result.durationMs ?? 0),
                 ...(result.durationMs === undefined
                     ? {}
-                    : { ms: result.durationMs }),
+                    : { ownMs: result.durationMs }),
             });
             return [];
         }
@@ -167,7 +166,6 @@ export class Fold {
         ];
     }
 
-    /** A call that waited for a chief, closed by the input that ends it. */
     #endedLater(entry: EntryRecord): ChatOp[] | undefined {
         if (!entry.kind.startsWith(KIND)) return undefined;
         const { ended } = (entry.data ?? {}) as Kept;
@@ -175,14 +173,13 @@ export class Fold {
             ended === undefined ? undefined : this.#held.get(ended.call);
         if (ended === undefined || held === undefined) return undefined;
         this.#held.delete(ended.call);
-        // Today's `ask_chief` holds its call until the chief answers.
-        const asked = held.item.tool?.name === "ask_chief";
+        const heldUntilAnswered = held.item.tool?.name === "ask_chief";
         const end =
-            asked && ended.end.type === "ran"
+            heldUntilAnswered && ended.end.type === "ran"
                 ? { ...ended.end, ms: timeOf(entry) - held.began }
                 : ended.end;
         const ops = [closed(held.item, endingOf(held, end))];
-        const said = asked ? chiefSaid(textOf(entry)) : undefined;
+        const said = heldUntilAnswered ? chiefSaid(textOf(entry)) : undefined;
         if (said !== undefined) {
             ops.push(
                 added({
@@ -455,7 +452,7 @@ function endingOf(
                 failure: `Tool ${held.item.tool?.name} was aborted`,
             };
         case "ran": {
-            const ms = end.ms ?? held.ms;
+            const ms = end.ms ?? held.ownMs;
             return {
                 exit: end.exit >>> 0,
                 ...(ms === undefined ? {} : { ms: u32(ms) }),

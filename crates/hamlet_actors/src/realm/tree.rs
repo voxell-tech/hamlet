@@ -223,7 +223,7 @@ pub(super) async fn named_in(
     hamlet: Option<&HamletId>,
     named: &Named,
 ) -> Result<Option<Lineage>> {
-    match resolve(rows, hamlet, named).await? {
+    match living_named(rows, hamlet, named).await? {
         Some(agent) => lineage(rows, agent).await,
         None => Ok(None),
     }
@@ -272,8 +272,7 @@ async fn node(
     }))
 }
 
-/// The living agent `named` names, as today's `Reach::Living`.
-pub(super) async fn resolve(
+pub(super) async fn living_named(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
     named: &Named,

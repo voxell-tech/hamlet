@@ -132,12 +132,10 @@ export type InputKind =
 /** Between a chief's line and the note of the lead who reviewed it. */
 export const NOTE_BREAK = "\n\n";
 
-/** How a call that waited for a chief ended, as its item shows it. */
 export type CallEnd =
     | {
           readonly type: "ran";
           readonly exit: number;
-          /** Absent: the call's own time. */
           readonly ms?: number;
           readonly failure?: string;
           readonly created?: boolean;
@@ -145,7 +143,6 @@ export type CallEnd =
     | { readonly type: "blocked"; readonly why: string }
     | { readonly type: "aborted" };
 
-/** The end of the call `call`, which arrived as an input. */
 export type Ended = { readonly call: string; readonly end: CallEnd };
 
 export type Admission = {

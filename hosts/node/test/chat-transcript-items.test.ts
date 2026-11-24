@@ -509,7 +509,6 @@ test("a call that waits for a chief stays open until its ruling closes the same 
     );
 });
 
-/** The entries of the chief's session. */
 async function chiefEntries(agent: Woken): Promise<readonly EntryRecord[]> {
     const harness = await agent.harness();
     const conversation = await conversationOfChat(agent.by(from.client), CHIEF);
@@ -524,7 +523,6 @@ async function chiefEntries(agent: Woken): Promise<readonly EntryRecord[]> {
     return page?.items ?? [];
 }
 
-/** Each call's own time, by its tool, from the chief's session. */
 async function callTimes(agent: Woken): Promise<Map<string, number>> {
     return new Map(
         (await chiefEntries(agent)).flatMap((entry) => {
