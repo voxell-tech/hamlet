@@ -413,7 +413,16 @@ fn key(pid: Pid) -> u64 {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
-    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+    ended_by_stat(std::fs::read_to_string(format!(
+        "/proc/{pid}/stat"
+    )))
+}
+
+/// Whether a process has ended, from the read of its
+/// `/proc/<pid>/stat`.
+#[cfg(target_os = "linux")]
+fn ended_by_stat(stat: io::Result<String>) -> io::Result<bool> {
+    match stat {
         // The name, in parentheses, may itself hold spaces and ')'.
         Ok(stat) => {
             Ok(stat.rsplit_once(')').is_some_and(|(_, rest)| {
@@ -424,6 +433,13 @@ pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
             }))
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(true)
+        }
+        // A process being reaped.
+        Err(error)
+            if error.raw_os_error()
+                == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
+        {
             Ok(true)
         }
         Err(error) => Err(error),
@@ -450,5 +466,18 @@ pub(crate) fn end_now() -> ! {
     // macOS can deliver the signal after this call returns.
     loop {
         std::thread::park();
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use std::io;
+
+    use super::ended_by_stat;
+
+    #[test]
+    fn a_process_being_reaped_has_ended() {
+        let reaped = io::Error::from(rustix::io::Errno::SRCH);
+        assert!(ended_by_stat(Err(reaped)).unwrap());
     }
 }
