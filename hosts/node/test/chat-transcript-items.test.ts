@@ -7,7 +7,9 @@ import {
     fauxAssistantMessage,
     type ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import type { EntryRecord } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
+import { timeOf } from "../src/agent/chat-items.ts";
 import type {
     ChatEvent,
     ChatItem,
@@ -507,8 +509,8 @@ test("a call that waits for a chief stays open until its ruling closes the same 
     );
 });
 
-/** Each call's own time, by its tool, from the chief's session. */
-async function callTimes(agent: Woken): Promise<Map<string, number>> {
+/** The entries of the chief's session. */
+async function chiefEntries(agent: Woken): Promise<readonly EntryRecord[]> {
     const harness = await agent.harness();
     const conversation = await conversationOfChat(agent.by(from.client), CHIEF);
     assert.ok(conversation !== undefined);
@@ -519,8 +521,13 @@ async function callTimes(agent: Woken): Promise<Map<string, number>> {
         undefined,
         BACKGROUND_CONTEXT,
     );
+    return page?.items ?? [];
+}
+
+/** Each call's own time, by its tool, from the chief's session. */
+async function callTimes(agent: Woken): Promise<Map<string, number>> {
     return new Map(
-        (page?.items ?? []).flatMap((entry) => {
+        (await chiefEntries(agent)).flatMap((entry) => {
             const result = entry.model?.[0] as ToolResultMessage | undefined;
             return entry.kind === "pi.tool-result" &&
                 result?.durationMs !== undefined
@@ -579,6 +586,20 @@ test("a ruling closes its call as today does: a refusal is blocked with no time,
             undefined,
             "Tool call blocked: the chief refused it: keep it",
         ],
+    ]);
+});
+
+test("an ask_chief's time runs from its call to the chief's answer, as today's call holds until then", async (t) => {
+    const agent = await askedChief(t, "The chief answers: Blue.");
+
+    const entries = await chiefEntries(agent);
+    const result = entries.find((entry) => entry.kind === "pi.tool-result")
+        ?.model?.[0] as ToolResultMessage | undefined;
+    const answer = entries.find((entry) => entry.kind === "hamlet.notice");
+    assert.ok(result?.durationMs !== undefined && answer !== undefined);
+    const began = result.timestamp - result.durationMs;
+    assert.deepEqual(ends((await read(agent)).items), [
+        ["ask_chief", 0, timeOf(answer) - began, undefined],
     ]);
 });
 

@@ -31,6 +31,7 @@ import { type CallEnd, type Kept, KIND, NOTE_BREAK } from "./turn.ts";
 interface Held {
     readonly item: ChatItem;
     readonly made?: ChatTool["change"];
+    readonly began: number;
     /** The call's own time, which an allowed call's item shows. */
     readonly ms?: number;
 }
@@ -143,6 +144,7 @@ export class Fold {
             this.#held.set(details.waiting, {
                 item,
                 ...(call?.made === undefined ? {} : { made: call.made }),
+                began: result.timestamp - (result.durationMs ?? 0),
                 ...(result.durationMs === undefined
                     ? {}
                     : { ms: result.durationMs }),
@@ -173,11 +175,14 @@ export class Fold {
             ended === undefined ? undefined : this.#held.get(ended.call);
         if (ended === undefined || held === undefined) return undefined;
         this.#held.delete(ended.call);
-        const ops = [closed(held.item, endingOf(held, ended.end))];
-        const said =
-            held.item.tool?.name === "ask_chief"
-                ? chiefSaid(textOf(entry))
-                : undefined;
+        // Today's `ask_chief` holds its call until the chief answers.
+        const asked = held.item.tool?.name === "ask_chief";
+        const end =
+            asked && ended.end.type === "ran"
+                ? { ...ended.end, ms: timeOf(entry) - held.began }
+                : ended.end;
+        const ops = [closed(held.item, endingOf(held, end))];
+        const said = asked ? chiefSaid(textOf(entry)) : undefined;
         if (said !== undefined) {
             ops.push(
                 added({
