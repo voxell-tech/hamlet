@@ -1,18 +1,24 @@
+use hamlet_actor::Action;
 use hamlet_messages::agent::{Author, Input};
-use hamlet_messages::realm::choices::{ChoiceRefusal, SetNickname};
+use hamlet_messages::realm::choices::{
+    ChoiceRefusal, ModelOf, SetModel, SetNickname,
+};
 use hamlet_messages::realm::workers::{
-    Ended, StartWorker, Started, WorkerDone,
+    Ended, SetAllowance, StartWorker, Started, WorkerDone,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, Done, DoneTo, End, EndRefusal, LeadRefusal,
-    LetterRefusal, Named, Sent,
+    AgentRefusal, AgreeRoad, Ask, Done, DoneTo, End, EndRefusal,
+    LayRoad, LeadRefusal, LetterRefusal, Named, RequestRoad, Seat,
+    Sent, SetTools, TakeUpRoad, Tool,
 };
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use serde::Serialize;
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, THREE, hamlet_with, named_as, seen_submits, sent,
-    tell, to, tool,
+    FOUR, MAYOR, Realm, THREE, hamlet_with, hire, named_as,
+    seen_submits, sent, tell, to, tool, words,
 };
 
 fn nickname(hire: Named, name: &str) -> SetNickname {
@@ -171,6 +177,189 @@ async fn a_workers_address_names_only_a_worker_and_a_hires_only_a_hire()
                 address: "hire#4".to_owned()
             })
         }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The words `by` reads when its call `act` is refused.
+async fn refused<T>(
+    realm: &Realm,
+    by: AgentNumber,
+    call: &str,
+    act: T,
+) -> String
+where
+    Tool<T>: Action<Output: Serialize>,
+{
+    words(realm.tool(by, &tool(call, act)).await.unwrap())
+}
+
+fn set_model(of: ModelOf) -> SetModel {
+    SetModel {
+        of,
+        model: Some("faux::faux-1".to_owned()),
+        effort: None,
+        fast: None,
+        why: None,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_naming_an_ended_hire_reads_that_no_agent_has_its_address()
+ {
+    let (realm, _) = hamlet_with(2).await;
+    let ended = End {
+        hire: to(THREE),
+        why: None,
+    };
+    realm.tool(MAYOR, &tool("e1", ended.clone())).await.unwrap();
+    let road = |a, b| (to(a), to(b));
+    let (a, b) = road(THREE, FOUR);
+
+    let read = [
+        refused(&realm, MAYOR, "t1", tell(to(THREE), "hi")).await,
+        refused(
+            &realm,
+            MAYOR,
+            "q1",
+            Ask {
+                to: to(THREE),
+                text: "Which file?".to_owned(),
+                conversation: ConversationId("mayor".to_owned()),
+                paths: Vec::new(),
+            },
+        )
+        .await,
+        refused(&realm, MAYOR, "e2", ended).await,
+        refused(
+            &realm,
+            MAYOR,
+            "s1",
+            SetTools {
+                hire: to(THREE),
+                off: Vec::new(),
+                on: Vec::new(),
+                why: None,
+            },
+        )
+        .await,
+        refused(&realm, MAYOR, "n1", nickname(to(THREE), "Gone"))
+            .await,
+        refused(
+            &realm,
+            MAYOR,
+            "m1",
+            set_model(ModelOf::Hire { hire: to(THREE) }),
+        )
+        .await,
+        refused(
+            &realm,
+            MAYOR,
+            "a1",
+            SetAllowance {
+                hire: to(THREE),
+                micros: None,
+                why: None,
+            },
+        )
+        .await,
+        refused(
+            &realm,
+            MAYOR,
+            "l1",
+            LayRoad {
+                a: a.clone(),
+                b: b.clone(),
+                why: None,
+            },
+        )
+        .await,
+        refused(&realm, MAYOR, "u1", TakeUpRoad { a, b, why: None })
+            .await,
+        refused(
+            &realm,
+            MAYOR,
+            "g1",
+            AgreeRoad {
+                mine: to(FOUR),
+                theirs: to(THREE),
+                why: None,
+            },
+        )
+        .await,
+        refused(&realm, MAYOR, "x1", hire(Some(to(THREE)))).await,
+        refused(
+            &realm,
+            FOUR,
+            "r1",
+            RequestRoad {
+                to: to(THREE),
+                why: None,
+            },
+        )
+        .await,
+        refused(
+            &realm,
+            Hand::NUMBER,
+            "p1",
+            Seat {
+                hire: to(THREE),
+                why: None,
+            },
+        )
+        .await,
+    ];
+
+    assert_eq!(
+        read,
+        ["no agent has the address `hire#3`"; 13].map(String::from)
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_naming_an_ended_worker_reads_that_no_agent_has_its_address()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    realm.tool(THREE, &tool("w1", start())).await.unwrap();
+    realm
+        .tool(
+            FOUR,
+            &WorkerDone {
+                ended: Ended::Answered {
+                    text: "Three.".to_owned(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    let read = [
+        refused(&realm, THREE, "t1", tell(a_worker(), "hi")).await,
+        refused(&realm, MAYOR, "n1", nickname(a_worker(), "Tally"))
+            .await,
+        refused(
+            &realm,
+            MAYOR,
+            "m1",
+            set_model(ModelOf::Hire { hire: a_worker() }),
+        )
+        .await,
+        refused(
+            &realm,
+            THREE,
+            "e1",
+            End {
+                hire: a_worker(),
+                why: None,
+            },
+        )
+        .await,
+    ];
+
+    assert_eq!(
+        read,
+        ["no agent has the address `worker#4`"; 4].map(String::from)
     );
     realm.host.shutdown().await.unwrap();
 }

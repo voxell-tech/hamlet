@@ -85,7 +85,11 @@ pub(crate) fn open(
         routes: routes(),
         ..HostOptions::default()
     }
-    .with_value(Arc::new(sandbox));
+    .with_value(Arc::new(sandbox))
+    .with_value(Arc::new(realm::Options {
+        chief: crate::serve::chief_name(),
+        ..realm::Options::default()
+    }));
     let child = ChildOptions {
         argv,
         kinds: vec![address::Agent::KIND.to_owned()],

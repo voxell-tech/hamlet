@@ -719,6 +719,15 @@ pub enum HireRefusal {
     /// `label` is `scholar#<id> (<name>)`.
     #[error("`{label}` has no version `{}`", version.0)]
     NoVersion { label: String, version: VersionName },
+    /// The profile did not answer before the hire's own answer was
+    /// due; nothing is kept of the call. `label` is
+    /// `scholar#<id> (<name>)`.
+    #[error(
+        "`{label}` did not answer in time to show its version `{}`; \
+         try the hire again",
+        version.0
+    )]
+    Unanswered { label: String, version: VersionName },
     #[error("say what it is for")]
     NoPurpose,
 }
@@ -883,8 +892,6 @@ pub enum LetterRefusal {
     NoRoad { to: AgentName },
     #[error("no road yet to `{to}`: it is still being hired")]
     StillHiring { to: AgentName },
-    #[error("`{to}` has left: {left}")]
-    Left { to: AgentName, left: Left },
     #[error(
         "The chief withdrew the instruction, so this call did not \
          run."

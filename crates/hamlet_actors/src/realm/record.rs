@@ -124,6 +124,10 @@ pub(super) async fn write(
     writer: &Writer<'_>,
     entries: Vec<Entry>,
 ) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let chief = chiefs::name(&writer.rows()).await?;
     for entry in entries {
         let (kind, by, fields) = match entry {
             Entry::Founded {
@@ -210,12 +214,18 @@ pub(super) async fn write(
                 ("allowance", by, Fields::of(hire, why))
             }
         };
+        // The name at the decision, as today keeps the chief who made
+        // it (`crates/hamlet_server/src/society/record.rs:137`).
+        let decided_by = match by {
+            By::Chief => BindParam::Text(chief.clone()),
+            By::Agent(_) => BindParam::Null,
+        };
         writer
             .execute(
                 "INSERT INTO decision (kind, hamlet, agent, other, \
-                 tier, by, why, at) VALUES (?1, COALESCE(?2, \
+                 tier, by, chief, why, at) VALUES (?1, COALESCE(?2, \
                  (SELECT hamlet FROM hire WHERE agent = ?3)), ?3, \
-                 ?4, ?5, ?6, ?7, ?8)",
+                 ?4, ?5, ?6, ?7, ?8, ?9)",
                 vec![
                     BindParam::Text(kind.to_owned()),
                     fields.hamlet.map_or(BindParam::Null, |hamlet| {
@@ -229,6 +239,7 @@ pub(super) async fn write(
                         .transpose()?
                         .map_or(BindParam::Null, BindParam::Text),
                     BindParam::Text(by.name()),
+                    decided_by,
                     fields.why.map_or(BindParam::Null, |why| {
                         BindParam::Text(writer.scrubbed(&why))
                     }),
@@ -333,20 +344,28 @@ async fn lines(
     hamlet: Option<&HamletId>,
     secrets: &[String],
 ) -> Result<Vec<RecordLine>> {
-    let kept = rows
-        .rows::<(String, Option<u32>, String, Option<String>)>(
-            "SELECT kind, agent, by, why FROM decision WHERE hamlet \
-             IS ?1 ORDER BY id",
+    let kept =
+        rows.rows::<(
+            String,
+            Option<u32>,
+            String,
+            Option<String>,
+            Option<String>,
+        )>(
+            "SELECT kind, agent, by, chief, why FROM decision WHERE \
+             hamlet IS ?1 ORDER BY id",
             vec![hamlet.map_or(BindParam::Null, |hamlet| {
                 BindParam::Text(hamlet.0.clone())
             })],
         )
         .await?;
     let mut lines = Vec::new();
-    for (kind, agent, by, why) in kept {
-        let who = match by.as_str() {
-            CHIEF => CHIEF.to_owned(),
-            agent => agent_name(rows, numbered(agent)?).await?.name,
+    for (kind, agent, by, chief, why) in kept {
+        let who = match (by.as_str(), chief) {
+            (CHIEF, Some(chief)) => chief,
+            (agent, _) => {
+                agent_name(rows, numbered(agent)?).await?.name
+            }
         };
         let subject = match agent {
             Some(agent) => {

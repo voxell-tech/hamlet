@@ -116,7 +116,7 @@ impl Workspace {
                 let gated = match self.gated(
                     agent,
                     reach.as_ref(),
-                    &Op::Read { path },
+                    &Op::Parcel { path },
                 )? {
                     Weighing::Done(gated) => gated,
                     Weighing::NeedsSecrets(version) => {

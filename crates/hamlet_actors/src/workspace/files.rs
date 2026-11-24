@@ -28,7 +28,7 @@ use hamlet_sandbox::Env;
 use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{EDIT, Paths, WRITE, cut_off_changes};
-use super::reach::{self, Gate, Op, Placement, Purpose, Refused};
+use super::reach::{self, Gate, Op, Placement, Refused};
 use super::{Weighing, Workspace, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
@@ -162,7 +162,7 @@ impl Workspace {
                     reach.context(
                         "the gate passed a file tool with no reach",
                     )?,
-                    Purpose::FileTool,
+                    op.purpose(),
                 )?,
                 sandbox: self.sandbox,
                 secrets: secrets.clone(),

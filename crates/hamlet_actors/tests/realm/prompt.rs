@@ -359,8 +359,8 @@ async fn a_hire_is_told_its_hamlets_twelve_latest_decisions_in_its_days()
         .map(|n| {
             format!(
                 "INSERT INTO decision (kind, hamlet, agent, by, \
-                 why, at) VALUES ('tools', '{}', 3, 'chief', \
-                 'n{n}', {now})",
+                 chief, why, at) VALUES ('tools', '{}', 3, 'chief', \
+                 'chief', 'n{n}', {now})",
                 mill.0
             )
         })

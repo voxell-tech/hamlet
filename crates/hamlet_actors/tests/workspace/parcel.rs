@@ -192,6 +192,54 @@ async fn a_path_outside_the_reach_is_refused() {
     assert_eq!(reading, Part::Refused { why: outside });
 }
 
+/// An agent's own filesystem is its to send, as today's letters send
+/// what the agent reads; another agent's is not.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_sends_the_files_of_its_own_filesystem() {
+    let dir = Scratch::new("workspace-parcel-own");
+    let (_project, folder) =
+        project("workspace-parcel-own-project", &[("a", "a")]);
+    let notes = super::filesystem(&dir).join("notes.md");
+    std::fs::write(&notes, "mine").unwrap();
+    let theirs = dir.join("actors/agent/8.fs/notes.md");
+    std::fs::create_dir_all(theirs.parent().unwrap()).unwrap();
+    std::fs::write(&theirs, "theirs").unwrap();
+    let host = working_in(&dir, &folder, Arc::default()).await;
+
+    let measuring = ask(&host, &realm(), &parcel(&[&notes])).await;
+    let reading = ask(&host, &realm(), &part(&notes, 0)).await;
+    let other = ask(&host, &realm(), &parcel(&[&theirs])).await;
+    host.shutdown().await.unwrap();
+
+    let files = measured(measuring)
+        .into_iter()
+        .map(|file| (file.name, file.path, file.size, file.sha256.0))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        files,
+        [(PathBuf::from("notes.md"), notes, 4, hash(b"mine"))]
+    );
+    assert_eq!(
+        reading,
+        Part::Bytes {
+            bytes: Base64(b"mine".to_vec()),
+            last: true
+        }
+    );
+    assert_eq!(
+        refused(other),
+        ParcelFault::Unreadable {
+            path: theirs.clone(),
+            words: format!(
+                "{} is in an agent's filesystem",
+                theirs.display()
+            ),
+        }
+        .into()
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_workspace_that_cannot_be_opened_is_told() {

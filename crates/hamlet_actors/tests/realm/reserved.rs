@@ -1,14 +1,15 @@
 use std::fmt::Display;
 
 use hamlet_messages::agent::Input;
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LayRoad,
-    LeadRefusal, Limit, NeedsChief, Refusable, ReservedAct,
-    SetLimits, TakeUpRoad, Tool,
+    LeadRefusal, Limit, NeedsChief, ProfileId, Refusable,
+    ReservedAct, SetLimits, TakeUpRoad, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -17,6 +18,7 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::asking::chief_task;
+use super::profiles::create;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
     needs, seen_submits, submits_to, to, tool, worker_shown,
@@ -213,6 +215,29 @@ async fn a_reserved_hire_waits_and_runs_once_on_allow() {
         made.iter().map(|(agent, _)| *agent).collect::<Vec<_>>(),
         [Hand::NUMBER.0, MAYOR.0, THREE.0],
         "one hire is made"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reserved_hire_shows_the_chief_the_version_it_asked_for() {
+    let (realm, hamlet) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    reserve(&realm, &hamlet, ReservedAct::Hire).await;
+    let at_v1 = Hire {
+        profile: Some(ProfileId(3)),
+        version: Some(VersionName("v1".to_owned())),
+        ..hire(None)
+    };
+
+    realm.tool(MAYOR, &tool("h1", at_v1)).await.unwrap();
+
+    let [(1, _, subject, None)] = &waits(&realm).await[..] else {
+        panic!("one wait, open");
+    };
+    assert_eq!(
+        subject,
+        r#"hire {"purpose":"Check the links","scholar":"scholar#3@v1"}"#
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -447,12 +472,9 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
         panic!("the wait is closed");
     };
     assert_eq!(choice, "allow");
-    let told = notices(&realm, MAYOR).await;
-    assert!(
-        told.iter().any(
-            |told| told.starts_with("`hire#3 (Hire 1)` has left")
-        ),
-        "{told:?}"
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["no agent has the address `hire#3`"]
     );
     realm.host.shutdown().await.unwrap();
 }

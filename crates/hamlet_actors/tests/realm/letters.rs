@@ -5,7 +5,7 @@ use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
-    Ask, Done, End, Hire, HireAnswer, HowEnded, Left, LetterId,
+    Ask, Done, End, Hire, HireAnswer, HowEnded, LetterId,
     LetterRefusal, Named, Reply, ReplyRefusal, Sent, Standing, Tell,
     Waiting,
 };
@@ -260,23 +260,18 @@ async fn a_tell_is_refused_for_its_ends() {
         ]
     );
     assert_eq!(ended, done_to(FOUR));
-    let left = Left {
-        how: HowEnded::ByALead { lead: shown(THREE) },
-        why: Some("done".to_owned()),
-    };
     assert_eq!(
         to_ended,
-        refused(LetterRefusal::Left {
-            to: shown(FOUR),
-            left: left.clone()
+        refused(LetterRefusal::NoSuchAgent {
+            address: "hire#4".to_owned()
         })
     );
     assert_eq!(
         from_ended,
         Sent::Refused {
             why: Stood(Standing::YouLeft {
-                how: left.how,
-                why: left.why
+                how: HowEnded::ByALead { lead: shown(THREE) },
+                why: Some("done".to_owned())
             })
         }
     );

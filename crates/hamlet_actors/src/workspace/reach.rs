@@ -223,6 +223,20 @@ pub enum Op<'a> {
     Read {
         path: &'a Path,
     },
+    /// A read of a file a letter of the agent's sends.
+    Parcel {
+        path: &'a Path,
+    },
+}
+
+impl Op<'_> {
+    /// The purpose a file tool's `op` is placed under.
+    pub fn purpose(&self) -> Purpose {
+        match self {
+            Self::Parcel { .. } => Purpose::Parcel,
+            _ => Purpose::FileTool,
+        }
+    }
 }
 
 /// The gate's verdict on a call.
@@ -289,8 +303,14 @@ pub enum Network {
 /// A policy's purpose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
-    Command { network: Network },
+    Command {
+        network: Network,
+    },
     FileTool,
+    /// The read of the files an agent's letter sends, which takes in
+    /// the agent's own filesystem as today's letters do
+    /// (`crates/hamlet_server/src/work/tools.rs` `parcel`).
+    Parcel,
 }
 
 /// The sandbox policy of a call, and the folder it works in.
@@ -356,7 +376,7 @@ fn needs(
         }));
     }
     let file_tool = || {
-        placement(home, agent, reach, Purpose::FileTool)
+        placement(home, agent, reach, op.purpose())
             .ok_or(Refused::Reach(ReachRefusal::NoReach))
     };
     match *op {
@@ -414,7 +434,7 @@ fn needs(
                 },
             )
         }
-        Op::Read { path } => {
+        Op::Read { path } | Op::Parcel { path } => {
             let path = normalized(path);
             if file_tool()?.policy.can_read(&path) {
                 Ok(Vec::new())
@@ -459,7 +479,13 @@ pub fn placement(
             );
             home.scratch(agent)
         }
-        _ => home.filesystem(agent),
+        _ => {
+            let own = home.filesystem(agent);
+            if purpose == Purpose::Parcel {
+                ro.push(own.clone());
+            }
+            own
+        }
     };
     let mut rw = Vec::new();
     rw.extend(footing.project.as_ref().map(|p| p.folder.clone()));
