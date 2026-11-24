@@ -40,6 +40,7 @@ use super::host::HAND;
 use super::view::{self, View};
 use super::words;
 use crate::oversight::gate;
+use crate::society::addresses::Reach;
 use crate::society::agents::Effort as Level;
 use crate::society::refusal::Refusal;
 
@@ -135,11 +136,12 @@ fn card(set: &protocol::EditCatalogueSet) -> Vec<CardSetting> {
     images.into_iter().chain(note).chain(price).collect()
 }
 
-/// The agent `target` names as the realm shows it, or the refusal
-/// of an address that names none.
+/// The agent within `reach` that `target` names as the realm shows
+/// it, or the refusal of an address that names none.
 fn number(
     view: &View,
     target: &Target,
+    reach: Reach,
 ) -> Result<AgentNumber, Refusal> {
     let found = match &target.named {
         Named::Hand => Some(HAND),
@@ -157,15 +159,19 @@ fn number(
         }
         Named::Mayor => None,
     };
-    found.ok_or_else(|| Refusal::NoOne {
-        address: target.text.clone(),
-    })
+    found
+        .filter(|agent| {
+            reach == Reach::Kept || view.is_living(*agent)
+        })
+        .ok_or_else(|| Refusal::NoOne {
+            address: target.text.clone(),
+        })
 }
 
 /// Today's refusal of a chief's act on `target` when it names the
 /// Hand or a worker, which only a hire takes.
 fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
-    let agent = number(view, target).ok()?;
+    let agent = number(view, target, Reach::Living).ok()?;
     view.of_kind(agent, AgentKind::Hire).is_none().then(|| {
         Refusal::NotHire {
             name: view.name(agent),
@@ -277,7 +283,7 @@ async fn perform(
         Act::Stop(named) => {
             let agent = match named {
                 None => Ok(speaker),
-                Some(target) => number(view, &target),
+                Some(target) => number(view, &target, Reach::Living),
             };
             match agent {
                 Ok(agent) => {
@@ -289,26 +295,28 @@ async fn perform(
         Act::StopAll => {
             Ok(words::stopped(stop_all(calls, view, id).await?))
         }
-        Act::To { to: target, text } => match number(view, &target) {
-            Ok(agent) => {
-                let line = protocol::Say {
-                    files: Vec::new(),
-                    id: line_id(id),
-                    images: Vec::new(),
-                    text,
-                    to: view::wire(agent),
-                };
-                match calls.say(line).await? {
-                    Given::Taken | Given::Dropped => {
-                        Ok(words::told(&view.name(agent)))
-                    }
-                    Given::Refused(words) => {
-                        Err(Refusal::Usage { words })
+        Act::To { to: target, text } => {
+            match number(view, &target, Reach::Living) {
+                Ok(agent) => {
+                    let line = protocol::Say {
+                        files: Vec::new(),
+                        id: line_id(id),
+                        images: Vec::new(),
+                        text,
+                        to: view::wire(agent),
+                    };
+                    match calls.say(line).await? {
+                        Given::Taken | Given::Dropped => {
+                            Ok(words::told(&view.name(agent)))
+                        }
+                        Given::Refused(words) => {
+                            Err(Refusal::Usage { words })
+                        }
                     }
                 }
+                Err(refusal) => Err(refusal),
             }
-            Err(refusal) => Err(refusal),
-        },
+        }
         Act::Reflect => {
             let asked = calls.call(&Agent(speaker), &Reflect).await?;
             Ok(words::reflecting(
@@ -343,7 +351,7 @@ async fn perform(
             })))
         }
         Act::Revoke { agent, permission } => {
-            match number(view, &agent) {
+            match number(view, &agent, Reach::Kept) {
                 Ok(agent) => {
                     let name = view.name(agent);
                     let word = gate::word(&permission);
@@ -466,10 +474,11 @@ async fn perform(
             done(ask(calls, id, act).await?, || said)
         }
         Act::Road { a, b, .. }
-            if let (Ok(_), Ok(_)) =
-                (number(view, &a), number(view, &b))
-                && let Some(refusal) = not_a_hire(view, &a)
-                    .or_else(|| not_a_hire(view, &b)) =>
+            if let (Ok(_), Ok(_)) = (
+                number(view, &a, Reach::Living),
+                number(view, &b, Reach::Living),
+            ) && let Some(refusal) = not_a_hire(view, &a)
+                .or_else(|| not_a_hire(view, &b)) =>
         {
             Err(refusal)
         }
@@ -545,11 +554,8 @@ pub(crate) async fn stop_one(
     id: &RequestId,
     agent: protocol::AgentId,
 ) -> Result<Result<String, Refusal>> {
-    let shown = super::route::number(agent).filter(|number| {
-        view.agent(*number).is_some_and(|seen| {
-            !matches!(seen.status, Status::Ended { .. })
-        })
-    });
+    let shown = super::route::number(agent)
+        .filter(|number| view.is_living(*number));
     let Some(number) = shown else {
         return Ok(Err(Refusal::NoOne {
             address: agent.0.to_string(),
@@ -660,7 +666,7 @@ async fn steer(
     hire: Target,
     part: Part,
 ) -> Result<Result<String, Refusal>> {
-    let seen = match number(view, &hire) {
+    let seen = match number(view, &hire, Reach::Living) {
         Ok(agent) => view.agent(agent),
         Err(refusal) => return Ok(Err(refusal)),
     };

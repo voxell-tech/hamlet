@@ -444,3 +444,41 @@ async fn a_chief_names_a_living_worker_by_its_address() {
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_stopping_or_telling_an_ended_hire_reads_that_no_agent_has_its_address()
+ {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let mayor = found(&server, &mut chief, "Docs").await;
+    let docs = look(&server).await.hamlets[0].id.clone();
+    let hired =
+        chief.command(hand, &format!("/hire blank in {docs}")).await;
+    let address = hired
+        .strip_suffix(" is hired.")
+        .unwrap_or_else(|| panic!("{hired}"))
+        .trim_matches('`')
+        .to_owned();
+    chief.command(mayor, &format!("/end {address}")).await;
+    until(&server, "the hire's end", |realm| {
+        realm.agents.iter().any(|agent| {
+            agent.name == address && agent.left.is_some()
+        })
+    })
+    .await;
+
+    let none = format!("no agent has the address `{address}`");
+    assert_eq!(
+        chief.refused(mayor, &format!("/stop {address}")).await,
+        none
+    );
+    assert_eq!(
+        chief
+            .refused(mayor, &format!("/to {address} Read again."))
+            .await,
+        none
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
