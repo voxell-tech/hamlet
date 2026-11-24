@@ -39,8 +39,9 @@ Usage: cargo xtask <task> [args]
   node             pi's TypeScript, Biome and tests, the native \
      module's declarations (Linux only), the Node host's \
      TypeScript, Biome and tests, then the native module for Node \
-     (debug) and the Node host's tests that load it, and the demo \
-     actor host and the Node host's tests that drive it
+     (debug) and the Node host's tests that load it, the demo actor \
+     host and the Node host's tests that drive it, and the server's \
+     front door, linted and tested with the actors' Node host
   declarations     write the native module's index.d.ts and index.js \
      from its Rust, and fail if either changed
   fmt              format Rust, with the latest nightly, and pi
@@ -526,7 +527,24 @@ fn node(root: &Path) -> Result<(), Failure> {
         "build",
         &["-p", "hamlet_host", "--example", "demo"],
     ))?;
-    status(&mut npm(NODE_HOST, &["run", "test:link"]))
+    status(&mut npm(NODE_HOST, &["run", "test:link"]))?;
+    front()
+}
+
+/// The server's front door: its lints and tests with the `node-host`
+/// feature, whose tests start the actors' Node host from the packages
+/// and the native module `node` puts in place.
+fn front() -> Result<(), Failure> {
+    let server = ["-p", "hamlet_server", "--features", "node-host"];
+    status(&mut locked(
+        "clippy",
+        &[&server[..], &["--all-targets", "--", "-D", "warnings"]]
+            .concat(),
+    ))?;
+    status(&mut locked(
+        "test",
+        &[&server[..], &["--test", "front"]].concat(),
+    ))
 }
 
 fn unnamed(task: &str, what: &str) {
