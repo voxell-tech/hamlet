@@ -542,8 +542,13 @@ fn target(
             },
             None => Named::Mayor,
         },
-        Address::Hire(id) | Address::Worker(id) => Named::Agent {
+        Address::Hire(id) => Named::Agent {
             agent: AgentNumber(
+                u32::try_from(id.0).map_err(|_| bad())?,
+            ),
+        },
+        Address::Worker(id) => Named::Worker {
+            worker: AgentNumber(
                 u32::try_from(id.0).map_err(|_| bad())?,
             ),
         },
@@ -608,7 +613,12 @@ mod tests {
         assert_eq!(
             parse("/nickname worker#7 Scout", None),
             Ok(Act::Nickname {
-                hire: hire(7, "worker#7"),
+                hire: Target {
+                    named: Named::Worker {
+                        worker: AgentNumber(7),
+                    },
+                    text: "worker#7".into(),
+                },
                 name: Some("Scout".into()),
             })
         );

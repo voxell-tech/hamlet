@@ -3,8 +3,8 @@
 use hamlet_acceptance::Client;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{
-    AgentId, Answer, AttachedImage, Choice, ClientMessage, Edit,
-    ReplyKind, RequestId, Say, ServerMessage, State,
+    AgentId, AgentKind, Answer, AttachedImage, Choice, ClientMessage,
+    Edit, ReplyKind, RequestId, Say, ServerMessage, State,
 };
 use hamlet_testing::Server;
 use serde_json::json;
@@ -378,6 +378,68 @@ async fn a_hire_goes_live_and_answers_a_line() {
             .refused(hand, &format!("/hire scholar#2@v9 in {docs}"))
             .await,
         "`scholar#2 (ada)` has no version `v9`"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_names_a_living_worker_by_its_address() {
+    let busy = json!({
+        "calls": [{
+            "name": "bash",
+            "arguments": { "command": "sleep 1" },
+        }],
+    });
+    let mut responses = vec![json!({
+        "calls": [{
+            "name": "start_worker",
+            "arguments": { "task": "Count the shelves and answer." },
+        }],
+    })];
+    responses.extend(std::iter::repeat_n(busy, 60));
+    let (mut server, _home, _side) =
+        serve(serde_json::Value::Array(responses)).await;
+    let mut chief = Client::join(&server).await;
+    let mayor = found(&server, &mut chief, "Docs").await;
+    chief.tell(mayor, "Start a counter.").await;
+    let worker = until(&server, "the worker", |realm| {
+        realm
+            .agents
+            .iter()
+            .any(|agent| agent.kind == AgentKind::Worker)
+    })
+    .await
+    .agents
+    .into_iter()
+    .find(|agent| agent.kind == AgentKind::Worker)
+    .unwrap()
+    .id;
+    let address = format!("worker#{}", worker.0);
+
+    assert_eq!(
+        chief
+            .command(mayor, &format!("/nickname {address} Zed"))
+            .await,
+        format!("`{address}` is called Zed now.")
+    );
+    assert_eq!(
+        chief
+            .command(mayor, &format!("/model {address} faux::faux-1"))
+            .await,
+        format!("`{address}` runs faux::faux-1.")
+    );
+    assert_eq!(
+        chief.refused(mayor, &format!("/end {address}")).await,
+        format!("`{address} (Zed)` is not a hire")
+    );
+    assert!(
+        look(&server)
+            .await
+            .agents
+            .iter()
+            .any(|agent| agent.id == worker && agent.left.is_none()),
+        "the worker goes on"
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

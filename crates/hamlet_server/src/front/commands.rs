@@ -30,7 +30,9 @@ use hamlet_messages::realm::{
     Named, Seat, SetTools, TakeUpRoad, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::{self as protocol, Choice, RequestId};
+use hamlet_protocol::client::{
+    self as protocol, AgentKind, Choice, RequestId,
+};
 
 use self::parse::{Act, Part, Target, parse};
 use super::call::{Calls, Given};
@@ -148,12 +150,26 @@ fn number(
             .find(|place| place.hamlet == *hamlet)
             .map(|place| place.mayor),
         Named::Agent { agent } => {
-            view.agent(*agent).map(|seen| seen.agent)
+            view.of_kind(*agent, AgentKind::Hire)
         }
-        _ => None,
+        Named::Worker { worker } => {
+            view.of_kind(*worker, AgentKind::Worker)
+        }
+        Named::Mayor => None,
     };
     found.ok_or_else(|| Refusal::NoOne {
         address: target.text.clone(),
+    })
+}
+
+/// Today's refusal of a chief's act on `target` when it names the
+/// Hand or a worker, which only a hire takes.
+fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
+    let agent = number(view, target).ok()?;
+    view.of_kind(agent, AgentKind::Hire).is_none().then(|| {
+        Refusal::NotHire {
+            name: view.name(agent),
+        }
     })
 }
 
@@ -397,6 +413,11 @@ async fn perform(
             }
             HireAnswer::Refused { why } => Err(refused(why)),
         },
+        Act::End { hire, .. }
+            if let Some(refusal) = not_a_hire(view, &hire) =>
+        {
+            Err(refusal)
+        }
         Act::End { hire, why } => {
             let said = words::ended(&hire.text);
             let act = End {
@@ -443,6 +464,14 @@ async fn perform(
                 why: None,
             };
             done(ask(calls, id, act).await?, || said)
+        }
+        Act::Road { a, b, .. }
+            if let (Ok(_), Ok(_)) =
+                (number(view, &a), number(view, &b))
+                && let Some(refusal) = not_a_hire(view, &a)
+                    .or_else(|| not_a_hire(view, &b)) =>
+        {
+            Err(refusal)
         }
         Act::Road { a, b, why, lay } => {
             if lay {

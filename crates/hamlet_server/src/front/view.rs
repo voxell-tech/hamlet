@@ -86,6 +86,18 @@ impl View {
         self.world.spend.iter().find(|spend| spend.payer == *payer)
     }
 
+    /// The agent numbered `number` the realm shows, when it is of
+    /// `kind`.
+    pub(crate) fn of_kind(
+        &self,
+        number: AgentNumber,
+        kind: protocol::AgentKind,
+    ) -> Option<AgentNumber> {
+        self.agent(number)
+            .filter(|_| self.kind(number) == kind)
+            .map(|seen| seen.agent)
+    }
+
     fn kind(&self, number: AgentNumber) -> protocol::AgentKind {
         if number == HAND {
             protocol::AgentKind::Hand
