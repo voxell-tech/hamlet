@@ -581,8 +581,10 @@ mod tests {
         };
         let ended = ChatTool {
             exit: Some(1),
-            ms: Some(5),
-            failure: Some("the chief refused it: keep it".to_owned()),
+            failure: Some(
+                "Tool call blocked: the chief refused it: keep it"
+                    .to_owned(),
+            ),
             ..open.clone()
         };
         let event = ChatEvent {
@@ -606,12 +608,13 @@ mod tests {
                     TranscriptOperation::Close {
                         item,
                         exit: 1,
-                        ms: Some(5),
+                        ms: None,
                         failure: Some(failure),
                         change: None,
                     },
                 ] if item == "11:0"
-                    && failure == "the chief refused it: keep it"
+                    && failure
+                        == "Tool call blocked: the chief refused it: keep it"
             ),
             "{:?}",
             turn.operations

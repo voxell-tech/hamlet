@@ -30,7 +30,8 @@ import { type Kept, NOTE_BREAK } from "./turn.ts";
 
 interface Held {
     readonly item: ChatItem;
-    readonly began: number;
+    /** The call's own time, which an allowed call's item shows. */
+    readonly ms?: number;
 }
 
 interface Shown {
@@ -140,7 +141,9 @@ export class Fold {
         if (typeof details?.waiting === "string") {
             this.#held.set(details.waiting, {
                 item,
-                began: result.timestamp - (result.durationMs ?? 0),
+                ...(result.durationMs === undefined
+                    ? {}
+                    : { ms: result.durationMs }),
             });
             return [];
         }
@@ -169,11 +172,17 @@ export class Fold {
         const text = textOf(entry);
         const at = timeOf(entry);
         const ops = [
-            closed(call.item, {
-                exit: held.refused ? 1 : 0,
-                ms: u32(at - call.began),
-                ...(held.refused ? { failure: failureOf(text) } : {}),
-            }),
+            closed(
+                call.item,
+                held.refused
+                    ? { exit: 1, failure: failureOf(`${BLOCKED}${text}`) }
+                    : {
+                          exit: 0,
+                          ...(call.ms === undefined
+                              ? {}
+                              : { ms: u32(call.ms) }),
+                      },
+            ),
         ];
         const said =
             call.item.tool?.name === "ask_chief" ? chiefSaid(text) : undefined;
@@ -431,6 +440,9 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
         ...(change === undefined ? {} : { change }),
     };
 }
+
+/** pi-durable's words before the reason a call was not run. */
+const BLOCKED = "Tool call blocked: ";
 
 /** The first line of a failed call's text that says something (`clients/fold.rs`). */
 function failureOf(text: string): string {

@@ -5,6 +5,7 @@ import {
     type AssistantMessage,
     type FauxResponseStep,
     fauxAssistantMessage,
+    type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { Calls } from "../src/actor/actor/mod.ts";
 import type {
@@ -474,7 +475,7 @@ test("a call that waits for a chief stays open until its ruling closes the same 
     const closed = [
         ["ask_chief", 0, ""],
         ["hire", 0, ""],
-        ["end_hire", 1, "the chief refused it: keep it"],
+        ["end_hire", 1, "Tool call blocked: the chief refused it: keep it"],
     ];
     const items = (await read(woken)).items;
     assert.deepEqual(tools(items), closed);
@@ -501,6 +502,81 @@ test("a call that waits for a chief stays open until its ruling closes the same 
         closing.map((op) => op.replaces),
         closing.map((op) => op.item.id),
         "a client replaces the open item with the closed one",
+    );
+});
+
+/** Each call's own time, by its tool, from the chief's session. */
+async function callTimes(agent: Woken): Promise<Map<string, number>> {
+    const harness = await agent.harness();
+    const conversation = await conversationOfChat(agent.by(from.client), CHIEF);
+    assert.ok(conversation !== undefined);
+    const kept = await harness.conversation(conversation, BACKGROUND_CONTEXT);
+    const page = await kept?.entries(
+        { order: "ascending" },
+        1000,
+        undefined,
+        BACKGROUND_CONTEXT,
+    );
+    return new Map(
+        (page?.items ?? []).flatMap((entry) => {
+            const result = entry.model?.[0] as ToolResultMessage | undefined;
+            return entry.kind === "pi.tool-result" &&
+                result?.durationMs !== undefined
+                ? [[result.toolName, result.durationMs] as const]
+                : [];
+        }),
+    );
+}
+
+test("a ruling closes its call as today does: a refusal is blocked with no time, an allowance takes the call's own time", async (t) => {
+    const reserved = (wait: number) => () => ({
+        type: "refused" as const,
+        why: { type: "reserved" as const, wait },
+        words: "This call waits for a chief's answer.",
+    });
+    const { calls, sent } = fakeCalls({
+        realm: { hire: reserved(1), end: reserved(2) },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall("hire", { purpose: "Check the links" }, "c1"),
+            toolCall("end_hire", { hire: "hire#3" }, "c2"),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Hired."),
+            fauxAssistantMessage("Kept."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Hire and end." });
+    await send(agent, {
+        type: "notice",
+        text: "Hired hire#4 (Hire 1).",
+        held: { call: callOf(sent, "hire"), refused: false },
+    });
+    await send(agent, {
+        type: "notice",
+        text: "the chief refused it: keep it",
+        held: { call: callOf(sent, "end"), refused: true },
+    });
+
+    const own = await callTimes(agent);
+    assert.ok(own.get("hire") !== undefined);
+    assert.deepEqual(
+        (await read(agent)).items.flatMap(({ tool }) =>
+            tool === undefined
+                ? []
+                : [[tool.name, tool.exit, tool.ms, tool.failure]],
+        ),
+        [
+            ["hire", 0, own.get("hire"), undefined],
+            [
+                "end_hire",
+                1,
+                undefined,
+                "Tool call blocked: the chief refused it: keep it",
+            ],
+        ],
     );
 });
 
