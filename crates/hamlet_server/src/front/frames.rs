@@ -444,7 +444,10 @@ mod tests {
                 .unwrap();
         assert_eq!(
             words(answer),
-            (ReplyKind::Error, "there is no session 7".to_owned())
+            (
+                ReplyKind::Error,
+                "there is no past session 7 here".to_owned()
+            )
         );
         let answer = back(
             &RequestId::new(),
