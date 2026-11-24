@@ -655,7 +655,18 @@ impl Act<Agent> for Carried<AskChief> {
     }
 }
 
-impl Act<Agent> for Object {
+impl ToolAct<Agent> for Object {
+    type Run = Carried<Self>;
+
+    fn run(self, called: &Called) -> Carried<Self> {
+        Carried {
+            called: called.clone(),
+            act: self,
+        }
+    }
+}
+
+impl Act<Agent> for Carried<Object> {
     type Output = Done<AgentRefusal<ObjectRefusal>>;
     type Loaded = Result<(TaskId, Opening), ObjectRefusal>;
     type Done = ();
@@ -669,7 +680,7 @@ impl Act<Agent> for Object {
         let task = match kind {
             AgentKind::Worker | AgentKind::Errand => None,
             AgentKind::Hand | AgentKind::Hire => {
-                own_task(rows, by.0, &self.task, &[Origin::Chief])
+                own_task(rows, by.0, &self.act.task, &[Origin::Chief])
                     .await?
             }
         };
@@ -687,7 +698,7 @@ impl Act<Agent> for Object {
         if objected {
             return Ok(Err(ObjectRefusal::AlreadyHeld));
         }
-        let Some(reason) = trimmed(Some(&self.reason)) else {
+        let Some(reason) = trimmed(Some(&self.act.reason)) else {
             return Ok(Err(ObjectRefusal::NoReason));
         };
         let name = record::agent_name(rows, by.0).await?.name;
@@ -697,8 +708,8 @@ impl Act<Agent> for Object {
                 agent: by.0,
                 kind: waits::Kind::Objection,
                 task: Some(task),
-                conversation: Some(self.conversation.clone()),
-                call: None,
+                conversation: Some(self.act.conversation.clone()),
+                call: Some(self.called.call.clone()),
                 subject: format!("`{name}` objects: {reason}"),
                 detail: detail(&WaitKind::Objection {
                     reason,

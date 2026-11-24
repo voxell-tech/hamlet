@@ -178,13 +178,16 @@ export class Fold {
             ended === undefined ? undefined : this.#held.get(ended.call);
         if (ended === undefined || held === undefined) return undefined;
         this.#held.delete(ended.call);
-        const heldUntilAnswered = held.item.tool?.name === "ask_chief";
+        const name = held.item.tool?.name;
+        // Today holds these two calls until the chief rules.
+        const heldUntilAnswered = name === "ask_chief" || name === "object";
         const end =
             heldUntilAnswered && ended.end.type === "ran"
                 ? { ...ended.end, ms: timeOf(entry) - held.began }
                 : ended.end;
         const ops = [closed(held.item, endingOf(held, end))];
-        const said = heldUntilAnswered ? chiefSaid(textOf(entry)) : undefined;
+        const said =
+            name === "ask_chief" ? chiefSaid(textOf(entry)) : undefined;
         if (said !== undefined) {
             ops.push(
                 added({

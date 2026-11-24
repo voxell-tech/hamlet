@@ -1219,3 +1219,58 @@ async fn a_stop_ends_each_call_its_turn_left_waiting_for_a_chief() {
     );
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ruling_on_an_objection_names_the_call_that_waited_for_it()
+{
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let first = chief_task(&realm, HAND).await;
+    realm
+        .ask(&say(&RequestId::new(), HAND, "and this"))
+        .await
+        .unwrap();
+    let second = seen_submits(&realm, HAND, 2).await[1]
+        .task
+        .clone()
+        .expect("a line carries its task");
+    for (call, task) in [("o1", &first), ("o2", &second)] {
+        let objection = Object {
+            task: task.clone(),
+            conversation: ConversationId("c".to_owned()),
+            reason: "no".to_owned(),
+        };
+        let objected = realm.tool(HAND, &tool(call, objection)).await;
+        assert_eq!(objected.unwrap(), Done::Done);
+    }
+    for (wait, choice) in [("1", Choice::Go), ("2", Choice::Withdraw)]
+    {
+        let ruled =
+            realm.ask(&answer(wait, choice, None)).await.unwrap();
+        assert_eq!(ruled, Done::Done);
+    }
+    let held = || {
+        let mut told = super::submits_to(&realm, HAND)
+            .into_iter()
+            .filter_map(|submit| match submit.input {
+                Input::Notice {
+                    held: Some(held), ..
+                } => Some((held.call.0, held.end)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        told.sort_by(|a, b| a.0.cmp(&b.0));
+        told
+    };
+    until("both rulings name their calls", || held().len() >= 2)
+        .await;
+
+    assert_eq!(
+        held(),
+        [
+            ("o1".to_owned(), HeldEnd::Ran),
+            ("o2".to_owned(), HeldEnd::Aborted)
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}

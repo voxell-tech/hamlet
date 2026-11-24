@@ -663,6 +663,52 @@ test("an ask_chief's time runs from its call to the chief's answer, as today's c
     ]);
 });
 
+test("an objection stays open until the chief rules: go closes it at the ruling's time, withdraw aborts it, as today's", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: { object: () => ({ type: "done" }) },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall("object", { reason: "no" }, "c1"),
+            toolCall("object", { reason: "not this either" }, "c2"),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Going on."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Do both." });
+    assert.deepEqual(ends((await read(agent)).items), [
+        ["object", undefined, undefined, undefined],
+        ["object", undefined, undefined, undefined],
+    ]);
+    const [go, withdrawn] = sent
+        .filter((one) => one.name === "object")
+        .map((one) => (one.message as { readonly call: CallId }).call);
+    assert.ok(go !== undefined && withdrawn !== undefined);
+    await send(agent, {
+        type: "notice",
+        text: "The chief rules: go on with the instruction.",
+        held: { call: go, end: "ran" },
+    });
+    await send(agent, {
+        type: "notice",
+        text: "The chief withdrew the instruction. Stop working on it.",
+        held: { call: withdrawn, end: "aborted" },
+    });
+
+    const entries = await chiefEntries(agent);
+    const result = entries.find((entry) => entry.kind === "pi.tool-result")
+        ?.model?.[0] as ToolResultMessage | undefined;
+    const ruling = entries.find((entry) => entry.kind === "hamlet.notice");
+    assert.ok(result?.durationMs !== undefined && ruling !== undefined);
+    const began = result.timestamp - result.durationMs;
+    assert.deepEqual(ends((await read(agent)).items), [
+        ["object", 0, timeOf(ruling) - began, undefined],
+        ["object", 1, undefined, "Tool object was aborted"],
+    ]);
+});
+
 test("a call that waits for a chief to allow it stays open, and its end closes the same item as today's", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {

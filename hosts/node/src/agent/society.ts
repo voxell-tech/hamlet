@@ -18,7 +18,7 @@ import { hasWordsOrCall } from "./compaction.ts";
 import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
 import type { Folder } from "./own-files.ts";
-import { type Definition, TOOLS, WAITING } from "./society-tools.ts";
+import { type Definition, OBJECTING, TOOLS, WAITING } from "./society-tools.ts";
 import { callOf, callOut, failed, type Peers, words } from "./turn.ts";
 
 function societyTool<N extends SocietyTool>(
@@ -40,7 +40,7 @@ function societyTool<N extends SocietyTool>(
             });
             if ("invalid" in made) return failed(made.invalid);
             const said = (text: string): ToolExecutionResult =>
-                text === WAITING
+                text === WAITING || text === OBJECTING
                     ? { ...words(text), details: { waiting: callOf(api) } }
                     : words(text);
             return callOut(

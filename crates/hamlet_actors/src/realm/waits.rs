@@ -530,7 +530,7 @@ pub(super) async fn notice(
     let held = call.map(|call| HeldCall {
         call: CallId(call),
         end: match choice {
-            Choice::Lapsed(_) => HeldEnd::Aborted,
+            Choice::Lapsed(_) | Choice::Withdraw => HeldEnd::Aborted,
             Choice::Refuse => HeldEnd::Blocked,
             _ => HeldEnd::Ran,
         },

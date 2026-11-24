@@ -748,7 +748,18 @@ async fn a_lapsed_objection_drops_its_held_letters() {
             }
         );
         assert_eq!(held, 0, "{why:?}");
-        assert_eq!(given(&realm, THREE, before), ["letter: after"]);
+        let ended = matches!(why, LapseReason::Stopped).then_some(
+            "notice: the call's wait for a chief lapsed: the turn \
+             was stopped",
+        );
+        assert_eq!(
+            given(&realm, THREE, before),
+            ended
+                .into_iter()
+                .chain(["letter: after"])
+                .collect::<Vec<_>>(),
+            "{why:?}"
+        );
         realm.host.shutdown().await.unwrap();
     }
 }
