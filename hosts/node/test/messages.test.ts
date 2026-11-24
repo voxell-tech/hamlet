@@ -1882,7 +1882,7 @@ for (const name of answersTo("realm/read_place")) {
         const prompt = await readPrompt(agent);
         await agent.stop();
 
-        const sections = [given.place, given.realm, given.scholars].filter(
+        const sections = [given.place, given.realm, given.profiles].filter(
             (text) => text !== undefined,
         );
         assert.ok(prompt.endsWith(`\n\n${sections.join("\n\n")}`), prompt);

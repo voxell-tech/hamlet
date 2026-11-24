@@ -94,7 +94,7 @@ impl Act<Agent> for Reading<ReadPlace> {
         Ok(PlaceText {
             place: scrub(&place),
             realm: realm.as_deref().map(scrub),
-            scholars: profiles.as_deref().map(scrub),
+            profiles: profiles.as_deref().map(scrub),
         })
     }
 

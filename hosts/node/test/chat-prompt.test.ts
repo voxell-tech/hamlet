@@ -450,7 +450,7 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
 const PLACE_TEXT =
     "# Your place\nYou are `hire#12 (Ada)`.\n\n# The realm\nNo hamlet is founded yet.\n\n# The city's scholars\n- `scholar#2`";
 
-test("the prompt ends with the realm's place, realm and scholars, read once for each request", async (t) => {
+test("the prompt ends with the realm's three sections, read once for each request", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             read_place: () => fixture("realm/read_place.answer") as never,

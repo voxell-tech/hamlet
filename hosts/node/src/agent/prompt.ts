@@ -165,7 +165,7 @@ function partsOf(
         ["skills", keptMemory(skills)],
         ["place", placed("place")],
         ["realm", placed("realm")],
-        ["scholars", placed("scholars")],
+        ["scholars", placed("profiles")],
     ];
 }
 

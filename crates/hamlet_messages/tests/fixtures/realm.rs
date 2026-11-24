@@ -1547,7 +1547,7 @@ fn the_prompt_sections(fixtures: &mut Fixtures) {
             realm: Some(
                 "# The realm\nNo hamlet is founded yet.".into(),
             ),
-            scholars: Some(
+            profiles: Some(
                 "# The city's scholars\n- `scholar#2`".into(),
             ),
         },
@@ -1557,7 +1557,7 @@ fn the_prompt_sections(fixtures: &mut Fixtures) {
         &PlaceText {
             place: "# Your place\nYou are `hand`.".into(),
             realm: None,
-            scholars: None,
+            profiles: None,
         },
     );
 }

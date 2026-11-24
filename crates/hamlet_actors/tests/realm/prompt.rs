@@ -138,7 +138,7 @@ async fn the_hands_place_names_its_mayors_and_every_hamlet() {
             .as_str()
         )
     );
-    assert_eq!(text.scholars, None);
+    assert_eq!(text.profiles, None);
     realm.host.shutdown().await.unwrap();
 }
 
@@ -442,7 +442,7 @@ async fn a_worker_is_told_who_started_it_and_nothing_else() {
         PlaceText {
             place: place(by_hire, &name(THREE)),
             realm: None,
-            scholars: None,
+            profiles: None,
         }
     );
     assert_eq!(of_chief.place, place(by_chief, "a chief"));
@@ -492,14 +492,14 @@ async fn a_lead_and_the_hand_read_sixty_profiles_and_a_worker_none() {
     let expected = Some(expected.join("\n"));
     for agent in [Hand::NUMBER, MAYOR, THREE] {
         assert_eq!(
-            read(&realm, agent, &chat()).await.scholars,
+            read(&realm, agent, &chat()).await.profiles,
             expected,
             "agent {}",
             agent.0
         );
     }
     assert_eq!(
-        read(&realm, worker.agent, &chat()).await.scholars,
+        read(&realm, worker.agent, &chat()).await.profiles,
         None
     );
     realm.host.shutdown().await.unwrap();
