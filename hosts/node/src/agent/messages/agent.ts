@@ -30,6 +30,7 @@ import {
 import { REALM, type ToolName } from "./realm.ts";
 import {
     type AgentNumber,
+    type CallId,
     type LetterId,
     OPEN,
     type ProfileId,
@@ -79,6 +80,8 @@ export type Input =
           readonly type: "notice";
           readonly text: string;
           readonly conversation?: string;
+          /** The society call that waited for this ruling. */
+          readonly held?: HeldCall;
       }
     | {
           readonly type: "worker_answer";
@@ -106,6 +109,13 @@ export type Input =
           readonly text: string;
           readonly conversation: string;
       };
+
+/** A society call the realm kept for a chief, which a ruling ends. */
+export interface HeldCall {
+    readonly call: CallId;
+    /** Whether the chief refused it. */
+    readonly refused: boolean;
+}
 
 export interface Submit {
     /** A second `submit` with the same id is the first one. */
@@ -595,7 +605,15 @@ const INPUT = union([
         },
         OPEN,
     ),
-    obj({ type: lit("notice"), text: str(), conversation: opt(str()) }, OPEN),
+    obj(
+        {
+            type: lit("notice"),
+            text: str(),
+            conversation: opt(str()),
+            held: opt(obj({ call: str(), refused: bool() }, OPEN)),
+        },
+        OPEN,
+    ),
     obj(
         {
             type: lit("worker_answer"),

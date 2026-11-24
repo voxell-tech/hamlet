@@ -22,7 +22,9 @@ use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::{self as protocol, Choice, Pick};
 use serde::{Deserialize, Serialize};
 
-use super::super::act::{Act, Decided, Decision};
+use super::super::act::{
+    Act, Called, Carried, Decided, Decision, ToolAct,
+};
 use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::tasks::{Origin, TaskId};
@@ -565,7 +567,18 @@ fn refuse<R, D>(why: R) -> Decision<D, Done<AgentRefusal<R>>> {
     Decision::Answer(Done::refused(AgentRefusal::Act(why)))
 }
 
-impl Act<Agent> for AskChief {
+impl ToolAct<Agent> for AskChief {
+    type Run = Carried<Self>;
+
+    fn run(self, called: &Called) -> Carried<Self> {
+        Carried {
+            called: called.clone(),
+            act: self,
+        }
+    }
+}
+
+impl Act<Agent> for Carried<AskChief> {
     type Output = Done<AgentRefusal<AskChiefRefusal>>;
     type Loaded = Result<Opening, AskChiefRefusal>;
     type Done = ();
@@ -578,11 +591,11 @@ impl Act<Agent> for AskChief {
         let chiefs =
             [Origin::Chief, Origin::Retry, Origin::Reflection];
         let Some(task) =
-            own_task(rows, by.0, &self.task, &chiefs).await?
+            own_task(rows, by.0, &self.act.task, &chiefs).await?
         else {
             return Ok(Err(AskChiefRefusal::NoChief));
         };
-        let questions = match shaped(&self.questions) {
+        let questions = match shaped(&self.act.questions) {
             Ok(questions) => questions,
             Err(why) => return Ok(Err(why)),
         };
@@ -605,14 +618,15 @@ impl Act<Agent> for AskChief {
         if asked >= most {
             return Ok(Err(AskChiefRefusal::TooMany { most }));
         }
-        let message = trimmed(self.message.as_deref());
+        let message = trimmed(self.act.message.as_deref());
         Ok(Ok(Opening {
             wait: waits::next(rows).await?,
             raised: Raised {
                 agent: by.0,
                 kind: waits::Kind::Question,
                 task: Some(task),
-                conversation: Some(self.conversation.clone()),
+                conversation: Some(self.act.conversation.clone()),
+                call: Some(self.called.call.clone()),
                 subject: about(message.as_deref(), &questions),
                 detail: detail(&WaitKind::Question {
                     message,
@@ -684,6 +698,7 @@ impl Act<Agent> for Object {
                 kind: waits::Kind::Objection,
                 task: Some(task),
                 conversation: Some(self.conversation.clone()),
+                call: None,
                 subject: format!("`{name}` objects: {reason}"),
                 detail: detail(&WaitKind::Objection {
                     reason,

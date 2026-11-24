@@ -270,7 +270,11 @@ fn told(
         submit: Submit {
             id,
             task,
-            input: Input::Notice { text, conversation },
+            input: Input::Notice {
+                text,
+                conversation,
+                held: None,
+            },
         },
     }
 }

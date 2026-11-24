@@ -294,7 +294,10 @@ function foldOf(
     return made;
 }
 
-/** Counts into `fold` the answers of `id` up to `before`, which its view leaves out. */
+/**
+ * Folds into `fold` the entries of `id` up to `before`, which its view leaves
+ * out, so it counts their answers and keeps their open calls.
+ */
 async function counted(
     harness: Harness,
     id: ConversationId,
@@ -310,7 +313,7 @@ async function counted(
             cursor,
             BACKGROUND_CONTEXT,
         );
-        for (const entry of page?.items ?? []) fold.counted(entry);
+        for (const entry of page?.items ?? []) fold.entry(entry);
         cursor = page?.next;
     } while (cursor !== undefined);
 }

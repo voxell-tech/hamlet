@@ -145,6 +145,9 @@ pub enum Input {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         conversation: Option<ConversationId>,
+        /// The society call that waited for this ruling.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        held: Option<HeldCall>,
     },
     /// The answer of a worker the agent started, for the conversation
     /// it was started from; absent when its start named none.
@@ -177,6 +180,14 @@ pub enum Input {
         text: String,
         conversation: ConversationId,
     },
+}
+
+/// A society call the realm kept for a chief, which a ruling ends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldCall {
+    pub call: CallId,
+    /// Whether the chief refused it.
+    pub refused: bool,
 }
 
 /// The writer of a letter, as the receiver is shown it (C30).

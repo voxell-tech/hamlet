@@ -28,6 +28,13 @@ import { u32 } from "./messages/shared.ts";
 import { scrub, withheld } from "./models.ts";
 import { type Kept, NOTE_BREAK } from "./turn.ts";
 
+/** A call held for a chief, whose item stays open until its ruling. */
+interface Held {
+    readonly item: ChatItem;
+    /** When the call began, in milliseconds. */
+    readonly began: number;
+}
+
 interface Shown {
     readonly block: number;
     readonly item: ChatItem;
@@ -44,6 +51,8 @@ interface Shown {
  */
 export class Fold {
     readonly #calls = new Map<string, Pick<Shown, "item" | "made">>();
+    /** By the call the realm was sent. */
+    readonly #held = new Map<string, Held>();
     readonly #live = new Map<number, ChatItem>();
     readonly #spent: Spent = { calls: 0, ms: 0 };
     #seen = -1;
@@ -94,8 +103,10 @@ export class Fold {
 
     entry(entry: EntryRecord): ChatOp[] {
         this.#seen = Math.max(this.#seen, Number(entry.id));
-        this.counted(entry);
+        this.#counted(entry);
         if (entry.kind === "pi.tool-result") return this.#ended(entry);
+        const ruled = this.#ruled(entry);
+        if (ruled !== undefined) return ruled;
         const answer = entry.kind === "pi.assistant";
         const ops = itemsOf(entry).map(({ block, item, call, made }) => {
             if (call !== undefined) this.#calls.set(call, { item, made });
@@ -110,7 +121,7 @@ export class Fold {
     }
 
     /** Counts a model call's answer into the chat's usage. */
-    counted(entry: EntryRecord): void {
+    #counted(entry: EntryRecord): void {
         if (entry.kind !== "pi.assistant") return;
         const message = entry.model?.[0] as AssistantMessage | undefined;
         this.#spent.calls += 1;
@@ -126,28 +137,65 @@ export class Fold {
         const item = call?.item;
         if (result === undefined || item?.tool === undefined) return [];
         this.#calls.delete(result.toolCallId);
-        const made =
-            (result.details as { created?: unknown } | undefined)?.created ===
-            true
-                ? call?.made
-                : undefined;
+        const details = result.details as
+            | { created?: unknown; waiting?: unknown }
+            | undefined;
+        if (typeof details?.waiting === "string") {
+            this.#held.set(details.waiting, {
+                item,
+                began: result.timestamp - (result.durationMs ?? 0),
+            });
+            return [];
+        }
+        const made = details?.created === true ? call?.made : undefined;
         const text = result.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join("");
         return [
-            added({
-                ...item,
-                tool: {
-                    ...item.tool,
-                    exit: result.isError ? 1 : 0,
-                    ...(result.durationMs === undefined
-                        ? {}
-                        : { ms: u32(result.durationMs) }),
-                    ...(result.isError ? { failure: failureOf(text) } : {}),
-                    ...(made === undefined ? {} : { change: made }),
-                },
+            closed(item, {
+                exit: result.isError ? 1 : 0,
+                ...(result.durationMs === undefined
+                    ? {}
+                    : { ms: u32(result.durationMs) }),
+                ...(result.isError ? { failure: failureOf(text) } : {}),
+                ...(made === undefined ? {} : { change: made }),
             }),
         ];
+    }
+
+    /**
+     * Closes the item of the call a ruling's notice ends, as
+     * `crates/hamlet_server/src/clients/fold.rs` closes a held call's item
+     * when its result comes; none when no such item is open.
+     */
+    #ruled(entry: EntryRecord): ChatOp[] | undefined {
+        if (entry.kind !== "hamlet.notice") return undefined;
+        const { held } = (entry.data ?? {}) as Kept;
+        const call = held === undefined ? undefined : this.#held.get(held.call);
+        if (held === undefined || call === undefined) return undefined;
+        this.#held.delete(held.call);
+        const text = textOf(entry);
+        const at = timeOf(entry);
+        const ops = [
+            closed(call.item, {
+                exit: held.refused ? 1 : 0,
+                ms: u32(at - call.began),
+                ...(held.refused ? { failure: failureOf(text) } : {}),
+            }),
+        ];
+        const said =
+            call.item.tool?.name === "ask_chief" ? chiefSaid(text) : undefined;
+        if (said !== undefined) {
+            ops.push(
+                added({
+                    id: `${entry.id}:0`,
+                    at: `${at}`,
+                    kind: "answered",
+                    text: said,
+                }),
+            );
+        }
+        return ops;
     }
 
     #partial(message: AssistantMessage | undefined): ChatOp[] {
@@ -191,6 +239,17 @@ function added(item: ChatItem, replaces?: string): ChatOp {
         item: scrub(item),
         ...(replaces === undefined ? {} : { replaces }),
     };
+}
+
+/** `item`, a tool call's, as it ended. */
+function closed(
+    item: ChatItem,
+    ended: Pick<ChatTool, "exit" | "ms" | "failure" | "change">,
+): ChatOp {
+    return added({
+        ...item,
+        tool: { ...(item.tool as ChatTool), ...ended },
+    });
 }
 
 /** The words a chat shows where earlier entries were summarised (`clients/fold.rs`). */

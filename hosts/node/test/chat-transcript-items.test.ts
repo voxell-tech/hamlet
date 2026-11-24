@@ -14,12 +14,14 @@ import type {
     ChatRef,
     Input,
 } from "../src/agent/messages/agent.ts";
+import type { CallId } from "../src/agent/messages/shared.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     fakeFiles,
     from,
     reflecting,
+    type Sent,
     toolCall,
     until,
     type Woken,
@@ -337,6 +339,9 @@ test("a session's history is modified when its last entry was written", async (t
 
 /** A turn that asks the chief, and the realm's notice that closes the question. */
 async function askedChief(t: TestContext, notice: string): Promise<Woken> {
+    const { calls, sent } = fakeCalls({
+        realm: { ask_chief: () => ({ type: "done" }) },
+    });
     const agent = await wake(
         t,
         [
@@ -346,12 +351,33 @@ async function askedChief(t: TestContext, notice: string): Promise<Woken> {
             fauxAssistantMessage("Waiting on the chief."),
             fauxAssistantMessage("On it."),
         ],
-        fakeCalls({ realm: { ask_chief: () => ({ type: "done" }) } }).calls,
+        calls,
     );
     await send(agent, { type: "line", text: "Paint it." });
-    await send(agent, { type: "notice", text: notice });
+    await send(agent, {
+        type: "notice",
+        text: notice,
+        held: { call: callOf(sent, "ask_chief"), refused: false },
+    });
     return agent;
 }
+
+/** The call id the agent sent the realm its `act` under. */
+function callOf(sent: readonly Sent[], act: string): CallId {
+    const call = sent.find((one) => one.name === act)?.message as
+        | { readonly call?: CallId }
+        | undefined;
+    assert.ok(call?.call !== undefined, `the agent called ${act}`);
+    return call.call;
+}
+
+/** Each tool item's name, and how it ended: still open while undefined. */
+const tools = (items: readonly ChatItem[]) =>
+    items.flatMap((item) =>
+        item.tool === undefined
+            ? []
+            : [[item.tool.name, item.tool.exit, item.tool.failure ?? ""]],
+    );
 
 const answered = (items: readonly ChatItem[]) =>
     items.filter((item) => item.kind === "answered").map((item) => item.text);
@@ -382,12 +408,132 @@ test("a picked answer shows the chief's words, and a dismissed question shows no
     );
     const items = (await read(dismissed)).items;
     assert.deepEqual(answered(items), []);
-    assert.ok(
-        items.some(
-            (item) =>
-                item.kind === "notice" &&
-                item.text ===
-                    "The chief did not answer; go on with what you know.",
-        ),
+    assert.deepEqual(
+        items.filter((item) => item.kind === "notice"),
+        [],
+    );
+    assert.deepEqual(tools(items), [["ask_chief", 0, ""]]);
+});
+
+test("a call that waits for a chief stays open until its ruling closes the same item, also after a restart", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            ask_chief: () => ({ type: "done" }),
+            hire: () => ({
+                type: "refused",
+                why: { type: "reserved", wait: 1 },
+                words: "This call waits for a chief's answer.",
+            }),
+            end: () => ({
+                type: "refused",
+                why: { type: "reserved", wait: 2 },
+                words: "This call waits for a chief's answer.",
+            }),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall(
+                "ask_chief",
+                { questions: [{ question: "Which colour?" }] },
+                "c1",
+            ),
+            toolCall("hire", { purpose: "Check the links" }, "c2"),
+            toolCall("end_hire", { hire: "hire#3" }, "c3"),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Blue it is."),
+            fauxAssistantMessage("Hired."),
+            fauxAssistantMessage("Kept."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Paint it, hire and end." });
+    const open = [
+        ["ask_chief", undefined, ""],
+        ["hire", undefined, ""],
+        ["end_hire", undefined, ""],
+    ];
+    assert.deepEqual(tools((await read(agent)).items), open);
+    await agent.stop();
+
+    const woken = await agent.again();
+    t.after(() => woken.stop());
+    assert.deepEqual(tools((await read(woken)).items), open);
+    const rulings = [
+        ["The chief answers: Blue.", "ask_chief", false],
+        ["Hired hire#4 (Hire 1).", "hire", false],
+        ["the chief refused it: keep it", "end", true],
+    ] as const;
+    for (const [text, act, refused] of rulings) {
+        await send(woken, {
+            type: "notice",
+            text,
+            held: { call: callOf(sent, act), refused },
+        });
+    }
+
+    const closed = [
+        ["ask_chief", 0, ""],
+        ["hire", 0, ""],
+        ["end_hire", 1, "the chief refused it: keep it"],
+    ];
+    const items = (await read(woken)).items;
+    assert.deepEqual(tools(items), closed);
+    assert.deepEqual(answered(items), ["Blue."]);
+    assert.deepEqual(
+        items.filter((item) => item.kind === "notice"),
+        [],
+    );
+    const ended = added(woken).filter((item) => item.tool?.exit !== undefined);
+    assert.deepEqual(tools(ended), closed);
+    const shown = items.filter((item) => item.tool !== undefined);
+    assert.deepEqual(
+        ended.map((item) => item.id),
+        shown.map((item) => item.id),
+        "each ruling closes the call's own item",
+    );
+});
+
+test("a ruling closes its call's item in the watched chat after a restart, however long the chat grew", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: { ask_chief: () => ({ type: "done" }) },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall("ask_chief", {
+                questions: [{ question: "Which colour?" }],
+            }),
+            ...Array.from({ length: 31 }, (_, n) =>
+                fauxAssistantMessage(`Answer ${n}.`),
+            ),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Paint it." });
+    for (let n = 0; n < 30; n += 1) {
+        await send(agent, { type: "line", text: `Line ${n}.` });
+    }
+    await agent.stop();
+
+    // The wake's watch sees the newest 50 entries, which leave the call out.
+    const woken = await agent.again();
+    t.after(() => woken.stop());
+    await read(woken);
+    await send(woken, {
+        type: "notice",
+        text: "The chief answers: Blue.",
+        held: { call: callOf(sent, "ask_chief"), refused: false },
+    });
+
+    await until(() => answered(added(woken)).length > 0);
+    assert.deepEqual(
+        tools(added(woken).filter((item) => item.tool !== undefined)),
+        [["ask_chief", 0, ""]],
+    );
+    assert.deepEqual(
+        added(woken).filter((item) => item.kind === "notice"),
+        [],
     );
 });

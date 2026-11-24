@@ -7,7 +7,9 @@ use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::reach::Need;
-use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use hamlet_messages::workspace::{
+    AgentNumber, CallId, ConversationId,
+};
 use hamlet_protocol::client as protocol;
 
 use super::super::act::{Act, Decided, Decision};
@@ -44,6 +46,7 @@ pub(in crate::realm) struct Waiting {
     kind: Kind,
     task: Option<TaskId>,
     conversation: Option<ConversationId>,
+    call: Option<CallId>,
     needs: Vec<Need>,
     /// For a refusal that reaches its task's count: the agent's
     /// other open tool waits on the task, with the words they close
@@ -133,16 +136,17 @@ impl Act<Client> for Answer {
         let Some(wait) = named(&self.0.wait) else {
             return Ok(None);
         };
-        let Some((agent, kind, task, conversation, needs)) = rows
-            .row::<(
+        let Some((agent, kind, task, conversation, call, needs)) =
+            rows.row::<(
                 u32,
                 String,
                 Option<TaskId>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
             )>(
-                "SELECT agent, kind, task, conversation, needs FROM \
-                 wait WHERE id = ?1 AND closed_at IS NULL",
+                "SELECT agent, kind, task, conversation, call, \
+                 needs FROM wait WHERE id = ?1 AND closed_at IS NULL",
                 vec![change::integer(wait.0)?],
             )
             .await?
@@ -205,6 +209,7 @@ impl Act<Client> for Answer {
             past_the_count,
             ruling,
             conversation: conversation.map(ConversationId),
+            call: call.map(CallId),
             needs: needs
                 .map(|needs| serde_json::from_str(&needs))
                 .transpose()?
@@ -258,6 +263,7 @@ impl Act<Client> for Answer {
             agent: open.agent,
             task: open.task,
             conversation: open.conversation.clone(),
+            call: open.call.clone(),
             text,
         });
         for change in ruling.changes {

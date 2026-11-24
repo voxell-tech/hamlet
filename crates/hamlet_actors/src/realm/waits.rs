@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::{Agent, Workspace};
-use hamlet_messages::agent::{Input, InputId, Submit};
+use hamlet_messages::agent::{HeldCall, Input, InputId, Submit};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
@@ -137,6 +137,8 @@ pub(super) struct Raised {
     pub kind: Kind,
     pub task: Option<TaskId>,
     pub conversation: Option<ConversationId>,
+    /// The society call that waits, which the ruling's notice names.
+    pub call: Option<CallId>,
     /// The words a chief reads.
     pub subject: String,
     /// The kind's own detail, as CBOR.
@@ -259,14 +261,15 @@ async fn raise(
     writer
         .execute(
             "INSERT INTO wait (id, agent, kind, task, conversation, \
-             subject, detail, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
-             ?7, ?8)",
+             call, subject, detail, at) VALUES (?1, ?2, ?3, ?4, ?5, \
+             ?6, ?7, ?8, ?9)",
             vec![
                 change::integer(wait.0)?,
                 number(raised.agent),
                 BindParam::Text(change::case_name(&raised.kind)?),
                 task_column(raised.task)?,
                 nullable(raised.conversation.map(|c| c.0)),
+                nullable(raised.call.map(|c| c.0)),
                 BindParam::Text(raised.subject),
                 BindParam::Blob(raised.detail),
                 BindParam::Integer(writer.at().0),
@@ -369,6 +372,7 @@ struct Ran {
     agent: AgentNumber,
     task: Option<TaskId>,
     conversation: Option<ConversationId>,
+    call: Option<CallId>,
     text: String,
 }
 
@@ -393,6 +397,10 @@ impl Told {
                 input: Input::Notice {
                     text: ran.text.clone(),
                     conversation: ran.conversation.clone(),
+                    held: ran.call.clone().map(|call| HeldCall {
+                        call,
+                        refused: false,
+                    }),
                 },
             },
         });
@@ -510,12 +518,16 @@ pub(super) async fn notice(
     let Closed {
         agent,
         kind,
+        call,
         task,
         conversation,
         choice,
         ruling,
-        ..
     } = closed(ctx, wait).await?;
+    let held = call.map(|call| HeldCall {
+        call: CallId(call),
+        refused: choice == Choice::Refuse,
+    });
     let says = ruling.as_ref().map_or_else(String::new, |ruling| {
         format!(" The chief says: {ruling}")
     });
@@ -561,7 +573,11 @@ pub(super) async fn notice(
             &Submit {
                 id: InputId(format!("wait/{}", wait.0)),
                 task: task.map(TaskId::on_the_wire),
-                input: Input::Notice { text, conversation },
+                input: Input::Notice {
+                    text,
+                    conversation,
+                    held,
+                },
             },
             When::AfterAnswer,
         )
@@ -837,6 +853,7 @@ impl Act<Agent> for TurnFailed {
                 kind: Kind::Fault,
                 task: TaskId::of(&self.task),
                 conversation: Some(self.conversation.clone()),
+                call: None,
                 subject: self.words.clone(),
                 detail: cause,
             },
