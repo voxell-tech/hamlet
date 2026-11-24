@@ -4,8 +4,7 @@ use hamlet_messages::realm::choices::{
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
-    Done, DoneTo, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
-    Rank, SetTools,
+    Done, DoneTo, LeadRefusal, Named, Rank,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::Effort;
@@ -186,83 +185,6 @@ async fn a_model_choice_is_kept() {
         }
     );
     assert_eq!(model_choices(&realm).await, after_chief);
-    realm.host.shutdown().await.unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
-    let (realm, _) = hamlet_with(2).await;
-    let ended = realm
-        .tool(
-            MAYOR,
-            &tool(
-                "e1",
-                End {
-                    hire: to(FOUR),
-                    why: None,
-                },
-            ),
-        )
-        .await
-        .unwrap();
-    assert_eq!(ended, done_to(FOUR));
-
-    let tools = realm
-        .tool(
-            MAYOR,
-            &tool(
-                "t1",
-                SetTools {
-                    hire: to(FOUR),
-                    off: Vec::new(),
-                    on: Vec::new(),
-                    why: None,
-                },
-            ),
-        )
-        .await
-        .unwrap();
-    let named = realm
-        .tool(
-            MAYOR,
-            &tool(
-                "n1",
-                SetNickname {
-                    hire: to(FOUR),
-                    ..nickname(Some("Gone"), None)
-                },
-            ),
-        )
-        .await
-        .unwrap();
-    let model = realm
-        .tool(
-            MAYOR,
-            &tool("m1", model_of(ModelOf::Hire { hire: to(FOUR) })),
-        )
-        .await
-        .unwrap();
-
-    let left = Left {
-        how: HowEnded::ByALead { lead: shown(MAYOR) },
-        why: None,
-    };
-    assert_eq!(
-        tools,
-        DoneTo::Refused {
-            why: LeadRefusal::Act(OnlyAHire::Left {
-                hire: shown(FOUR),
-                left: left.clone()
-            })
-        }
-    );
-    let refused = DoneTo::Refused {
-        why: LeadRefusal::Act(ChoiceRefusal::Left {
-            hire: shown(FOUR),
-            left,
-        }),
-    };
-    assert_eq!((named, model), (refused.clone(), refused));
     realm.host.shutdown().await.unwrap();
 }
 

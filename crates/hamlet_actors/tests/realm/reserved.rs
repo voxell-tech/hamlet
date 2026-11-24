@@ -447,12 +447,9 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
         panic!("the wait is closed");
     };
     assert_eq!(choice, "allow");
-    let told = notices(&realm, MAYOR).await;
-    assert!(
-        told.iter().any(
-            |told| told.starts_with("`hire#3 (Hire 1)` has left")
-        ),
-        "{told:?}"
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        ["no agent has the address `hire#3`"]
     );
     realm.host.shutdown().await.unwrap();
 }

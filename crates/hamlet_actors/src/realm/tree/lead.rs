@@ -174,7 +174,13 @@ impl<By: Lead> Act<By> for Pinned {
             }
             (named, ..) => {
                 let named = named.as_ref().unwrap_or(&Named::Mayor);
-                super::named_in(rows, hamlet.id(), named).await?
+                super::named_in(
+                    rows,
+                    hamlet.id(),
+                    named,
+                    super::Among::of(by),
+                )
+                .await?
             }
         };
         let living = match under
@@ -432,10 +438,11 @@ impl<By: RealmWide> Act<By> for Seat {
 
     async fn load(
         &self,
-        _by: &By,
+        by: &By,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        super::named_in(rows, None, &self.hire).await
+        super::named_in(rows, None, &self.hire, super::Among::of(by))
+            .await
     }
 
     fn decide(

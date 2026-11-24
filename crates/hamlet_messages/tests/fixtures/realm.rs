@@ -691,13 +691,6 @@ fn the_letters(fixtures: &mut Fixtures) {
                 "still_hiring",
                 LetterRefusal::StillHiring { to: shown(HIRE) },
             ),
-            (
-                "left",
-                LetterRefusal::Left {
-                    to: shown(HIRE),
-                    left: left(HowEnded::ByTheChief),
-                },
-            ),
             ("withdrawn", LetterRefusal::Withdrawn),
         ]
     };

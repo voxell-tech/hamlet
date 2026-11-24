@@ -148,7 +148,7 @@ async fn a_hire_at_a_version_its_profile_lacks_ends_as_failed() {
         }),
         "{branched:?}"
     );
-    assert!(words(told).contains("its task failed"));
+    assert_eq!(words(told), "no agent has the address `hire#3`");
     let (hiring, how) = hiring_and_how(&realm, THREE).await;
     assert_eq!(hiring, 0);
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));

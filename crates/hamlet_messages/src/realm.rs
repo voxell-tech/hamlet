@@ -883,8 +883,6 @@ pub enum LetterRefusal {
     NoRoad { to: AgentName },
     #[error("no road yet to `{to}`: it is still being hired")]
     StillHiring { to: AgentName },
-    #[error("`{to}` has left: {left}")]
-    Left { to: AgentName, left: Left },
     #[error(
         "The chief withdrew the instruction, so this call did not \
          run."

@@ -215,15 +215,16 @@ pub(in crate::realm) async fn named(
     named: &Named,
 ) -> Result<Option<Lineage>> {
     let own = own_hamlet(rows, caller(by)).await?;
-    named_in(rows, own.as_ref(), named).await
+    named_in(rows, own.as_ref(), named, Among::of(by)).await
 }
 
-async fn named_in(
+pub(super) async fn named_in(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
     named: &Named,
+    among: Among,
 ) -> Result<Option<Lineage>> {
-    match resolve(rows, hamlet, named).await? {
+    match resolve(rows, hamlet, named, among).await? {
         Some(agent) => lineage(rows, agent).await,
         None => Ok(None),
     }
@@ -272,7 +273,43 @@ async fn node(
     }))
 }
 
+/// The agents an address may name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Among {
+    /// The living alone: an agent names no ended agent, as today
+    /// (`crates/hamlet_server/src/calls/society.rs:807`).
+    Living,
+    /// Ended agents too, as a chief names them.
+    Every,
+}
+
+impl Among {
+    fn of(by: &impl Decider) -> Self {
+        match by.by() {
+            record::By::Agent(_) => Self::Living,
+            record::By::Chief => Self::Every,
+        }
+    }
+}
+
 pub(super) async fn resolve(
+    rows: &Rows<'_>,
+    hamlet: Option<&HamletId>,
+    named: &Named,
+    among: Among,
+) -> Result<Option<AgentNumber>> {
+    match agent_named(rows, hamlet, named).await? {
+        Some(agent)
+            if among == Among::Living
+                && life(rows, agent).await? == Life::Ended =>
+        {
+            Ok(None)
+        }
+        found => Ok(found),
+    }
+}
+
+async fn agent_named(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
     named: &Named,

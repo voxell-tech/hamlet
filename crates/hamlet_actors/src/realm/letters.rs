@@ -428,12 +428,6 @@ impl Written<'_> {
         if self.text.trim().is_empty() {
             return refuse(LetterRefusal::Empty);
         }
-        if let Status::Ended(left) = &to.status {
-            return refuse(LetterRefusal::Left {
-                to: to.name.clone(),
-                left: left.clone(),
-            });
-        }
         let Some(way) = ends.way() else {
             return refuse(LetterRefusal::NoRoad {
                 to: to.name.clone(),

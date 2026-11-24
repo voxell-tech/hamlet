@@ -98,10 +98,8 @@ impl Agreeing {
             return Ok(agreeing);
         };
         let Some(theirs) =
-            (match tree::resolve(rows, None, theirs).await? {
-                Some(theirs) => tree::lineage(rows, theirs).await?,
-                None => None,
-            })
+            tree::named_in(rows, None, theirs, tree::Among::Living)
+                .await?
         else {
             agreeing.ends = Err(theirs.clone());
             return Ok(agreeing);
