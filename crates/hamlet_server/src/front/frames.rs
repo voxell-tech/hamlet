@@ -286,10 +286,33 @@ fn operation(op: ChatOp) -> Result<TranscriptOperation> {
         ChatOp::Add {
             item: added,
             replaces,
-        } => TranscriptOperation::Add {
-            item: item(*added)?,
-            replaces,
-        },
+        } => {
+            let added = item(*added)?;
+            match (replaces, added.tool) {
+                (
+                    Some(replaced),
+                    Some(protocol::ItemTool {
+                        exit: Some(exit),
+                        change,
+                        failure,
+                        ms,
+                        ..
+                    }),
+                ) if replaced == added.id => {
+                    TranscriptOperation::Close {
+                        change: change.map(Some),
+                        exit,
+                        failure,
+                        item: replaced,
+                        ms,
+                    }
+                }
+                (replaces, tool) => TranscriptOperation::Add {
+                    item: protocol::Item { tool, ..added },
+                    replaces,
+                },
+            }
+        }
         ChatOp::Append { item, text, .. } => {
             TranscriptOperation::Append { item, text }
         }
@@ -528,6 +551,71 @@ mod tests {
             panic!("one add: {:?}", turn.operations);
         };
         assert_eq!(item.at, 1_763_200_000_123);
+    }
+
+    #[test]
+    fn a_call_that_ends_closes_its_own_item() {
+        let call =
+            |tool: ChatTool, replaces: Option<&str>| ChatOp::Add {
+                item: Box::new(ChatItem {
+                    id: "11:0".to_owned(),
+                    at: Count(1_763_200_000_123),
+                    kind: protocol::ItemKind::Tool,
+                    text: String::new(),
+                    author: None,
+                    chief: None,
+                    images: Vec::new(),
+                    files: Vec::new(),
+                    rewindable: None,
+                    tool: Some(tool),
+                }),
+                replaces: replaces.map(str::to_owned),
+            };
+        let open = ChatTool {
+            name: "end_hire".to_owned(),
+            summary: "hire#3".to_owned(),
+            exit: None,
+            ms: None,
+            failure: None,
+            change: None,
+        };
+        let ended = ChatTool {
+            exit: Some(1),
+            ms: Some(5),
+            failure: Some("the chief refused it: keep it".to_owned()),
+            ..open.clone()
+        };
+        let event = ChatEvent {
+            chat: ChatRef {
+                with: AgentNumber(7),
+                from: None,
+                kind: None,
+                past: None,
+            },
+            epoch: 1,
+            number: 1,
+            ops: vec![call(open, None), call(ended, Some("11:0"))],
+        };
+        let chat = chat_ref(&event.chat);
+        let turn = turn(event, &chat).unwrap().unwrap();
+        assert!(
+            matches!(
+                turn.operations.as_slice(),
+                [
+                    TranscriptOperation::Add { replaces: None, .. },
+                    TranscriptOperation::Close {
+                        item,
+                        exit: 1,
+                        ms: Some(5),
+                        failure: Some(failure),
+                        change: None,
+                    },
+                ] if item == "11:0"
+                    && failure == "the chief refused it: keep it"
+            ),
+            "{:?}",
+            turn.operations
+        );
     }
 
     #[test]

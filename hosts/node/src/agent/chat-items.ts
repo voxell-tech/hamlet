@@ -246,10 +246,13 @@ function closed(
     item: ChatItem,
     ended: Pick<ChatTool, "exit" | "ms" | "failure" | "change">,
 ): ChatOp {
-    return added({
-        ...item,
-        tool: { ...(item.tool as ChatTool), ...ended },
-    });
+    return added(
+        {
+            ...item,
+            tool: { ...(item.tool as ChatTool), ...ended },
+        },
+        item.id,
+    );
 }
 
 /** The words a chat shows where earlier entries were summarised (`clients/fold.rs`). */

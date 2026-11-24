@@ -493,6 +493,17 @@ test("a call that waits for a chief stays open until its ruling closes the same 
         shown.map((item) => item.id),
         "each ruling closes the call's own item",
     );
+    const closing = woken.events
+        .filter(([name]) => name === "chat")
+        .flatMap(([, event]) => (event as ChatEvent).ops)
+        .flatMap((op) =>
+            op.type === "add" && op.item.tool?.exit !== undefined ? [op] : [],
+        );
+    assert.deepEqual(
+        closing.map((op) => op.replaces),
+        closing.map((op) => op.item.id),
+        "a client replaces the open item with the closed one",
+    );
 });
 
 test("a ruling closes its call's item in the watched chat after a restart, however long the chat grew", async (t) => {
