@@ -63,7 +63,6 @@ pub(super) enum Callee {
     PrepareDream,
     /// A profile's purge, by the profile's number.
     Purge,
-    /// A profile's read, by the profile's number.
     Read,
     SetReach,
     Submit,

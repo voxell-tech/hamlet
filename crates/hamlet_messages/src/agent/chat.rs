@@ -196,9 +196,8 @@ pub struct Usage {
     pub summary: String,
 }
 
-/// A whole number that can pass 2^32, such as a sum or a time in
-/// milliseconds, written as decimal text: the agent's encoder writes
-/// a larger integer as a float.
+/// A whole number that can pass 2^32, written as decimal text: the
+/// agent's encoder writes a larger integer as a float.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Count(pub u64);
 
@@ -409,9 +408,6 @@ pub struct Prompt {
 /// `PromptSection`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PromptSection {
-    /// Today's name for where it comes from: `charter`, `machine`,
-    /// `project`, `character`, `memory`, `skills`, `place`, `realm`,
-    /// `scholars`, or an errand's `errand`.
     pub name: String,
     pub text: String,
 }

@@ -80,7 +80,6 @@ export type Input =
           readonly type: "notice";
           readonly text: string;
           readonly conversation?: string;
-          /** The society call that waited for this ruling. */
           readonly held?: HeldCall;
       }
     | {
@@ -110,7 +109,6 @@ export type Input =
           readonly conversation: string;
       };
 
-/** A section of the prompt, named as today names it. */
 export interface PromptSection {
     readonly name: string;
     readonly text: string;
@@ -119,7 +117,6 @@ export interface PromptSection {
 /** A society call the realm kept for a chief, which a ruling ends. */
 export interface HeldCall {
     readonly call: CallId;
-    /** Whether the chief refused it. */
     readonly refused: boolean;
 }
 

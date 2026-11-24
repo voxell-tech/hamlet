@@ -294,10 +294,6 @@ function foldOf(
     return made;
 }
 
-/**
- * Folds into `fold` the entries of `id` up to `before`, which its view leaves
- * out, so it counts their answers and keeps their open calls.
- */
 async function counted(
     harness: Harness,
     id: ConversationId,

@@ -288,9 +288,6 @@ pub(super) async fn hiring_and_how(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
-    // hire 3's agent refuses to be made: the hire ends as failed,
-    // the mayor's letter to it finds no agent, and no agent is left
-    // hiring.
     let (realm, _) = hamlet_with(0).await;
     realm.seen.fail_for_good(Callee::Create, THREE);
     hires(&realm, MAYOR, "h1").await;

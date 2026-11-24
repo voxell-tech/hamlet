@@ -26,11 +26,7 @@ pub(super) struct Target {
 /// A line's task, and whether the line waits for a review.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) enum Said {
-    /// The line goes to its agent, said by the chief named `chief`.
-    Line {
-        task: TaskId,
-        chief: String,
-    },
+    Line { task: TaskId, chief: String },
     Review(TaskId),
 }
 
@@ -149,8 +145,6 @@ fn to(say: &Say) -> Option<AgentNumber> {
     u32::try_from(say.0.to.0).ok().map(AgentNumber)
 }
 
-/// The line `say`, said by the chief named `chief`, carries to its
-/// agent on `task`.
 fn line(say: &Say, task: TaskId, chief: &str) -> Submit {
     Submit {
         id: InputId(say.0.id.as_str().to_owned()),

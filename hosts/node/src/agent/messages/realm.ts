@@ -483,7 +483,6 @@ export interface ReadPlace {
 export interface PlaceText {
     readonly place: string;
     readonly realm?: string;
-    /** The section today names `scholars`: the profiles a hire takes. */
     readonly profiles?: string;
 }
 

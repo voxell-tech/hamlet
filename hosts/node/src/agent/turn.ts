@@ -149,7 +149,6 @@ export type Admission = {
     readonly note?: string;
     /** The name of the chief who said a line. */
     readonly chief?: string;
-    /** The call a ruling's notice ends. */
     readonly held?: HeldCall;
     /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];

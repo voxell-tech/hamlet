@@ -39,8 +39,6 @@ function societyTool<N extends SocietyTool>(
                 folder,
             });
             if ("invalid" in made) return failed(made.invalid);
-            // The chat keeps a held call's item open until the ruling's
-            // notice names the call.
             const said = (text: string): ToolExecutionResult =>
                 text === WAITING
                     ? { ...words(text), details: { waiting: callOf(api) } }

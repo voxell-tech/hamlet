@@ -392,12 +392,10 @@ export function reflecting(answers: string[]): FauxResponseStep[] {
     return Array.from({ length: answers.length + 2 }, () => step);
 }
 
-/** The prompt's sections as one text, as a request sends them. */
 export function joined(sections: readonly PromptSection[]): string {
     return sections.map(({ text }) => text).join("\n\n");
 }
 
-/** The whole prompt the agent's next request in the chief's chat sends. */
 export async function readPrompt(agent: Woken): Promise<string> {
     return joined(
         (await agent.actions.read_prompt(agent.by(from.client))).sections,

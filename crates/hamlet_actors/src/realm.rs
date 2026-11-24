@@ -115,7 +115,6 @@ pub struct Options {
     pub hiring_wait: Duration,
     /// The longest a line held for a lead's review waits for it.
     pub review_deadline: Duration,
-    /// The chief's name, as the record and a chief's line give it.
     pub chief: String,
 }
 

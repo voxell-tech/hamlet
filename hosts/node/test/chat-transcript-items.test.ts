@@ -362,7 +362,6 @@ async function askedChief(t: TestContext, notice: string): Promise<Woken> {
     return agent;
 }
 
-/** The call id the agent sent the realm its `act` under. */
 function callOf(sent: readonly Sent[], act: string): CallId {
     const call = sent.find((one) => one.name === act)?.message as
         | { readonly call?: CallId }
@@ -371,7 +370,6 @@ function callOf(sent: readonly Sent[], act: string): CallId {
     return call.call;
 }
 
-/** Each tool item's name, and how it ended: still open while undefined. */
 const tools = (items: readonly ChatItem[]) =>
     items.flatMap((item) =>
         item.tool === undefined

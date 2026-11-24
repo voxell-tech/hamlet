@@ -28,10 +28,8 @@ import { u32 } from "./messages/shared.ts";
 import { scrub, withheld } from "./models.ts";
 import { type Kept, NOTE_BREAK } from "./turn.ts";
 
-/** A call held for a chief, whose item stays open until its ruling. */
 interface Held {
     readonly item: ChatItem;
-    /** When the call began, in milliseconds. */
     readonly began: number;
 }
 
@@ -51,7 +49,6 @@ interface Shown {
  */
 export class Fold {
     readonly #calls = new Map<string, Pick<Shown, "item" | "made">>();
-    /** By the call the realm was sent. */
     readonly #held = new Map<string, Held>();
     readonly #live = new Map<number, ChatItem>();
     readonly #spent: Spent = { calls: 0, ms: 0 };
@@ -163,11 +160,6 @@ export class Fold {
         ];
     }
 
-    /**
-     * Closes the item of the call a ruling's notice ends, as
-     * `crates/hamlet_server/src/clients/fold.rs` closes a held call's item
-     * when its result comes; none when no such item is open.
-     */
     #ruled(entry: EntryRecord): ChatOp[] | undefined {
         if (entry.kind !== "hamlet.notice") return undefined;
         const { held } = (entry.data ?? {}) as Kept;
@@ -241,7 +233,6 @@ function added(item: ChatItem, replaces?: string): ChatOp {
     };
 }
 
-/** `item`, a tool call's, as it ended. */
 function closed(
     item: ChatItem,
     ended: Pick<ChatTool, "exit" | "ms" | "failure" | "change">,
@@ -409,7 +400,6 @@ function chiefSaid(result: string): string | undefined {
     return words === "" ? undefined : words;
 }
 
-/** In milliseconds. */
 export function timeOf(entry: EntryRecord): number {
     const message = entry.model?.[0];
     if (message !== undefined) return message.timestamp;

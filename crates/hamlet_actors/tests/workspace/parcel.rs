@@ -192,8 +192,6 @@ async fn a_path_outside_the_reach_is_refused() {
     assert_eq!(reading, Part::Refused { why: outside });
 }
 
-/// An agent's own filesystem is its to send, as today's letters send
-/// what the agent reads; another agent's is not.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_sends_the_files_of_its_own_filesystem() {

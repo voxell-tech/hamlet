@@ -273,13 +273,9 @@ async fn node(
     }))
 }
 
-/// The agents an address may name.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Among {
-    /// The living alone: an agent names no ended agent, as today
-    /// (`crates/hamlet_server/src/calls/society.rs:807`).
     Living,
-    /// Ended agents too, as a chief names them.
     Every,
 }
 

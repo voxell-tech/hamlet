@@ -181,7 +181,6 @@ async fn a_workers_address_names_only_a_worker_and_a_hires_only_a_hire()
     realm.host.shutdown().await.unwrap();
 }
 
-/// The words `by` reads when its call `act` is refused.
 async fn refused<T>(
     realm: &Realm,
     by: AgentNumber,

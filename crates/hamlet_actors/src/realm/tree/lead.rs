@@ -66,9 +66,6 @@ pub(in crate::realm) struct Pinned {
 }
 
 impl Pinned {
-    /// The hire with whether its profile lacks its version, asked of
-    /// the profile unless `key` already ran; refused when the profile
-    /// does not answer in time.
     pub(in crate::realm) async fn asked(
         realm: &Realm,
         ctx: &Ctx<Realm>,

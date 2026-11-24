@@ -207,7 +207,6 @@ export function promptPart(sources: PromptSources): Extension {
     });
 }
 
-/** The prompt's sections as the next request in the chief's chat would see them. */
 export async function promptSections(
     sources: PromptSources,
 ): Promise<PromptSection[]> {

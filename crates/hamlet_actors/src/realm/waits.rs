@@ -137,7 +137,6 @@ pub(super) struct Raised {
     pub kind: Kind,
     pub task: Option<TaskId>,
     pub conversation: Option<ConversationId>,
-    /// The society call that waits, which the ruling's notice names.
     pub call: Option<CallId>,
     /// The words a chief reads.
     pub subject: String,

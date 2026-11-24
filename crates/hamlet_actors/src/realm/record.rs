@@ -214,8 +214,6 @@ pub(super) async fn write(
                 ("allowance", by, Fields::of(hire, why))
             }
         };
-        // The name at the decision, as today keeps the chief who made
-        // it (`crates/hamlet_server/src/society/record.rs:137`).
         let decided_by = match by {
             By::Chief => BindParam::Text(chief.clone()),
             By::Agent(_) => BindParam::Null,

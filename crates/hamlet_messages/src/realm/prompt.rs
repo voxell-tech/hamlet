@@ -36,8 +36,6 @@ pub struct PlaceText {
     pub place: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
-    /// The section today names `scholars`: the profiles a hire
-    /// takes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profiles: Option<String>,
 }

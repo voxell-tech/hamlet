@@ -103,7 +103,6 @@ pub(super) fn fresh() -> HamletId {
     HamletId(uuid::Uuid::new_v4().to_string())
 }
 
-/// The chief's name, as the realm was last started with it.
 pub(super) async fn name(rows: &Rows<'_>) -> Result<String> {
     rows.value::<String>("SELECT name FROM chief", Vec::new())
         .await?
@@ -112,9 +111,7 @@ pub(super) async fn name(rows: &Rows<'_>) -> Result<String> {
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// The realm's row, at the first start.
     First,
-    /// The realm's one chief, named as its server names it.
     Chief {
         name: String,
     },

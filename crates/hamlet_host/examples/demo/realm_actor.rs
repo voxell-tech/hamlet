@@ -177,8 +177,6 @@ pub fn kinds() -> [(String, ActorFactory); 1] {
     [(address::Realm::KIND.to_owned(), realm::factory())]
 }
 
-/// The realm's options, with the chief named as today's server names
-/// it (`crates/hamlet_server/src/serve.rs` `chief_name`).
 pub fn options() -> realm::Options {
     let defaults = realm::Options::default();
     realm::Options {
