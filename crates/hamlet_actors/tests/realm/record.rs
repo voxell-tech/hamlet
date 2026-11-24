@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use hamlet_actors::realm;
+use hamlet_messages::agent::Input;
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
@@ -9,9 +13,14 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Mode;
+use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
-use super::{MAYOR, THREE, done_to, hamlet_with, named_as, to, tool};
+use super::stand_ins::Seen;
+use super::{
+    MAYOR, Realm, THREE, done_to, founded, hamlet_with, named_as,
+    say, seen_submits, to, tool,
+};
 
 fn read(lines: &[&str]) -> Record {
     Record::Read {
@@ -155,5 +164,67 @@ async fn the_history_lists_the_decisions_with_the_mayors_hire_before_the_foundin
             }
         }
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_record_and_a_line_name_the_chief_as_its_server_was_started()
+ {
+    let named = |chief: &str| realm::Options {
+        chief: chief.to_owned(),
+        ..realm::Options::default()
+    };
+    let realm =
+        Realm::start_with(Some(named("ada")), Seen::default()).await;
+    realm.live(Hand::NUMBER).await;
+    let hamlet = founded(&realm).await;
+    realm.live(MAYOR).await;
+    let realm = Realm {
+        options: Some(Arc::new(named("bo"))),
+        ..realm
+    }
+    .restart()
+    .await;
+    realm.live(MAYOR).await;
+
+    let renamed = chief(
+        &realm,
+        NameHamlet {
+            hamlet: hamlet.clone(),
+            name: "Weir".to_owned(),
+        },
+    )
+    .await;
+    realm
+        .ask(&say(&RequestId::new(), MAYOR, "build the mill"))
+        .await
+        .unwrap();
+    let record = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await;
+    let said = seen_submits(&realm, MAYOR, 1).await;
+
+    assert_eq!(renamed, Done::Done);
+    assert_eq!(
+        record,
+        read(&[
+            "- ada hired hire#2 (Mayor)",
+            "- ada founded the hamlet under hire#2 (Mayor): Mayor \
+             of Mill.",
+            "- bo changed ",
+        ])
+    );
+    let chiefs = said
+        .iter()
+        .filter_map(|submit| match &submit.input {
+            Input::Line { chief, .. } => Some(chief.as_deref()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(chiefs, [Some("bo")]);
     realm.host.shutdown().await.unwrap();
 }

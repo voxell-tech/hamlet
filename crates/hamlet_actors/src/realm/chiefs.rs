@@ -7,7 +7,7 @@ mod tier;
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::{
@@ -103,10 +103,21 @@ pub(super) fn fresh() -> HamletId {
     HamletId(uuid::Uuid::new_v4().to_string())
 }
 
+/// The chief's name, as the realm was last started with it.
+pub(super) async fn name(rows: &Rows<'_>) -> Result<String> {
+    rows.value::<String>("SELECT name FROM chief", Vec::new())
+        .await?
+        .context("the realm has no chief")
+}
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// The realm's row and its one chief, at the first start.
+    /// The realm's row, at the first start.
     First,
+    /// The realm's one chief, named as its server names it.
+    Chief {
+        name: String,
+    },
     /// A hamlet, with the chief as its chief and `mayor` as its
     /// mayor.
     Found {
@@ -132,6 +143,17 @@ pub(super) async fn apply(
 ) -> Result<Affected> {
     match change {
         Change::First => first(writer).await,
+        Change::Chief { name } => {
+            writer
+                .execute(
+                    "INSERT INTO chief (id, name) VALUES (1, ?1) ON \
+                     CONFLICT (id) DO UPDATE SET name = \
+                     excluded.name",
+                    vec![BindParam::Text(name)],
+                )
+                .await?;
+            Ok(Affected::default())
+        }
         Change::Found {
             hamlet,
             name,
@@ -158,9 +180,6 @@ async fn first(writer: &Writer<'_>) -> Result<Affected> {
                 BindParam::Text(limits::new_realm()?),
             ],
         )
-        .await?;
-    writer
-        .execute("INSERT INTO chief (id) VALUES (1)", Vec::new())
         .await?;
     Ok(Affected::seen([Part::Spend]))
 }

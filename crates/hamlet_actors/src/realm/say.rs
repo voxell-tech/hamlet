@@ -13,19 +13,24 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Rows};
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, hire, record, reviews};
+use super::{chiefs, hire, reviews};
 
 pub(super) struct Target {
     lineage: Option<Lineage>,
     task: TaskId,
+    chief: String,
     /// The changes that hold the line for its hire's lead to review.
     review: Option<Vec<change::Change>>,
 }
 
 /// A line's task, and whether the line waits for a review.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) enum Said {
-    Line(TaskId),
+    /// The line goes to its agent, said by the chief named `chief`.
+    Line {
+        task: TaskId,
+        chief: String,
+    },
     Review(TaskId),
 }
 
@@ -44,9 +49,10 @@ impl Act<Client> for Say {
             None => None,
         };
         let task = tasks::fresh(rows).await?;
+        let chief = chiefs::name(rows).await?;
         let review = match &lineage {
             Some(lineage) if lineage.agent.status == Status::Live => {
-                let line = line(self, task);
+                let line = line(self, task, &chief);
                 reviews::intercept(rows, lineage, task, &line).await?
             }
             _ => None,
@@ -54,6 +60,7 @@ impl Act<Client> for Say {
         Ok(Target {
             lineage,
             task,
+            chief,
             review,
         })
     }
@@ -89,7 +96,10 @@ impl Act<Client> for Say {
             Status::Live => {
                 let said = match target.review {
                     Some(_) => Said::Review(target.task),
-                    None => Said::Line(target.task),
+                    None => Said::Line {
+                        task: target.task,
+                        chief: target.chief,
+                    },
                 };
                 let mut decided =
                     Decided::new(said).change(tasks::Change::Line {
@@ -113,11 +123,11 @@ impl Act<Client> for Say {
     }
 
     fn deliveries(&self, _by: &Client, said: &Said) -> Calls {
-        match (to(self), *said) {
-            (Some(to), Said::Line(task)) => {
+        match (to(self), said) {
+            (Some(to), Said::Line { task, chief }) => {
                 Calls::before_answer(Delivery::Line {
                     to,
-                    submit: line(self, task),
+                    submit: line(self, *task, chief),
                 })
             }
             _ => Calls::none(),
@@ -125,7 +135,7 @@ impl Act<Client> for Say {
     }
 
     fn answer(&self, said: Said, made: &Made) -> Self::Output {
-        let (Said::Line(task) | Said::Review(task)) = said;
+        let (Said::Line { task, .. } | Said::Review(task)) = said;
         let task = task.on_the_wire();
         if made.all_taken() {
             SayAnswer::Taken { task }
@@ -139,8 +149,9 @@ fn to(say: &Say) -> Option<AgentNumber> {
     u32::try_from(say.0.to.0).ok().map(AgentNumber)
 }
 
-/// The line `say` carries to its agent on `task`.
-fn line(say: &Say, task: TaskId) -> Submit {
+/// The line `say`, said by the chief named `chief`, carries to its
+/// agent on `task`.
+fn line(say: &Say, task: TaskId, chief: &str) -> Submit {
     Submit {
         id: InputId(say.0.id.as_str().to_owned()),
         task: Some(task.on_the_wire()),
@@ -149,7 +160,7 @@ fn line(say: &Say, task: TaskId) -> Submit {
             images: say.0.images.clone(),
             files: say.0.files.clone(),
             note: None,
-            chief: Some(record::By::Chief.name()),
+            chief: Some(chief.to_owned()),
         },
     }
 }
@@ -185,6 +196,13 @@ mod tests {
             text: text.to_owned(),
             to: AgentId(to),
         })
+    }
+
+    fn line_said() -> Said {
+        Said::Line {
+            task: task_7(),
+            chief: "chief".to_owned(),
+        }
     }
 
     fn hamlet() -> HamletId {
@@ -241,6 +259,7 @@ mod tests {
         let target = Target {
             lineage,
             task: task_7(),
+            chief: "chief".to_owned(),
             review: None,
         };
         say(&RequestId::new(), to, text).decide(&Client, target)
@@ -267,7 +286,7 @@ mod tests {
         assert_eq!(
             decide(Some(mayor(Status::Live, false)), text),
             Decision::Change(
-                Decided::new(Said::Line(task_7()))
+                Decided::new(line_said())
                     .change(opened(
                         AgentNumber(2),
                         by_hamlet.clone(),
@@ -281,7 +300,7 @@ mod tests {
         );
         let only_the_task = |agent, payer, text| {
             Decision::Change(
-                Decided::new(Said::Line(task_7()))
+                Decided::new(line_said())
                     .change(opened(agent, payer, text)),
             )
         };

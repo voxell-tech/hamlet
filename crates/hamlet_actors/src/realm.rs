@@ -115,6 +115,8 @@ pub struct Options {
     pub hiring_wait: Duration,
     /// The longest a line held for a lead's review waits for it.
     pub review_deadline: Duration,
+    /// The chief's name, as the record and a chief's line give it.
+    pub chief: String,
 }
 
 impl Default for Options {
@@ -122,6 +124,7 @@ impl Default for Options {
         Self {
             hiring_wait: HIRING_WAIT,
             review_deadline: REVIEW_DEADLINE,
+            chief: "chief".to_owned(),
         }
     }
 }
@@ -314,6 +317,17 @@ impl Actor for Realm {
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
         async {
+            let name = HostRef::of(ctx.inner())?
+                .value::<Options>()
+                .unwrap_or_default()
+                .chief
+                .clone();
+            change::commit(
+                &self,
+                &ctx,
+                vec![chiefs::Change::Chief { name }.into()],
+            )
+            .await?;
             parcels::store::sweep(&self, &ctx).await?;
             let rows = change::Rows::outside(&ctx)?;
             steps::undone(&rows, &self.drives)

@@ -181,14 +181,17 @@ async fn demo() -> Result<()> {
         counter::Sleep::WhenIdle
     };
     let mut factories = kinds::factories(&start.kinds, sleep);
+    let mut options = start.options;
     if start.realm_actor {
         factories.extend(realm_actor::kinds());
         factories.remove(Agent::KIND);
+        options =
+            options.with_value(Arc::new(realm_actor::options()));
     }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
-        Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
-        Err(_) => start.options,
+        Ok(sandbox) => options.with_value(Arc::new(sandbox)),
+        Err(_) => options,
     };
     let (host, node) = if start.realm_actor {
         let (host, node) =
