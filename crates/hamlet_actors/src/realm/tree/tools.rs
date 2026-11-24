@@ -14,7 +14,7 @@ use super::super::callers::Lead;
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer, number};
 use super::super::record;
-use super::{Lineage, Status};
+use super::Lineage;
 
 pub(in crate::realm) async fn off_for(
     rows: &Rows<'_>,
@@ -68,12 +68,6 @@ impl<By: Lead> Act<By> for SetTools {
             return Decision::Answer(Self::Output::refused(
                 not_a_lead,
             ));
-        }
-        if let Status::Ended(left) = lineage.agent.status {
-            return refuse(OnlyAHire::Left {
-                hire: lineage.agent.name.clone(),
-                left,
-            });
         }
         Decision::Change(
             Decided::new(lineage.agent.name.clone())

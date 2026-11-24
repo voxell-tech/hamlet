@@ -5,10 +5,10 @@ use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, DoneTo, End, FoundAnswer, HamletId,
-    Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
-    LetterRefusal, Named, OnlyAHire, Rank, RequestRoad,
-    RequestRoadRefusal, RoadDone, Sent, SetTier, SetTools,
-    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
+    Hire, LayRefusal, LayRoad, LeadRefusal, LetterRefusal, Named,
+    OnlyAHire, Rank, RequestRoad, RequestRoadRefusal, RoadDone, Sent,
+    SetTier, SetTools, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
+    ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -494,7 +494,7 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     // the chief lays no road to the Hand, across hamlets, from a hire
-    // to itself, to an ended hire (`Left`) or to no agent; a hire
+    // to itself, to an ended hire or to no agent; a hire
     // lays none it does not lead both ends of. A road between a hire
     // and its own lead is there by the tree: `RoadExists`, and
     // nothing is charged.
@@ -554,12 +554,8 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
                 hire: named_as(5, "hire#5 (Mayor)")
             }),
             refused(LayRefusal::SameEnds),
-            refused(LayRefusal::Left {
-                hire: shown(FOUR),
-                left: Left {
-                    how: HowEnded::ByTheChief,
-                    why: None
-                }
+            refused(LayRefusal::NoSuchAgent {
+                address: "hire#4".to_owned()
             }),
             refused(LayRefusal::NoSuchAgent {
                 address: "hire#99".to_owned()

@@ -318,14 +318,6 @@ impl<By: Lead> Act<By> for LayRoad {
             }
         }
         let (one, two) = (a.agent.agent, b.agent.agent);
-        for end in [a, b] {
-            if let Status::Ended(left) = &end.agent.status {
-                return refuse(LayRefusal::Left {
-                    hire: end.agent.name.clone(),
-                    left: left.clone(),
-                });
-            }
-        }
         let hamlet = match (&a.hamlet, &b.hamlet) {
             (Some(hamlet), Some(other)) if hamlet.id == other.id => {
                 hamlet

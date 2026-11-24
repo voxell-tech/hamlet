@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, DoneTo, End, EndRefusal, FoundAnswer, HamletId,
-    Hire, HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left,
-    Named, Rank, Tool,
+    Asked, Done, DoneTo, End, FoundAnswer, HamletId, Hire,
+    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Named, Rank,
+    Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -15,7 +15,7 @@ use hamlet_protocol::client::RequestId;
 use super::stand_ins::Callee;
 use super::{
     MAYOR, Realm, chief_hires, done_to, error_code, found, founded,
-    hire, hired, named_as, paid, shown, standing, tool, until,
+    hire, hired, named_as, paid, shown, standing, tool, until, words,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -91,7 +91,7 @@ async fn a_lead_hires_and_ends_only_under_itself() {
 async fn an_end_moves_the_children_and_drops_the_reach() {
     // end 3 with 4 under it: 4's lead is 2; the workspace stand-in
     // kept an `Ended` reach for 3. The same end again answers the
-    // same, and another end is refused: 3 has left.
+    // same, and another end finds no living hire#3.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
@@ -145,19 +145,7 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         .await;
 
     assert_eq!([ended, again], [Done::Done, Done::Done]);
-    let left = Left {
-        how: HowEnded::ByTheChief,
-        why: Some("done".to_owned()),
-    };
-    assert_eq!(
-        other,
-        Done::Refused {
-            why: EndRefusal::Left {
-                hire: shown(AgentNumber(3)),
-                left,
-            }
-        }
-    );
+    assert_eq!(words(other), "no agent has the address `hire#3`");
     assert_eq!(lead_of_4, 2);
     assert_eq!(
         (

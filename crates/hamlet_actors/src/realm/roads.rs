@@ -72,13 +72,8 @@ pub(super) async fn ends(
     to: &Named,
 ) -> Result<Ends> {
     let from = end_of(rows, from.0).await?;
-    let Some(to) = tree::resolve(
-        rows,
-        from.hamlet.as_ref(),
-        to,
-        tree::Among::Living,
-    )
-    .await?
+    let Some(to) =
+        tree::resolve(rows, from.hamlet.as_ref(), to).await?
     else {
         return Ok(Ends {
             from,

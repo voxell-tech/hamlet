@@ -9,7 +9,7 @@ use hamlet_messages::realm::workers::{
 use hamlet_messages::realm::{
     AgentRefusal, AgreeRoad, Ask, Done, DoneTo, End, EndRefusal,
     LayRoad, LeadRefusal, LetterRefusal, Named, RequestRoad, Seat,
-    Sent, SetTools, TakeUpRoad, Tool,
+    Sent, SetTools, TakeUpRoad, Tool, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
@@ -359,6 +359,131 @@ async fn an_agent_naming_an_ended_worker_reads_that_no_agent_has_its_address()
     assert_eq!(
         read,
         ["no agent has the address `worker#4`"; 4].map(String::from)
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_naming_an_ended_hire_reads_that_no_agent_has_its_address()
+ {
+    let (realm, _) = hamlet_with(2).await;
+    let end = || End {
+        hire: to(THREE),
+        why: None,
+    };
+    assert_eq!(chief(&realm, end()).await, Done::Done);
+    let road = || (to(THREE), to(FOUR));
+    let (a, b) = road();
+    let (c, d) = road();
+
+    let read = [
+        words(chief(&realm, nickname(to(THREE), "Gone")).await),
+        words(
+            chief(
+                &realm,
+                set_model(ModelOf::Hire { hire: to(THREE) }),
+            )
+            .await,
+        ),
+        words(chief(&realm, end()).await),
+        words(
+            chief(
+                &realm,
+                SetAllowance {
+                    hire: to(THREE),
+                    micros: None,
+                    why: None,
+                },
+            )
+            .await,
+        ),
+        words(
+            chief(
+                &realm,
+                SetTools {
+                    hire: to(THREE),
+                    off: vec![ToolName {
+                        name: "bash".to_owned(),
+                    }],
+                    on: Vec::new(),
+                    why: None,
+                },
+            )
+            .await,
+        ),
+        words(
+            chief(
+                &realm,
+                Seat {
+                    hire: to(THREE),
+                    why: None,
+                },
+            )
+            .await,
+        ),
+        words(chief(&realm, LayRoad { a, b, why: None }).await),
+        words(
+            chief(
+                &realm,
+                TakeUpRoad {
+                    a: c,
+                    b: d,
+                    why: None,
+                },
+            )
+            .await,
+        ),
+        words(chief(&realm, hire(Some(to(THREE)))).await),
+    ];
+
+    assert_eq!(
+        read,
+        ["no agent has the address `hire#3`"; 9].map(String::from)
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_naming_an_ended_worker_reads_that_no_agent_has_its_address()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    realm.tool(THREE, &tool("w1", start())).await.unwrap();
+    realm
+        .tool(
+            FOUR,
+            &WorkerDone {
+                ended: Ended::Answered {
+                    text: "Three.".to_owned(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    let read = [
+        words(chief(&realm, nickname(a_worker(), "Tally")).await),
+        words(
+            chief(
+                &realm,
+                set_model(ModelOf::Hire { hire: a_worker() }),
+            )
+            .await,
+        ),
+        words(
+            chief(
+                &realm,
+                End {
+                    hire: a_worker(),
+                    why: None,
+                },
+            )
+            .await,
+        ),
+    ];
+
+    assert_eq!(
+        read,
+        ["no agent has the address `worker#4`"; 3].map(String::from)
     );
     realm.host.shutdown().await.unwrap();
 }

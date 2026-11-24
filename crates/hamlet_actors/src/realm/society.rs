@@ -97,9 +97,7 @@ impl Agreeing {
         let Some(mine) = tree::named(rows, by, mine).await? else {
             return Ok(agreeing);
         };
-        let Some(theirs) =
-            tree::named_in(rows, None, theirs, tree::Among::Living)
-                .await?
+        let Some(theirs) = tree::named_in(rows, None, theirs).await?
         else {
             agreeing.ends = Err(theirs.clone());
             return Ok(agreeing);

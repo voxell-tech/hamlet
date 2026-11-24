@@ -203,13 +203,7 @@ impl<By: Lead> Act<By> for Pinned {
             }
             (named, ..) => {
                 let named = named.as_ref().unwrap_or(&Named::Mayor);
-                super::named_in(
-                    rows,
-                    hamlet.id(),
-                    named,
-                    super::Among::of(by),
-                )
-                .await?
+                super::named_in(rows, hamlet.id(), named).await?
             }
         };
         let living = match under
@@ -417,12 +411,6 @@ impl<By: Lead> Act<By> for End {
         if lineage.is_mayor() {
             return refuse(EndRefusal::TheMayor);
         }
-        if let Status::Ended(left) = &lineage.agent.status {
-            return refuse(EndRefusal::Left {
-                hire: name,
-                left: left.clone(),
-            });
-        }
         if lineage.agent.kind == AgentKind::Worker {
             let mut decided = Decided::new(Ended::Worker(name));
             decided.changes =
@@ -467,11 +455,10 @@ impl<By: RealmWide> Act<By> for Seat {
 
     async fn load(
         &self,
-        by: &By,
+        _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
-        super::named_in(rows, None, &self.hire, super::Among::of(by))
-            .await
+        super::named_in(rows, None, &self.hire).await
     }
 
     fn decide(
@@ -494,12 +481,6 @@ impl<By: RealmWide> Act<By> for Seat {
                 name: lineage.agent.name.name.clone(),
             });
         };
-        if let Status::Ended(left) = &lineage.agent.status {
-            return refuse(OnlyAHire::Left {
-                hire: lineage.agent.name.clone(),
-                left: left.clone(),
-            });
-        }
         let seated = (lineage.agent.name.clone(), hamlet.id.clone());
         if lineage.is_mayor() {
             return Decision::Again(seated);
@@ -715,7 +696,7 @@ pub(in crate::realm) async fn seat(
 mod tests {
     use hamlet_messages::address::Agent;
     use hamlet_messages::realm::{
-        Done, DoneTo, LeadRefusal, Left, ProfileId, Rank, Tier,
+        Done, DoneTo, LeadRefusal, ProfileId, Rank, Tier,
     };
     use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::reach::Mode;
@@ -777,16 +758,6 @@ mod tests {
             leads: Vec::new(),
             ..five
         }
-    }
-
-    fn left_5() -> (Lineage, Left) {
-        let left = Left {
-            how: HowEnded::ByTheChief,
-            why: None,
-        };
-        let mut lineage = lineage_of_5();
-        lineage.agent.status = Status::Ended(left.clone());
-        (lineage, left)
     }
 
     fn end_5() -> End {
@@ -1000,44 +971,28 @@ mod tests {
     }
 
     #[test]
-    fn an_end_refuses_the_hand_the_mayor_and_a_hire_that_left() {
+    fn an_end_refuses_the_hand_and_the_mayor() {
         let refused = |lineage, why| {
             assert_eq!(
                 end_5().decide(&Client, ending(lineage)),
                 Decision::Answer(Done::Refused { why })
             );
         };
-        let (left, how) = left_5();
 
         refused(hand(), EndRefusal::TheHand);
         refused(mayor_2(), EndRefusal::TheMayor);
-        refused(
-            left,
-            EndRefusal::Left {
-                hire: record::bare(AgentNumber(5)),
-                left: how,
-            },
-        );
     }
 
     #[test]
-    fn a_seat_refuses_the_hand_and_a_hire_that_left() {
+    fn a_seat_refuses_the_hand() {
         let decide =
             |lineage| seat_5().decide(&Client, Some(lineage));
         let refused = |why| Decision::Answer(Done::Refused { why });
-        let (left, how) = left_5();
 
         assert_eq!(
             decide(hand()),
             refused(OnlyAHire::NotAHire {
                 name: "hand".to_owned()
-            })
-        );
-        assert_eq!(
-            decide(left),
-            refused(OnlyAHire::Left {
-                hire: record::bare(AgentNumber(5)),
-                left: how,
             })
         );
         assert_eq!(

@@ -248,15 +248,7 @@ async fn a_lead_sets_its_hires_allowance() {
     );
     assert_eq!(words(nobody), "no agent has the address `hire#99`");
     assert_eq!(spent, over_allowance(THREE, 5, 5));
-    assert!(
-        matches!(
-            &left,
-            Done::Refused {
-                why: OnlyAHire::Left { hire, left }
-            } if hire.agent == FOUR && left.how == HowEnded::ByTheChief
-        ),
-        "{left:?}"
-    );
+    assert_eq!(words(left), "no agent has the address `hire#4`");
     realm.host.shutdown().await.unwrap();
 }
 

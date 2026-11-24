@@ -19,7 +19,7 @@ use super::callers::Lead;
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::limits;
-use super::tree::{self, Lineage, Status};
+use super::tree::{self, Lineage};
 use super::world::Part;
 use super::{dreams, record, tasks, workers};
 
@@ -239,12 +239,6 @@ impl<By: Lead> Act<By> for SetAllowance {
             return Decision::Answer(Self::Output::refused(
                 not_a_lead,
             ));
-        }
-        if let Status::Ended(left) = &lineage.agent.status {
-            return refuse(OnlyAHire::Left {
-                hire: lineage.agent.name.clone(),
-                left: left.clone(),
-            });
         }
         Decision::Change(
             Decided::new(lineage.agent.name.clone())

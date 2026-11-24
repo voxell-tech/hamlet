@@ -20,7 +20,7 @@ use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::documents::{self, Copied, Readers};
 use super::super::world::Part;
 use super::super::{chiefs, record, workers};
-use super::{Lineage, Status};
+use super::Lineage;
 
 /// The most letters a nickname has.
 const NICKNAME_MOST: usize = 24;
@@ -289,12 +289,7 @@ fn led<By: Lead>(
         }));
     }
     by.leads(&lineage)?;
-    match lineage.agent.status {
-        Status::Ended(left) => {
-            Err(By::refused(ChoiceRefusal::Left { hire: name, left }))
-        }
-        Status::Hiring | Status::Live => Ok(name),
-    }
+    Ok(name)
 }
 
 fn given_nickname(
