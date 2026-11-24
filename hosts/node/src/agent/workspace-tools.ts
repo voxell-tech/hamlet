@@ -13,12 +13,14 @@ import {
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { omitUndefined } from "../actor/common/utils.ts";
+import { failureOf } from "./chat-items.ts";
 import type { Outcome } from "./messages/agent.ts";
-import { type Refused, u32 } from "./messages/shared.ts";
+import { type CallId, type Refused, u32 } from "./messages/shared.ts";
 import {
     type Change,
     type ChangeEnd,
     type Need,
+    type NotRunWhy,
     type Program,
     type ReadAnswer,
     type RunEnd,
@@ -27,6 +29,8 @@ import {
     WORKSPACE,
 } from "./messages/workspace.ts";
 import {
+    type CallEnd,
+    callOf,
     callOut,
     failed,
     interrupted,
@@ -238,10 +242,18 @@ export function endsLater(details: unknown): boolean {
     );
 }
 
-function waits(what: string, needs: readonly Need[]): ToolExecutionResult {
-    return later(
-        `${what} waits for a chief to allow it (${needs.join(", ")}). Its end arrives as a new input.`,
-    );
+/** Its item stays open until the end of `call` arrives. */
+function waits(
+    what: string,
+    needs: readonly Need[],
+    call: CallId,
+): ToolExecutionResult {
+    return {
+        ...words(
+            `${what} waits for a chief to allow it (${needs.join(", ")}). Its end arrives as a new input.`,
+        ),
+        details: { endsLater: true, waiting: call },
+    };
 }
 
 /** The words of a command's end that arrives as an input. */
@@ -396,6 +408,49 @@ export function endWords(outcome: Outcome): string {
         .join("");
 }
 
+/**
+ * A call's end that arrives as an input, as today closes its item: a
+ * command's exit and time, and today's words for a call not run
+ * (`crates/hamlet_server/src/calls.rs`).
+ */
+export function endOf(outcome: Outcome): CallEnd {
+    if (outcome.end.type === "not_run") {
+        return notRun(outcome.end.why, outcome.end.words);
+    }
+    if (outcome.type === "change") {
+        return outcome.end.type === "changed"
+            ? { type: "ran", exit: 0, created: outcome.end.created }
+            : { type: "ran", exit: 1, failure: failureOf(outcome.end.words) };
+    }
+    const { exit, output, took_ms } = outcome.end;
+    if (exit.type !== "code") {
+        return {
+            type: "ran",
+            exit: -1,
+            ms: took_ms,
+            failure: failureOf(endWords(outcome)),
+        };
+    }
+    return {
+        type: "ran",
+        exit: exit.code,
+        ms: took_ms,
+        ...(exit.code === 0 ? {} : { failure: failureOf(output) }),
+    };
+}
+
+function notRun(why: NotRunWhy, words: string): CallEnd {
+    if (why.type === "chief_refused") {
+        return {
+            type: "blocked",
+            why: `the chief refused it: ${why.reason ?? "no reason given"}`,
+        };
+    }
+    return why.type === "lapsed" && why.lapse === "stopped"
+        ? { type: "aborted" }
+        : { type: "blocked", why: words };
+}
+
 function read(peers: Peers): ToolRegistration {
     return fileTool("read", (args, api, context) =>
         callOut(
@@ -443,7 +498,7 @@ async function run(
                         `Command ${answer.command} is still running. Its end arrives as a new input.`,
                     );
                 case "waits_for_chief":
-                    return waits("The command", answer.needs);
+                    return waits("The command", answer.needs, callOf(api));
             }
         },
         program.type === "script" ? "bash" : program.name,
@@ -498,7 +553,7 @@ function write(peers: Peers): ToolRegistration {
             (answer) =>
                 answer.type === "ended"
                     ? changed(answer.end)
-                    : waits("The write", answer.needs),
+                    : waits("The write", answer.needs, callOf(api)),
             "write",
         ),
     );
@@ -516,7 +571,7 @@ function edit(peers: Peers): ToolRegistration {
             (answer) =>
                 answer.type === "ended"
                     ? changed(answer.end, args.edits.length)
-                    : waits("The edit", answer.needs),
+                    : waits("The edit", answer.needs, callOf(api)),
             "edit",
         ),
     );

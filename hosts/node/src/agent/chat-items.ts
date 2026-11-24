@@ -26,10 +26,11 @@ import type {
 } from "./messages/agent.ts";
 import { u32 } from "./messages/shared.ts";
 import { scrub, withheld } from "./models.ts";
-import { type Kept, NOTE_BREAK } from "./turn.ts";
+import { type CallEnd, type Kept, KIND, NOTE_BREAK } from "./turn.ts";
 
 interface Held {
     readonly item: ChatItem;
+    readonly made?: ChatTool["change"];
     /** The call's own time, which an allowed call's item shows. */
     readonly ms?: number;
 }
@@ -103,8 +104,8 @@ export class Fold {
         this.#seen = Math.max(this.#seen, Number(entry.id));
         this.#counted(entry);
         if (entry.kind === "pi.tool-result") return this.#ended(entry);
-        const ruled = this.#ruled(entry);
-        if (ruled !== undefined) return ruled;
+        const ended = this.#endedLater(entry);
+        if (ended !== undefined) return ended;
         const answer = entry.kind === "pi.assistant";
         const ops = itemsOf(entry).map(({ block, item, call, made }) => {
             if (call !== undefined) this.#calls.set(call, { item, made });
@@ -141,6 +142,7 @@ export class Fold {
         if (typeof details?.waiting === "string") {
             this.#held.set(details.waiting, {
                 item,
+                ...(call?.made === undefined ? {} : { made: call.made }),
                 ...(result.durationMs === undefined
                     ? {}
                     : { ms: result.durationMs }),
@@ -163,34 +165,24 @@ export class Fold {
         ];
     }
 
-    #ruled(entry: EntryRecord): ChatOp[] | undefined {
-        if (entry.kind !== "hamlet.notice") return undefined;
-        const { held } = (entry.data ?? {}) as Kept;
-        const call = held === undefined ? undefined : this.#held.get(held.call);
-        if (held === undefined || call === undefined) return undefined;
-        this.#held.delete(held.call);
-        const text = textOf(entry);
-        const at = timeOf(entry);
-        const ops = [
-            closed(
-                call.item,
-                held.refused
-                    ? { exit: 1, failure: failureOf(`${BLOCKED}${text}`) }
-                    : {
-                          exit: 0,
-                          ...(call.ms === undefined
-                              ? {}
-                              : { ms: u32(call.ms) }),
-                      },
-            ),
-        ];
+    /** A call that waited for a chief, closed by the input that ends it. */
+    #endedLater(entry: EntryRecord): ChatOp[] | undefined {
+        if (!entry.kind.startsWith(KIND)) return undefined;
+        const { ended } = (entry.data ?? {}) as Kept;
+        const held =
+            ended === undefined ? undefined : this.#held.get(ended.call);
+        if (ended === undefined || held === undefined) return undefined;
+        this.#held.delete(ended.call);
+        const ops = [closed(held.item, endingOf(held, ended.end))];
         const said =
-            call.item.tool?.name === "ask_chief" ? chiefSaid(text) : undefined;
+            held.item.tool?.name === "ask_chief"
+                ? chiefSaid(textOf(entry))
+                : undefined;
         if (said !== undefined) {
             ops.push(
                 added({
                     id: `${entry.id}:0`,
-                    at: `${at}`,
+                    at: `${timeOf(entry)}`,
                     kind: "answered",
                     text: said,
                 }),
@@ -356,7 +348,7 @@ function itemsOf(entry: EntryRecord): Shown[] {
             );
         }
         default:
-            return entry.kind === "pi.user" || entry.kind.startsWith("hamlet.")
+            return entry.kind === "pi.user" || entry.kind.startsWith(KIND)
                 ? one("user", textOf(entry))
                 : [];
     }
@@ -444,8 +436,35 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
 /** pi-durable's words before the reason a call was not run. */
 const BLOCKED = "Tool call blocked: ";
 
+/** A held call's end as today's fold closes it (`clients/fold.rs`). */
+function endingOf(
+    held: Held,
+    end: CallEnd,
+): Pick<ChatTool, "exit" | "ms" | "failure" | "change"> {
+    switch (end.type) {
+        case "blocked":
+            return { exit: 1, failure: failureOf(`${BLOCKED}${end.why}`) };
+        case "aborted":
+            return {
+                exit: 1,
+                failure: `Tool ${held.item.tool?.name} was aborted`,
+            };
+        case "ran": {
+            const ms = end.ms ?? held.ms;
+            return {
+                exit: end.exit >>> 0,
+                ...(ms === undefined ? {} : { ms: u32(ms) }),
+                ...(end.failure === undefined ? {} : { failure: end.failure }),
+                ...(end.created === true && held.made !== undefined
+                    ? { change: held.made }
+                    : {}),
+            };
+        }
+    }
+}
+
 /** The first line of a failed call's text that says something (`clients/fold.rs`). */
-function failureOf(text: string): string {
+export function failureOf(text: string): string {
     const line =
         text
             .replaceAll("<harness>\n", "")

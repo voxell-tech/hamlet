@@ -31,12 +31,22 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                       content: `${input.text}${NOTE_BREAK}${input.note}`,
                   };
         }
+        // A refusal's notice is today's words for a blocked call.
         case "notice":
             return {
                 ...base,
                 kind: "notice",
                 content: input.text,
-                ...(input.held === undefined ? {} : { held: input.held }),
+                ...(input.held === undefined
+                    ? {}
+                    : {
+                          ended: {
+                              call: input.held.call,
+                              end: input.held.refused
+                                  ? { type: "blocked", why: input.text }
+                                  : { type: "ran", exit: 0 },
+                          },
+                      }),
             };
         // A worker's answer and an answer are told as their author's, and a
         // letter and a question as their words, as

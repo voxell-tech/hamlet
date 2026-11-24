@@ -19,12 +19,7 @@ import type {
     Calls,
 } from "../actor/actor/mod.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import type {
-    Author,
-    ChatFile,
-    ChatImage,
-    HeldCall,
-} from "./messages/agent.ts";
+import type { Author, ChatFile, ChatImage } from "./messages/agent.ts";
 import {
     LIBRARY,
     type Offer,
@@ -137,6 +132,22 @@ export type InputKind =
 /** Between a chief's line and the note of the lead who reviewed it. */
 export const NOTE_BREAK = "\n\n";
 
+/** How a call that waited for a chief ended, as its item shows it. */
+export type CallEnd =
+    | {
+          readonly type: "ran";
+          readonly exit: number;
+          /** Absent: the call's own time. */
+          readonly ms?: number;
+          readonly failure?: string;
+          readonly created?: boolean;
+      }
+    | { readonly type: "blocked"; readonly why: string }
+    | { readonly type: "aborted" };
+
+/** The end of the call `call`, which arrived as an input. */
+export type Ended = { readonly call: string; readonly end: CallEnd };
+
 export type Admission = {
     /** pi-durable admits it once per conversation. */
     readonly id: string;
@@ -149,7 +160,7 @@ export type Admission = {
     readonly note?: string;
     /** The name of the chief who said a line. */
     readonly chief?: string;
-    readonly held?: HeldCall;
+    readonly ended?: Ended;
     /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
@@ -179,7 +190,7 @@ export interface TurnInput {
     readonly question?: LetterId;
 }
 
-const KIND = "hamlet.";
+export const KIND = "hamlet.";
 
 export type Kept = {
     task?: RealmTask;
@@ -188,7 +199,7 @@ export type Kept = {
     from?: Pick<Author, keyof Author>;
     note?: string;
     chief?: string;
-    held?: Pick<HeldCall, keyof HeldCall>;
+    ended?: Ended;
     images?: Pick<ChatImage, keyof ChatImage>[];
     files?: Pick<ChatFile, keyof ChatFile>[];
 };
@@ -209,7 +220,7 @@ export function draftOf(
         ...(admission.from === undefined ? {} : { from: admission.from }),
         ...(admission.note === undefined ? {} : { note: admission.note }),
         ...(admission.chief === undefined ? {} : { chief: admission.chief }),
-        ...(admission.held === undefined ? {} : { held: admission.held }),
+        ...(admission.ended === undefined ? {} : { ended: admission.ended }),
         ...(admission.images === undefined || admission.images.length === 0
             ? {}
             : { images: [...admission.images] }),

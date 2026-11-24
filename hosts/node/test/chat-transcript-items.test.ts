@@ -14,8 +14,10 @@ import type {
     ChatPage,
     ChatRef,
     Input,
+    Outcome,
 } from "../src/agent/messages/agent.ts";
 import type { CallId } from "../src/agent/messages/shared.ts";
+import type { NotRunWhy } from "../src/agent/messages/workspace.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -528,6 +530,13 @@ async function callTimes(agent: Woken): Promise<Map<string, number>> {
     );
 }
 
+const ends = (items: readonly ChatItem[]) =>
+    items.flatMap(({ tool }) =>
+        tool === undefined
+            ? []
+            : [[tool.name, tool.exit, tool.ms, tool.failure]],
+    );
+
 test("a ruling closes its call as today does: a refusal is blocked with no time, an allowance takes the call's own time", async (t) => {
     const reserved = (wait: number) => () => ({
         type: "refused" as const,
@@ -562,21 +571,152 @@ test("a ruling closes its call as today does: a refusal is blocked with no time,
 
     const own = await callTimes(agent);
     assert.ok(own.get("hire") !== undefined);
-    assert.deepEqual(
-        (await read(agent)).items.flatMap(({ tool }) =>
-            tool === undefined
-                ? []
-                : [[tool.name, tool.exit, tool.ms, tool.failure]],
-        ),
+    assert.deepEqual(ends((await read(agent)).items), [
+        ["hire", 0, own.get("hire"), undefined],
         [
-            ["hire", 0, own.get("hire"), undefined],
-            [
-                "end_hire",
-                1,
-                undefined,
-                "Tool call blocked: the chief refused it: keep it",
-            ],
+            "end_hire",
+            1,
+            undefined,
+            "Tool call blocked: the chief refused it: keep it",
         ],
+    ]);
+});
+
+test("a call that waits for a chief to allow it stays open, and its end closes the same item as today's", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            run: () => ({ type: "waits_for_chief", needs: ["command"] }),
+            write_file: () => ({ type: "waits_for_chief", needs: ["edit"] }),
+        },
+    });
+    const commands = [
+        "echo ran",
+        "echo oops; exit 3",
+        "sleep 7",
+        "echo keep",
+        "echo bare",
+        "echo stop",
+    ];
+    const agent = await wake(
+        t,
+        [
+            ...commands.map((command, n) =>
+                toolCall("bash", { command }, `c${n}`),
+            ),
+            toolCall("write", { path: "/work/a.md", content: "a\n" }, "cw"),
+            fauxAssistantMessage("Waiting on the chief."),
+            ...commands.map((_, n) => fauxAssistantMessage(`Heard ${n}.`)),
+            fauxAssistantMessage("Written."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Run them and write." });
+    assert.deepEqual(
+        ends((await read(agent)).items),
+        [...commands.map(() => "bash"), "write"].map((name) => [
+            name,
+            undefined,
+            undefined,
+            undefined,
+        ]),
+    );
+
+    const ran = (code: number, output: string, took: number): Outcome => ({
+        type: "run",
+        end: {
+            type: "ran",
+            command: 1,
+            exit: { type: "code", code },
+            output,
+            policy: "sandbox",
+            took_ms: took,
+        },
+    });
+    const notRun = (why: NotRunWhy, words: string): Outcome => ({
+        type: "run",
+        end: { type: "not_run", why, words },
+    });
+    const outcomes = [
+        ran(0, "ran\n", 12),
+        ran(3, "oops\n", 15),
+        ran(0, "", 7019),
+        notRun(
+            { type: "chief_refused", reason: "keep it" },
+            "a chief refused the call: keep it",
+        ),
+        notRun({ type: "chief_refused" }, "a chief refused the call"),
+        notRun(
+            { type: "lapsed", lapse: "stopped" },
+            "the call's wait for a chief lapsed: the turn was stopped",
+        ),
+    ];
+    const runs = sent
+        .filter((one) => one.name === "run")
+        .map((one) => (one.message as { call: CallId }).call);
+    for (const [n, outcome] of outcomes.entries()) {
+        const call = runs[n];
+        assert.ok(call !== undefined);
+        await agent.actions.finished(agent.by(from.workspace), {
+            call,
+            outcome,
+        });
+        await agent.idle();
+    }
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOf(sent, "write_file"),
+        outcome: {
+            type: "change",
+            end: {
+                type: "changed",
+                path: "/work/a.md",
+                created: true,
+                hash: "1f",
+            },
+        },
+    });
+    await agent.idle();
+
+    const own = await callTimes(agent);
+    assert.ok(own.get("write") !== undefined);
+    const items = (await read(agent)).items;
+    assert.deepEqual(ends(items), [
+        ["bash", 0, 12, undefined],
+        ["bash", 3, 15, "oops"],
+        ["bash", 0, 7019, undefined],
+        [
+            "bash",
+            1,
+            undefined,
+            "Tool call blocked: the chief refused it: keep it",
+        ],
+        [
+            "bash",
+            1,
+            undefined,
+            "Tool call blocked: the chief refused it: no reason given",
+        ],
+        ["bash", 1, undefined, "Tool bash was aborted"],
+        ["write", 0, own.get("write"), undefined],
+    ]);
+    assert.equal(
+        items.find((item) => item.tool?.name === "write")?.tool?.change
+            ?.created,
+        true,
+    );
+    assert.deepEqual(
+        items.filter((item) => item.kind === "user").map((item) => item.text),
+        ["Run them and write."],
+    );
+    const closing = agent.events
+        .filter(([name]) => name === "chat")
+        .flatMap(([, event]) => (event as ChatEvent).ops)
+        .flatMap((op) =>
+            op.type === "add" && op.item.tool?.exit !== undefined ? [op] : [],
+        );
+    assert.deepEqual(
+        closing.map((op) => op.replaces),
+        items.flatMap((item) => (item.tool === undefined ? [] : [item.id])),
+        "each end closes its call's own item, once",
     );
 });
 

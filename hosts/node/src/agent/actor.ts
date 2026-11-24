@@ -105,7 +105,12 @@ import {
     turnsOf,
     type WithHarness,
 } from "./turn.ts";
-import { endWords, handTools, workspaceTools } from "./workspace-tools.ts";
+import {
+    endOf,
+    endWords,
+    handTools,
+    workspaceTools,
+} from "./workspace-tools.ts";
 
 export interface AgentConfig {
     readonly models: Models;
@@ -769,6 +774,10 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
                 kind: "finished",
                 id: message.call,
                 content: endWords(message.outcome),
+                ended: {
+                    call: message.call,
+                    end: endOf(message.outcome),
+                },
             }),
             context,
         );
