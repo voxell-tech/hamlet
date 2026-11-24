@@ -389,7 +389,7 @@ async fn a_repeated_hire_at_a_version_answers_as_it_first_did() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_whose_profile_does_not_show_its_version_in_time_hears_so()
-{
+ {
     let (realm, hamlet) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     let heard = "`scholar#3 (Mason)` did not answer in time to show \

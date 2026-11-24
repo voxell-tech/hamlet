@@ -76,14 +76,16 @@ impl Pinned {
         hire: Hire,
     ) -> Result<Result<Self, HireRefusal>> {
         let rows = Rows::outside(ctx)?;
-        let (Some(version), Some(named)) = (&hire.version, hire.profile)
+        let (Some(version), Some(named)) =
+            (&hire.version, hire.profile)
         else {
             return Ok(Ok(Self { hire, lacked: None }));
         };
         if marker::find::<IgnoredAny>(&rows, key).await?.is_some() {
             return Ok(Ok(Self { hire, lacked: None }));
         }
-        let Ok(profile) = profiles::shared(&rows, named).await? else {
+        let Ok(profile) = profiles::shared(&rows, named).await?
+        else {
             return Ok(Ok(Self { hire, lacked: None }));
         };
         let at = Read {
@@ -156,13 +158,15 @@ impl Handler<Pinning<Tool<Hire>>> for Realm {
         let name = <Tool<Hire> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
         let (key, called, hire) = act::called(&by, name, tool)?;
-        let pinned = match Pinned::asked(&self, &ctx, &key, hire).await?
-        {
-            Ok(pinned) => pinned,
-            Err(why) => {
-                return Ok(HireAnswer::refused(LeadRefusal::Act(why)));
-            }
-        };
+        let pinned =
+            match Pinned::asked(&self, &ctx, &key, hire).await? {
+                Ok(pinned) => pinned,
+                Err(why) => {
+                    return Ok(HireAnswer::refused(
+                        LeadRefusal::Act(why),
+                    ));
+                }
+            };
         let ran = act::run_called(
             &self,
             &ctx,

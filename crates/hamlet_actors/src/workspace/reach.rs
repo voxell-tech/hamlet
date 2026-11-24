@@ -303,7 +303,9 @@ pub enum Network {
 /// A policy's purpose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
-    Command { network: Network },
+    Command {
+        network: Network,
+    },
     FileTool,
     /// The read of the files an agent's letter sends, which takes in
     /// the agent's own filesystem as today's letters do
