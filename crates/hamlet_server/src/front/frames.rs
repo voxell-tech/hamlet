@@ -307,7 +307,7 @@ fn operation(op: ChatOp) -> Result<TranscriptOperation> {
 
 fn item(item: ChatItem) -> Result<protocol::Item> {
     Ok(protocol::Item {
-        at: u64::from(item.at) * 1000,
+        at: item.at.0,
         author: item.author,
         chief: None,
         files: item
@@ -405,6 +405,7 @@ mod tests {
         Count, ListedModel, ResumeRefusal, Session,
     };
     use hamlet_messages::agent::copies::Price;
+    use hamlet_messages::workspace::AgentNumber;
     use hamlet_protocol::client::{Confinement, ReplyKind};
     use serde::Serialize;
 
@@ -485,6 +486,43 @@ mod tests {
         assert_eq!(past.modified, 1_700_000_060_000);
         assert_eq!(past.by, "Ada");
         assert_eq!(past.tokens, 5_000_000_000);
+    }
+
+    #[test]
+    fn an_items_time_reaches_a_client_in_milliseconds() {
+        let event = ChatEvent {
+            chat: ChatRef {
+                with: AgentNumber(7),
+                from: None,
+                kind: None,
+                past: None,
+            },
+            epoch: 1,
+            number: 1,
+            ops: vec![ChatOp::Add {
+                item: Box::new(ChatItem {
+                    id: "3:0".to_owned(),
+                    at: Count(1_763_200_000_123),
+                    kind: protocol::ItemKind::User,
+                    text: "Go on.".to_owned(),
+                    author: None,
+                    chief: None,
+                    images: Vec::new(),
+                    files: Vec::new(),
+                    rewindable: None,
+                    tool: None,
+                }),
+                replaces: None,
+            }],
+        };
+        let chat = chat_ref(&event.chat);
+        let turn = turn(event, &chat).unwrap().unwrap();
+        let [TranscriptOperation::Add { item, .. }] =
+            turn.operations.as_slice()
+        else {
+            panic!("one add: {:?}", turn.operations);
+        };
+        assert_eq!(item.at, 1_763_200_000_123);
     }
 
     #[test]

@@ -115,6 +115,39 @@ test("a chief's line shows the chief who said it, in the page and its events, as
     assert.deepEqual(chiefOf(added(agent)), ["ada"]);
 });
 
+test("a chat item's time is in milliseconds, as today", async (t) => {
+    const before = Date.now();
+    const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
+    await send(agent, { type: "line", text: "Go on." });
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-ms",
+        to: 7,
+    });
+    const after = Date.now();
+
+    const times = (items: readonly ChatItem[]) =>
+        items.map((item) => [item.kind, Number(item.at)] as const);
+    const within = ([, at]: readonly [string, number]) =>
+        at >= before && at <= after;
+    const past = times((await read(agent, { with: 7, past: 1 })).items);
+    assert.deepEqual(
+        past.map(([kind]) => kind),
+        ["user", "assistant"],
+    );
+    assert.ok(past.every(within), JSON.stringify(past));
+    const current = times((await read(agent)).items);
+    assert.deepEqual(
+        current.map(([kind]) => kind),
+        ["notice"],
+    );
+    assert.ok(current.every(within), JSON.stringify(current));
+    const events = times(added(agent));
+    assert.ok(
+        events.length > 0 && events.every(within),
+        JSON.stringify(events),
+    );
+});
+
 test("a sender's item shows its name as the realm gives it", async (t) => {
     const agent = await wake(
         t,

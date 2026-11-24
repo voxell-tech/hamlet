@@ -505,7 +505,10 @@ export async function readHistory(
                     context,
                 );
                 for (const entry of page.items) {
-                    modified = Math.max(modified, timeOf(entry));
+                    modified = Math.max(
+                        modified,
+                        Math.floor(timeOf(entry) / 1000),
+                    );
                     if (entry.kind === "hamlet.line") {
                         messages += 1;
                         const text = textOf(entry);

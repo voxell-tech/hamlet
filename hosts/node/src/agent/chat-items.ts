@@ -20,6 +20,7 @@ import type {
     ChatItem,
     ChatOp,
     ChatTool,
+    Count,
     ItemKind,
     Usage,
 } from "./messages/agent.ts";
@@ -152,7 +153,7 @@ export class Fold {
     #partial(message: AssistantMessage | undefined): ChatOp[] {
         if (message === undefined) return [];
         const ops: ChatOp[] = [];
-        const at = Math.floor(message.timestamp / 1000);
+        const at = `${message.timestamp}`;
         for (const { block, item: whole } of blocksOf(
             message.content,
             (block) => `live:${block}`,
@@ -198,7 +199,7 @@ const SUMMARY_NOTICE =
 
 /** The items an entry shows; a tool's result shows in its call's item. */
 function itemsOf(entry: EntryRecord): Shown[] {
-    const at = timeOf(entry);
+    const at = `${timeOf(entry)}`;
     const one = (
         kind: ItemKind,
         text: string,
@@ -302,7 +303,7 @@ function itemsOf(entry: EntryRecord): Shown[] {
 function blocksOf(
     content: AssistantMessage["content"],
     id: (block: number) => string,
-    at: number,
+    at: Count,
 ): Shown[] {
     const shown: Shown[] = [];
     for (const [block, part] of content.entries()) {
@@ -346,9 +347,10 @@ function chiefSaid(result: string): string | undefined {
     return words === "" ? undefined : words;
 }
 
+/** In milliseconds. */
 export function timeOf(entry: EntryRecord): number {
     const message = entry.model?.[0];
-    if (message !== undefined) return Math.floor(message.timestamp / 1000);
+    if (message !== undefined) return message.timestamp;
     const at = (entry.data as { at?: unknown } | undefined)?.at;
     return typeof at === "number" ? at : 0;
 }

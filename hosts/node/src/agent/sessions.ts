@@ -212,7 +212,7 @@ export function nowSeconds(): number {
 
 /** The entry of a notice (C30), which the model never reads. */
 export function noticeEntry(text: string): EntryDraft {
-    return { kind: "hamlet.notice", data: { text, at: nowSeconds() } };
+    return { kind: "hamlet.notice", data: { text, at: Date.now() } };
 }
 
 interface Begun {

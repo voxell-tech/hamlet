@@ -151,7 +151,7 @@ fn tool() -> ChatTool {
 fn item(id: &str, kind: protocol::ItemKind, text: &str) -> ChatItem {
     ChatItem {
         id: id.into(),
-        at: 1_763_200_000,
+        at: Count(1_763_200_000_123),
         kind,
         text: text.into(),
         author: None,

@@ -304,8 +304,8 @@ export interface ChatTool {
 
 export interface ChatItem {
     readonly id: string;
-    /** Whole seconds since the epoch. */
-    readonly at: number;
+    /** Milliseconds since the epoch. */
+    readonly at: Count;
     readonly kind: ItemKind;
     readonly text: string;
     readonly author?: string;
