@@ -2,7 +2,6 @@
 
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
-use std::time::Duration;
 
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
@@ -106,10 +105,14 @@ async fn each_client_is_shown_the_realm_moving_forward() {
         for id in ids {
             chief.reply(id).await;
         }
-        chief.settle(Duration::from_secs(1)).await;
     }
     let now = look(&server).await.revision;
-    for chief in [&one, &two] {
+    for chief in [&mut one, &mut two] {
+        chief
+            .until("the realm as it stands", |chief| {
+                chief.realm().revision >= now
+            })
+            .await;
         let revisions = chief
             .messages()
             .iter()
@@ -122,7 +125,6 @@ async fn each_client_is_shown_the_realm_moving_forward() {
             revisions.is_sorted(),
             "the realm went back: {revisions:?}"
         );
-        assert_eq!(chief.realm().revision, now);
     }
     one.close().await;
     two.close().await;

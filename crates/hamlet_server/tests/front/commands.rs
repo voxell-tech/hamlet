@@ -204,7 +204,7 @@ async fn an_answer_sent_after_a_stop_finds_its_wait_closed() {
             (answered.kind, answered.text),
             (
                 ReplyKind::Error,
-                format!("nothing waits here with the id {wait}")
+                "nothing waits here with that id".to_owned()
             ),
             "round {round}"
         );
