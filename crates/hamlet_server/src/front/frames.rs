@@ -334,7 +334,7 @@ fn item(item: ChatItem) -> Result<protocol::Item> {
     Ok(protocol::Item {
         at: item.at.0,
         author: item.author,
-        chief: None,
+        chief: item.chief,
         files: item
             .files
             .into_iter()
@@ -618,6 +618,34 @@ mod tests {
             ),
             "{:?}",
             turn.operations
+        );
+    }
+
+    #[test]
+    fn a_chiefs_line_names_its_chief_as_today() {
+        let line = item(ChatItem {
+            id: "10:0".to_owned(),
+            at: Count(1_795_521_338_667),
+            kind: protocol::ItemKind::User,
+            text: "run it".to_owned(),
+            author: None,
+            chief: Some("Ada".to_owned()),
+            images: Vec::new(),
+            files: Vec::new(),
+            rewindable: Some(true),
+            tool: None,
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(line).unwrap(),
+            serde_json::json!({
+                "at": 1_795_521_338_667_u64,
+                "chief": "Ada",
+                "id": "10:0",
+                "kind": "user",
+                "rewindable": true,
+                "text": "run it",
+            })
         );
     }
 
