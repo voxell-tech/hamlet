@@ -332,21 +332,22 @@ async fn told_of_a_hire_failing_at(callee: Callee) -> String {
 const PLAIN: &str = "An internal error occurred";
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hire_whose_branch_cannot_be_made_ends_and_its_lead_hears_why()
+async fn a_hire_whose_branch_cannot_be_made_ends_and_its_lead_hears_it_failed()
  {
     let told = told_of_a_hire_failing_at(Callee::Branch).await;
     assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hire_whose_files_cannot_be_filled_ends_and_its_lead_hears_why()
+async fn a_hire_whose_files_cannot_be_filled_ends_and_its_lead_hears_it_failed()
  {
     let told = told_of_a_hire_failing_at(Callee::Fill).await;
     assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_hire_whose_reach_is_refused_ends_and_its_lead_hears_why() {
+async fn a_hire_whose_reach_cannot_be_set_ends_and_its_lead_hears_it_failed()
+ {
     let told = told_of_a_hire_failing_at(Callee::SetReach).await;
     assert_eq!(told, format!("{HIRE_3_FAILED}{PLAIN}"));
 }
