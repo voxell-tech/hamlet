@@ -110,6 +110,12 @@ export type Input =
           readonly conversation: string;
       };
 
+/** A section of the prompt, named as today names it. */
+export interface PromptSection {
+    readonly name: string;
+    readonly text: string;
+}
+
 /** A society call the realm kept for a chief, which a ruling ends. */
 export interface HeldCall {
     readonly call: CallId;
@@ -513,7 +519,7 @@ export interface ClientActions {
     rewind(message: Rewind): RewindAnswer;
     read_chat(message: Open): ChatPage;
     read_history(): { readonly sessions: readonly Session[] };
-    read_prompt(): { readonly text: string };
+    read_prompt(): { readonly sections: readonly PromptSection[] };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
     read_models(): ModelList;

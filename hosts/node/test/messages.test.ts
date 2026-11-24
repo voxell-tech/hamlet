@@ -45,6 +45,7 @@ import {
     modelFailed,
     named,
     priced,
+    readPrompt,
     type Sent,
     type ToolResult,
     toolCall,
@@ -1878,8 +1879,7 @@ for (const name of answersTo("realm/read_place")) {
             realm: { read_place: () => given },
         });
         const agent = await turn(t, calls, { submit: submitted(undefined) });
-        const prompt = (await agent.actions.read_prompt(agent.by(from.client)))
-            .text;
+        const prompt = await readPrompt(agent);
         await agent.stop();
 
         const sections = [given.place, given.realm, given.scholars].filter(
@@ -2052,8 +2052,7 @@ test("realm/read_copies.answer is read by the wake, and its charter reaches the 
     const given = answer("realm/read_copies") as Copies;
     const { calls } = fakeCalls({ realm: { read_copies: () => given } });
     const agent = await wakeAgent(t, { calls, input: HAND });
-    const prompt = async () =>
-        (await agent.actions.read_prompt(agent.by(from.client))).text;
+    const prompt = async () => readPrompt(agent);
     await until(async () =>
         (await prompt()).includes(given.charter?.value ?? "no charter"),
     );

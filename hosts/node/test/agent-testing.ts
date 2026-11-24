@@ -35,7 +35,7 @@ import {
 } from "../src/agent/actor.ts";
 import { textOf } from "../src/agent/chat-items.ts";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
-import type { AgentInput } from "../src/agent/messages/agent.ts";
+import type { AgentInput, PromptSection } from "../src/agent/messages/agent.ts";
 import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
 import type { ProfileActions } from "../src/agent/messages/profile.ts";
 import {
@@ -390,6 +390,18 @@ export function reflecting(answers: string[]): FauxResponseStep[] {
         );
     };
     return Array.from({ length: answers.length + 2 }, () => step);
+}
+
+/** The prompt's sections as one text, as a request sends them. */
+export function joined(sections: readonly PromptSection[]): string {
+    return sections.map(({ text }) => text).join("\n\n");
+}
+
+/** The whole prompt the agent's next request in the chief's chat sends. */
+export async function readPrompt(agent: Woken): Promise<string> {
+    return joined(
+        (await agent.actions.read_prompt(agent.by(from.client))).sections,
+    );
 }
 
 export async function notices(

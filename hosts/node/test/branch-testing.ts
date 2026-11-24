@@ -54,10 +54,6 @@ export async function say(agent: Woken, text: string): Promise<void> {
     await agent.idle();
 }
 
-export async function readPrompt(agent: Woken): Promise<string> {
-    return (await agent.actions.read_prompt(agent.by(from.client))).text;
-}
-
 export function saves(sent: readonly Sent[]): Save[] {
     return named(sent, "save").map((call) => call.message as Save);
 }

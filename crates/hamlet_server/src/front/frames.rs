@@ -175,18 +175,20 @@ pub(crate) fn checked(
     })
 }
 
-/// The agent's prompt, which it gives whole, as one section.
 pub(crate) fn prompt(
     id: &RequestId,
     answer: &[u8],
     _: &Own,
 ) -> Result<ServerMessage> {
-    worded(id, answer, |Prompt { text }| {
+    worded(id, answer, |Prompt { sections }| {
         Ok(ServerMessage::Read(ReadResult::Prompt {
-            prompt: vec![protocol::PromptSection {
-                name: "prompt".to_owned(),
-                text,
-            }],
+            prompt: sections
+                .into_iter()
+                .map(|section| protocol::PromptSection {
+                    name: section.name,
+                    text: section.text,
+                })
+                .collect(),
             to: id.clone(),
         }))
     })
@@ -402,7 +404,7 @@ fn usage(usage: Usage) -> protocol::UsageView {
 #[cfg(test)]
 mod tests {
     use hamlet_messages::agent::chat::{
-        Count, ListedModel, ResumeRefusal, Session,
+        Count, ListedModel, PromptSection, ResumeRefusal, Session,
     };
     use hamlet_messages::agent::copies::Price;
     use hamlet_messages::workspace::AgentNumber;
@@ -523,6 +525,41 @@ mod tests {
             panic!("one add: {:?}", turn.operations);
         };
         assert_eq!(item.at, 1_763_200_000_123);
+    }
+
+    #[test]
+    fn the_prompt_reaches_a_client_by_its_sections() {
+        let section = |name: &str, text: &str| PromptSection {
+            name: name.to_owned(),
+            text: text.to_owned(),
+        };
+        let answer = bytes(&Prompt {
+            sections: vec![
+                section("charter", "Be brief."),
+                section("machine", "# Environment"),
+                section("place", "# Your place"),
+            ],
+        });
+        let ServerMessage::Read(ReadResult::Prompt {
+            prompt, ..
+        }) = prompt(&RequestId::new(), &answer, &own()).unwrap()
+        else {
+            panic!("a read of the prompt");
+        };
+        assert_eq!(
+            prompt
+                .iter()
+                .map(|section| (
+                    section.name.as_str(),
+                    section.text.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("charter", "Be brief."),
+                ("machine", "# Environment"),
+                ("place", "# Your place"),
+            ]
+        );
     }
 
     #[test]

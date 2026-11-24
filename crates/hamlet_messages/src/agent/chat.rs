@@ -401,6 +401,18 @@ from_client!(ReadPrompt, "read_prompt", Prompt);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prompt {
+    /// In the order the prompt holds them, the empty ones left out.
+    pub sections: Vec<PromptSection>,
+}
+
+/// A section of the prompt, as the client protocol's
+/// `PromptSection`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptSection {
+    /// Today's name for where it comes from: `charter`, `machine`,
+    /// `project`, `character`, `memory`, `skills`, `place`, `realm`,
+    /// `scholars`, or an errand's `errand`.
+    pub name: String,
     pub text: String,
 }
 
