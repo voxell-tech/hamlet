@@ -80,7 +80,6 @@ const names = { type: "array", items: { type: "string" } };
 /** Today's words for a call a chief must allow first (`crates/hamlet_server/src/calls.rs`). */
 export const WAITING = "This call waits for a chief's answer.";
 
-/** `OBJECTING` (`crates/hamlet_server/src/calls/objections.rs`): held until the chief rules. */
 export const OBJECTING = "The chief is considering an objection.";
 
 /** As today's `ask_chief` limits (`crates/hamlet_server/src/talk/asking.rs`). */

@@ -80,7 +80,6 @@ export function admissionOf(message: Submit, captions = ""): Admission {
     }
 }
 
-/** How a held call's item closes: a refusal's words are its failure. */
 function heldEnd(end: HeldCall["end"], why: string): CallEnd {
     switch (end) {
         case "ran":

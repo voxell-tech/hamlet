@@ -11,6 +11,7 @@ import {
     type HarnessSettings,
     hook,
     type Registry,
+    type SubmissionDraft,
 } from "@earendil-works/pi-durable";
 import {
     type ActionCaller,
@@ -97,6 +98,7 @@ import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
 import { type Following, following, watching } from "./transcript.ts";
 import {
+    type Admission,
     Closing,
     conversationsOf,
     draftOf,
@@ -735,16 +737,9 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             const { input } = message;
             const admitted = (captions: string) => {
                 const admission = admissionOf(message, captions);
-                const { ended } = admission;
-                // A stop ends a call held for a chief and starts no run, as
-                // today's stop does.
                 return conversation.submit(
-                    ended?.end.type === "aborted"
-                        ? {
-                              type: "write",
-                              requestId: admission.id,
-                              entry: noticeEntry(input.text, ended),
-                          }
+                    admission.ended?.end.type === "aborted"
+                        ? endedWithoutRun(admission, input.text)
                         : draftOf(
                               admission,
                               input.type === "line" ? "steer" : undefined,
@@ -771,6 +766,14 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
         });
     };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
+}
+
+function endedWithoutRun(admission: Admission, text: string): SubmissionDraft {
+    return {
+        type: "write",
+        requestId: admission.id,
+        entry: noticeEntry(text, admission.ended),
+    };
 }
 
 async function finished(c: AgentCall, message: Finished): Promise<void> {

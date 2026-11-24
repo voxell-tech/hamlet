@@ -136,8 +136,6 @@ fn card(set: &protocol::EditCatalogueSet) -> Vec<CardSetting> {
     images.into_iter().chain(note).chain(price).collect()
 }
 
-/// The agent within `reach` that `target` names as the realm shows
-/// it, or the refusal of an address that names none.
 fn number(
     view: &View,
     target: &Target,
@@ -168,8 +166,6 @@ fn number(
         })
 }
 
-/// Today's refusal of a chief's act on `target` when it names the
-/// Hand or a worker, which only a hire takes.
 fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
     let agent = number(view, target, Reach::Living).ok()?;
     view.of_kind(agent, AgentKind::Hire).is_none().then(|| {

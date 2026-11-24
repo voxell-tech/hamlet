@@ -195,11 +195,11 @@ pub struct HeldCall {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum HeldEnd {
-    /// The chief allowed it and it ran, or answered it.
+    /// The chief allowed or answered it, or told the agent to go on.
     Ran,
     /// It did not run; the notice says why.
     Blocked,
-    /// A stop withdrew it.
+    /// A stop or the chief's withdrawal of the instruction ended it.
     Aborted,
 }
 

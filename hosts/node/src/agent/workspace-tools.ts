@@ -229,7 +229,6 @@ function shown(answer: Text): ToolExecutionResult {
     };
 }
 
-/** A call whose end arrives as an input, which closes its item. */
 function later(text: string, call: CallId): ToolExecutionResult {
     return { ...words(text), details: { endsLater: true, waiting: call } };
 }
@@ -325,18 +324,21 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
         case "timed_out":
             // A hand tool's limit is in its manifest, which the agent does
             // not see.
-            if (!script) return { ...ran(end), ...exited(-1) };
+            if (!script) return { ...ran(end), ...exited(NO_EXIT_CODE) };
             return {
                 ...words(
                     `${end.output}\n[timed out after ${wallOf(program)}s]`,
                 ),
-                ...exited(-1),
+                ...exited(NO_EXIT_CODE),
                 isError: true,
                 diagnostics: fullOutput,
             };
         case "failed":
             return script
-                ? { ...scriptFailed(end.output, end.exit.words), ...exited(-1) }
+                ? {
+                      ...scriptFailed(end.output, end.exit.words),
+                      ...exited(NO_EXIT_CODE),
+                  }
                 : thrown("tool_error", end.exit.words);
         case "cut_off":
             return interrupted(script ? "bash" : program.name);
@@ -345,7 +347,8 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
     }
 }
 
-/** The exit code a command's item shows, as today's tools give it. */
+const NO_EXIT_CODE = -1;
+
 function exited(code: number): Pick<ToolExecutionResult, "details"> {
     return { details: { exitCode: code } };
 }

@@ -360,7 +360,6 @@ pub(super) async fn next(rows: &Rows<'_>) -> Result<WaitId> {
 pub(super) struct Told {
     /// The tool waits whose answer goes to the workspace.
     workspace: Vec<WaitId>,
-    /// The waits whose notices go to their agents.
     notices: Vec<WaitId>,
     /// The task whose held letters go on.
     held: Option<TaskId>,
@@ -884,11 +883,24 @@ fn lapse_of(why: LapseReason) -> Option<workspace::Lapse> {
     }
 }
 
+pub(super) struct Lapsing {
+    wait: WaitId,
+    kind: Kind,
+    holds_a_call: bool,
+    with: Option<change::Change>,
+}
+
+impl Lapsing {
+    fn ends_its_call(&self, lapse: workspace::Lapse) -> bool {
+        lapse == workspace::Lapse::Stopped
+            && self.holds_a_call
+            && self.kind != Kind::Tool
+    }
+}
+
 impl Act<Agent> for Lapse {
     type Output = ();
-    /// The agent's open waits that lapse, with their kinds, whether a
-    /// call waits on each, and what lapses with each.
-    type Loaded = Vec<(WaitId, Kind, bool, Option<change::Change>)>;
+    type Loaded = Vec<Lapsing>;
     type Done = Told;
 
     async fn load(
@@ -910,7 +922,7 @@ impl Act<Agent> for Lapse {
             )
             .await?;
         let mut lapsing = Vec::new();
-        for (wait, kind, task, called) in open {
+        for (wait, kind, task, holds_a_call) in open {
             let wait = WaitId(wait);
             let kind = change::from_case_name(kind)?;
             let with = match (kind, task) {
@@ -922,7 +934,12 @@ impl Act<Agent> for Lapse {
                 }
                 _ => None,
             };
-            lapsing.push((wait, kind, called, with));
+            lapsing.push(Lapsing {
+                wait,
+                kind,
+                holds_a_call,
+                with,
+            });
         }
         Ok(lapsing)
     }
@@ -951,23 +968,17 @@ impl Act<Agent> for Lapse {
         let mut decided = Decided::new(Told {
             workspace: open
                 .iter()
-                .filter(|(_, kind, ..)| *kind == Kind::Tool)
-                .map(|(wait, ..)| *wait)
+                .filter(|lapsing| lapsing.kind == Kind::Tool)
+                .map(|lapsing| lapsing.wait)
                 .collect(),
-            // A stop ends a society call its turn left waiting, as
-            // today's stop aborts the turn that holds it.
             notices: open
                 .iter()
-                .filter(|(_, kind, called, _)| {
-                    lapse == workspace::Lapse::Stopped
-                        && *called
-                        && *kind != Kind::Tool
-                })
-                .map(|(wait, ..)| *wait)
+                .filter(|lapsing| lapsing.ends_its_call(lapse))
+                .map(|lapsing| lapsing.wait)
                 .collect(),
             ..Told::default()
         });
-        for (wait, _, _, with) in open {
+        for Lapsing { wait, with, .. } in open {
             if let Some(with) = with {
                 decided = decided.change(with);
             }

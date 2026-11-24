@@ -179,7 +179,6 @@ export class Fold {
         if (ended === undefined || held === undefined) return undefined;
         this.#held.delete(ended.call);
         const name = held.item.tool?.name;
-        // Today holds these two calls until the chief rules.
         const heldUntilAnswered = name === "ask_chief" || name === "object";
         const end =
             heldUntilAnswered && ended.end.type === "ran"

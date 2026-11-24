@@ -86,16 +86,12 @@ impl View {
         self.world.spend.iter().find(|spend| spend.payer == *payer)
     }
 
-    /// Whether the realm shows the agent numbered `number` and it has
-    /// not ended.
     pub(crate) fn is_living(&self, number: AgentNumber) -> bool {
         self.agent(number).is_some_and(|seen| {
             !matches!(seen.status, Status::Ended { .. })
         })
     }
 
-    /// The agent numbered `number` the realm shows, when it is of
-    /// `kind`.
     pub(crate) fn of_kind(
         &self,
         number: AgentNumber,

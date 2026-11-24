@@ -418,8 +418,6 @@ pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
     )))
 }
 
-/// Whether a process has ended, from the read of its
-/// `/proc/<pid>/stat`.
 #[cfg(target_os = "linux")]
 fn ended_by_stat(stat: io::Result<String>) -> io::Result<bool> {
     match stat {
