@@ -281,7 +281,8 @@ function foldOf(
             BACKGROUND_CONTEXT,
         );
         const { before } = observation.value;
-        if (before !== undefined) await counted(at.harness, id, before, fold);
+        if (before !== undefined)
+            await foldEarlier(at.harness, id, before, fold);
         if (at.made.has(id)) take(observation.value);
         else fold.view(observation.value);
         for (const view of early) take(view);
@@ -294,7 +295,7 @@ function foldOf(
     return made;
 }
 
-async function counted(
+async function foldEarlier(
     harness: Harness,
     id: ConversationId,
     before: EntryId,
