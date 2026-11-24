@@ -181,11 +181,26 @@ pub enum Input {
     },
 }
 
-/// A society call the realm kept for a chief, which a ruling ends.
+/// A society call the realm kept for a chief, which a ruling or a
+/// stop ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeldCall {
     pub call: CallId,
-    pub refused: bool,
+    pub end: HeldEnd,
+}
+
+/// How a held call ended.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum HeldEnd {
+    /// The chief allowed it and it ran, or answered it.
+    Ran,
+    /// It did not run; the notice says why.
+    Blocked,
+    /// A stop withdrew it.
+    Aborted,
 }
 
 /// The writer of a letter, as the receiver is shown it (C30).

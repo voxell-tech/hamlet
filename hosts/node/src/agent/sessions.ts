@@ -17,7 +17,7 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import type { ChatRef, Input, RequestId } from "./messages/agent.ts";
 import { onCopiedModel } from "./models.ts";
-import { conversationOf } from "./turn.ts";
+import { conversationOf, type Ended } from "./turn.ts";
 
 export async function migrateChats(
     raw: Pick<RawAccess, "execute">,
@@ -211,8 +211,15 @@ export function nowSeconds(): number {
 }
 
 /** The entry of a notice (C30), which the model never reads. */
-export function noticeEntry(text: string): EntryDraft {
-    return { kind: "hamlet.notice", data: { text, at: Date.now() } };
+export function noticeEntry(text: string, ended?: Ended): EntryDraft {
+    return {
+        kind: "hamlet.notice",
+        data: {
+            text,
+            at: Date.now(),
+            ...(ended === undefined ? {} : { ended }),
+        },
+    };
 }
 
 interface Begun {

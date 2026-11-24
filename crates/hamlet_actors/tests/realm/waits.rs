@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use hamlet_messages::agent::Input;
+use hamlet_messages::agent::{HeldEnd, Input};
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::models::{Cause, TurnFailed};
@@ -1118,11 +1118,11 @@ async fn a_rulings_notice_names_the_call_that_waited_for_it() {
                     text,
                     held: Some(held),
                     ..
-                } => Some((held.call.0, held.refused, text)),
+                } => Some((held.call.0, held.end, text)),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        told.sort();
+        told.sort_by(|a, b| a.0.cmp(&b.0));
         told
     };
     until("three rulings are told", || held().len() >= 3).await;
@@ -1132,19 +1132,89 @@ async fn a_rulings_notice_names_the_call_that_waited_for_it() {
         [
             (
                 "a1".to_owned(),
-                false,
+                HeldEnd::Ran,
                 "The chief answers: oats".to_owned()
             ),
             (
                 "e1".to_owned(),
-                true,
+                HeldEnd::Blocked,
                 "the chief refused it: keep it".to_owned()
             ),
             (
                 "h1".to_owned(),
-                false,
+                HeldEnd::Ran,
                 "Hired hire#4 (Hire 2).".to_owned()
             ),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_ends_each_call_its_turn_left_waiting_for_a_chief() {
+    let (realm, hamlet) = hamlet_with(0).await;
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: Some(hamlet),
+                budget: Vec::new(),
+                limits: [Limit::Reserved {
+                    act: ReservedAct::Hire,
+                    reserved: true,
+                }]
+                .into(),
+            },
+        })
+        .await
+        .unwrap();
+    let task = chief_task(&realm, MAYOR).await;
+    realm
+        .tool(MAYOR, &in_turn("h1", hire(None), Some(&task)))
+        .await
+        .unwrap();
+    let question = AskChief {
+        task: task.clone(),
+        conversation: ConversationId("c".to_owned()),
+        message: None,
+        questions: vec![Question {
+            question: "Oats or barley?".to_owned(),
+            description: None,
+            options: Vec::new(),
+            text_input: true,
+        }],
+    };
+    realm.tool(MAYOR, &tool("a1", question)).await.unwrap();
+
+    let stop = Lapse {
+        conversation: Some(ConversationId("c".to_owned())),
+        why: LapseReason::Stopped,
+    };
+    realm.tool(MAYOR, &stop).await.unwrap();
+    let held = || {
+        let mut told = super::submits_to(&realm, MAYOR)
+            .into_iter()
+            .filter_map(|submit| match submit.input {
+                Input::Notice {
+                    text,
+                    held: Some(held),
+                    ..
+                } => Some((held.call.0, held.end, text)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        told.sort_by(|a, b| a.0.cmp(&b.0));
+        told
+    };
+    until("both stopped calls are told", || held().len() >= 2).await;
+
+    let stopped =
+        "the call's wait for a chief lapsed: the turn was stopped";
+    assert_eq!(
+        held(),
+        [
+            ("a1".to_owned(), HeldEnd::Aborted, stopped.to_owned()),
+            ("h1".to_owned(), HeldEnd::Aborted, stopped.to_owned()),
         ]
     );
     realm.host.shutdown().await.unwrap();

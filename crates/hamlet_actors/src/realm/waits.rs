@@ -6,13 +6,16 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::{Agent, Workspace};
-use hamlet_messages::agent::{HeldCall, Input, InputId, Submit};
+use hamlet_messages::agent::{
+    HeldCall, HeldEnd, Input, InputId, Submit,
+};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Gate, NeedsChief};
 use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::WaitEnd;
 use hamlet_messages::workspace::{
     self, AgentNumber, CallId, ChiefAnswer, ConversationId,
 };
@@ -357,8 +360,8 @@ pub(super) async fn next(rows: &Rows<'_>) -> Result<WaitId> {
 pub(super) struct Told {
     /// The tool waits whose answer goes to the workspace.
     workspace: Vec<WaitId>,
-    /// The wait whose notice goes to its agent.
-    notice: Option<WaitId>,
+    /// The waits whose notices go to their agents.
+    notices: Vec<WaitId>,
     /// The task whose held letters go on.
     held: Option<TaskId>,
     /// What a reserved act did once allowed, told to its caller.
@@ -386,7 +389,8 @@ impl Told {
     fn calls(&self) -> Calls {
         let answers =
             self.workspace.iter().copied().map(Delivery::ChiefAnswer);
-        let notice = self.notice.map(Delivery::Notice);
+        let notices =
+            self.notices.iter().copied().map(Delivery::Notice);
         let held = self.held.map(Delivery::Held);
         let ran = self.ran.iter().map(|ran| Delivery::Line {
             to: ran.agent,
@@ -398,7 +402,7 @@ impl Told {
                     conversation: ran.conversation.clone(),
                     held: ran.call.clone().map(|call| HeldCall {
                         call,
-                        refused: false,
+                        end: HeldEnd::Ran,
                     }),
                 },
             },
@@ -406,7 +410,7 @@ impl Told {
         Calls {
             before_answer: Vec::new(),
             after_answer: answers
-                .chain(notice)
+                .chain(notices)
                 .chain(held)
                 .chain(ran)
                 .collect(),
@@ -525,7 +529,11 @@ pub(super) async fn notice(
     } = closed(ctx, wait).await?;
     let held = call.map(|call| HeldCall {
         call: CallId(call),
-        refused: choice == Choice::Refuse,
+        end: match choice {
+            Choice::Lapsed(_) => HeldEnd::Aborted,
+            Choice::Refuse => HeldEnd::Blocked,
+            _ => HeldEnd::Ran,
+        },
     });
     let says = ruling.as_ref().map_or_else(String::new, |ruling| {
         format!(" The chief says: {ruling}")
@@ -558,6 +566,9 @@ pub(super) async fn notice(
         ),
         (Kind::Reserved, Choice::Allow(_)) => {
             reserved::carry_out(realm, ctx, wait).await?
+        }
+        (_, Choice::Lapsed(lapse)) => {
+            WaitEnd::Lapsed { lapse }.to_string()
         }
         (kind, choice) => bail!(
             "wait {} of kind {kind:?} closed as {choice:?} has no \
@@ -875,9 +886,9 @@ fn lapse_of(why: LapseReason) -> Option<workspace::Lapse> {
 
 impl Act<Agent> for Lapse {
     type Output = ();
-    /// The agent's open waits that lapse, with their kinds and what
-    /// lapses with each.
-    type Loaded = Vec<(WaitId, Kind, Option<change::Change>)>;
+    /// The agent's open waits that lapse, with their kinds, whether a
+    /// call waits on each, and what lapses with each.
+    type Loaded = Vec<(WaitId, Kind, bool, Option<change::Change>)>;
     type Done = Told;
 
     async fn load(
@@ -891,15 +902,15 @@ impl Act<Agent> for Lapse {
         let conversation =
             nullable(self.conversation.clone().map(|c| c.0));
         let open = rows
-            .rows::<(u64, String, Option<TaskId>)>(
-                "SELECT id, kind, task FROM wait WHERE agent = ?1 \
-                 AND closed_at IS NULL AND (?2 IS NULL OR \
-                 conversation = ?2) ORDER BY id",
+            .rows::<(u64, String, Option<TaskId>, bool)>(
+                "SELECT id, kind, task, call IS NOT NULL FROM wait \
+                 WHERE agent = ?1 AND closed_at IS NULL AND (?2 IS \
+                 NULL OR conversation = ?2) ORDER BY id",
                 vec![number(by.0), conversation],
             )
             .await?;
         let mut lapsing = Vec::new();
-        for (wait, kind, task) in open {
+        for (wait, kind, task, called) in open {
             let wait = WaitId(wait);
             let kind = change::from_case_name(kind)?;
             let with = match (kind, task) {
@@ -911,7 +922,7 @@ impl Act<Agent> for Lapse {
                 }
                 _ => None,
             };
-            lapsing.push((wait, kind, with));
+            lapsing.push((wait, kind, called, with));
         }
         Ok(lapsing)
     }
@@ -940,12 +951,23 @@ impl Act<Agent> for Lapse {
         let mut decided = Decided::new(Told {
             workspace: open
                 .iter()
-                .filter(|(_, kind, _)| *kind == Kind::Tool)
+                .filter(|(_, kind, ..)| *kind == Kind::Tool)
+                .map(|(wait, ..)| *wait)
+                .collect(),
+            // A stop ends a society call its turn left waiting, as
+            // today's stop aborts the turn that holds it.
+            notices: open
+                .iter()
+                .filter(|(_, kind, called, _)| {
+                    lapse == workspace::Lapse::Stopped
+                        && *called
+                        && *kind != Kind::Tool
+                })
                 .map(|(wait, ..)| *wait)
                 .collect(),
             ..Told::default()
         });
-        for (wait, _, with) in open {
+        for (wait, _, _, with) in open {
             if let Some(with) = with {
                 decided = decided.change(with);
             }

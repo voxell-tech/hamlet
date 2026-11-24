@@ -86,7 +86,12 @@ import {
     promptSources,
 } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
-import { conversationFor, current, migrateChats } from "./sessions.ts";
+import {
+    conversationFor,
+    current,
+    migrateChats,
+    noticeEntry,
+} from "./sessions.ts";
 import { offeredSociety, society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
@@ -728,14 +733,25 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                 throw new Error(`the agent has no conversation ${id}`);
             }
             const { input } = message;
-            const admitted = (captions: string) =>
-                conversation.submit(
-                    draftOf(
-                        admissionOf(message, captions),
-                        input.type === "line" ? "steer" : undefined,
-                    ),
+            const admitted = (captions: string) => {
+                const admission = admissionOf(message, captions);
+                const { ended } = admission;
+                // A stop ends a call held for a chief and starts no run, as
+                // today's stop does.
+                return conversation.submit(
+                    ended?.end.type === "aborted"
+                        ? {
+                              type: "write",
+                              requestId: admission.id,
+                              entry: noticeEntry(input.text, ended),
+                          }
+                        : draftOf(
+                              admission,
+                              input.type === "line" ? "steer" : undefined,
+                          ),
                     context,
                 );
+            };
             const files =
                 input.type === "letter" || input.type === "question"
                     ? (input.files ?? [])

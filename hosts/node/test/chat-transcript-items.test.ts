@@ -367,7 +367,7 @@ async function askedChief(t: TestContext, notice: string): Promise<Woken> {
     await send(agent, {
         type: "notice",
         text: notice,
-        held: { call: callOf(sent, "ask_chief"), refused: false },
+        held: { call: callOf(sent, "ask_chief"), end: "ran" },
     });
     return agent;
 }
@@ -477,7 +477,7 @@ test("a call that waits for a chief stays open until its ruling closes the same 
         await send(woken, {
             type: "notice",
             text,
-            held: { call: callOf(sent, act), refused },
+            held: { call: callOf(sent, act), end: refused ? "blocked" : "ran" },
         });
     }
 
@@ -512,6 +512,63 @@ test("a call that waits for a chief stays open until its ruling closes the same 
         closing.map((op) => op.item.id),
         "a client replaces the open item with the closed one",
     );
+});
+
+test("a stop ends each call held for a chief as today's stop aborts it, and starts no run", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            ask_chief: () => ({ type: "done" }),
+            hire: () => ({
+                type: "refused",
+                why: { type: "reserved", wait: 1 },
+                words: "This call waits for a chief's answer.",
+            }),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall(
+                "ask_chief",
+                { questions: [{ question: "Which colour?" }] },
+                "c1",
+            ),
+            toolCall("hire", { purpose: "Check the links" }, "c2"),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Ran after the stop."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Ask and hire." });
+    const stopped = "the call's wait for a chief lapsed: the turn was stopped";
+    for (const act of ["ask_chief", "hire"]) {
+        await send(agent, {
+            type: "notice",
+            text: stopped,
+            held: { call: callOf(sent, act), end: "aborted" },
+        });
+    }
+
+    const aborted = [
+        ["ask_chief", 1, undefined, "Tool ask_chief was aborted"],
+        ["hire", 1, undefined, "Tool hire was aborted"],
+    ];
+    const closed = () =>
+        ends(added(agent).filter((item) => item.tool?.exit !== undefined));
+    await until(() => closed().length === aborted.length);
+    assert.deepEqual(closed(), aborted);
+    await agent.idle();
+    const items = (await read(agent)).items;
+    assert.deepEqual(ends(items), aborted);
+    assert.deepEqual(answered(items), []);
+    assert.deepEqual(
+        items.filter((item) => item.kind !== "tool").map((item) => item.text),
+        ["Ask and hire.", "Waiting on the chief."],
+    );
+    await agent.stop();
+    const woken = await agent.again();
+    t.after(() => woken.stop());
+    assert.deepEqual(ends((await read(woken)).items), aborted);
 });
 
 async function chiefEntries(agent: Woken): Promise<readonly EntryRecord[]> {
@@ -571,12 +628,12 @@ test("a ruling closes its call as today does: a refusal is blocked with no time,
     await send(agent, {
         type: "notice",
         text: "Hired hire#4 (Hire 1).",
-        held: { call: callOf(sent, "hire"), refused: false },
+        held: { call: callOf(sent, "hire"), end: "ran" },
     });
     await send(agent, {
         type: "notice",
         text: "the chief refused it: keep it",
-        held: { call: callOf(sent, "end"), refused: true },
+        held: { call: callOf(sent, "end"), end: "blocked" },
     });
 
     const own = await callTimes(agent);
@@ -862,7 +919,7 @@ test("a ruling closes its call's item in the watched chat after a restart, howev
     await send(woken, {
         type: "notice",
         text: "The chief answers: Blue.",
-        held: { call: callOf(sent, "ask_chief"), refused: false },
+        held: { call: callOf(sent, "ask_chief"), end: "ran" },
     });
 
     await until(() => answered(added(woken)).length > 0);

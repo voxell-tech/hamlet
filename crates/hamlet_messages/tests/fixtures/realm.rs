@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 use hamlet_messages::address::{Party, Profile};
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, HeldCall,
-    Input, InputId, Place, PlaceVersion, Submit,
+    HeldEnd, Input, InputId, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::{Branch, Missing, VersionName};
 use hamlet_messages::realm::budget::{
@@ -107,6 +107,7 @@ pub fn enums() -> Vec<Cases> {
         named::<ConversationKind>(),
         named::<Lasting>(),
         named::<GrantSource>(),
+        named::<HeldEnd>(),
     ]
     .into_iter()
     .chain(society::enums())
@@ -1672,7 +1673,33 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 conversation: Some(ConversationId("c1".into())),
                 held: Some(HeldCall {
                     call: CallId("t7".into()),
-                    refused: false,
+                    end: HeldEnd::Ran,
+                }),
+            },
+        ),
+        (
+            "notice.blocked",
+            task(),
+            Input::Notice {
+                text: "the chief refused it: keep it".into(),
+                conversation: Some(ConversationId("c1".into())),
+                held: Some(HeldCall {
+                    call: CallId("t8".into()),
+                    end: HeldEnd::Blocked,
+                }),
+            },
+        ),
+        (
+            "notice.aborted",
+            task(),
+            Input::Notice {
+                text: "the call's wait for a chief lapsed: the turn \
+                       was stopped"
+                    .into(),
+                conversation: Some(ConversationId("c1".into())),
+                held: Some(HeldCall {
+                    call: CallId("t9".into()),
+                    end: HeldEnd::Aborted,
                 }),
             },
         ),

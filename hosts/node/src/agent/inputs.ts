@@ -1,6 +1,6 @@
 /** The inputs a turn is given, as the model reads them. */
-import type { Author, Input, Submit } from "./messages/agent.ts";
-import { type Admission, NOTE_BREAK } from "./turn.ts";
+import type { Author, HeldCall, Input, Submit } from "./messages/agent.ts";
+import { type Admission, type CallEnd, NOTE_BREAK } from "./turn.ts";
 
 export function nameOf(author: Author, kind: "hire" | "worker"): string {
     return author.name ?? `${kind}#${author.agent}`;
@@ -41,9 +41,7 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                     : {
                           ended: {
                               call: input.held.call,
-                              end: input.held.refused
-                                  ? { type: "blocked", why: input.text }
-                                  : { type: "ran", exit: 0 },
+                              end: heldEnd(input.held.end, input.text),
                           },
                       }),
             };
@@ -79,6 +77,18 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                 from: input.from,
                 content: `${nameOf(input.from, "hire")} answers: ${input.text}`,
             };
+    }
+}
+
+/** How a held call's item closes: a refusal's words are its failure. */
+function heldEnd(end: HeldCall["end"], why: string): CallEnd {
+    switch (end) {
+        case "ran":
+            return { type: "ran", exit: 0 };
+        case "blocked":
+            return { type: "blocked", why };
+        case "aborted":
+            return { type: "aborted" };
     }
 }
 

@@ -1450,6 +1450,8 @@ const TAKEN = [
     "agent/submit.line.attached",
     "agent/submit.line.reviewed",
     "agent/submit.notice",
+    "agent/submit.notice.aborted",
+    "agent/submit.notice.blocked",
     "agent/submit.question",
     "agent/submit.question.files",
     "agent/submit.worker_answer",

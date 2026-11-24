@@ -105,17 +105,17 @@ impl Waiting {
     }
 
     fn told(&self, choice: &Choice) -> Told {
-        let notice = Some(self.wait);
+        let notices = vec![self.wait];
         match (self.kind, choice) {
             (Kind::Tool, _) => Told::workspace(self.wait),
             (Kind::Objection, Choice::Go) => Told {
-                notice,
+                notices,
                 held: self.task,
                 ..Told::default()
             },
             (Kind::Question | Kind::Objection, _)
             | (Kind::Reserved | Kind::Send, Choice::Refuse) => Told {
-                notice,
+                notices,
                 ..Told::default()
             },
             _ => Told::default(),
@@ -253,10 +253,10 @@ impl Act<Client> for Answer {
         };
         let mut decided = Decided::new(open.told(&choice));
         if ruling.unheard {
-            decided.done.notice = None;
+            decided.done.notices.clear();
         }
         if ruling.deferred {
-            decided.done.notice = Some(open.wait);
+            decided.done.notices = vec![open.wait];
         }
         decided.done.ran = ruling.told.map(|text| Ran {
             wait: open.wait,
