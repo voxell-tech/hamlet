@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
@@ -45,6 +46,17 @@ pub(super) trait Act<By>:
     /// The calls that carry this act's own content to another actor.
     fn deliveries(&self, _by: &By, _done: &Self::Done) -> Calls {
         Calls::none()
+    }
+
+    /// The step rows whose ends its answer waits for, all within
+    /// the realm's `answer_within`, so the caller reads what the
+    /// steps did once answered. Such an act lines no delivery before
+    /// its answer.
+    fn answers_after(
+        &self,
+        _done: &Self::Done,
+    ) -> Vec<steps::StepId> {
+        Vec::new()
     }
 
     /// The answer of a first run and of a repeat.
@@ -456,6 +468,7 @@ where
         When::BeforeAnswer,
     )
     .await;
+    let rows = act.answers_after(&done);
     let answer = act.answer(done, &made);
     ctx.register_task(calls::after_answer(
         realm.clone(),
@@ -463,6 +476,16 @@ where
         after_answer,
         pushes,
     ));
+    let within = Instant::now() + realm.answer_within;
+    for row in rows {
+        realm
+            .drives
+            .ended(
+                row,
+                within.saturating_duration_since(Instant::now()),
+            )
+            .await;
+    }
     Ok(Ok(answer))
 }
 
@@ -497,3 +520,41 @@ where
 {
     look.look(by, realm)
 }
+
+/// Acts of `$by` whose load fails until they are built, each with the
+/// output it will give.
+macro_rules! unbuilt {
+    ($by:ty: $($act:ty => $output:ty),+ $(,)?) => {$(
+        impl $crate::realm::act::Act<$by> for $act {
+            type Output = $output;
+            type Loaded = ::std::convert::Infallible;
+            type Done = $crate::realm::act::Unchanged;
+
+            async fn load(
+                &self,
+                _by: &$by,
+                _rows: &$crate::realm::change::Rows<'_>,
+            ) -> ::anyhow::Result<Self::Loaded> {
+                ::anyhow::bail!("not implemented")
+            }
+
+            fn decide(
+                &self,
+                _by: &$by,
+                loaded: Self::Loaded,
+            ) -> $crate::realm::act::Decision<Self::Done, Self::Output> {
+                match loaded {}
+            }
+
+            fn answer(
+                &self,
+                done: Self::Done,
+                _made: &$crate::realm::calls::Made,
+            ) -> Self::Output {
+                match done {}
+            }
+        }
+    )+};
+}
+
+pub(super) use unbuilt;

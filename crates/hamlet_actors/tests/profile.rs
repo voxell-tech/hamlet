@@ -5,6 +5,8 @@
 mod dreams;
 #[path = "profile/files.rs"]
 mod files;
+#[path = "profile/merges.rs"]
+mod merges;
 #[path = "profile/versions.rs"]
 mod versions;
 

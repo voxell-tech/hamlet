@@ -2,13 +2,14 @@
 //! and an agent's acts on the library. A model calls them
 //! `create_scholar`, `read_scholar`, `edit_scholar`, `tag`, `revert`,
 //! `ask_librarian` and `submit_skill`; a chief, `/dream` and
-//! `/purge`.
+//! `/purge`. A chief also forks, archives, restores and erases a
+//! profile, and welcomes, turns away and moves its house.
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AgentRefusal, ChiefRequest, Done, ProfileId, SocietyTool,
-    Standing, ToolCall,
+    AgentRefusal, ChiefRequest, Done, HamletId, ProfileId,
+    SocietyTool, Standing, ToolCall,
 };
 use crate::library::OfferId;
 use crate::profile::{
@@ -294,3 +295,157 @@ impl ChiefRequest for PurgeProfile {
     const NAME: &'static str = "chief_purge_profile";
     type Answer = PurgeAnswer<PurgeProfileRefusal>;
 }
+
+/// Makes a new profile from a version of `from`, `main` when absent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkProfile {
+    pub from: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<VersionName>,
+    pub name: String,
+}
+
+union!(ForkRefusal {
+    Profile(ProfileRefusal),
+    Missing(Missing),
+    Create(CreateRefusal),
+});
+
+answer!(
+    /// The answer of a [`ForkProfile`]: the new profile, and the label
+    /// of the one it was made from, `scholar#<id> (<name>)`.
+    Forked<ForkRefusal> {
+        Forked { profile: ProfileId, from: String },
+    }
+);
+
+impl ChiefRequest for ForkProfile {
+    const NAME: &'static str = "chief_fork_profile";
+    type Answer = Forked;
+}
+
+/// Archives a profile and ends its hires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveProfile {
+    pub profile: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for ArchiveProfile {
+    const NAME: &'static str = "chief_archive_profile";
+    type Answer = Lifecycle;
+}
+
+/// Brings an archived profile back with the hires its archive ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreProfile {
+    pub profile: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for RestoreProfile {
+    const NAME: &'static str = "chief_restore_profile";
+    type Answer = Lifecycle;
+}
+
+/// Erases an archived profile for good, with its hires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EraseProfile {
+    pub profile: ProfileId,
+}
+
+impl ChiefRequest for EraseProfile {
+    const NAME: &'static str = "chief_erase_profile";
+    type Answer = Lifecycle;
+}
+
+/// Lets a profile waiting at the harbor into the city.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Welcome {
+    pub profile: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for Welcome {
+    const NAME: &'static str = "chief_welcome";
+    type Answer = Lifecycle;
+}
+
+/// Keeps a profile at the harbor, or sends it back there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnAway {
+    pub profile: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for TurnAway {
+    const NAME: &'static str = "chief_turn_away";
+    type Answer = Lifecycle;
+}
+
+/// Sets a profile's house down at a spot from the city's middle, in
+/// metres, turned `degrees`, or facing the middle when absent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MoveHouse {
+    pub profile: ProfileId,
+    pub x: f64,
+    pub z: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degrees: Option<f64>,
+}
+
+impl ChiefRequest for MoveHouse {
+    const NAME: &'static str = "chief_move_house";
+    type Answer = Lifecycle;
+}
+
+family!(
+    /// Why an act on a profile's life in the city was not carried
+    /// out. Each `label` is `scholar#<id> (<name>)`.
+    LifeRefusal {
+        #[error("the scholar `{label}` no longer lives in the city")]
+        Gone { label: String },
+        #[error("the scholar `{label}` was erased")]
+        Erased { label: String },
+        #[error("the scholar `{label}` is still living; remove it first")]
+        Living { label: String },
+        #[error(
+            "the scholar `{label}` waits at the harbor; welcome it into \
+             the city first"
+        )]
+        AtHarbor { label: String },
+        #[error("the scholar `{label}` lives in the city already")]
+        Housed { label: String },
+        #[error("the scholar `{label}` was turned away already")]
+        TurnedAway { label: String },
+        /// A site that is not a spot in the city, as `x, z`.
+        #[error("`{site}` is not an address")]
+        BadSite { site: String },
+        #[error(
+            "the house of `{label}` would stand on another house or the \
+             city's middle"
+        )]
+        Crowded { label: String },
+        #[error("a mayor cannot be ended; seat another mayor first")]
+        TheMayor,
+        #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
+        Full { hamlet: HamletId, most: u32 },
+    }
+);
+
+union!(LifecycleRefusal {
+    Profile(ProfileRefusal),
+    Life(LifeRefusal),
+});
+
+answer!(
+    /// The answer of an act on a profile's life in the city: the
+    /// profile's label, `scholar#<id> (<name>)`.
+    Lifecycle<LifecycleRefusal> {
+        Done { label: String },
+    }
+);

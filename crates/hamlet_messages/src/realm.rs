@@ -5,6 +5,7 @@ pub mod choices;
 pub mod client;
 pub mod documents;
 pub mod hamlets;
+pub mod hires;
 pub mod models;
 pub mod oversight;
 pub mod parcels;
@@ -237,6 +238,8 @@ pub enum SocietyTool {
     Revert,
     AskLibrarian,
     SubmitSkill,
+    MergeHires,
+    RemoveHamlet,
 }
 
 impl SocietyTool {
@@ -269,6 +272,8 @@ impl SocietyTool {
             Self::Revert => "revert",
             Self::AskLibrarian => "ask_librarian",
             Self::SubmitSkill => "submit_skill",
+            Self::MergeHires => "merge_hires",
+            Self::RemoveHamlet => "remove_hamlet",
         }
     }
 }
@@ -555,6 +560,24 @@ pub enum HowEnded {
     /// A worker was stopped: with its starter, or by a chief.
     #[error("it was stopped")]
     Stopped,
+    /// A hire merged into `into` by `by`, or by the chief when
+    /// absent.
+    #[error("it was merged into another hire")]
+    Merged {
+        into: AgentName,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<AgentName>,
+    },
+    /// A hire of a profile a chief archived.
+    #[error("its scholar left the city")]
+    ProfileArchived,
+    /// A hire of a hamlet removed by `by`, or by the chief when
+    /// absent.
+    #[error("its hamlet was removed")]
+    HamletRemoved {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<AgentName>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1300,4 +1323,14 @@ pub enum HamletRefusal {
     BadSite { site: String },
     #[error("Those limits do not fit their form.")]
     MisshapenLimits,
+    #[error("the hamlet `{}` was erased", id.0)]
+    Erased { id: HamletId },
+    #[error("the hamlet `{}` was removed; restore it first", id.0)]
+    Removed { id: HamletId },
+    #[error("the hamlet `{}` is still living; remove it first", id.0)]
+    Living { id: HamletId },
+    /// A hire the removal ended is of a profile that left the city;
+    /// `label` is `scholar#<id> (<name>)`.
+    #[error("the scholar `{label}` no longer lives in the city")]
+    ProfileGone { label: String },
 }

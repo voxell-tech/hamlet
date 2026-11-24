@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use self::copies::Copies;
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
+use crate::profile::CommitId;
 use crate::realm::parcels::ParcelFile;
 use crate::realm::{LetterId, ProfileId, ToolName};
 use crate::workspace::files::ChangeEnd;
@@ -261,7 +262,8 @@ impl Message for Place {
 }
 
 /// Fills the agent's filesystem from its branch of `profile`. An
-/// agent already filled answers the same.
+/// agent already filled pulls its branch's tip between turns, as
+/// [`crate::profile::Moved`] makes it, and answers at once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fill {
     pub profile: ProfileId,
@@ -273,6 +275,44 @@ impl Action for Fill {
 }
 
 impl Message for Fill {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Ends the agent's work for its end: it stops its turn as a stop
+/// does, then saves what its filesystem changed to its branch. A
+/// repeat saves what changed since.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Retire;
+
+/// The branch's tip once the agent's changes are saved on it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Retired {
+    pub tip: CommitId,
+}
+
+impl Action for Retire {
+    type Output = Retired;
+    const NAME: &'static str = "retire";
+}
+
+impl Message for Retire {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Erases the agent: it answers, then asks its host to destroy it,
+/// which removes its database and its filesystem. A repeat to an
+/// agent already gone finds none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Erase;
+
+impl Action for Erase {
+    type Output = ();
+    const NAME: &'static str = "erase";
+}
+
+impl Message for Erase {
     type To = Agent;
     type From = Realm;
 }

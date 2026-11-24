@@ -602,7 +602,11 @@ pub(in crate::realm) async fn end(
     let rows = writer.rows();
     let lineage = super::lineage_of(&rows, agent).await?;
     let lead = lineage.agent.lead;
-    let moved = living_agents(&lineage.hires);
+    let moved = if matches!(how, HowEnded::HamletRemoved { .. }) {
+        Vec::new()
+    } else {
+        living_agents(&lineage.hires)
+    };
     let places = roads::of(&rows, agent)
         .await?
         .into_iter()
@@ -651,7 +655,7 @@ fn living_agents(nodes: &[Node]) -> Vec<AgentNumber> {
         .collect()
 }
 
-async fn set_lead(
+pub(super) async fn set_lead(
     writer: &Writer<'_>,
     hire: AgentNumber,
     lead: Option<AgentNumber>,

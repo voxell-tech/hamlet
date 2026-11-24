@@ -75,8 +75,12 @@ mod lead;
 mod letters;
 #[path = "realm/librarian.rs"]
 mod librarian;
+#[path = "realm/lifecycle.rs"]
+mod lifecycle;
 #[path = "realm/living.rs"]
 mod living;
+#[path = "realm/merges.rs"]
+mod merges;
 #[path = "realm/names.rs"]
 mod names;
 #[path = "realm/oversight.rs"]

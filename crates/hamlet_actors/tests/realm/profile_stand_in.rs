@@ -7,11 +7,13 @@ use anyhow::Context;
 use hamlet_actor::{Actor, Ctx, Handler};
 use hamlet_host::Caller;
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, DreamEnd, DreamOf, DropSaveParts,
-    Edit, EditRefusal, EndDream, Missing, Path as FilePath,
-    PrepareDream, Prepared, ProfileInput, Purge, PurgeAnswer, Read,
-    ReadAnswer, Revert, RevertAnswer, Revision, Sha1, Tag, TagAnswer,
-    TagRefusal, VersionList, VersionName, VersionSeen, Versions,
+    BadPath, Branch, Bundle, BundleAnswer, CommitId, DreamEnd,
+    DreamOf, DreamOpen, DropBranch, DropSaveParts, Edit, EditRefusal,
+    EndDream, Erase, MergeAnswer, MergeBranch, Missing,
+    Path as FilePath, PrepareDream, Prepared, ProfileInput, Purge,
+    PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Revision,
+    Sha1, Source, Tag, TagAnswer, TagRefusal, Unmerge, UnmergeAnswer,
+    VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
@@ -38,6 +40,11 @@ impl Actor for ProfileStandIn {
         PrepareDream,
         EndDream,
         DropSaveParts,
+        MergeBranch,
+        Bundle,
+        Unmerge,
+        DropBranch,
+        Erase,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -340,5 +347,105 @@ impl Handler<DropSaveParts> for ProfileStandIn {
             .unwrap()
             .push((self.profile, dropped));
         Ok(())
+    }
+}
+
+impl ProfileStandIn {
+    fn number(&self) -> AgentNumber {
+        AgentNumber(self.profile.0)
+    }
+}
+
+impl Handler<MergeBranch> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        merge: MergeBranch,
+    ) -> anyhow::Result<MergeAnswer> {
+        self.seen.called(Callee::Merge, merge.absorbed).await?;
+        let kept =
+            matches!(merge.from, Source::Part { last: false, .. });
+        self.seen.merges.lock().unwrap().push((self.profile, merge));
+        Ok(if kept {
+            MergeAnswer::Kept
+        } else {
+            MergeAnswer::Merged {
+                tip: COMMIT,
+                set_aside: Vec::new(),
+            }
+        })
+    }
+}
+
+impl Handler<Bundle> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        bundle: Bundle,
+    ) -> anyhow::Result<BundleAnswer> {
+        self.seen.called(Callee::Bundle, self.number()).await?;
+        self.seen
+            .bundles
+            .lock()
+            .unwrap()
+            .push((self.profile, bundle));
+        Ok(BundleAnswer::Part {
+            files: Vec::new(),
+            removed: Vec::new(),
+            next: None,
+        })
+    }
+}
+
+impl Handler<Unmerge> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        unmerge: Unmerge,
+    ) -> anyhow::Result<UnmergeAnswer> {
+        self.seen.called(Callee::Unmerge, self.number()).await?;
+        self.seen
+            .unmerges
+            .lock()
+            .unwrap()
+            .push((self.profile, unmerge));
+        Ok(UnmergeAnswer::Unmerged { tip: COMMIT })
+    }
+}
+
+impl Handler<DropBranch> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        drop: DropBranch,
+    ) -> anyhow::Result<()> {
+        let agent = drop
+            .name
+            .strip_prefix("hires/")
+            .context("a hire's branch is hires/<n>")?
+            .parse()?;
+        self.seen
+            .called(Callee::DropBranch, AgentNumber(agent))
+            .await?;
+        self.seen
+            .branch_drops
+            .lock()
+            .unwrap()
+            .push((self.profile, drop));
+        Ok(())
+    }
+}
+
+impl Handler<Erase> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Erase,
+    ) -> anyhow::Result<Done<DreamOpen>> {
+        self.seen
+            .called(Callee::EraseProfile, self.number())
+            .await?;
+        self.seen.profile_erases.lock().unwrap().push(self.profile);
+        Ok(Done::Done)
     }
 }

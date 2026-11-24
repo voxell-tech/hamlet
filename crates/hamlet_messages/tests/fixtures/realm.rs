@@ -5,10 +5,13 @@ use std::fmt::{Debug, Display};
 
 use hamlet_messages::address::{Party, Profile};
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, HeldCall,
-    HeldEnd, Input, InputId, Place, PlaceVersion, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, Erase, Fill,
+    HeldCall, HeldEnd, Input, InputId, Place, PlaceVersion, Retire,
+    Retired, Submit,
 };
-use hamlet_messages::profile::{Branch, Missing, VersionName};
+use hamlet_messages::profile::{
+    Branch, CommitId, Missing, Sha1, VersionName,
+};
 use hamlet_messages::realm::budget::{
     Budget, BudgetLimit, Charge, MaySpend, Payer, Period,
     ResetBudget, SpendRefusal,
@@ -54,6 +57,7 @@ use serde::de::DeserializeOwned;
 use super::cases::{Cases, Union, family, named, tagged, union};
 use super::{AGENT, Fixtures, call, task};
 
+mod lifecycle;
 mod parcels;
 mod profiles;
 mod society;
@@ -113,6 +117,7 @@ pub fn enums() -> Vec<Cases> {
     .chain(society::enums())
     .chain(parcels::enums())
     .chain(profiles::enums())
+    .chain(lifecycle::enums())
     .collect()
 }
 
@@ -136,6 +141,7 @@ pub fn unions() -> Vec<Union> {
     .chain(society::unions())
     .chain(parcels::unions())
     .chain(profiles::unions())
+    .chain(lifecycle::unions())
     .collect()
 }
 
@@ -168,6 +174,7 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     society::the_oversight_and_the_settings(fixtures);
     parcels::the_parcels(fixtures);
     profiles::the_profiles_through_the_realm(fixtures);
+    lifecycle::the_acts_across_actors(fixtures);
 }
 
 fn answers<A>(
@@ -793,6 +800,8 @@ fn the_society_tools_named_in_a_gate(fixtures: &mut Fixtures) {
             SocietyTool::Revert,
             SocietyTool::AskLibrarian,
             SocietyTool::SubmitSkill,
+            SocietyTool::MergeHires,
+            SocietyTool::RemoveHamlet,
         ],
     );
 }
@@ -1809,6 +1818,15 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         },
     );
     fixtures.answer("agent/fill", &());
+    fixtures.args("agent/retire", &Retire);
+    fixtures.answer(
+        "agent/retire",
+        &Retired {
+            tip: CommitId(Sha1([0xcd; 20])),
+        },
+    );
+    fixtures.args("agent/erase", &Erase);
+    fixtures.answer("agent/erase", &());
     fixtures.args(
         "profile/branch",
         &Branch {

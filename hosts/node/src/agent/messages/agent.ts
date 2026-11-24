@@ -234,6 +234,11 @@ export interface ShelvesChanged {
     readonly list: ShelfList;
 }
 
+/** An ended hire's agent stopped its turn and saved its files to its branch, whose tip is `tip`. */
+export interface Retired {
+    readonly tip: CommitId;
+}
+
 export interface AgentActions {
     submit(message: Submit): null;
     finished(message: Finished): null;
@@ -243,6 +248,9 @@ export interface AgentActions {
     moved(message: Moved): null;
     remove_path(message: RemovePath): Removal;
     shelves_changed(message: ShelvesChanged): null;
+    retire(message: null): Retired;
+    /** The agent answers, then ends itself for good. */
+    erase(message: null): null;
 }
 
 /** As each message's `Message::From` says. */
@@ -255,6 +263,8 @@ export const SENDERS = {
     moved: OWN_PROFILE,
     remove_path: OWN_PROFILE,
     shelves_changed: LIBRARY,
+    retire: REALM,
+    erase: REALM,
 } as const satisfies {
     readonly [N in keyof AgentActions]: Address | typeof OWN_PROFILE;
 };
@@ -724,6 +734,8 @@ export const read: {
     shelves_changed: reader(obj({ list: SHELF_LIST }, OPEN), ({ list }) => ({
         list: shelfListOf(list),
     })),
+    retire: reader(unknown(), () => null),
+    erase: reader(unknown(), () => null),
 };
 
 /**

@@ -18,7 +18,6 @@ use hamlet_messages::realm::profiles::{
     ReadProfile, ReadProfileRefusal, RevertProfile,
     RevertProfileRefusal, TagProfile, TagProfileRefusal,
 };
-use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
     Refusable, Tool, ToolCall,
@@ -29,14 +28,15 @@ use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::act::{Act, Called, Carried, Decided, Decision, ToolAct};
+use super::act::{Act, Carried, Decided, Decision};
 use super::callers::{self, ByHand, Relay};
 use super::change::{self, Affected, Rows, Writer};
 use super::chiefs::hamlet;
-use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::steps::Cx;
 use super::{Realm, calls, dreams, record, settings};
+
+pub(super) mod lifecycle;
 
 const HAND_CHARACTER: &str =
     include_str!("../../../hamlet_server/assets/hand.md");
@@ -511,50 +511,6 @@ impl Handler<Purging> for Realm {
     }
 }
 
-/// An agent's call of a change to a profile, kept for a chief.
-impl<T: ProfileChange> Act<Hand> for Carried<T> {
-    type Output = <T as ToolCall>::Answer;
-    type Loaded = Kept;
-    /// The wait that keeps it.
-    type Done = WaitId;
-
-    async fn load(
-        &self,
-        _by: &Hand,
-        rows: &Rows<'_>,
-    ) -> Result<Kept> {
-        reserved::keep(
-            rows,
-            T::TOOL,
-            Hand::NUMBER,
-            &self.called,
-            self,
-        )
-        .await
-    }
-
-    fn decide(
-        &self,
-        _by: &Hand,
-        kept: Kept,
-    ) -> Decision<WaitId, Self::Output> {
-        match kept {
-            Kept::Waits(kept) => Decision::Change(kept),
-            Kept::Refused(why) => {
-                Decision::Answer(Refusable::refused(why.into()))
-            }
-        }
-    }
-
-    fn answer(
-        &self,
-        wait: WaitId,
-        _made: &calls::Made,
-    ) -> Self::Output {
-        Refusable::refused(Gate::Reserved { wait }.into())
-    }
-}
-
 impl<T: ProfileChange> Relay<Agent> for Carried<T> {
     type Call = T::Call;
     type Output = <T as ChiefRequest>::Answer;
@@ -723,20 +679,3 @@ impl ProfileChange for RevertProfile {
         }
     }
 }
-
-macro_rules! asked_of_the_profile {
-    ($($change:ty),+) => {$(
-        impl ToolAct<Hand> for $change {
-            type Run = Carried<Self>;
-
-            fn run(self, called: &Called) -> Carried<Self> {
-                Carried {
-                    called: called.clone(),
-                    act: self,
-                }
-            }
-        }
-    )+};
-}
-
-asked_of_the_profile!(EditProfile, TagProfile, RevertProfile);

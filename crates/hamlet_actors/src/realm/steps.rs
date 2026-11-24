@@ -15,10 +15,11 @@ use tokio::sync::watch;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::{self, Peers, When};
+use super::profiles::lifecycle;
 use super::workers::errands;
 use super::{
-    Realm, calls, dreams, drop_parts, hire, librarian, parcels,
-    reviews, tree, versions, workers,
+    Realm, calls, dreams, drop_parts, erase, hire, librarian, merges,
+    parcels, retire, reviews, tree, versions, workers,
 };
 
 #[derive(
@@ -36,6 +37,15 @@ pub(super) enum Kind {
     DreamEnd,
     Verdict,
     DropParts,
+    /// An ended hire's agent saves its files.
+    Retire,
+    Merge,
+    /// A merge taken out again by a restore.
+    Split,
+    /// An ended hire's branch and agent removed.
+    Erase,
+    ProfileFork,
+    ProfileErase,
 }
 
 #[derive(
@@ -323,6 +333,16 @@ async fn end_failed(
         Kind::DreamEnd | Kind::Verdict | Kind::DropParts => {
             (vec![Change::Close { row }.into()], Calls::none())
         }
+        Kind::Retire => retire::failed(&rows, row.n).await?,
+        Kind::Merge => merges::failed(&rows, row.n).await?,
+        Kind::Split => merges::split_failed(&rows, row.n).await?,
+        Kind::Erase => erase::failed(&rows, row.n).await?,
+        Kind::ProfileFork => {
+            lifecycle::fork_failed(&rows, row.n).await?
+        }
+        Kind::ProfileErase => {
+            lifecycle::erase_failed(&rows, row.n).await?
+        }
     };
     if changes.is_empty() {
         return Ok(());
@@ -391,6 +411,42 @@ async fn walk_row(
         Kind::DropParts => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 drop_parts::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Retire => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                retire::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Merge => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                merges::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Split => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                merges::split(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Erase => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                erase::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::ProfileFork => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                lifecycle::fork(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::ProfileErase => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                lifecycle::erase(cx, row.n, step).await
             })
             .await
         }
@@ -531,13 +587,19 @@ impl Drives {
     }
 
     /// Waits until `row`'s drive ends, at most `within`, and at once
-    /// when none runs.
+    /// when none runs, its transaction given up first.
     pub async fn finished(
         &self,
         row: StepId,
         within: Duration,
         _abandoned: change::Abandoned,
     ) {
+        self.ended(row, within).await;
+    }
+
+    /// Waits until `row`'s drive ends, at most `within`, and at once
+    /// when none runs.
+    pub async fn ended(&self, row: StepId, within: Duration) {
         let Some(mut ended) = self
             .running
             .lock()

@@ -16,15 +16,17 @@ use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Fill, Place, PlaceVersion, Submit,
+    AgentInput, Erase, Fill, Place, PlaceVersion, Retire, Retired,
+    Submit,
 };
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
     ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    Branch, DropSaveParts, Edit, EndDream, PrepareDream,
-    ProfileInput, Purge, Read, Revert, Tag,
+    Branch, Bundle, CommitId, DropBranch, DropSaveParts, Edit,
+    EndDream, MergeBranch, PrepareDream, ProfileInput, Purge, Read,
+    Revert, Sha1, Source, Tag, Unmerge,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable as _};
 use hamlet_messages::workspace::reach::Reach;
@@ -32,6 +34,7 @@ use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, ChiefAnswer, InForce, ReachVersion,
     SetReach,
 };
+use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
 use rusqlite::OpenFlags;
 use serde::{Deserialize, Serialize};
@@ -44,7 +47,12 @@ use super::{DEADLINE, THREE, call, stopped_open};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Callee {
     Branch,
+    /// A profile's read of a branch for a merge, by the profile's
+    /// number.
+    Bundle,
     Create,
+    /// A profile's drop of a hire's branch, by the hire's number.
+    DropBranch,
     /// The library's drop of an agent's offers under way, by the
     /// agent's number.
     DropOfferParts,
@@ -55,7 +63,13 @@ pub(super) enum Callee {
     Edit,
     /// A profile's end of a dream, by the profile's number.
     EndDream,
+    /// An agent's erasure.
+    Erase,
+    /// A profile's erasure, by the profile's number.
+    EraseProfile,
     Fill,
+    /// A profile's merge, by the absorbed hire's number.
+    Merge,
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
@@ -64,8 +78,11 @@ pub(super) enum Callee {
     /// A profile's purge, by the profile's number.
     Purge,
     Read,
+    Retire,
     SetReach,
     Submit,
+    /// A profile's unmerge, by the profile's number.
+    Unmerge,
     /// The library's verdict, by the offer's number.
     Verdict,
 }
@@ -97,6 +114,13 @@ pub(super) struct Seen {
     pub(super) offer_drops: Mutex<Vec<DropOfferParts>>,
     /// Each verdict the library was called with, failed calls too.
     pub(super) verdicts: Mutex<Vec<Verdict>>,
+    pub(super) retires: Mutex<Vec<AgentNumber>>,
+    pub(super) erases: Mutex<Vec<AgentNumber>>,
+    pub(super) merges: Mutex<Vec<(ProfileId, MergeBranch)>>,
+    pub(super) bundles: Mutex<Vec<(ProfileId, Bundle)>>,
+    pub(super) unmerges: Mutex<Vec<(ProfileId, Unmerge)>>,
+    pub(super) branch_drops: Mutex<Vec<(ProfileId, DropBranch)>>,
+    pub(super) profile_erases: Mutex<Vec<ProfileId>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -258,7 +282,8 @@ pub(super) struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Place, Fill, Copies, Forward);
+    type Actions =
+        (Submit, Place, Fill, Copies, Retire, Erase, Forward);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -314,6 +339,37 @@ impl Handler<Fill> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Fill, self.agent).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
+        Ok(())
+    }
+}
+
+/// The tip of the branch of the hire `agent`, once retired.
+pub(super) fn retired(agent: AgentNumber) -> CommitId {
+    CommitId(Sha1([agent.0.to_le_bytes()[0]; 20]))
+}
+
+impl Handler<Retire> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Retire,
+    ) -> anyhow::Result<Retired> {
+        self.seen.called(Callee::Retire, self.agent).await?;
+        self.seen.retires.lock().unwrap().push(self.agent);
+        Ok(Retired {
+            tip: retired(self.agent),
+        })
+    }
+}
+
+impl Handler<Erase> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Erase,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::Erase, self.agent).await?;
+        self.seen.erases.lock().unwrap().push(self.agent);
         Ok(())
     }
 }
@@ -625,6 +681,64 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
         *seen.branches.lock().unwrap(),
         [(ProfileId(1), branch)]
     );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_and_profile_stand_ins_take_the_calls_of_a_merge_and_an_erasure()
+ {
+    let scratch = Scratch::new("realm-stand-ins");
+    let seen = Arc::new(Seen::default());
+    let host = open(&scratch, &seen, None).await;
+    let hire = address::Agent(AgentNumber(3));
+    let profile = address::Profile(ProfileId(2));
+    let merge = MergeBranch {
+        id: RequestId::new(),
+        into: "hires/2".into(),
+        absorbed: AgentNumber(3),
+        message: "Took in what hire#3 learned".into(),
+        from: Source::Branch {
+            name: "hires/3".into(),
+        },
+    };
+    let bundle = Bundle {
+        branch: "hires/3".into(),
+        after: None,
+    };
+    let unmerge = Unmerge {
+        id: RequestId::new(),
+        branch: "hires/2".into(),
+        merge: retired(AgentNumber(2)),
+    };
+    let drop = DropBranch {
+        name: "hires/3".into(),
+    };
+
+    let tip = call(&host, &hire, &Retire).await.unwrap().tip;
+    call(&host, &hire, &Erase).await.unwrap();
+    call(&host, &profile, &merge).await.unwrap();
+    call(&host, &profile, &bundle).await.unwrap();
+    call(&host, &profile, &unmerge).await.unwrap();
+    call(&host, &profile, &drop).await.unwrap();
+    call(
+        &host,
+        &profile,
+        &hamlet_messages::profile::Erase {
+            id: RequestId::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let two = ProfileId(2);
+    assert_eq!(tip, retired(AgentNumber(3)));
+    assert_eq!(*seen.retires.lock().unwrap(), [AgentNumber(3)]);
+    assert_eq!(*seen.erases.lock().unwrap(), [AgentNumber(3)]);
+    assert_eq!(*seen.merges.lock().unwrap(), [(two, merge)]);
+    assert_eq!(*seen.bundles.lock().unwrap(), [(two, bundle)]);
+    assert_eq!(*seen.unmerges.lock().unwrap(), [(two, unmerge)]);
+    assert_eq!(*seen.branch_drops.lock().unwrap(), [(two, drop)]);
+    assert_eq!(*seen.profile_erases.lock().unwrap(), [two]);
     host.shutdown().await.unwrap();
 }
 

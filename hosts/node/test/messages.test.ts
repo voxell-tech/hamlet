@@ -2318,7 +2318,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the library's call of an agent, an action this agent does not take",
     ],
     [
-        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase|drop_save_parts)\./,
+        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase|drop_save_parts|merge_branch|bundle|unmerge|drop_branch)\./,
         "the realm's call of a profile",
     ],
     [
@@ -2330,7 +2330,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a row the workspace keeps in its own file",
     ],
     [
-        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged)$/,
+        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.merge_branch\.kept|profile\.merge_branch\.merged|profile\.merge_branch\.refused\.commit_gone|profile\.merge_branch\.refused\.not_a_path|profile\.merge_branch\.refused\.part_too_large|profile\.merge_branch\.refused\.withheld|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged|profile\.unmerge\.refused\.commit_gone|profile\.unmerge\.unmerged)$/,
         "a row a profile keeps in its own file",
     ],
     [
@@ -2350,6 +2350,14 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a model change with an effort and a speed, which today's set_model does not take",
     ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
+    [
+        /^agent\/(retire|erase)\./,
+        "the realm's call of an ended hire's agent, which this agent does not take yet",
+    ],
+    [
+        /^realm\/(merge_hires|remove_hamlet)\./,
+        "a society tool this agent does not offer yet",
+    ],
 ];
 
 const CLIENT_CALLS = new RegExp(

@@ -18,6 +18,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
 pub(super) use lead::{Pinned, Pinning, failed};
+use serde::Deserialize as _;
 
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
@@ -53,11 +54,17 @@ impl Status {
     }
 }
 
-/// `how` as a row keeps it: a lead by its number.
+/// The fields of a [`HowEnded`] that name an agent.
+const NAMING: [&str; 3] = ["lead", "into", "by"];
+
+/// `how` as a row keeps it: each agent it names by its number.
 pub(super) fn kept_how(how: &HowEnded) -> Result<String> {
     let mut kept = serde_json::to_value(how)?;
-    if let HowEnded::ByALead { lead } = how {
-        kept["lead"] = lead.agent.0.into();
+    for field in NAMING {
+        if let Some(named) = kept.get(field) {
+            let named = AgentName::deserialize(named)?;
+            kept[field] = named.agent.0.into();
+        }
     }
     Ok(kept.to_string())
 }
@@ -67,13 +74,15 @@ pub(super) async fn read_how(
     kept: &str,
 ) -> Result<HowEnded> {
     let mut how: serde_json::Value = serde_json::from_str(kept)?;
-    if let Some(lead) =
-        how.get("lead").and_then(serde_json::Value::as_u64)
-    {
-        let lead = AgentNumber(u32::try_from(lead)?);
-        how["lead"] = serde_json::to_value(
-            record::agent_name(rows, lead).await?,
-        )?;
+    for field in NAMING {
+        if let Some(agent) =
+            how.get(field).and_then(serde_json::Value::as_u64)
+        {
+            let agent = AgentNumber(u32::try_from(agent)?);
+            how[field] = serde_json::to_value(
+                record::agent_name(rows, agent).await?,
+            )?;
+        }
     }
     Ok(serde_json::from_value(how)?)
 }
@@ -578,6 +587,22 @@ pub(super) enum Change {
     Worker { agent: AgentNumber },
     /// A worker ends `how`, when it had not.
     WorkerEnded { agent: AgentNumber, how: HowEnded },
+    /// An ended hire, not erased, lives again, under `lead` when one
+    /// is given.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no built act makes it yet")
+    )]
+    Back {
+        agent: AgentNumber,
+        lead: Option<AgentNumber>,
+    },
+    /// An ended hire is erased: it stays ended for good.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no built act makes it yet")
+    )]
+    Erased { agent: AgentNumber },
 }
 
 pub(super) async fn apply(
@@ -616,6 +641,10 @@ pub(super) async fn apply(
         Change::WorkerEnded { agent, how } => {
             worker_ended(writer, agent, how).await
         }
+        Change::Back { agent, lead } => {
+            back(writer, agent, lead).await
+        }
+        Change::Erased { agent } => erased(writer, agent).await,
     }
 }
 
@@ -768,23 +797,71 @@ async fn live(
     writer: &Writer<'_>,
     agent: AgentNumber,
 ) -> Result<Affected> {
-    let at = vec![number(agent)];
     writer
         .execute(
             "UPDATE agent SET status = 'live' WHERE id = ?1 AND \
              status = 'hiring'",
-            at.clone(),
+            vec![number(agent)],
         )
         .await?;
+    showing(writer, agent).await
+}
+
+/// The places that show `agent`, under the lead it has now.
+async fn showing(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+) -> Result<Affected> {
     let lead = writer
         .rows()
         .value::<Option<u32>>(
             "SELECT lead FROM hire WHERE agent = ?1",
-            at,
+            vec![number(agent)],
         )
         .await?
         .flatten();
     places_showing(writer, agent, lead.map(AgentNumber)).await
+}
+
+async fn back(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> Result<Affected> {
+    let back = writer
+        .execute(
+            "UPDATE agent SET status = 'live', ended_how = NULL, \
+             ended_why = NULL WHERE id = ?1 AND status = 'ended' \
+             AND erased = 0",
+            vec![number(agent)],
+        )
+        .await?;
+    if back == 0 {
+        return Ok(Affected::default());
+    }
+    if lead.is_some() {
+        lead::set_lead(writer, agent, lead).await?;
+    }
+    let shown = showing(writer, agent).await?;
+    Ok(Affected {
+        places: shown.places,
+        reaches: BTreeSet::from([agent]),
+        ..Affected::seen([Part::Agents, Part::Reaches])
+    })
+}
+
+async fn erased(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+) -> Result<Affected> {
+    writer
+        .execute(
+            "UPDATE agent SET erased = 1 WHERE id = ?1 AND status = \
+             'ended'",
+            vec![number(agent)],
+        )
+        .await?;
+    Ok(Affected::seen([Part::Agents]))
 }
 
 async fn purpose(

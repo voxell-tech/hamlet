@@ -6,17 +6,19 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
+use hamlet_messages::address::Agent;
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, SetFolder, SetMode,
+    EraseHamlet, MoveHamlet, NameHamlet, RemoveHamlet, RestoreHamlet,
+    SetFolder, SetMode,
 };
 use hamlet_messages::realm::{
-    Done, HamletId, HamletRefusal, Refusable,
+    AgentRefusal, Done, HamletId, HamletRefusal, Refusable,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;
 
-use super::super::act::{Act, Decided, Decision};
+use super::super::act::{Act, Decided, Decision, unbuilt};
 use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer};
 use super::super::record::{self, By};
@@ -421,3 +423,10 @@ mod tests {
         assert_eq!(why.to_string(), "`NaN, 4` is not an address");
     }
 }
+
+unbuilt!(Client:
+    RemoveHamlet => Done<HamletRefusal>,
+    RestoreHamlet => Done<HamletRefusal>,
+    EraseHamlet => Done<HamletRefusal>,
+);
+unbuilt!(Agent: RemoveHamlet => Done<AgentRefusal<HamletRefusal>>);

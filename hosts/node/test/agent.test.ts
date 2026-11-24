@@ -271,6 +271,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
         [
             "check",
             "copies",
+            "erase",
             "fill",
             "finished",
             "login",
@@ -285,6 +286,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "reflect",
             "remove_path",
             "resume",
+            "retire",
             "retry",
             "rewind",
             "shelves_changed",

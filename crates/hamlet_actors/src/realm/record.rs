@@ -118,6 +118,80 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Merged {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Split {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Restored {
+        hire: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Erased {
+        hire: AgentNumber,
+        by: By,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    RemovedHamlet {
+        hamlet: HamletId,
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    RestoredHamlet {
+        hamlet: HamletId,
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    ErasedHamlet {
+        hamlet: HamletId,
+        by: By,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    ProfileArchived {
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    ProfileRestored {
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    ProfileErased {
+        by: By,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Welcomed {
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    TurnedAway {
+        by: By,
+        why: Option<String>,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    HouseMoved {
+        by: By,
+    },
+    #[expect(dead_code, reason = "no built act makes it yet")]
+    Forked {
+        by: By,
+    },
 }
 
 pub(super) async fn write(
@@ -213,6 +287,62 @@ pub(super) async fn write(
             Entry::Allowance { hire, by, why } => {
                 ("allowance", by, Fields::of(hire, why))
             }
+            Entry::Merged {
+                absorbed,
+                kept,
+                by,
+                why,
+            } => ("merged", by, Fields::road(absorbed, kept, why)),
+            Entry::Split {
+                absorbed,
+                kept,
+                by,
+                why,
+            } => ("split", by, Fields::road(absorbed, kept, why)),
+            Entry::Restored { hire, by, why } => {
+                ("restored", by, Fields::of(hire, why))
+            }
+            Entry::Erased { hire, by } => {
+                ("erased", by, Fields::of(hire, None))
+            }
+            Entry::RemovedHamlet { hamlet, by, why } => (
+                "removed-hamlet",
+                by,
+                Fields {
+                    why,
+                    ..Fields::hamlet(hamlet)
+                },
+            ),
+            Entry::RestoredHamlet { hamlet, by, why } => (
+                "restored-hamlet",
+                by,
+                Fields {
+                    why,
+                    ..Fields::hamlet(hamlet)
+                },
+            ),
+            Entry::ErasedHamlet { hamlet, by } => {
+                ("erased-hamlet", by, Fields::hamlet(hamlet))
+            }
+            Entry::ProfileArchived { by, why } => {
+                ("profile-archived", by, Fields::why(why))
+            }
+            Entry::ProfileRestored { by, why } => {
+                ("profile-restored", by, Fields::why(why))
+            }
+            Entry::ProfileErased { by } => {
+                ("profile-erased", by, Fields::default())
+            }
+            Entry::Welcomed { by, why } => {
+                ("welcomed", by, Fields::why(why))
+            }
+            Entry::TurnedAway { by, why } => {
+                ("turned-away", by, Fields::why(why))
+            }
+            Entry::HouseMoved { by } => {
+                ("house-moved", by, Fields::default())
+            }
+            Entry::Forked { by } => ("forked", by, Fields::default()),
         };
         let decided_by = match by {
             By::Chief => BindParam::Text(chief.clone()),
@@ -262,6 +392,13 @@ impl Fields {
     fn of(agent: AgentNumber, why: Option<String>) -> Self {
         Self {
             agent: Some(agent),
+            why,
+            ..Self::default()
+        }
+    }
+
+    fn why(why: Option<String>) -> Self {
+        Self {
             why,
             ..Self::default()
         }
@@ -481,6 +618,10 @@ fn done(kind: &str) -> &'static str {
         "founded" => "founded the hamlet under",
         "hired" => "hired",
         "ended" => "ended",
+        "merged" => "merged",
+        "split" => "split",
+        "restored" => "restored",
+        "erased" => "erased",
         "seated" => "gave the office to",
         "model" => "chose the model of",
         "tools" => "changed the tools of",
