@@ -20,7 +20,9 @@ use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::documents::{
     CardSetting, EditCatalogue, EditCharter, ImageLimits,
 };
-use hamlet_messages::realm::oversight::{Permission, Revoke};
+use hamlet_messages::realm::oversight::{
+    Permission, Revoke, Revoked,
+};
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
@@ -300,7 +302,7 @@ async fn perform(
         }
         Act::Worker(start) => match ask(calls, id, start).await? {
             Started::Started { worker } => {
-                Ok(words::worker_started(worker.0))
+                Ok(words::worker_started(worker.agent.0))
             }
             Started::Refused { why } => Err(refused(why)),
         },
@@ -335,9 +337,12 @@ async fn perform(
                                 agent,
                                 permission: Permission::Network,
                             };
-                            done(ask(calls, id, act).await?, || {
-                                words::revoked(&name, word)
-                            })
+                            match ask(calls, id, act).await? {
+                                Revoked::Refused { why } => {
+                                    Err(refused(why))
+                                }
+                                notice => Ok(notice.to_string()),
+                            }
                         }
                         protocol::Permission::Unconfined => {
                             Ok(words::holds_no_grant(&name, word))
@@ -388,7 +393,7 @@ async fn perform(
         }
         Act::Hire(act) => match ask(calls, id, act).await? {
             HireAnswer::Hired { agent } => {
-                Ok(words::hired(&view.address(agent)))
+                Ok(words::hired(&view.address(agent.agent)))
             }
             HireAnswer::Refused { why } => Err(refused(why)),
         },

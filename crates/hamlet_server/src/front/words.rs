@@ -223,10 +223,6 @@ pub(crate) fn grants(
     }
 }
 
-pub(crate) fn revoked(name: &str, word: &str) -> String {
-    format!("{name} may no longer use {word}.")
-}
-
 pub(crate) fn holds_no_grant(name: &str, word: &str) -> String {
     format!("{name} holds no grant of {word}.")
 }

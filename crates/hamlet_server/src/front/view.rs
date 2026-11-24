@@ -255,7 +255,7 @@ fn gone(view: &View, left: &Left) -> protocol::Left {
         ),
         HowEnded::ByALead { lead } => (
             EndHow::Ended,
-            view.address(*lead),
+            view.address(lead.agent),
             protocol::LeftHow::Ended,
         ),
         HowEnded::ByTheHand => (
