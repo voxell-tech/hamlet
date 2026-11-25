@@ -544,11 +544,19 @@ pub(super) async fn give(
     give_held(realm, &kept).await
 }
 
+/// Gives the hire its kept line, unless a stop withdrew it.
 async fn give_held(realm: &Arc<Realm>, kept: &Held) -> Result<()> {
-    realm
+    let id = &kept.line.id;
+    if !realm.lines.attempt(id) {
+        return Ok(());
+    }
+    let given = realm
         .peers
         .call(&Agent(kept.hire), &kept.line, When::AfterAnswer)
-        .await?;
-    realm.lines.given(&kept.line.id);
-    Ok(())
+        .await;
+    match given {
+        Ok(()) => realm.lines.given(id),
+        Err(_) => realm.lines.failed(id),
+    }
+    given
 }

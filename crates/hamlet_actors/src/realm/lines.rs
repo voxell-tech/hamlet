@@ -165,11 +165,12 @@ impl Lines {
     }
 
     /// Begins a try to give the line `id`: false, and the line is
-    /// withdrawn, when a stop withdrew it.
+    /// withdrawn, when a stop withdrew it. A line the realm does not
+    /// hold, as once it started again, is tried.
     pub fn attempt(&self, id: &InputId) -> bool {
         let mut held = self.held();
         let Some(line) = held.lines.get_mut(id) else {
-            return false;
+            return true;
         };
         if line.stop.is_some() {
             line.is = Is::Withdrawn(Instant::now());
@@ -222,7 +223,7 @@ impl Lines {
                     && line.stop == Some(number)
                     && matches!(
                         line.is,
-                        Is::Waiting | Is::Withdrawn(_)
+                        Is::Reviewed | Is::Waiting | Is::Withdrawn(_)
                     )
             })
             .map(|(id, line)| (line.entered, id, line))
@@ -264,7 +265,9 @@ impl Lines {
                 }
                 LineIs::Withdrawn
             }
-            (Is::Waiting, Some(_)) => LineIs::Withdrawn,
+            (Is::Reviewed | Is::Waiting, Some(_)) => {
+                LineIs::Withdrawn
+            }
             (Is::Reviewed | Is::Waiting | Is::Trying, _) => {
                 LineIs::Waiting
             }
@@ -330,7 +333,10 @@ impl Held {
         for line in self.lines.values_mut() {
             if line.agent == agent
                 && line.stop.is_none()
-                && matches!(line.is, Is::Waiting | Is::Trying)
+                && matches!(
+                    line.is,
+                    Is::Reviewed | Is::Waiting | Is::Trying
+                )
             {
                 line.stop = Some(number);
             }

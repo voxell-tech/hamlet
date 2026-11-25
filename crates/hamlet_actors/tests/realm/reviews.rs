@@ -8,6 +8,7 @@ use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, Setting,
 };
+use hamlet_messages::realm::lines::{LineIs, ReadLine, StopAgents};
 use hamlet_messages::realm::oversight::{Object, ObjectRefusal};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{
@@ -775,5 +776,31 @@ async fn a_kept_line_whose_give_fails_once_is_given_after_the_retry()
     assert!(matches!(said, SayAnswer::Accepted { .. }), "{said:?}");
     assert!(realm.seen.has_failed(Callee::Submit, THREE));
     assert_eq!(given, [("Plain line.".to_owned(), None)]);
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A stop of the hire while its line is kept for review withdraws
+/// the line, so the review's pass gives the hire nothing. A give
+/// after a pass takes a few milliseconds; the test waits 2 s for one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_during_a_review_withdraws_the_line() {
+    let (realm, _) =
+        hamlet(Duration::from_secs(600), Review::Always).await;
+    let id = RequestId::new();
+    realm.ask(&say(&id, THREE, "Plain line.")).await.unwrap();
+    briefed(&realm, 0).await;
+
+    realm
+        .ask(&StopAgents {
+            agents: vec![THREE],
+        })
+        .await
+        .unwrap();
+    let read = realm.ask(&ReadLine(id.clone())).await.unwrap();
+    ends(&realm, 0, answered("PASS")).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert_eq!(read, LineIs::Withdrawn);
+    assert_eq!(lines(&realm, THREE), []);
     realm.host.shutdown().await.unwrap();
 }
