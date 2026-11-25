@@ -55,6 +55,7 @@ import {
     tellingFailed,
 } from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
+import { drop_inbox, migrateInbox, read_inbox, take_inbox } from "./inbox.ts";
 import { admissionOf } from "./inputs.ts";
 import type { SignIns } from "./login.ts";
 import {
@@ -292,6 +293,9 @@ function agentActions(config: AgentConfig): AgentHandlers {
             shelves_changed,
             retire,
             erase,
+            read_inbox,
+            take_inbox,
+            drop_inbox,
         }),
         ...chatActions(config),
         pi: { wake: sentBy<[], null>(ALARM, "pi.wake", () => [], wakeTimers) },
@@ -412,6 +416,7 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
     await migrateCopies(raw);
     await migrateChats(raw);
     await migrateBranch(raw);
+    await migrateInbox(raw);
     await raw.execute(`
         CREATE TABLE IF NOT EXISTS agent (
             id INTEGER PRIMARY KEY CHECK (id = 1),

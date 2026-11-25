@@ -1461,9 +1461,12 @@ const TAKERS = {
     },
     retire: { by: from.realm, answer: "agent/retire.answer" },
     erase: { by: from.realm, answer: "agent/erase.answer" },
+    take_inbox: { by: from.realm, answer: "agent/take_inbox.answer" },
+    drop_inbox: { by: from.realm, answer: "agent/drop_inbox.answer" },
 } as const;
 
 const TAKEN = [
+    "agent/drop_inbox",
     "agent/erase",
     "agent/fill",
     "library/shelves_changed",
@@ -1490,6 +1493,7 @@ const TAKEN = [
     "agent/submit.question",
     "agent/submit.question.files",
     "agent/submit.worker_answer",
+    "agent/take_inbox",
 ] as const;
 
 /** The report a taken call makes: a file held whole is not fetched past the workspace's 256 MiB. */
@@ -2435,6 +2439,11 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...Object.values(TAKERS).map((taker) => taker.answer),
         // `test/branch.test.ts` compares it.
         "profile/remove_path.later.answer",
+        // `test/inbox.test.ts` compares them.
+        "agent/read_inbox.args",
+        "agent/read_inbox.after.args",
+        "agent/read_inbox.answer",
+        "agent/read_inbox.last.answer",
         ...CREATED.map((input) => `${input}.input`),
         ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),

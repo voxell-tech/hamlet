@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { ok } from "@earendil-works/pi-durable/env";
-import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import type { Skill } from "../src/agent/messages/library.ts";
 import type { FilesAnswer } from "../src/agent/messages/profile.ts";
 import type { Sent } from "../src/agent/messages/realm.ts";
 import {
     fakeCalls,
     fakeFiles,
+    filesThatRun,
     from,
     modelFailed,
     named,
@@ -160,29 +159,6 @@ test("after a turn, a save sends what the filesystem changed since the fill on t
     assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
-
-/** `fakeFiles` that keeps which files run, as a filesystem with modes does. */
-function filesThatRun(files: Record<string, string>) {
-    const fake = fakeFiles(files);
-    const runs = new Set<string>();
-    const filesystem: AgentFilesystem = {
-        ...fake,
-        write: async (path, content, context, executable) => {
-            if (executable === true) runs.add(path);
-            if (executable === false) runs.delete(path);
-            return fake.write(path, content, context);
-        },
-        walk: async (path, context) => {
-            const walked = await fake.walk(path, context);
-            if (!walked.ok) return walked;
-            const executable = walked.value.files.filter((file) =>
-                runs.has(file),
-            );
-            return ok({ ...walked.value, executable });
-        },
-    };
-    return { filesystem, runs };
-}
 
 test("a fill and a pull write whether each file runs, and a save sends it for each changed file that runs", async (t) => {
     const { calls, sent } = fakeCalls({
