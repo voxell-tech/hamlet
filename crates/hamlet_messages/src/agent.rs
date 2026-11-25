@@ -262,8 +262,8 @@ impl Message for Place {
 }
 
 /// Fills the agent's filesystem from its branch of `profile`. An
-/// agent already filled pulls its branch's tip between turns, as
-/// [`crate::profile::Moved`] makes it, and answers at once.
+/// agent already filled pulls its branch's tip between turns, and
+/// answers at once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fill {
     pub profile: ProfileId,

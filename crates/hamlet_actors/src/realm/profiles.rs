@@ -160,8 +160,7 @@ pub(super) async fn name_of(
     Ok(kept.name)
 }
 
-/// `named`, when it is a living shared profile: one a hire may be
-/// made of, and a society tool may read or change.
+/// `named`, when it is a living shared profile.
 pub(super) async fn shared(
     rows: &Rows<'_>,
     named: ProfileId,
