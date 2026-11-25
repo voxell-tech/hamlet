@@ -150,7 +150,7 @@ pub(crate) enum Item {
     Write(Entry),
 }
 
-/// One part of items.
+/// The items one part holds.
 pub(crate) struct Packed {
     pub files: Vec<Piece>,
     pub removed: Vec<(String, BlobId)>,

@@ -222,7 +222,6 @@ impl Git<'_> {
         self.repo.merge(branch, from, message, self.author(&by))
     }
 
-    /// Removes `branch`, when it is there.
     pub fn delete_branch(&self, branch: &str) -> Result<()> {
         self.repo.delete_branch(branch)
     }

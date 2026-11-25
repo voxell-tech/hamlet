@@ -186,7 +186,7 @@ fn merge_into(
     message: &str,
     learned: &Learned,
 ) -> Result<Ended<MergeBranch>> {
-    let merges = recorded(&writer.table(Merges(())).rows())?;
+    let merges = merge_commits(&writer.table(Merges(())).rows())?;
     let (commit, set_aside) = {
         let (reads, git) = (writer.git()?, writer.writes()?);
         let tip = reads
@@ -335,7 +335,6 @@ fn file(path: String, bytes: Vec<u8>, runs: bool) -> Change {
     }
 }
 
-/// Tells the hire whose branch `branch` is that it moved to `tip`.
 fn tell_hire<M>(
     writer: &mut Writer<'_, Profile, M>,
     branch: &str,
@@ -354,8 +353,7 @@ where
     }
 }
 
-/// The commit of every merge.
-fn recorded(rows: &Rows<'_, Merges>) -> Result<HashSet<String>> {
+fn merge_commits(rows: &Rows<'_, Merges>) -> Result<HashSet<String>> {
     rows.select("SELECT id FROM merge_commit", Vec::new())?
         .into_iter()
         .map(|row| match row.as_slice() {
@@ -590,7 +588,7 @@ fn unmerge(
             return unit.refuse(Gone::CommitGone { commit: merge });
         }
         ensure!(
-            recorded(&unit.rows(Merges(())))?
+            merge_commits(&unit.rows(Merges(())))?
                 .contains(&at.to_string()),
             "the commit {at} is not a merge"
         );
@@ -753,7 +751,7 @@ mod tests {
             .unwrap_err();
     }
 
-    fn commits(dir: &Scratch) -> usize {
+    fn commit_count(dir: &Scratch) -> usize {
         let repository = repository(dir);
         let tip = repository.tip("hires/7").unwrap().unwrap();
         repository.history(tip, usize::MAX).unwrap().len()
@@ -771,7 +769,7 @@ mod tests {
         );
         cut_off(&mut profile, asked.clone());
         let tip = repository(&dir).tip("hires/7").unwrap().unwrap();
-        let count = commits(&dir);
+        let count = commit_count(&dir);
 
         let (answer, _) =
             profile.once(realm(), asked, merge_branch).unwrap();
@@ -782,7 +780,7 @@ mod tests {
                 set_aside: vec!["notes.md.from-hire-8".into()],
             }
         );
-        assert_eq!(commits(&dir), count);
+        assert_eq!(commit_count(&dir), count);
     }
 
     #[test]
@@ -813,7 +811,7 @@ mod tests {
         assert_eq!(kept, MergeAnswer::Kept);
         cut_off(&mut profile, part(1, true, "new.md"));
         let tip = repository(&dir).tip("hires/7").unwrap().unwrap();
-        let count = commits(&dir);
+        let count = commit_count(&dir);
 
         let (answer, _) = profile
             .once(realm(), part(1, true, "new.md"), merge_branch)
@@ -825,7 +823,7 @@ mod tests {
                 set_aside: vec!["notes.md.from-hire-8".into()],
             }
         );
-        assert_eq!(commits(&dir), count);
+        assert_eq!(commit_count(&dir), count);
         let new = repository(&dir).read(tip, "new.md").unwrap();
         assert_eq!(new.as_deref(), Some(&b"theirs"[..]));
     }

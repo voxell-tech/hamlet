@@ -73,8 +73,7 @@ fn unmerge(id: &RequestId, merge: CommitId) -> Unmerge {
     }
 }
 
-/// The commits of `branch` of profile 1, newest first.
-fn commits(dir: &Path, branch: &str) -> usize {
+fn commit_count(dir: &Path, branch: &str) -> usize {
     repository(dir, 1)
         .history(tip(dir, branch).unwrap(), usize::MAX)
         .unwrap()
@@ -187,12 +186,12 @@ async fn a_repeated_merge_answers_its_first_answer_and_commits_once()
     let first = call_as(&host, &realm(), &merge(&id, from_branch()))
         .await
         .unwrap();
-    let count = commits(&dir, "hires/7");
+    let count = commit_count(&dir, "hires/7");
     let again = call_as(&host, &realm(), &merge(&id, from_branch()))
         .await
         .unwrap();
     assert_eq!(again, first);
-    assert_eq!(commits(&dir, "hires/7"), count);
+    assert_eq!(commit_count(&dir, "hires/7"), count);
     host.shutdown().await.unwrap();
 }
 
@@ -348,13 +347,13 @@ async fn a_merge_from_another_profile_brings_its_files() {
     );
     told_at(&told, 7, tip).await;
 
-    let count = commits(&dir, "hires/7");
+    let count = commit_count(&dir, "hires/7");
     let again = merge(&id, part(last, true, parts[last].clone()));
     assert_eq!(
         call_as(&host, &realm(), &again).await.unwrap(),
         answers[last]
     );
-    assert_eq!(commits(&dir, "hires/7"), count);
+    assert_eq!(commit_count(&dir, "hires/7"), count);
     host.shutdown().await.unwrap();
 }
 
@@ -458,14 +457,14 @@ async fn a_split_takes_back_the_merge_and_keeps_later_work() {
     );
     told_at(&told, 7, tip).await;
 
-    let count = commits(&dir, "hires/7");
+    let count = commit_count(&dir, "hires/7");
     assert_eq!(
         call_as(&host, &realm(), &unmerge(&id, merged))
             .await
             .unwrap(),
         split
     );
-    assert_eq!(commits(&dir, "hires/7"), count);
+    assert_eq!(commit_count(&dir, "hires/7"), count);
     host.shutdown().await.unwrap();
 }
 
