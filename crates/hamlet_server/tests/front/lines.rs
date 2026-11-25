@@ -2,6 +2,7 @@
 //! withdraw it there: a line is the realm's once the door hands it
 //! over, and a stop is one act of the realm.
 
+use std::mem::ManuallyDrop;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -302,16 +303,22 @@ fn answers_in(page: &Transcript) -> Vec<&str> {
 }
 
 /// The server's Node host, stopped by SIGSTOP until dropped.
-struct Frozen(String);
+pub(super) struct Frozen(String);
 
 impl Frozen {
-    fn node(home: &Scratch) -> Self {
+    pub(super) fn node(home: &Scratch) -> Self {
         let pid = std::fs::read_to_string(home.join("demo-node.pid"))
             .unwrap()
             .trim()
             .to_owned();
         signal("STOP", &pid);
         Self(pid)
+    }
+
+    /// Ends the frozen host with SIGKILL, as a crash ends it.
+    pub(super) async fn killed(self, home: &Scratch) {
+        let _ended = ManuallyDrop::new(self);
+        kill_node(home).await;
     }
 }
 

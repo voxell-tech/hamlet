@@ -96,6 +96,14 @@ export function fakeCalls(answers: {
             turn_failed: () => null,
             working: () => null,
             read_place: () => ({ place: "# Your place\nYou are `hand`." }),
+            read_own_place: () => ({
+                version: 0,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                manual: false,
+                agrees_roads: false,
+            }),
             ...answers.realm,
         },
         [LIBRARY.kind]: {

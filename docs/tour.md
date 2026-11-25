@@ -654,6 +654,9 @@ which type every message the agent takes or sends, one file for each
 actor it hears from or calls, and answers `null`,
 but `remove_path`, which answers `removed` or `later`, and `stop`, which
 answers the turns it stopped.
+Each wake of a hand, a hire or a worker reads its place with
+`read_own_place` before the harness opens and keeps it when it is newer,
+since a `place` sent while its host was down or ending is lost.
 An input is taken once under its id. A held call that ends with no
 answer, because a stop lapsed its wait or its command was cancelled,
 is written in place of the call's result as aborted and starts no run.

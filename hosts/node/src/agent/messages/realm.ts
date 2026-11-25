@@ -3,7 +3,7 @@
  * answers.
  */
 import { Address } from "../../actor/actor/mod.ts";
-import type { Copies, Count, Effort } from "./agent.ts";
+import type { Copies, Count, Effort, Place } from "./agent.ts";
 import type { OfferId } from "./library.ts";
 import type { CommitId, Path, Revision } from "./profile.ts";
 import type {
@@ -525,6 +525,7 @@ export type RealmActions = {
     worker_done(message: TurnEnded): null;
     errand_done(message: TurnEnded): null;
     read_place(message: ReadPlace): PlaceText;
+    read_own_place(): Place;
     fetch_part(message: FetchPart): Part;
     working(message: Working): null;
 };

@@ -1129,6 +1129,7 @@ const WRITTEN: readonly Written[] = [
     },
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
+    { fixture: "realm/read_own_place" },
     {
         fixture: "realm/secrets",
         answers: { realm: { secrets: () => answer("realm/secrets") } },
@@ -1377,8 +1378,8 @@ for (const row of WRITTEN) {
         const call = of().at(-1);
         assert.ok(call, `the agent sent no ${action}`);
         const expected = fixture(`${row.fixture}.args`) as unknown[];
-        // Each action takes one message, but `list_tools` and `secrets` take
-        // none.
+        // Each action takes one message, but `list_tools`, `secrets` and
+        // `read_own_place` take none.
         const args =
             call.message === undefined ? [] : [structuredClone(call.message)];
         for (const path of row.own ?? []) {
@@ -1591,6 +1592,27 @@ test("agent/place.args keeps every tool's name and the folder, and turns off onl
         names.includes("found_hamlet") && names.includes("read"),
         names.join(),
     );
+});
+
+test("realm/read_own_place.answer is kept at the wake, so the first request offers its tools", async (t) => {
+    const given = answer("realm/read_own_place");
+    const { calls } = fakeCalls({ realm: { read_own_place: () => given } });
+    const agent = await wakeAgent(t, { calls, input: HAND });
+    const row = await agent.c.db.get<{ place_version: number; place: string }>(
+        "SELECT place_version, place FROM agent",
+    );
+    const root = await (await agent.harness()).root(context);
+    const names = (await root.agent(context)).tools.map((tool) => tool.name);
+    assert.deepEqual(agent.reported, []);
+    await agent.stop();
+
+    assert.equal(row?.place_version, 4);
+    assert.equal(
+        (JSON.parse(row?.place ?? "") as { folder?: unknown }).folder,
+        "/work/orchard",
+    );
+    assert.ok(!names.includes("bash"), names.join());
+    assert.ok(names.includes("read"), names.join());
 });
 
 const ANSWERED_BY_TOOLS = [
@@ -2409,6 +2431,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "realm/lapse",
             "realm/open_task",
             "realm/read_copies",
+            "realm/read_own_place",
             "realm/secrets",
             "realm/turn_failed",
             "realm/working",

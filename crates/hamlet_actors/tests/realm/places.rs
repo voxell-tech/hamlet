@@ -1,13 +1,15 @@
 use hamlet_messages::agent::Place;
-use hamlet_messages::realm::{Asked, End, FoundAnswer, Named};
+use hamlet_messages::realm::{
+    Asked, End, FoundAnswer, Named, ReadOwnPlace,
+};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use hamlet_protocol::client::RequestId;
 
 use super::stand_ins::Callee;
 use super::{
-    MAYOR, Realm, THREE, chief_hires, done_to, found, hamlet_with,
-    hire, hired, tool, until,
+    MAYOR, Realm, THREE, chief_hires, done_to, error_code, found,
+    hamlet_with, hire, hired, tool, until,
 };
 
 fn places_of(
@@ -163,5 +165,28 @@ async fn a_failed_place_at_a_step_leaves_the_others_sent() {
     ));
     assert!(realm.seen.has_failed(Callee::Place, Hand::NUMBER));
     assert!(!sent_a_road(&realm, Hand::NUMBER, THREE));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_reads_the_place_the_realm_holds_for_it() {
+    // the mayor fails the place hire 3's `Live` moved: it reads that
+    // place, holding 3, all the same; an errand has no place to read.
+    let (realm, hamlet) = hamlet_with(0).await;
+    realm.seen.fail_once(Callee::Place, MAYOR);
+
+    let hired_3 = chief_hires(&realm, &hamlet, hire(None)).await;
+    realm.live(THREE).await;
+    until("the mayor fails a place", || {
+        realm.seen.has_failed(Callee::Place, MAYOR)
+    })
+    .await;
+    let read = realm.tool(MAYOR, &ReadOwnPlace).await.unwrap();
+    let errand = ErrandNumber::new(0).unwrap().agent();
+    let refused = realm.tool(errand, &ReadOwnPlace).await;
+
+    assert_eq!(hired_3, hired(3));
+    assert_eq!(read.hires, [THREE]);
+    assert_eq!(error_code(refused), "message.wrong_caller");
     realm.host.shutdown().await.unwrap();
 }

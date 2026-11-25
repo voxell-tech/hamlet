@@ -1,11 +1,15 @@
 mod push;
 
 use anyhow::Result;
+use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{Place, PlaceVersion};
+use hamlet_messages::realm::ReadOwnPlace;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;
 pub(super) use push::send;
 
+use super::act::{Act, Decision, Unchanged};
+use super::calls::Made;
 use super::change::Rows;
 use super::{chiefs, roads, tree, versions};
 
@@ -48,6 +52,32 @@ pub(super) async fn of(
         folder,
         agrees_roads,
     })
+}
+
+impl Act<Agent> for ReadOwnPlace {
+    type Output = Place;
+    type Loaded = Place;
+    type Done = Unchanged;
+
+    async fn load(
+        &self,
+        by: &Agent,
+        rows: &Rows<'_>,
+    ) -> Result<Place> {
+        of(rows, by.0).await
+    }
+
+    fn decide(
+        &self,
+        _by: &Agent,
+        place: Place,
+    ) -> Decision<Unchanged, Place> {
+        Decision::Answer(place)
+    }
+
+    fn answer(&self, done: Unchanged, _made: &Made) -> Place {
+        match done {}
+    }
 }
 
 #[cfg(test)]

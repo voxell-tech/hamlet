@@ -89,6 +89,7 @@ const BARE = [
     "worker_done",
     "errand_done",
     "read_place",
+    "read_own_place",
     "fetch_part",
 ] as const;
 

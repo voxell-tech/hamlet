@@ -66,6 +66,7 @@ test("each provider request is asked for and charged once under its own id", asy
             .filter(
                 (name) =>
                     name !== "read_copies" &&
+                    name !== "read_own_place" &&
                     name !== "secrets" &&
                     name !== "working" &&
                     name !== "read_place",
@@ -125,6 +126,7 @@ test("a refused model call ends the turn with the realm's words and sends no req
                 (name) =>
                     name !== "list_tools" &&
                     name !== "read_copies" &&
+                    name !== "read_own_place" &&
                     name !== "secrets" &&
                     name !== "working" &&
                     name !== "shelves" &&
@@ -505,6 +507,7 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
                 (name) =>
                     name !== "list_tools" &&
                     name !== "read_copies" &&
+                    name !== "read_own_place" &&
                     name !== "secrets" &&
                     name !== "working" &&
                     name !== "shelves" &&

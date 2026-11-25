@@ -36,11 +36,11 @@ use hamlet_messages::realm::{
     FoundAnswer, FoundRefusal, Gate, HamletId, HamletRefusal, Hire,
     HireAnswer, HireRefusal, HowEnded, LayRefusal, LayRoad,
     LeadRefusal, Left, LetterId, LetterRefusal, Limit, Named,
-    OnlyAHire, ProfileId, Rank, Refusable, Reply, ReplyRefusal,
-    RequestRoad, RequestRoadRefusal, ReservedAct, Review, RoadDone,
-    Seat, Seated, Sent, SetLimits, SetTier, SetTools, SocietyTool,
-    Standing, TakeUpRefusal, TakeUpRoad, Tell, Tier, TierRefusal,
-    Tool, ToolName, Waiting,
+    OnlyAHire, ProfileId, Rank, ReadOwnPlace, Refusable, Reply,
+    ReplyRefusal, RequestRoad, RequestRoadRefusal, ReservedAct,
+    Review, RoadDone, Seat, Seated, Sent, SetLimits, SetTier,
+    SetTools, SocietyTool, Standing, TakeUpRefusal, TakeUpRoad, Tell,
+    Tier, TierRefusal, Tool, ToolName, Waiting,
 };
 use hamlet_messages::workspace::files::EditDiff;
 use hamlet_messages::workspace::reach::Need;
@@ -1795,6 +1795,8 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
     fixtures.args("agent/place", &place());
     fixtures.args("agent/place.hand", &hands_place());
     fixtures.answer("agent/place", &());
+    fixtures.args("realm/read_own_place", &ReadOwnPlace);
+    fixtures.answer("realm/read_own_place", &place());
     fixtures.args(
         "agent/fill",
         &Fill {

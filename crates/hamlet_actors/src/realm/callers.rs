@@ -5,6 +5,7 @@ use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_host::Caller;
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Party, Profile, Workspace};
+use hamlet_messages::agent::Place;
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
@@ -12,8 +13,8 @@ use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
 use hamlet_messages::realm::{
     AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
-    LeadRefusal, OnlyAHire, ProfileId, Rank, Refusable, RoadDone,
-    Seated, SecretList, Secrets, Standing, Tool, ToolCall,
+    LeadRefusal, OnlyAHire, ProfileId, Rank, ReadOwnPlace, Refusable,
+    RoadDone, Seated, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,
@@ -521,6 +522,23 @@ impl Handler<ReadPlace> for Realm {
             secrets: self.secrets.secrets(),
         };
         act::run(&self, &ctx, by, None, ReadPlace::NAME, reading)
+            .await
+    }
+}
+
+impl Handler<ReadOwnPlace> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        read: ReadOwnPlace,
+    ) -> Result<Place> {
+        let by = sender(&ctx, &read)?;
+        if let Numbered::Errand(_) = by.0.numbered() {
+            return refuse(ReadOwnPlace::NAME, by);
+        }
+        let rowed = [Life::Living, Life::Ended];
+        admit(&ctx, ReadOwnPlace::NAME, by, &rowed).await?;
+        act::run(&self, &ctx, by, None, ReadOwnPlace::NAME, read)
             .await
     }
 }

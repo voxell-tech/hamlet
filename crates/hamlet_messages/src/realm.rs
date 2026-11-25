@@ -46,6 +46,14 @@ impl Message for Secrets {
     type From = Scrubber;
 }
 
+/// Asks for the caller's place as the realm holds it now. An agent
+/// asks at each wake, since a push of its place is lost with its
+/// host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadOwnPlace;
+
+message!(ReadOwnPlace, "read_own_place", Agent => Realm, crate::agent::Place);
+
 /// The realm's secrets of one version: the values the workspace takes
 /// out of everything it hands to an agent, and an agent out of what a
 /// client or a model reads.

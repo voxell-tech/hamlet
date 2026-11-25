@@ -8,6 +8,7 @@
 mod chat;
 mod commands;
 mod lines;
+mod place;
 mod secrets;
 mod view;
 

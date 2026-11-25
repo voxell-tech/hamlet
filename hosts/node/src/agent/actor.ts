@@ -653,6 +653,13 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         followWork,
         ...(builtIns === undefined ? {} : { builtIns }),
     };
+    if (row.kind !== "errand") {
+        await peers.reach.read_own_place().then(
+            (current) => place(c, current),
+            (error: unknown) =>
+                peers.report("the place was not read from the realm", error),
+        );
+    }
     watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the
     // realm's deadline. Begun
@@ -919,7 +926,7 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
     });
 }
 
-async function place(c: AgentCall, message: Place): Promise<void> {
+async function place(c: AgentContext, message: Place): Promise<void> {
     const [version, toolsOff, rest] = rowOf(message);
     const kept = await c.db.run(
         "UPDATE agent SET place_version = ?, tools_off = ?, place = ? WHERE id = 1 AND place_version < ?",

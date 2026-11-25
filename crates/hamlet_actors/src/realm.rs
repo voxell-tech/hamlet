@@ -80,8 +80,8 @@ use hamlet_messages::realm::workers::{
 };
 use hamlet_messages::realm::{
     AgreeRoad, Ask, Asked, End, Found, Hire, LayRoad, NeedsChief,
-    ProfileId, Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier,
-    SetTools, TakeUpRoad, Tell, Tool,
+    ProfileId, ReadOwnPlace, Reply, RequestRoad, Seat, Secrets,
+    SetLimits, SetTier, SetTools, TakeUpRoad, Tell, Tool,
 };
 use serde::Serialize;
 
@@ -274,6 +274,7 @@ impl Actor for Realm {
         Unreserved<Tool<AskLibrarian>>,
         librarian::Submitting,
         ReadPlace,
+        ReadOwnPlace,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
