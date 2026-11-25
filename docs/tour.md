@@ -696,6 +696,9 @@ workspace or the realm answers with what it kept.
   what the branch holds now, never over a file the agent changed. A
   removal from the profile, as a purge sends, removes the path whether
   or not the agent changed it.
+- `retire.ts` answers the realm's calls of an ended hire's agent:
+  `retire` stops its turn and saves its files, and `erase` removes its
+  filesystem and asks the host to destroy the agent.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
@@ -848,7 +851,16 @@ its place, its task and its copies; and the agent's filesystem filled,
 which the agent pages from its profile. A version the profile lacks
 fails the hire for good. A hire's end begins a row of its own
 (`drop_parts.rs`) that drops its unfinished save and offer parts in the
-profile and the library.
+profile and the library, and a `retire` row (`retire.rs`) in which its
+agent saves its files to its branch. A merge (`merges.rs`), a chief's
+`/merge` or a lead's `merge_hires`, ends the absorbed hire and begins
+a `merge` row: the retire, the profile's merge of the absorbed hire's
+branch into the kept one's, and the kept hire's fill. A `/restore`
+brings an ended hire back (`tree::coming_back`), and its hire's steps
+go on if its end cut them off; of a hire merged away, it begins a
+`split` row that takes the merge out again. An `/erase` (`erase.rs`)
+begins an `erase` row, which drops the hire's branch once every merge,
+split and retire of it has ended, and removes its agent.
 `Reach` commits the hire's first reach as wanted, which the push after
 that commit sends to the workspace, and `Live` calls no actor: the
 transaction that records it makes the hire live and closes the row. A
@@ -862,7 +874,8 @@ At the realm's start, each step row not closed goes on from its last
 done step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
-`chiefs/hamlet.rs` its name, site, mode and folder, `chiefs/limits.rs`
+`chiefs/hamlet.rs` its name, site, mode and folder, and its removal,
+by a chief or the Hand's `remove_hamlet`, its return and its erasure, `chiefs/limits.rs`
 and `chiefs/tier.rs`; `tree.rs` keeps the tree, with `Hire`, `End` and
 `Seat` in `tree/lead.rs`, the tools a lead turns off in
 `tree/tools.rs`, and nicknames and the models chosen for an agent or
@@ -888,7 +901,9 @@ the settings and push each agent its copies; `profiles.rs` keeps each
 profile's name and label, makes and reads profiles for
 `create_scholar` and `read_scholar`, keeps `edit_scholar`, `tag` and
 `revert` for a chief, and answers a chief's own change from the
-profile's answer; `dreams.rs` runs a chief's dream as a step row, one
+profile's answer, and `profiles/lifecycle.rs` a profile's fork,
+archive, return and erasure, which erases its hires first, and its
+place in the city; `dreams.rs` runs a chief's dream as a step row, one
 at a time in the realm and none while its profile is purged: the
 profile checks `main`, and a hire's branch, out under `dreams/<n>/`,
 an errand dreams in main's checkout with the hire's network
@@ -926,7 +941,10 @@ and reads the files of a revision (`Read`); `hires.rs` makes a hire's
 branch at the version it is hired at, pins it, and takes `main` into
 it; `files.rs` gives an agent the files of its branch in parts
 (`Files`), takes its changes back (`Save`) and drops an ended hire's
-unfinished parts; `dreams.rs` checks
+unfinished parts; `merges.rs` merges one hire's branch into
+another's, from the same profile or from another profile's branch
+read out in parts, takes a merge out again and drops a branch;
+`dreams.rs` checks
 `main`, and a hire's branch, out for a dream and commits what the
 dream changed when it ends. `src/library.rs` and `src/library/` are
 the kind `library`, keyed `local`: the only writer of `library.git`
