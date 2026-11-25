@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use hamlet_actor::{BindParam, ColumnValue, Ctx};
+use hamlet_messages::agent::Submit;
 use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -103,6 +104,8 @@ pub(super) struct Affected {
     pub seen: BTreeSet<world::Part>,
     /// The deliveries it decided, lined up after its act's own.
     pub deliveries: Vec<Delivery>,
+    /// The chief's lines it kept for a review, by their hires.
+    pub kept: Vec<(AgentNumber, Submit)>,
 }
 
 impl Affected {
@@ -122,6 +125,7 @@ impl Affected {
         self.copies.extend(other.copies);
         self.seen.extend(other.seen);
         self.deliveries.extend(other.deliveries);
+        self.kept.extend(other.kept);
     }
 }
 
@@ -609,6 +613,7 @@ impl Transaction {
         .await;
         let (mut affected, revision, mut pushes) = written?;
         calls.after_answer.append(&mut affected.deliveries);
+        realm.lines.enter(&calls, &affected.kept);
         let lined = realm.lanes.line(&self.rows(), calls).await?;
         let reserved = realm.drives.reserve(&affected.begun, &self);
         let Self {

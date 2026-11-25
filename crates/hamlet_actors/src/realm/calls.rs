@@ -1,25 +1,30 @@
 //! The calls the realm makes after a commit.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use futures::future::BoxFuture;
 use hamlet_actor::{Ctx, KeepAwakeRegion};
 use hamlet_messages::address::Agent;
+use hamlet_messages::agent::chat::{Stop, Stopped};
 use hamlet_messages::agent::{Input, Submit};
 use hamlet_messages::realm::LetterId;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 use super::change::{Affected, Rows};
-use super::lanes::{self, Queued};
+use super::lanes::{self, Queued, Turn};
 use super::oversight::asking;
 use super::peer::{self, When};
 use super::tasks::TaskId;
+use super::tree::{self, Status};
 use super::{
-    Realm, documents, letters, place, reach, reviews, steps, tree,
-    waits, workers,
+    Realm, documents, letters, place, reach, reviews, steps, waits,
+    workers,
 };
 
 /// A call that carries an act's content.
@@ -48,6 +53,9 @@ pub(super) enum Delivery {
     Kept(TaskId),
     /// The notice that tells a parcel's sender why it was not sent.
     ParcelRefused { to: AgentNumber, submit: Submit },
+    /// The stop `number` of the agent `to`, with the lines it
+    /// withdrew.
+    Stop { to: AgentNumber, number: u64 },
 }
 
 impl Delivery {
@@ -68,6 +76,27 @@ impl Delivery {
             _ => false,
         }
     }
+
+    /// The chief's line it carries, with its agent.
+    pub fn said(&self) -> Option<(AgentNumber, &Submit)> {
+        match self {
+            Self::Line { to, submit }
+                if matches!(submit.input, Input::Line { .. }) =>
+            {
+                Some((*to, submit))
+            }
+            _ => None,
+        }
+    }
+
+    /// The agent whose lane it keeps through its retries: a chief's
+    /// line and a stop keep theirs.
+    fn holds_lane(&self) -> Option<AgentNumber> {
+        match self {
+            Self::Stop { to, .. } => Some(*to),
+            _ => self.said().map(|(to, _)| to),
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -81,13 +110,6 @@ impl Calls {
         Self::default()
     }
 
-    pub fn before_answer(delivery: Delivery) -> Self {
-        Self {
-            before_answer: vec![delivery],
-            after_answer: Vec::new(),
-        }
-    }
-
     pub fn after_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: Vec::new(),
@@ -99,11 +121,15 @@ impl Calls {
 #[derive(Debug, Default)]
 pub(super) struct Made {
     failed: Vec<anyhow::Error>,
+    /// Each stop's count of the turns it stopped: its agent's, or
+    /// the realm's own when the agent did not answer in time.
+    stopped: HashMap<AgentNumber, u32>,
 }
 
 impl Made {
-    pub fn all_taken(&self) -> bool {
-        self.failed.is_empty()
+    /// The turns its stops stopped.
+    pub fn stopped(&self) -> u32 {
+        self.stopped.values().sum()
     }
 
     /// The first delivery's failure, as its callee answered it, when
@@ -148,28 +174,41 @@ pub(super) async fn deliver_all(
     deliveries: Vec<Queued>,
     when: When,
 ) -> Made {
-    let made = futures::future::join_all(
+    let delivered = futures::future::join_all(
         deliveries
             .into_iter()
             .map(|queued| deliver(realm, ctx, queued, when)),
     )
     .await;
-    Made {
-        failed: made.into_iter().filter_map(Result::err).collect(),
+    let mut made = Made::default();
+    for delivered in delivered {
+        match delivered {
+            Ok(Some((agent, turns))) => {
+                made.stopped.insert(agent, turns);
+            }
+            Ok(None) => {}
+            Err(error) => made.failed.push(error),
+        }
     }
+    made
 }
 
+/// Makes `delivery`, giving a stop's count of the turns it stopped
+/// with its agent.
 async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     Queued { delivery, mut turn }: Queued,
     when: When,
-) -> Result<()> {
+) -> Result<Option<(AgentNumber, u32)>> {
+    if let Some(agent) = delivery.holds_lane() {
+        return Ok(held(realm, ctx, agent, delivery, turn).await);
+    }
     let owed = delivery
         .owed()
         .then(|| (delivery.clone(), ctx.keep_awake_region()));
     turn.come().await;
-    let delivered = make(realm, ctx, delivery, when).await;
+    let delivered = make(realm, ctx, &delivery, when).await;
     if let (Err(error), Some((owed, awake))) = (&delivered, owed)
         && !peer::refused(error)
     {
@@ -180,7 +219,163 @@ async fn deliver(
             awake,
         ));
     }
-    delivered
+    delivered.map(|()| None)
+}
+
+/// The first wait before a delivery that keeps its agent's lane is
+/// made again, doubled after each failure up to [`LAST_HOLD`].
+const FIRST_HOLD: Duration = Duration::from_millis(50);
+
+const LAST_HOLD: Duration = Duration::from_secs(1);
+
+/// Makes `delivery`, which keeps the lane of `agent` through its
+/// retries, on a task of the realm's. A stop gives its count once its
+/// first try ends within [`When::Stop`]: the agent's, or else the
+/// realm's own.
+async fn held(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    agent: AgentNumber,
+    delivery: Delivery,
+    turn: Turn,
+) -> Option<(AgentNumber, u32)> {
+    let stop = match delivery {
+        Delivery::Stop { number, .. } => Some(number),
+        _ => None,
+    };
+    let (first, tried) = oneshot::channel();
+    ctx.register_task(hold(
+        realm.clone(),
+        ctx.clone(),
+        (agent, delivery),
+        turn,
+        first,
+        ctx.keep_awake_region(),
+    ));
+    let number = stop?;
+    let answered =
+        tokio::time::timeout(When::Stop.deadline(), tried).await;
+    let turns = match answered {
+        Ok(Ok(Ok(Some(stopped)))) => stopped.turns,
+        _ => realm.lines.counted(agent, number),
+    };
+    Some((agent, turns))
+}
+
+/// Makes `delivery` to `to` once its turn comes, and again after each
+/// failure in passing while it keeps the lane, until it is taken, its
+/// callee refuses it, `to` has left, a stop withdrew its line or the
+/// realm stops, while `_awake` keeps the realm from sleeping. `first`
+/// takes its first try's outcome.
+async fn hold(
+    realm: Arc<Realm>,
+    ctx: Ctx<Realm>,
+    (to, delivery): (AgentNumber, Delivery),
+    mut turn: Turn,
+    first: oneshot::Sender<Result<Option<Stopped>>>,
+    _awake: KeepAwakeRegion,
+) {
+    turn.come().await;
+    if let Some((to, submit)) = delivery.said()
+        && !realm.lines.carry(to, submit)
+    {
+        return;
+    }
+    let stopping = ctx.abort_signal();
+    let mut first = Some(first);
+    let mut wait = FIRST_HOLD;
+    loop {
+        let woken = realm.lines.stopping();
+        let error = match attempt(&realm, &ctx, to, &delivery).await {
+            Tried::Over(outcome) => {
+                if let Some(first) = first.take() {
+                    let _ = first.send(outcome);
+                }
+                return;
+            }
+            Tried::Again(error) => error,
+        };
+        if let Some(first) = first.take() {
+            tracing::warn!(?delivery, "a delivery failed: {error:#}");
+            let _ = first.send(Err(error));
+        }
+        tokio::select! {
+            () = stopping.cancelled() => return,
+            () = woken => {}
+            () = tokio::time::sleep(wait) => {}
+        }
+        wait = (wait * 2).min(LAST_HOLD);
+    }
+}
+
+enum Tried {
+    /// It is done: taken, refused, or no longer to be made.
+    Over(Result<Option<Stopped>>),
+    /// It failed in passing.
+    Again(anyhow::Error),
+}
+
+/// One try of `delivery` to `to`, which keeps its lane. A line a
+/// stop withdrew is not tried, nor a delivery to an agent still
+/// being hired.
+async fn attempt(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    to: AgentNumber,
+    delivery: &Delivery,
+) -> Tried {
+    let line = delivery.said().map(|(_, submit)| &submit.id);
+    let status = status(ctx, to).await;
+    if let Some(id) = line
+        && !realm.lines.attempt(id)
+    {
+        return Tried::Over(Ok(None));
+    }
+    let failed = |error| {
+        if let Some(id) = line {
+            realm.lines.failed(id);
+        }
+        Tried::Again(error)
+    };
+    match status {
+        Err(error) => return failed(error),
+        Ok(None | Some(Status::Ended(_))) => {
+            if let Some(id) = line {
+                realm.lines.lost(id);
+            }
+            return Tried::Over(Ok(None));
+        }
+        Ok(Some(Status::Hiring)) => {
+            return failed(anyhow!("agent {} is being hired", to.0));
+        }
+        Ok(Some(Status::Live)) => {}
+    }
+    match send(realm, ctx, delivery, When::AfterAnswer).await {
+        Ok(stopped) => {
+            if let Some(id) = line {
+                realm.lines.given(id);
+            }
+            Tried::Over(Ok(stopped))
+        }
+        Err(error) if peer::refused(&error) => {
+            if let Some(id) = line {
+                realm.lines.lost(id);
+            }
+            Tried::Over(Err(error))
+        }
+        Err(error) => failed(error),
+    }
+}
+
+/// The status of the agent `to`, when it has a row.
+async fn status(
+    ctx: &Ctx<Realm>,
+    to: AgentNumber,
+) -> Result<Option<Status>> {
+    let rows = Rows::outside(ctx)?;
+    Ok(tree::lineage(&rows, to)
+        .await?
+        .map(|lineage| lineage.agent.status))
 }
 
 /// Makes `delivery`, which failed in passing, again on the steps'
@@ -204,48 +399,69 @@ async fn again(
                     return Ok(());
                 }
             }
-            make(realm, ctx, delivery, When::AfterAnswer).await
+            make(realm, ctx, &delivery, When::AfterAnswer).await
         }
     })
     .await;
 }
 
+/// Makes `delivery`, and tells its failure.
 async fn make(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
-    delivery: Delivery,
+    delivery: &Delivery,
     when: When,
 ) -> Result<()> {
-    let shown = format!("{delivery:?}");
+    let made = send(realm, ctx, delivery, when).await;
+    if let Err(error) = &made {
+        tracing::warn!(?delivery, "a delivery failed: {error:#}");
+    }
+    made.map(drop)
+}
+
+/// Makes `delivery`, giving a stop's answer.
+async fn send(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    delivery: &Delivery,
+    when: When,
+) -> Result<Option<Stopped>> {
     let delivered = match delivery {
+        Delivery::Stop { to, number } => {
+            let stop = Stop {
+                number: *number,
+                withdrawn: realm.lines.withdrawn(*to, *number),
+            };
+            return realm
+                .peers
+                .call(&Agent(*to), &stop, when)
+                .await
+                .map(Some);
+        }
         Delivery::Line { to, submit }
         | Delivery::ParcelRefused { to, submit } => {
-            realm.peers.call(&Agent(to), &submit, when).await
+            realm.peers.call(&Agent(*to), submit, when).await
         }
         Delivery::Letter(_) | Delivery::Answer(_) => {
-            letters::deliver(realm, ctx, delivery).await
+            letters::deliver(realm, ctx, delivery.clone()).await
         }
         Delivery::ChiefAnswer(wait) => {
-            waits::deliver(realm, ctx, wait).await
+            waits::deliver(realm, ctx, *wait).await
         }
         Delivery::Notice(wait) => {
-            waits::notice(realm, ctx, wait).await
+            waits::notice(realm, ctx, *wait).await
         }
         Delivery::WorkerAnswer(worker) => {
-            workers::answer(realm, ctx, worker).await
+            workers::answer(realm, ctx, *worker).await
         }
         Delivery::Held(task) => {
-            asking::deliver_held(realm, ctx, task).await
+            asking::deliver_held(realm, ctx, *task).await
         }
-        Delivery::Kept(task) => reviews::give(realm, ctx, task).await,
+        Delivery::Kept(task) => {
+            reviews::give(realm, ctx, *task).await
+        }
     };
-    if let Err(error) = &delivered {
-        tracing::warn!(
-            delivery = shown,
-            "a delivery failed: {error:#}"
-        );
-    }
-    delivered
+    delivered.map(|()| None)
 }
 
 async fn push(

@@ -18,6 +18,10 @@ pub(super) enum When {
     /// within [`BEFORE_ANSWER`].
     OverAgents,
     AfterAnswer,
+    /// A stop's first answer, its wait in its agent's lane included.
+    /// After it the realm counts the turns stopped itself, and the
+    /// stop goes on.
+    Stop,
 }
 
 impl When {
@@ -26,6 +30,7 @@ impl When {
             Self::BeforeAnswer => BEFORE_ANSWER,
             Self::OverAgents => Duration::from_secs(8),
             Self::AfterAnswer => Duration::from_secs(10),
+            Self::Stop => Duration::from_millis(500),
         }
     }
 }

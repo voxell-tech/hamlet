@@ -1261,20 +1261,13 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     answers(
         fixtures,
         "realm/say",
-        [
-            ("taken", SayAnswer::Taken { task: said() }),
-            ("not_taken", SayAnswer::NotTaken { task: said() }),
-        ],
+        [("accepted", SayAnswer::Accepted { task: said() })],
         vec![
             (
                 "no_such_agent",
                 SayRefusal::NoSuchAgent {
                     address: "9".to_owned(),
                 },
-            ),
-            (
-                "still_hiring",
-                SayRefusal::StillHiring { agent: shown(HIRE) },
             ),
             (
                 "left",

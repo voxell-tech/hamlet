@@ -173,7 +173,7 @@ async fn a_passed_line_reaches_the_hire_once_with_the_note() {
     ends(&realm, 0, answered("PASS")).await;
     tokio::time::sleep(deadline * 2).await;
 
-    let SayAnswer::Taken { task: said } = said else {
+    let SayAnswer::Accepted { task: said } = said else {
         panic!("the line is taken: {said:?}");
     };
     assert_eq!(task, said.0);
@@ -708,7 +708,7 @@ async fn a_kept_line_and_the_next_line_reach_the_hire_in_the_order_said()
         });
     let given = lines_until(&realm, THREE, 2).await;
 
-    assert!(matches!(next, SayAnswer::Taken { .. }), "{next:?}");
+    assert!(matches!(next, SayAnswer::Accepted { .. }), "{next:?}");
     assert_eq!(
         given.into_iter().map(|(text, _)| text).collect::<Vec<_>>(),
         ["Kept line.", "Next line."]
@@ -772,7 +772,7 @@ async fn a_kept_line_whose_give_fails_once_is_given_after_the_retry()
     ends(&realm, 0, answered("PASS")).await;
     let given = lines_until(&realm, THREE, 1).await;
 
-    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert!(matches!(said, SayAnswer::Accepted { .. }), "{said:?}");
     assert!(realm.seen.has_failed(Callee::Submit, THREE));
     assert_eq!(given, [("Plain line.".to_owned(), None)]);
     realm.host.shutdown().await.unwrap();

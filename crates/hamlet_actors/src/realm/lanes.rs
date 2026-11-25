@@ -108,6 +108,7 @@ pub(super) async fn receivers(
 ) -> Result<Vec<AgentNumber>> {
     let (sql, key) = match delivery {
         Delivery::Line { to, .. }
+        | Delivery::Stop { to, .. }
         | Delivery::ParcelRefused { to, .. } => return Ok(vec![*to]),
         Delivery::ChiefAnswer(_) => return Ok(Vec::new()),
         Delivery::Letter(letter) => (

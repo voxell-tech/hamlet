@@ -96,8 +96,8 @@
 //! A `<task>` is a task's number, or `line:<k>`: the task of the
 //! newest line agent `<k>` took. Each command prints `<name> <i64>`
 //! lines: `founded/<name> <mayor>`, `hired/<call> <agent>`,
-//! `taken/<id> <task>` or `not_taken/<id> <task>`, `answered/<wait>
-//! 1`, `ended/<n> 1`, `budget/<hamlet> <micros>`, `<verb>/<name> 1`
+//! `accepted/<id> <task>`, `answered/<wait> 1`, `ended/<n> 1`,
+//! `budget/<hamlet> <micros>`, `<verb>/<name> 1`
 //! for `review`, `mode`, `folder`, `allowance`, `charter`, `model`,
 //! `price` and `nickname`, `road/<a>/<b> 1`, `names/p50 <us>` and
 //! `names/p95 <us>`, `live/<n> 1` or `0`, `sent/<call> 1`,
@@ -323,18 +323,13 @@ async fn as_chief(
             };
             tracing::info!(id = line.id, "the request id of `{id}`");
             match as_client(host, Say::NAME, &line).await? {
-                SayAnswer::Taken { task } => {
+                SayAnswer::Accepted { task } => {
                     writeln!(
                         out,
-                        "taken/{id} {}",
+                        "accepted/{id} {}",
                         task_number(&task)
                     )?;
                 }
-                SayAnswer::NotTaken { task } => writeln!(
-                    out,
-                    "not_taken/{id} {}",
-                    task_number(&task)
-                )?,
                 SayAnswer::Refused { why } => refused(id, &why)?,
             }
         }

@@ -45,6 +45,8 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("profiles.rs", "Purging"),
     ("librarian.rs", "Submitting"),
     ("tree/lead.rs", "Pinning"),
+    ("lines.rs", "Working"),
+    ("stop.rs", "StopAgents"),
 ];
 
 #[test]

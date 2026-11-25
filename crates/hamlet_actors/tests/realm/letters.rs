@@ -209,7 +209,7 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
         matches!(&asked, Waiting::Waiting { on, .. } if on.agent == FOUR),
         "{asked:?}"
     );
-    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert!(matches!(said, SayAnswer::Accepted { .. }), "{said:?}");
     assert_eq!(
         (
             purpose_of(&realm, THREE).await,

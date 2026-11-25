@@ -60,7 +60,7 @@ const LETTERS: Probe = Probe {
 /// The line said once, its repeat answered from what the realm kept.
 const SAID_ONCE: &[Expect] = &[
     Expect {
-        value: "taken/s1",
+        value: "accepted/s1",
         is: Is::Present,
     },
     exactly("took/2/line", 1),

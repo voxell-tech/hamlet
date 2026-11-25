@@ -75,6 +75,8 @@ mod lead;
 mod letters;
 #[path = "realm/librarian.rs"]
 mod librarian;
+#[path = "realm/lines.rs"]
+mod lines;
 #[path = "realm/living.rs"]
 mod living;
 #[path = "realm/names.rs"]

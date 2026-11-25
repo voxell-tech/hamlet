@@ -600,7 +600,7 @@ async fn every_wait_kind_reads_in_the_world() {
         .ask(&say(&RequestId::new(), THREE, "Make the file."))
         .await
         .unwrap();
-    let SayAnswer::Taken { task } = said else {
+    let SayAnswer::Accepted { task } = said else {
         panic!("hire 3 takes the chief's line: {said:?}");
     };
     let question = Question {
