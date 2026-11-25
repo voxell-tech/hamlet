@@ -868,7 +868,9 @@ agent saves its files to its branch. A merge (`merges.rs`), a chief's
 a `merge` row: the retire, the profile's merge of the absorbed hire's
 branch into the kept one's, the kept hire's fill, and the move of the
 absorbed hire's `inbox/` into the kept hire's `inbox/from-hire-<n>/`
-through both agents, which gives no turn. A `/restore`
+through both agents, which gives no turn. An inbox the kept hire's
+agent refuses stays with the absorbed hire, and the merge stands; the
+hire's erase is refused while the kept hire is not erased. A `/restore`
 brings an ended hire back (`tree::coming_back`), and its hire's steps
 go on if its end cut them off; of a hire merged away, it begins a
 `split` row that takes the merge out again. An `/erase` (`erase.rs`)

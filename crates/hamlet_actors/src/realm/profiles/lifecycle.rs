@@ -383,7 +383,12 @@ impl Act<Client> for EraseProfile {
         Lifecycle::Done { label }
     }
 
-    fn failed(&self, label: String, _made: &Made) -> Lifecycle {
+    fn failed(
+        &self,
+        label: String,
+        _made: &Made,
+        _failed: &steps::Failed,
+    ) -> Lifecycle {
         refused(LifeRefusal::NotErased { label })
     }
 }
@@ -781,7 +786,12 @@ impl Act<Client> for Fork {
         Forked::Forked { profile, from }
     }
 
-    fn failed(&self, (_, label): Self::Done, _made: &Made) -> Forked {
+    fn failed(
+        &self,
+        (_, label): Self::Done,
+        _made: &Made,
+        _failed: &steps::Failed,
+    ) -> Forked {
         Forked::refused(ForkFailure::NotForked { label }.into())
     }
 }

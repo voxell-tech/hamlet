@@ -22,7 +22,7 @@ use super::act::{self, Act, Decision};
 use super::calls::{Calls, Made};
 use super::change::{Rows, number};
 use super::peer::When;
-use super::steps::StepId;
+use super::steps::{self, StepId};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
 use super::{Realm, callers, hire, marker};
@@ -218,7 +218,12 @@ where
         self.act.answer(done, made)
     }
 
-    fn failed(&self, done: A::Done, made: &Made) -> A::Output {
-        self.act.failed(done, made)
+    fn failed(
+        &self,
+        done: A::Done,
+        made: &Made,
+        failed: &steps::Failed,
+    ) -> A::Output {
+        self.act.failed(done, made, failed)
     }
 }

@@ -292,13 +292,24 @@ pub(super) struct Merged {
     into: AgentName,
 }
 
-impl Merged {
-    fn not_merged(self) -> MergeRefusal {
-        MergeRefusal::NotMerged {
-            absorbed: self.absorbed,
-            into: self.into,
-        }
+/// Why a merge row that failed for good, its last step done `done`,
+/// did not merge `absorbed` into `into`.
+fn not_merged(
+    absorbed: AgentName,
+    into: AgentName,
+    done: Option<&str>,
+) -> MergeRefusal {
+    if kept_inbox(done) {
+        MergeRefusal::InboxKept { absorbed, into }
+    } else {
+        MergeRefusal::NotMerged { absorbed, into }
     }
+}
+
+/// Whether a merge row that failed for good, its last step done
+/// `done`, failed at the inbox: the merge stands.
+fn kept_inbox(done: Option<&str>) -> bool {
+    done == Some(Step::Fill.name())
 }
 
 async fn load_merge(
@@ -545,8 +556,17 @@ impl Act<Client> for Merge {
         Done::Done
     }
 
-    fn failed(&self, merged: Merged, _made: &Made) -> Self::Output {
-        Done::refused(merged.not_merged())
+    fn failed(
+        &self,
+        merged: Merged,
+        _made: &Made,
+        failed: &steps::Failed,
+    ) -> Self::Output {
+        Done::refused(not_merged(
+            merged.absorbed,
+            merged.into,
+            failed.done.as_deref(),
+        ))
     }
 }
 
@@ -585,8 +605,17 @@ impl Act<Agent> for Merge {
         }
     }
 
-    fn failed(&self, merged: Merged, _made: &Made) -> Self::Output {
-        MergedTo::refused(LeadRefusal::Act(merged.not_merged()))
+    fn failed(
+        &self,
+        merged: Merged,
+        _made: &Made,
+        failed: &steps::Failed,
+    ) -> Self::Output {
+        MergedTo::refused(LeadRefusal::Act(not_merged(
+            merged.absorbed,
+            merged.into,
+            failed.done.as_deref(),
+        )))
     }
 }
 
@@ -743,7 +772,12 @@ impl Act<Client> for Restore {
         }
     }
 
-    fn failed(&self, done: Restoring, made: &Made) -> Restored {
+    fn failed(
+        &self,
+        done: Restoring,
+        made: &Made,
+        _failed: &steps::Failed,
+    ) -> Restored {
         match done {
             Restoring::Split { hire, into, .. } => {
                 Restored::Refused {
@@ -786,11 +820,12 @@ pub(super) async fn run(
         Step::Fill => fill(cx, merge.kept).await.map(|()| Vec::new()),
         Step::Inbox => inbox(cx, &merge).await.map(|()| Vec::new()),
     };
-    // Once the merge's commit is made it is not taken back: the steps
-    // after it run until done.
+    // Once the merge's commit is made it is not taken back: the fill
+    // runs until done, and an inbox the kept hire's agent refuses
+    // stays with the absorbed hire.
     match step {
-        Step::Retire | Step::Merge => ran,
-        Step::Fill | Step::Inbox => steps::in_passing(ran),
+        Step::Retire | Step::Merge | Step::Inbox => ran,
+        Step::Fill => steps::in_passing(ran),
     }
 }
 
@@ -932,15 +967,31 @@ async fn inbox(cx: &Cx<'_>, merge: &Kept) -> Result<()> {
     }
 }
 
-/// Takes back the merge `n`, which failed for good before its commit:
-/// the absorbed hire lives again under its lead, with what the merge
-/// moved given back, and the merge is marked split. A hire restored
-/// or erased meanwhile stays as it is.
+/// Ends the merge `n`, which failed for good. At its inbox, the merge
+/// stands and the inbox stays with the absorbed hire. Before its
+/// commit, it is taken back: the absorbed hire lives again under its
+/// lead, with what the merge moved given back, and the merge is
+/// marked split. A hire restored or erased meanwhile stays as it is.
 pub(super) async fn failed(
     rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
     let merge = Kept::read(rows, n).await?;
+    let done =
+        steps::row(rows, row(n)).await?.and_then(|row| row.done);
+    let why = not_merged(
+        record::agent_name(rows, merge.absorbed).await?,
+        record::agent_name(rows, merge.kept).await?,
+        done.as_deref(),
+    );
+    if kept_inbox(done.as_deref()) {
+        let changes =
+            vec![steps::Change::Close { row: row(n) }.into()];
+        return Ok((
+            changes,
+            told(rows, merge.moved.by, n, why).await?,
+        ));
+    }
     let mut changes = vec![
         steps::Change::Close { row: row(n) }.into(),
         Change::Split { merge: n }.into(),
@@ -1006,22 +1057,28 @@ pub(super) async fn failed(
         )
         .await?,
     );
-    let calls = match merge.moved.by {
+    Ok((changes, told(rows, merge.moved.by, n, why).await?))
+}
+
+/// The notice `why` of merge `n` to `lead`, whose `merge_hires` it
+/// was, while it lives.
+async fn told(
+    rows: &Rows<'_>,
+    lead: Option<AgentNumber>,
+    n: u64,
+    why: MergeRefusal,
+) -> Result<Calls> {
+    Ok(match lead {
         Some(lead)
             if tree::life(rows, lead).await? == Life::Living =>
         {
-            let not_merged = MergeRefusal::NotMerged {
-                absorbed: record::agent_name(rows, merge.absorbed)
-                    .await?,
-                into: record::agent_name(rows, merge.kept).await?,
-            };
             Calls::after_answer(Delivery::Line {
                 to: lead,
                 submit: Submit {
                     id: InputId(format!("merge/{n}")),
                     task: None,
                     input: Input::Notice {
-                        text: not_merged.to_string(),
+                        text: why.to_string(),
                         conversation: None,
                         held: None,
                     },
@@ -1029,8 +1086,32 @@ pub(super) async fn failed(
             })
         }
         _ => Calls::none(),
-    };
-    Ok((changes, calls))
+    })
+}
+
+/// Whether `agent` was absorbed by a merge that stands and failed at
+/// its inbox, into a hire not erased: that hire never got the inbox.
+pub(super) async fn kept_its_inbox(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<bool> {
+    let merges = rows
+        .values::<u64>(
+            "SELECT merge.id FROM merge JOIN agent ON agent.id = \
+             merge.kept WHERE merge.absorbed = ?1 AND merge.split = \
+             0 AND agent.erased = 0",
+            vec![number(agent)],
+        )
+        .await?;
+    for merge in merges {
+        if let Some(found) = steps::row(rows, row(merge)).await?
+            && found.closed
+            && kept_inbox(found.done.as_deref())
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(super) async fn split(

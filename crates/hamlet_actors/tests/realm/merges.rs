@@ -319,7 +319,7 @@ async fn a_merge_within_one_profile_takes_the_branch() {
     realm.host.shutdown().await.unwrap();
 }
 
-fn inbox(files: &[(&str, &str, bool)]) -> Inbox {
+pub(super) fn inbox(files: &[(&str, &str, bool)]) -> Inbox {
     files
         .iter()
         .map(|&(path, text, executable)| {

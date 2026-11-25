@@ -114,6 +114,13 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
                     into: shown(MAYOR),
                 },
             ),
+            (
+                "inbox_kept",
+                MergeRefusal::InboxKept {
+                    absorbed: shown(HIRE),
+                    into: shown(MAYOR),
+                },
+            ),
         ]
     };
     done(fixtures, "realm/chief_merge", merge_refusals());

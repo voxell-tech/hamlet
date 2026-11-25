@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use hamlet_messages::agent::Input;
 use hamlet_messages::profile::VersionName;
+use hamlet_messages::realm::hamlets::{EraseHamlet, RemoveHamlet};
 use hamlet_messages::realm::hires::{
     EndedRefusal, MergeRefusal, MergedTo, Restored,
 };
@@ -14,17 +15,17 @@ use hamlet_messages::realm::profiles::{
     Lifecycle,
 };
 use hamlet_messages::realm::{
-    Asked, Done, End, LeadRefusal, ProfileId,
+    AgentName, Asked, Done, End, LeadRefusal, ProfileId,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::lifecycle::{MASON, archive, masons_hamlet};
 use super::merges::{
-    agent, answering_within, chief, decided, end, erase, kept, merge,
-    merge_rows, open_roads, restore,
+    agent, answering_within, chief, decided, end, erase, inbox, kept,
+    merge, merge_rows, open_roads, restore,
 };
-use super::stand_ins::Callee;
+use super::stand_ins::{Callee, Inbox};
 use super::{
     FOUR, MAYOR, Realm, THREE, closed_until, done_to, hires, shown,
     submits_to, to, tool, until,
@@ -543,5 +544,155 @@ async fn a_profile_whose_hire_cannot_be_erased_is_archived_again() {
     assert!(erased(&realm, THREE).await);
     assert_eq!(decided(&realm, "erased").await, 1);
     assert_eq!(decided(&realm, "profile-erased").await, 1);
+    realm.host.shutdown().await.unwrap();
+}
+
+fn inbox_kept(absorbed: AgentName) -> MergeRefusal {
+    MergeRefusal::InboxKept {
+        absorbed,
+        into: shown(FOUR),
+    }
+}
+
+/// What waits in 3's inbox before its merge into 4.
+fn threes_inbox(realm: &Realm) -> Inbox {
+    let waiting = inbox(&[("letter.md", "a letter", false)]);
+    realm
+        .seen
+        .inboxes
+        .lock()
+        .unwrap()
+        .insert(THREE, waiting.clone());
+    waiting
+}
+
+fn inbox_of(realm: &Realm, agent: AgentNumber) -> Inbox {
+    let inboxes = realm.seen.inboxes.lock().unwrap();
+    inboxes.get(&agent).cloned().unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_whose_inbox_cannot_be_taken_keeps_it_with_the_absorbed_hire()
+ {
+    // 3 merged into 4, and 4 refuses 3's inbox for good: the merge
+    // stands, the inbox stays with 3 and the chief is told; /erase of
+    // 3 is refused and keeps it; /restore brings 3 back with it.
+    let (realm, _) = super::hamlet_with(2).await;
+    let waiting = threes_inbox(&realm);
+    realm.seen.fail_for_good(Callee::TakeInbox, FOUR);
+
+    let merged = chief(&realm, merge(THREE, FOUR)).await;
+
+    assert_eq!(
+        merged,
+        Done::Refused {
+            why: inbox_kept(shown(THREE))
+        }
+    );
+    assert_eq!(agent(&realm, THREE).await.0, "ended");
+    assert_eq!(
+        step(&realm, "merge", 1).await,
+        (Some("fill".into()), true)
+    );
+    assert_eq!(
+        merge_rows(&realm).await,
+        [(Some(MERGED.into()), false)]
+    );
+    assert_eq!(decided(&realm, "merged").await, 1);
+    assert_eq!(inbox_of(&realm, THREE), waiting);
+    assert_eq!(inbox_of(&realm, FOUR), Inbox::new());
+
+    let erasing = chief(&realm, erase(THREE)).await;
+
+    assert_eq!(
+        erasing,
+        Done::Refused {
+            why: EndedRefusal::NotErased { hire: shown(THREE) }
+        }
+    );
+    assert!(!erased(&realm, THREE).await);
+    assert_eq!(kept(&realm)[3..], [0, 0]);
+    assert_eq!(decided(&realm, "erased").await, 0);
+    assert_eq!(inbox_of(&realm, THREE), waiting);
+
+    assert_eq!(chief(&realm, restore(THREE)).await, Restored::Split);
+    assert_eq!(agent(&realm, THREE).await.0, "live");
+    assert_eq!(
+        merge_rows(&realm).await,
+        [(Some(MERGED.into()), true)]
+    );
+    assert_eq!(inbox_of(&realm, THREE), waiting);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hamlet_erased_with_both_hires_erases_the_one_that_kept_its_inbox()
+ {
+    let (realm, hamlet) = super::hamlet_with(2).await;
+    threes_inbox(&realm);
+    realm.seen.fail_for_good(Callee::TakeInbox, FOUR);
+    chief(&realm, merge(THREE, FOUR)).await;
+    chief(
+        &realm,
+        RemoveHamlet {
+            hamlet: hamlet.clone(),
+            why: None,
+        },
+    )
+    .await;
+
+    let erasing = chief(&realm, EraseHamlet { hamlet }).await;
+
+    assert_eq!(erasing, Done::Done);
+    for hire in [THREE, FOUR] {
+        assert!(erased(&realm, hire).await);
+        assert_eq!(
+            step(&realm, "erase", hire.0).await,
+            (Some("agent".into()), true)
+        );
+    }
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_whose_hire_kept_its_inbox_from_a_living_hire_is_archived_again()
+ {
+    // the mayor merges Mason's 3 into 4, of another profile, and 4
+    // refuses 3's inbox: the mayor is answered and told; Mason's
+    // erase is refused, and 3 keeps its inbox.
+    let (realm, _) = masons_hamlet(1).await;
+    hires(&realm, MAYOR, "h9").await;
+    realm.live(FOUR).await;
+    let waiting = threes_inbox(&realm);
+    realm.seen.fail_for_good(Callee::TakeInbox, FOUR);
+
+    let merged = realm
+        .tool(MAYOR, &tool("m1", merge(THREE, FOUR)))
+        .await
+        .unwrap();
+
+    let masons = AgentName {
+        agent: THREE,
+        name: "hire#3 (Mason)".to_owned(),
+    };
+    assert_eq!(
+        merged,
+        MergedTo::Refused {
+            why: LeadRefusal::Act(inbox_kept(masons.clone()))
+        }
+    );
+    assert_eq!(
+        told_until(&realm, MAYOR).await,
+        [inbox_kept(masons).to_string()]
+    );
+    chief(&realm, archive(MASON)).await;
+
+    let erasing =
+        chief(&realm, EraseProfile { profile: MASON }).await;
+
+    assert_eq!(erasing, not_erased());
+    assert_eq!(profile_status(&realm, MASON).await, "archived");
+    assert!(!erased(&realm, THREE).await);
+    assert_eq!(inbox_of(&realm, THREE), waiting);
     realm.host.shutdown().await.unwrap();
 }

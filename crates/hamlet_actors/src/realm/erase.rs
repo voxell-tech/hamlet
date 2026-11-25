@@ -14,7 +14,7 @@ use super::act::{Act, Decided, Decision};
 use super::callers::Decider as _;
 use super::calls::{Calls, Made};
 use super::change::{self, Rows};
-use super::peer::When;
+use super::peer::{self, When};
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::{self, Lineage, Status};
 use super::{hire, merges, record, retire};
@@ -87,7 +87,12 @@ impl Act<Client> for EraseHire {
         Done::Done
     }
 
-    fn failed(&self, hire: AgentName, _made: &Made) -> Self::Output {
+    fn failed(
+        &self,
+        hire: AgentName,
+        _made: &Made,
+        _failed: &steps::Failed,
+    ) -> Self::Output {
         Done::Refused {
             why: EndedRefusal::NotErased { hire },
         }
@@ -133,6 +138,11 @@ pub(super) async fn run(
             let mut first = merges::rows_of(&rows, agent).await?;
             first.push(retire::row(agent));
             steps::after(cx, first).await?;
+            if merges::kept_its_inbox(&rows, agent).await? {
+                return Err(peer::refusal(
+                    "the hire holds an inbox its merge did not move",
+                ));
+            }
             if hire::reached(&rows, agent, hire::Step::Profile)
                 .await?
             {

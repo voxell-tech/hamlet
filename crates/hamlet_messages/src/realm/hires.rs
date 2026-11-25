@@ -70,6 +70,14 @@ pub enum MergeRefusal {
         absorbed: AgentName,
         into: AgentName,
     },
+    #[error(
+        "`{absorbed}` was merged into `{into}`, but what waited in \
+         its inbox could not be moved, so it stays with `{absorbed}`"
+    )]
+    InboxKept {
+        absorbed: AgentName,
+        into: AgentName,
+    },
 }
 
 /// Brings an ended hire back: one merged into another is split from

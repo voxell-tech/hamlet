@@ -233,20 +233,24 @@ pub(super) async fn row(
         .map(|(done, closed, at)| Row { done, closed, at }))
 }
 
-/// Whether one of `ids` failed for good.
-pub(super) async fn any_failed(
+/// A row that failed for good, with its last step done.
+pub(super) struct Failed {
+    pub done: Option<String>,
+}
+
+/// The first of `ids` that failed for good.
+pub(super) async fn first_failed(
     rows: &Rows<'_>,
     ids: &[StepId],
-) -> Result<bool> {
+) -> Result<Option<Failed>> {
     for &id in ids {
-        if row(rows, id)
-            .await?
-            .is_some_and(|row| row.has_failed(id.kind))
+        if let Some(row) = row(rows, id).await?
+            && row.has_failed(id.kind)
         {
-            return Ok(true);
+            return Ok(Some(Failed { done: row.done }));
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// The name of the last step of `kind`'s rows.

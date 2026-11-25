@@ -87,13 +87,14 @@ export async function take_inbox(
                 ...ofFile,
                 piece.offset,
             );
-            const before = await db.all<{ bytes: Uint8Array }>(
-                "SELECT bytes FROM inbox_piece WHERE from_hire = ? AND path = ? ORDER BY at",
-                ...ofFile,
-            );
-            const held = before.reduce((sum, row) => sum + row.bytes.length, 0);
-            // Answering would let the realm drop a file not written; a
-            // failed take repeats the whole move from its first piece.
+            const held =
+                (
+                    await db.get<{ held: number }>(
+                        "SELECT coalesce(sum(length(bytes)), 0) AS held FROM inbox_piece WHERE from_hire = ? AND path = ?",
+                        ...ofFile,
+                    )
+                )?.held ?? 0;
+            // Answering would let the realm drop a file not written.
             if (held !== piece.offset) {
                 throw new Error(
                     `inbox/${piece.path} of hire#${from} has ${held} bytes before a piece at ${piece.offset}`,
@@ -109,7 +110,23 @@ export async function take_inbox(
                 );
                 return undefined;
             }
-            return Buffer.concat([...before.map((row) => row.bytes), bytes]);
+            const before: Buffer[] = [];
+            const at = await db.all<{ at: number }>(
+                "SELECT at FROM inbox_piece WHERE from_hire = ? AND path = ? ORDER BY at",
+                ...ofFile,
+            );
+            for (const row of at) {
+                // One piece at a time: the native host reads a blob back
+                // as an array of numbers.
+                const stored = await db.get<{ bytes: Uint8Array | number[] }>(
+                    "SELECT bytes FROM inbox_piece WHERE from_hire = ? AND path = ? AND at = ?",
+                    ...ofFile,
+                    row.at,
+                );
+                if (stored !== undefined)
+                    before.push(Buffer.from(stored.bytes));
+            }
+            return Buffer.concat([...before, bytes]);
         });
         if (whole === undefined) continue;
         const wrote = await files.write(

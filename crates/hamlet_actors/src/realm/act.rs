@@ -63,7 +63,12 @@ pub(super) trait Act<By>:
     fn answer(&self, done: Self::Done, made: &Made) -> Self::Output;
 
     /// The answer once a row of `answers_after` failed for good.
-    fn failed(&self, done: Self::Done, made: &Made) -> Self::Output {
+    fn failed(
+        &self,
+        done: Self::Done,
+        made: &Made,
+        _failed: &steps::Failed,
+    ) -> Self::Output {
         self.answer(done, made)
     }
 }
@@ -501,8 +506,10 @@ where
     }
     // A drive commits a failure's end before it ends, so the rows
     // read here say whether the steps failed.
-    if steps::any_failed(&Rows::outside(ctx)?, &rows).await? {
-        return Ok(Ok(act.failed(done, &made)));
+    if let Some(failed) =
+        steps::first_failed(&Rows::outside(ctx)?, &rows).await?
+    {
+        return Ok(Ok(act.failed(done, &made, &failed)));
     }
     Ok(Ok(act.answer(done, &made)))
 }
