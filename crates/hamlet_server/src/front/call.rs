@@ -45,10 +45,7 @@ const FIRST_READ: Duration = Duration::from_millis(10);
 
 const READ_AT_MOST: Duration = Duration::from_secs(1);
 
-/// The calls to an agent that choose the session a line given after
-/// them lands in, so each waits for the lines its connection said to
-/// that agent before it.
-const AFTER_LINES: [&str; 4] =
+const CHOOSE_SESSION: [&str; 4] =
     [NewSession::NAME, Resume::NAME, Retry::NAME, Rewind::NAME];
 
 /// Calls the actors as a client.
@@ -96,31 +93,32 @@ impl Stopping {
     }
 }
 
-/// The stops one connection sent, and its lines the realm accepted
-/// that are not yet given. A stop ends the retry waits of the calls
-/// to its agents of the requests its connection sent before it.
+/// What one connection sent: its stops, and its lines the realm
+/// accepted that are not yet given. A stop ends the retry waits of
+/// the calls to its agents of the requests its connection sent
+/// before it.
 #[derive(Clone)]
-pub(crate) struct Stops(Arc<Sent>);
+pub(crate) struct Sent(Arc<Record>);
 
-struct Sent {
+struct Record {
     /// What each stop stops, in the order sent.
-    sent: watch::Sender<Vec<Stopping>>,
+    stops: watch::Sender<Vec<Stopping>>,
     answered: watch::Sender<usize>,
     /// How many of the connection's lines to each agent the door has
     /// not yet read as given or withdrawn.
     lines: watch::Sender<BTreeMap<AgentNumber, usize>>,
 }
 
-/// A line its connection said to `agent`, counted as not yet given
-/// until it is dropped.
+/// A line its connection said to `agent`, counted as unsettled until
+/// dropped.
 pub(crate) struct Unsettled {
-    stops: Stops,
+    sent: Sent,
     agent: AgentNumber,
 }
 
 impl Drop for Unsettled {
     fn drop(&mut self) {
-        self.stops.0.lines.send_modify(|lines| {
+        self.sent.0.lines.send_modify(|lines| {
             if let Some(count) = lines.get_mut(&self.agent) {
                 *count -= 1;
                 if *count == 0 {
@@ -131,10 +129,10 @@ impl Drop for Unsettled {
     }
 }
 
-impl Stops {
+impl Sent {
     pub(crate) fn new() -> Self {
-        Self(Arc::new(Sent {
-            sent: watch::Sender::new(Vec::new()),
+        Self(Arc::new(Record {
+            stops: watch::Sender::new(Vec::new()),
             answered: watch::Sender::new(0),
             lines: watch::Sender::new(BTreeMap::new()),
         }))
@@ -143,15 +141,15 @@ impl Stops {
     /// The place of a request received now.
     pub(crate) fn place(&self) -> Place {
         Place {
-            stops: self.clone(),
-            after: self.0.sent.borrow().len(),
+            sent: self.clone(),
+            after: self.0.stops.borrow().len(),
         }
     }
 
     /// Keeps a stop of `stopping` received now, giving its place:
     /// after itself.
     pub(crate) fn stop(&self, stopping: Stopping) -> Place {
-        self.0.sent.send_modify(|sent| sent.push(stopping));
+        self.0.stops.send_modify(|stops| stops.push(stopping));
         self.place()
     }
 
@@ -165,7 +163,7 @@ impl Stops {
 /// before it.
 #[derive(Clone)]
 pub(crate) struct Place {
-    stops: Stops,
+    sent: Sent,
     after: usize,
 }
 
@@ -173,20 +171,18 @@ impl Place {
     /// Resolves once the connection sent a stop of `agent` after the
     /// request.
     async fn stopping(&self, agent: AgentNumber) {
-        let mut sent = self.stops.0.sent.subscribe();
-        let _ = sent
-            .wait_for(|sent| {
-                sent[self.after..]
+        let mut stops = self.sent.0.stops.subscribe();
+        let _ = stops
+            .wait_for(|stops| {
+                stops[self.after..]
                     .iter()
                     .any(|stop| stop.stops(agent))
             })
             .await;
     }
 
-    /// Resolves once each line the connection said to `agent` is
-    /// given or withdrawn.
     async fn lines_settled(&self, agent: AgentNumber) {
-        let mut lines = self.stops.0.lines.subscribe();
+        let mut lines = self.sent.0.lines.subscribe();
         let _ =
             lines.wait_for(|lines| !lines.contains_key(&agent)).await;
     }
@@ -194,7 +190,7 @@ impl Place {
     /// Resolves once each stop the connection sent before the request
     /// is answered.
     pub(crate) async fn stops_answered(&self) {
-        let mut answered = self.stops.0.answered.subscribe();
+        let mut answered = self.sent.0.answered.subscribe();
         let _ = answered
             .wait_for(|answered| *answered >= self.after)
             .await;
@@ -218,19 +214,18 @@ impl Calls {
         }
     }
 
-    /// Counts a line to `agent` that the realm accepted as not yet
-    /// given, until the result is dropped; none for calls of no
-    /// connection.
+    /// Counts a line to `agent` until the result is dropped; `None`
+    /// for calls of no connection.
     pub(crate) fn unsettled(
         &self,
         agent: AgentNumber,
     ) -> Option<Unsettled> {
         let place = self.place.as_ref()?;
-        place.stops.0.lines.send_modify(|lines| {
+        place.sent.0.lines.send_modify(|lines| {
             *lines.entry(agent).or_default() += 1;
         });
         Some(Unsettled {
-            stops: place.stops.clone(),
+            sent: place.sent.clone(),
             agent,
         })
     }
@@ -350,8 +345,8 @@ impl Calls {
         name: &str,
         args: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        if AFTER_LINES.contains(&name) {
-            self.after_lines(to).await;
+        if CHOOSE_SESSION.contains(&name) {
+            self.after_earlier_lines(to).await;
         }
         self.again(to, starting, |left| {
             self.host.call_for_client(to, name, args.clone(), left)
@@ -359,11 +354,7 @@ impl Calls {
         .await
     }
 
-    /// Waits, at most [`WITHIN`], until the lines this request's
-    /// connection said before it to the agent at `to` are given or
-    /// withdrawn, or the connection sent a stop of that agent after
-    /// the request.
-    async fn after_lines(&self, to: &Address) {
+    async fn after_earlier_lines(&self, to: &Address) {
         let (Some(place), Some(agent)) = (&self.place, agent_of(to))
         else {
             return;
@@ -462,7 +453,6 @@ impl Calls {
     }
 }
 
-/// The agent at `to`, when it is an agent's address.
 fn agent_of(to: &Address) -> Option<AgentNumber> {
     if to.kind() != address::Agent::KIND {
         return None;

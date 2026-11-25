@@ -36,7 +36,7 @@ use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
 use self::call::{
-    Calls, Fate, Place, Said, Stops, failed, failure, server_failed,
+    Calls, Fate, Place, Said, Sent, failed, failure, server_failed,
 };
 use self::commands::Outcome;
 use self::host::HAND;
@@ -180,10 +180,10 @@ struct Door {
 }
 
 /// One connection's requests not yet done, in the order sent, and
-/// the stops it sent.
+/// what it sent.
 struct Queue {
     jobs: mpsc::UnboundedSender<Job>,
-    stops: Stops,
+    sent: Sent,
 }
 
 impl Door {
@@ -408,15 +408,15 @@ impl Door {
                 self.in_turn(client, job);
             }
             Route::Stop(asked, stopping) => {
-                let stops = self.queue(client).stops.clone();
-                let asker = self.ask_at(client, stops.stop(stopping));
+                let sent = self.queue(client).sent.clone();
+                let asker = self.ask_at(client, sent.stop(stopping));
                 self.in_turn(client, async move {
                     asker.command(asked).await;
-                    stops.answered();
+                    sent.answered();
                 });
             }
             Route::Answer(asked) => {
-                let place = self.queue(client).stops.place();
+                let place = self.queue(client).sent.place();
                 let asker = self.ask(client);
                 self.work.spawn(async move {
                     place.stops_answered().await;
@@ -440,7 +440,7 @@ impl Door {
             });
             Queue {
                 jobs: queue,
-                stops: Stops::new(),
+                sent: Sent::new(),
             }
         })
     }
@@ -478,7 +478,7 @@ impl Door {
     /// The door's means for the request `client` sent now, whose
     /// waits a stop it sends next ends.
     fn ask_in_turn(&mut self, client: u64) -> Asker {
-        let place = self.queue(client).stops.place();
+        let place = self.queue(client).sent.place();
         self.ask_at(client, place)
     }
 

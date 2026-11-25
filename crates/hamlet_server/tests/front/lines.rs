@@ -26,6 +26,12 @@ const ANSWER: &str = "Answered.";
 /// the realm, a few milliseconds each.
 const FROZEN_BOUND: Duration = Duration::from_secs(1);
 
+/// How long the Node host stays down while a line and `/new` wait:
+/// the realm's tries of the line, 50 ms apart and doubling, are near
+/// a second apart by then, and the door tries `/new` every 50 ms.
+const DOWN_UNTIL_TRIES_SPREAD: Duration =
+    Duration::from_millis(1_500);
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_of_one_agent_leaves_a_line_to_another_on_the_same_connection()
  {
@@ -256,10 +262,6 @@ async fn a_stop_of_all_withdraws_a_line_to_a_hire_being_hired() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// The line and `/new` are sent while the Node host is down, and it
-/// is let start again 1.5 s later: by then the realm tries the line
-/// once a second, and the door tries `/new` every 50 ms, so `/new`
-/// would reach the agent first if it did not wait for the line.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_line_said_before_new_stays_in_the_session_it_was_said_in()
 {
@@ -273,7 +275,7 @@ async fn a_line_said_before_new_stays_in_the_session_it_was_said_in()
     let before = chief.tell(hand, "Before new.").await;
     let new = chief.tell(hand, "/new").await;
     let after = chief.tell(hand, "After new.").await;
-    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    tokio::time::sleep(DOWN_UNTIL_TRIES_SPREAD).await;
     held.release();
     for line in [&before, &new, &after] {
         chief.reply(line).await;
