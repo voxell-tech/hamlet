@@ -120,7 +120,7 @@ fn the_speakers_oldest_wait_comes_before_an_older_one_of_another() {
 fn merge_is_worded_as_today() {
     let view = view();
     let ends = |absorbed: &str, into: &str| {
-        not_hires(&view, &[&at(absorbed), &at(into)])
+        not_hires(&view, Reach::Living, &[&at(absorbed), &at(into)])
             .map(|refusal| refusal.to_string())
     };
     assert_eq!(ends("worker#4", "hire#9"), None);

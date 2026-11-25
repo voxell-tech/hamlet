@@ -172,11 +172,15 @@ fn number(
 }
 
 /// The first of `targets` that is not a hire, once each is found
-/// living; the realm answers the rest.
-fn not_hires(view: &View, targets: &[&Target]) -> Option<Refusal> {
+/// within `reach`; the realm answers the rest.
+fn not_hires(
+    view: &View,
+    reach: Reach,
+    targets: &[&Target],
+) -> Option<Refusal> {
     let found = targets
         .iter()
-        .map(|target| number(view, target, Reach::Living).ok())
+        .map(|target| number(view, target, reach).ok())
         .collect::<Option<Vec<_>>>()?;
     found
         .into_iter()
@@ -476,7 +480,8 @@ async fn perform(
             HireAnswer::Refused { why } => Err(refused(why)),
         },
         Act::End { hire, .. }
-            if let Some(refusal) = not_hires(view, &[&hire]) =>
+            if let Some(refusal) =
+                not_hires(view, Reach::Living, &[&hire]) =>
         {
             Err(refusal)
         }
@@ -528,7 +533,8 @@ async fn perform(
             done(ask(calls, id, act).await?, || said)
         }
         Act::Road { a, b, .. }
-            if let Some(refusal) = not_hires(view, &[&a, &b]) =>
+            if let Some(refusal) =
+                not_hires(view, Reach::Living, &[&a, &b]) =>
         {
             Err(refusal)
         }
@@ -579,8 +585,11 @@ async fn perform(
             })
         }
         Act::Merge { absorbed, into, .. }
-            if let Some(refusal) =
-                not_hires(view, &[&absorbed, &into]) =>
+            if let Some(refusal) = not_hires(
+                view,
+                Reach::Living,
+                &[&absorbed, &into],
+            ) =>
         {
             Err(refusal)
         }
@@ -607,16 +616,17 @@ async fn perform(
             }
             Err(refusal) => Err(refusal),
         },
-        Act::Erase { hire } => match hire_of(view, &hire) {
-            Ok(agent) => {
-                let said = words::erased(&hire.text);
-                let act = EraseHire {
-                    hire: Named::Agent { agent },
-                };
-                done(ask(calls, id, act).await?, || said)
-            }
-            Err(refusal) => Err(refusal),
-        },
+        Act::Erase { hire }
+            if let Some(refusal) =
+                not_hires(view, Reach::Kept, &[&hire]) =>
+        {
+            Err(refusal)
+        }
+        Act::Erase { hire } => {
+            let said = words::erased(&hire.text);
+            let act = EraseHire { hire: hire.named };
+            done(ask(calls, id, act).await?, || said)
+        }
         Act::RemoveHamlet(act) => {
             let said = words::hamlet_removed(&act.hamlet.0);
             done(ask(calls, id, act).await?, || said)
