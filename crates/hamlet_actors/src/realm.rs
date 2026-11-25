@@ -100,8 +100,8 @@ const SHORTEST_CALLER_DEADLINE: Duration = Duration::from_secs(10);
 const _: () = assert!(
     HIRING_WAIT.as_millis() + peer::BEFORE_ANSWER.as_millis()
         < SHORTEST_CALLER_DEADLINE.as_millis(),
-    "a Say waits for the hire, then submits, inside a caller's \
-     deadline"
+    "a letter or a road request waits for the hire, then is \
+     delivered, inside a caller's deadline"
 );
 
 const _: () = assert!(
@@ -113,8 +113,8 @@ const _: () = assert!(
 /// The realm's settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`].
 pub struct Options {
-    /// The longest a line or a letter to a `hiring` hire waits for
-    /// its steps.
+    /// The longest a letter or a road request to a `hiring` hire
+    /// waits for its steps.
     pub hiring_wait: Duration,
     /// The longest a line held for a lead's review waits for it.
     pub review_deadline: Duration,
