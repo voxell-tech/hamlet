@@ -14,7 +14,7 @@ use hamlet_messages::realm::hamlets::{
 };
 use hamlet_messages::realm::{
     AgentName, AgentRefusal, Done, HamletId, HamletRefusal, HowEnded,
-    Refusable,
+    ProfileId, Refusable,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
@@ -506,20 +506,47 @@ pub(in crate::realm) async fn ending(
     Ok(changes)
 }
 
-/// Hires of `hamlet` as a query's `WHERE` picks them, by number.
-async fn hires_where(
+/// Whose hires to pick.
+pub(in crate::realm) enum HiresOf<'a> {
+    Hamlet(&'a HamletId),
+    Profile(ProfileId),
+}
+
+/// Which hires to pick.
+pub(in crate::realm) enum Picked {
+    Living,
+    /// Ended and not erased.
+    Ended,
+}
+
+/// The hires of `of` that `picked` names, by number.
+pub(in crate::realm) async fn hires_where(
     rows: &Rows<'_>,
-    hamlet: &HamletId,
-    picked: &str,
+    of: HiresOf<'_>,
+    picked: Picked,
 ) -> Result<Vec<AgentNumber>> {
+    let (column, key) = match of {
+        HiresOf::Hamlet(hamlet) => {
+            ("hamlet", BindParam::Text(hamlet.0.clone()))
+        }
+        HiresOf::Profile(profile) => {
+            ("profile", BindParam::Integer(i64::from(profile.0)))
+        }
+    };
+    let picked = match picked {
+        Picked::Living => "agent.status IN ('hiring', 'live')",
+        Picked::Ended => {
+            "agent.status = 'ended' AND agent.erased = 0"
+        }
+    };
     Ok(rows
         .values::<u32>(
             &format!(
                 "SELECT hire.agent FROM hire JOIN agent ON agent.id \
-                 = hire.agent WHERE hire.hamlet = ?1 AND {picked} \
+                 = hire.agent WHERE hire.{column} = ?1 AND {picked} \
                  ORDER BY hire.agent"
             ),
-            vec![BindParam::Text(hamlet.0.clone())],
+            vec![key],
         )
         .await?
         .into_iter()
@@ -561,8 +588,8 @@ async fn removing(
         let why = removal_why(act, by);
         for hire in hires_where(
             rows,
-            &act.hamlet,
-            "agent.status IN ('hiring', 'live')",
+            HiresOf::Hamlet(&act.hamlet),
+            Picked::Living,
         )
         .await?
         {
@@ -711,8 +738,8 @@ impl Act<Client> for RestoreHamlet {
         let mut gone = None;
         for hire in hires_where(
             rows,
-            &self.hamlet,
-            "agent.status = 'ended' AND agent.erased = 0",
+            HiresOf::Hamlet(&self.hamlet),
+            Picked::Ended,
         )
         .await?
         {
@@ -795,8 +822,8 @@ impl Act<Client> for EraseHamlet {
             status: status(rows, &self.hamlet).await?,
             hires: hires_where(
                 rows,
-                &self.hamlet,
-                "agent.status = 'ended' AND agent.erased = 0",
+                HiresOf::Hamlet(&self.hamlet),
+                Picked::Ended,
             )
             .await?,
         })

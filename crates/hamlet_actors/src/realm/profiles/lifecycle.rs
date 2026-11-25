@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use super::super::act::{self, Act, Decided, Decision};
 use super::super::calls::{Calls, Made};
 use super::super::change::{self, Rows};
+use super::super::chiefs::hamlet::{HiresOf, Picked};
 use super::super::chiefs::{self, hamlet};
 use super::super::peer::When;
 use super::super::steps::{self, Cx, StepId, Steps};
@@ -88,30 +89,6 @@ fn refused(why: impl Into<LifecycleRefusal>) -> Lifecycle {
     Lifecycle::refused(why.into())
 }
 
-/// The hires of `profile` as a query's `WHERE` picks them, by number.
-async fn hires_where(
-    rows: &Rows<'_>,
-    profile: ProfileId,
-    picked: &str,
-) -> Result<Vec<AgentNumber>> {
-    Ok(rows
-        .values::<u32>(
-            &format!(
-                "SELECT hire.agent FROM hire JOIN agent ON agent.id \
-                 = hire.agent WHERE hire.profile = ?1 AND {picked} \
-                 ORDER BY hire.agent"
-            ),
-            vec![super::id(profile)],
-        )
-        .await?
-        .into_iter()
-        .map(AgentNumber)
-        .collect())
-}
-
-const NOT_ERASED: &str =
-    "agent.status = 'ended' AND agent.erased = 0";
-
 pub(in crate::realm) struct Archiving {
     found: Result<Found, ProfileRefusal>,
     /// Each living hire, with the changes that end it.
@@ -133,10 +110,10 @@ impl Act<Client> for ArchiveProfile {
         let mayors = chiefs::mayors(rows).await?;
         let mut hires = Vec::new();
         let mut has_a_mayor = false;
-        for hire in hires_where(
+        for hire in hamlet::hires_where(
             rows,
-            self.profile,
-            "agent.status IN ('hiring', 'live')",
+            HiresOf::Profile(self.profile),
+            Picked::Living,
         )
         .await?
         {
@@ -219,7 +196,13 @@ async fn returning(
     let mut hires = Vec::new();
     let mut back = BTreeSet::new();
     let mut taken = HashMap::new();
-    for hire in hires_where(rows, act.profile, NOT_ERASED).await? {
+    for hire in hamlet::hires_where(
+        rows,
+        HiresOf::Profile(act.profile),
+        Picked::Ended,
+    )
+    .await?
+    {
         let ended_with =
             tree::left(rows, hire).await?.is_some_and(|left| {
                 left.how == HowEnded::ProfileArchived
@@ -348,8 +331,12 @@ impl Act<Client> for EraseProfile {
     ) -> Result<Erasing> {
         Ok(Erasing {
             found: found(rows, self.profile).await?,
-            hires: hires_where(rows, self.profile, NOT_ERASED)
-                .await?,
+            hires: hamlet::hires_where(
+                rows,
+                HiresOf::Profile(self.profile),
+                Picked::Ended,
+            )
+            .await?,
         })
     }
 
