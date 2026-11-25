@@ -118,27 +118,23 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Merged {
         absorbed: AgentNumber,
         kept: AgentNumber,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Split {
         absorbed: AgentNumber,
         kept: AgentNumber,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Restored {
         hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Erased {
         hire: AgentNumber,
         by: By,

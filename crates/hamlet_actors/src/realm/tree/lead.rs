@@ -30,8 +30,8 @@ use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::peer::{self, When};
 use super::super::world::Part;
 use super::super::{
-    Realm, chiefs, drop_parts, hire, laid, marker, oversight,
-    parcels, profiles, record, roads, steps, tasks, waits, workers,
+    Realm, chiefs, hire, laid, marker, oversight, parcels, profiles,
+    record, retire, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
 
@@ -512,7 +512,7 @@ impl<By: RealmWide> Act<By> for Seat {
 
 /// The changes that end `hire`, close its steps and stop its living
 /// `workers`.
-fn hire_ending(
+pub(in crate::realm) fn hire_ending(
     hire: AgentNumber,
     how: HowEnded,
     why: Option<String>,
@@ -616,17 +616,24 @@ pub(in crate::realm) async fn end(
         .collect::<BTreeSet<_>>();
     let roads_seen = (!laid::of(&rows, agent).await?.is_empty())
         .then_some(Part::Roads);
-    super::set_ended(writer, agent, &how, why).await?;
+    let retires = !matches!(how, HowEnded::Merged { .. })
+        && lineage.agent.kind == AgentKind::Hire;
+    let ended = super::set_ended(writer, agent, &how, why).await?;
     for hire in moved {
         set_lead(writer, hire, lead).await?;
     }
-    let left = steps::apply(
-        writer,
-        steps::Change::Begin {
-            row: drop_parts::row(agent),
-        },
-    )
-    .await?;
+    // A merge's own row retires the hire it ends.
+    let left = if ended && retires {
+        steps::apply(
+            writer,
+            steps::Change::Begin {
+                row: retire::row(agent),
+            },
+        )
+        .await?
+    } else {
+        Affected::default()
+    };
     let revoked = oversight::apply(
         writer,
         oversight::Change::Revoke {
