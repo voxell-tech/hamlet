@@ -1,6 +1,13 @@
 /** The inputs a turn is given, as the model reads them. */
+import type { SubmissionDraft } from "@earendil-works/pi-durable";
 import type { Author, HeldCall, Input, Submit } from "./messages/agent.ts";
-import { type Admission, type CallEnd, NOTE_BREAK } from "./turn.ts";
+import {
+    type Admission,
+    type CallEnd,
+    KIND,
+    keptOf,
+    NOTE_BREAK,
+} from "./turn.ts";
 
 export function nameOf(author: Author, kind: "hire" | "worker"): string {
     return author.name ?? `${kind}#${author.agent}`;
@@ -78,6 +85,23 @@ export function admissionOf(message: Submit, captions = ""): Admission {
                 content: `${nameOf(input.from, "hire")} answers: ${input.text}`,
             };
     }
+}
+
+/**
+ * An input the realm withdrew before the agent took it, shown in its chat as
+ * it would have been and never read by the model. Its request id is the
+ * input's, so it shows once whichever of it and the input lands first.
+ */
+export function withdrawnInput(id: string, input: Input): SubmissionDraft {
+    const admission = admissionOf({ id, input });
+    return {
+        type: "write",
+        requestId: id,
+        entry: {
+            kind: `${KIND}${admission.kind}`,
+            data: { ...keptOf(admission), text: input.text, at: Date.now() },
+        },
+    };
 }
 
 function heldEnd(end: HeldCall["end"], why: string): CallEnd {

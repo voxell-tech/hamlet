@@ -1,10 +1,19 @@
 // Not `pi()`: its built-in actions check no sender, and it reserves `submit`.
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Api, Model, Models } from "@earendil-works/pi-ai";
+import {
+    BACKGROUND_CONTEXT,
+    type Context,
+} from "@earendil-works/chord/context";
+import type {
+    Api,
+    Model,
+    Models,
+    ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import {
     type ConversationId,
     createRegistry,
     defineExtension,
+    type EntryId,
     type Extension,
     GenerationTask,
     type Harness,
@@ -56,7 +65,7 @@ import {
     tellingFailed,
 } from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import { admissionOf } from "./inputs.ts";
+import { admissionOf, withdrawnInput } from "./inputs.ts";
 import type { SignIns } from "./login.ts";
 import {
     type AgentActions,
@@ -65,6 +74,7 @@ import {
     type Copies,
     type Fill,
     type Finished,
+    type Input,
     type Moved,
     type Place,
     type Removal,
@@ -100,6 +110,7 @@ import { timers } from "./timers.ts";
 import { type Following, following, watching } from "./transcript.ts";
 import {
     type Admission,
+    abortedResult,
     Closing,
     conversationsOf,
     draftOf,
@@ -112,6 +123,7 @@ import {
     toolLister,
     turnsOf,
     type WithHarness,
+    workReporter,
 } from "./turn.ts";
 import {
     endOf,
@@ -514,6 +526,17 @@ export interface Generation {
      * or has failed. A stop waits for it, so it stops the retry's turn too.
      */
     retrying: Promise<void> | undefined;
+    /**
+     * The inputs the realm's stops withdrew: an admission that begins later
+     * shows such an input and never runs it.
+     */
+    readonly withdrawn: Set<string>;
+    /** The admissions under way, which a stop waits for. */
+    readonly admitting: Set<Promise<void>>;
+    /** Each stop by its number, so a repeat answers the first count. */
+    readonly stops: Map<number, Promise<ReturnType<AgentActions["stop"]>>>;
+    /** Tells the realm when a harness's open inputs go from none to some and back. */
+    readonly followWork: (harness: Harness) => void;
     /** Absent for an errand, which is offered no tool. */
     readonly builtIns?: BuiltIns;
 }
@@ -615,6 +638,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         },
     };
     const follow = await following(c);
+    const followWork = workReporter(peers);
     (c.vars as Record<symbol, Generation>)[AGENT] = {
         options,
         peers,
@@ -626,6 +650,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         inTurn: oneAfterAnother(),
         receiving: oneAfterAnother(),
         retrying: undefined,
+        withdrawn: new Set(),
+        admitting: new Set(),
+        stops: new Map(),
+        followWork,
         ...(builtIns === undefined ? {} : { builtIns }),
     };
     watching(c, follow);
@@ -654,6 +682,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     failed.follow(harness);
+    followWork(harness);
     harness.resume();
     const configuring = () =>
         configured(c, copies).catch((error: unknown) =>
@@ -728,20 +757,31 @@ const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
 
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
-    const { options, inTurn, receiving, peers } = generationOf(c);
-    const admit = async () => {
+    const generation = generationOf(c);
+    const { options, inTurn, receiving, peers, admitting } = generation;
+    const admission = async (withdrawn: boolean) => {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
+            generation.followWork(harness);
             const conversation = await harness.conversation(id, context);
             if (conversation === undefined) {
                 throw new Error(`the agent has no conversation ${id}`);
             }
             const { input } = message;
-            const admitted = (captions: string) => {
+            if (withdrawn) {
+                await shownWithdrawn(harness, id, message.id, input, context);
+                return;
+            }
+            const admitted = async (captions: string) => {
                 const admission = admissionOf(message, captions);
                 return conversation.submit(
                     admission.ended?.end.type === "aborted"
-                        ? endedWithoutRun(admission, input.text)
+                        ? await endedWithoutRun(
+                              harness,
+                              admission,
+                              input.text,
+                              context,
+                          )
                         : draftOf(
                               admission,
                               input.type === "line" ? "steer" : undefined,
@@ -767,15 +807,90 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             });
         });
     };
+    // The mark is read and the admission counted under way in one step, so a
+    // stop either finds the admission to wait for or is read by it.
+    const admit = () => {
+        const under = admission(generation.withdrawn.has(message.id));
+        admitting.add(under);
+        return under.finally(() => admitting.delete(under));
+    };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
 }
 
-function endedWithoutRun(admission: Admission, text: string): SubmissionDraft {
+/**
+ * Shows the withdrawn input `id` in `chat`, unless it was admitted there
+ * before its stop.
+ */
+export async function shownWithdrawn(
+    harness: Harness,
+    chat: ConversationId,
+    id: string,
+    input: Input,
+    context: Context,
+): Promise<void> {
+    const admitted = await harness.commit(
+        (tx) => tx.submissionByRequest(chat, id),
+        context,
+    );
+    if (admitted !== undefined) return;
+    const kept = await harness.conversation(chat, context);
+    await kept?.submit(withdrawnInput(id, input), context);
+}
+
+/**
+ * A held call's end that brings no answer: shown, and put in place of the
+ * call's result, so the model reads the call aborted and no run starts.
+ */
+async function endedWithoutRun(
+    harness: Harness,
+    admission: Admission,
+    text: string,
+    context: Context,
+): Promise<SubmissionDraft> {
+    const entry = noticeEntry(text, admission.ended);
+    const held =
+        admission.ended === undefined
+            ? undefined
+            : await heldResult(harness, admission.ended.call, context);
     return {
         type: "write",
         requestId: admission.id,
-        entry: noticeEntry(text, admission.ended),
+        entry:
+            held === undefined
+                ? entry
+                : {
+                      ...entry,
+                      edits: [
+                          {
+                              target: held.id,
+                              action: "replace",
+                              messages: [abortedResult(held.result)],
+                          },
+                      ],
+                  },
     };
+}
+
+/** The entry the held call `call` wrote its result to, read from its tool task. */
+async function heldResult(
+    harness: Harness,
+    call: string,
+    context: Context,
+): Promise<{ id: EntryId; result: ToolResultMessage } | undefined> {
+    const task = taskOf(call);
+    const record =
+        task === undefined ? undefined : await harness.getTask(task, context);
+    const at = (
+        record?.state.outcome?.result as { entryId?: EntryId } | undefined
+    )?.entryId;
+    const entry =
+        at === undefined
+            ? undefined
+            : await harness.commit((tx) => tx.entry(at), context);
+    const result = entry?.model?.[0];
+    return entry !== undefined && result?.role === "toolResult"
+        ? { id: entry.id, result }
+        : undefined;
 }
 
 async function finished(c: AgentCall, message: Finished): Promise<void> {
@@ -790,16 +905,17 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
                 ? undefined
                 : await harness.conversation(record.conversationId, context)) ??
             (await harness.root(context));
+        const words = endWords(message.outcome);
+        const admission: Admission = {
+            kind: "finished",
+            id: message.call,
+            content: words,
+            ended: { call: message.call, end: endOf(message.outcome) },
+        };
         await conversation.submit(
-            draftOf({
-                kind: "finished",
-                id: message.call,
-                content: endWords(message.outcome),
-                ended: {
-                    call: message.call,
-                    end: endOf(message.outcome),
-                },
-            }),
+            admission.ended?.end.type === "aborted"
+                ? await endedWithoutRun(harness, admission, words, context)
+                : draftOf(admission),
             context,
         );
     });

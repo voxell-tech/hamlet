@@ -94,6 +94,7 @@ export function fakeCalls(answers: {
             secrets: () => ({ version: 1, values: [] }),
             lapse: () => null,
             turn_failed: () => null,
+            working: () => null,
             read_place: () => ({ place: "# Your place\nYou are `hand`." }),
             ...answers.realm,
         },
