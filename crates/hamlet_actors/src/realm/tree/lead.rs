@@ -34,10 +34,12 @@ use super::super::{
     record, retire, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
+use crate::realm::chiefs::hamlet::Status as HamletStatus;
 
 enum Joining {
     Hamlet(HamletId),
-    Missing(HamletId),
+    /// A hamlet named that a hire cannot join.
+    Refused(HireRefusal),
     Unnamed,
 }
 
@@ -45,7 +47,7 @@ impl Joining {
     fn id(&self) -> Option<&HamletId> {
         match self {
             Self::Hamlet(id) => Some(id),
-            Self::Missing(_) | Self::Unnamed => None,
+            Self::Refused(_) | Self::Unnamed => None,
         }
     }
 }
@@ -187,16 +189,32 @@ impl<By: Lead> Act<By> for Pinned {
         let hire = &self.hire;
         let caller = super::caller(by);
         let own = super::own_hamlet(rows, caller).await?;
-        let hamlet = match (&own, &hire.hamlet) {
-            (Some(own), _) => Joining::Hamlet(own.clone()),
-            (None, Some(named)) => {
-                chiefs::hamlet(rows, named).await?.map_or_else(
-                    || Joining::Missing(named.clone()),
-                    |hamlet| Joining::Hamlet(hamlet.id),
-                )
-            }
-            (None, None) => Joining::Unnamed,
-        };
+        let hamlet =
+            match (&own, &hire.hamlet) {
+                (Some(own), _) => Joining::Hamlet(own.clone()),
+                (None, Some(named)) => {
+                    let hamlet = named.clone();
+                    match chiefs::hamlet::status(rows, named).await? {
+                        None => Joining::Refused(
+                            HireRefusal::NoSuchHamlet { id: hamlet },
+                        ),
+                        Some(HamletStatus::Erased) => {
+                            Joining::Refused(
+                                HireRefusal::HamletErased { hamlet },
+                            )
+                        }
+                        Some(HamletStatus::Removed) => {
+                            Joining::Refused(
+                                HireRefusal::HamletRemoved { hamlet },
+                            )
+                        }
+                        Some(HamletStatus::Living) => {
+                            Joining::Hamlet(hamlet)
+                        }
+                    }
+                }
+                (None, None) => Joining::Unnamed,
+            };
         let under = match (&hire.under, caller, own) {
             (None, Some(caller), Some(_)) => {
                 super::lineage(rows, caller).await?
@@ -263,9 +281,7 @@ impl<By: Lead> Act<By> for Pinned {
             Decision::Answer(HireAnswer::refused(By::refused(why)))
         };
         let named = match hiring.hamlet {
-            Joining::Missing(id) => {
-                return refuse(HireRefusal::NoSuchHamlet { id });
-            }
+            Joining::Refused(why) => return refuse(why),
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,
         };
@@ -537,6 +553,18 @@ pub(in crate::realm) fn hire_ending(
     .collect()
 }
 
+/// The changes that end the living `hire` as `how`, its workers
+/// with it.
+pub(in crate::realm) async fn ending(
+    rows: &Rows<'_>,
+    hire: AgentNumber,
+    how: HowEnded,
+    why: Option<String>,
+) -> Result<Vec<change::Change>> {
+    let workers = workers::end_with(rows, hire).await?;
+    Ok(hire_ending(hire, how, why, workers))
+}
+
 /// The changes that end `hire`, whose step failed for good, and its
 /// lead's notice of it. None for the Hand, a mayor or a hire that
 /// ended: an end refuses them.
@@ -578,8 +606,7 @@ pub(in crate::realm) async fn failed(
         }
         _ => Calls::none(),
     };
-    let workers = workers::end_with(rows, hire).await?;
-    let changes = hire_ending(hire, left.how, left.why, workers);
+    let changes = ending(rows, hire, left.how, left.why).await?;
     Ok((changes, calls))
 }
 

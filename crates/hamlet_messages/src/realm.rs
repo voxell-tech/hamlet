@@ -721,6 +721,10 @@ pub enum HireRefusal {
     NoHamlet,
     #[error("no hamlet has the id `{}`", id.0)]
     NoSuchHamlet { id: HamletId },
+    #[error("the hamlet `{}` was erased", hamlet.0)]
+    HamletErased { hamlet: HamletId },
+    #[error("the hamlet `{}` was removed; restore it first", hamlet.0)]
+    HamletRemoved { hamlet: HamletId },
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
     #[error("`{lead}` is in another hamlet")]

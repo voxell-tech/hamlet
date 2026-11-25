@@ -33,7 +33,7 @@ use super::super::chiefs::{self, hamlet};
 use super::super::peer::When;
 use super::super::steps::{self, Cx, StepId, Steps};
 use super::super::tree::{self, Life};
-use super::super::{Realm, marker, record};
+use super::super::{Realm, erase, marker, record, retire};
 use super::{Arrival, Kind, Status};
 
 /// A profile of the city, not the Hand's and made, with its label.
@@ -120,7 +120,7 @@ impl Act<Client> for ArchiveProfile {
             has_a_mayor |= mayors.contains(&hire);
             let how = HowEnded::ProfileArchived;
             let changes =
-                hamlet::ending(rows, hire, how, self.why.clone())
+                tree::ending(rows, hire, how, self.why.clone())
                     .await?;
             hires.push((hire, changes));
         }
@@ -168,7 +168,7 @@ impl Act<Client> for ArchiveProfile {
     }
 
     fn answers_after(&self, (_, hires): &Self::Done) -> Vec<StepId> {
-        hires.iter().copied().map(hamlet::retire_row).collect()
+        hires.iter().copied().map(retire::row).collect()
     }
 
     fn answer(
@@ -874,7 +874,7 @@ pub(in crate::realm) async fn erase(
                 )
                 .await?;
             for hire in hires.into_iter().map(AgentNumber) {
-                let row = hamlet::erase_row(hire);
+                let row = erase::row(hire);
                 cx.realm
                     .drives
                     .ended(row, cx.realm.answer_within)

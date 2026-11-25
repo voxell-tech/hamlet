@@ -17,7 +17,7 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
-pub(super) use lead::{Pinned, Pinning, failed, hire_ending};
+pub(super) use lead::{Pinned, Pinning, ending, failed, hire_ending};
 use serde::Deserialize as _;
 
 use super::callers::Decider;

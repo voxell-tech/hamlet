@@ -482,6 +482,14 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 HireRefusal::NoSuchHamlet { id: hamlet() },
             ),
             (
+                "hamlet_erased",
+                HireRefusal::HamletErased { hamlet: hamlet() },
+            ),
+            (
+                "hamlet_removed",
+                HireRefusal::HamletRemoved { hamlet: hamlet() },
+            ),
+            (
                 "no_such_agent",
                 HireRefusal::NoSuchAgent {
                     address: "hire#9".into(),

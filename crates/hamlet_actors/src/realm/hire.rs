@@ -78,7 +78,7 @@ pub(super) async fn run(
         Step::Branch => {
             let profile = tree::profile_of(&rows, agent).await?;
             let named = Branch {
-                name: branch(n),
+                name: tree::branch(agent),
                 from: tree::version_of(&rows, agent).await?,
             };
             let branched = cx
@@ -117,9 +117,4 @@ pub(super) async fn run(
         }
     }
     Ok(Vec::new())
-}
-
-/// The profile's branch a hire is filled from.
-fn branch(n: u64) -> String {
-    format!("hires/{n}")
 }

@@ -26,9 +26,7 @@ use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer};
 use super::super::record::{self, By};
 use super::super::world::Part;
-use super::super::{
-    hire, parcels, profiles, steps, tree, waits, workers,
-};
+use super::super::{erase, profiles, retire, steps, tree};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -459,53 +457,6 @@ fn unless(
     }
 }
 
-/// The step row of `hire`'s retirement, which its end begins.
-pub(in crate::realm) fn retire_row(
-    hire: AgentNumber,
-) -> steps::StepId {
-    steps::StepId {
-        kind: steps::Kind::Retire,
-        n: u64::from(hire.0),
-    }
-}
-
-/// The step row of `hire`'s erasure, which its erasure begins.
-pub(in crate::realm) fn erase_row(
-    hire: AgentNumber,
-) -> steps::StepId {
-    steps::StepId {
-        kind: steps::Kind::Erase,
-        n: u64::from(hire.0),
-    }
-}
-
-/// The changes that end the living `hire` as `how`, as a lead's end
-/// does: its waits lapse, its parcels lose their receiver, its hire
-/// row closes and its workers stop.
-pub(in crate::realm) async fn ending(
-    rows: &Rows<'_>,
-    hire: AgentNumber,
-    how: HowEnded,
-    why: Option<String>,
-) -> Result<Vec<change::Change>> {
-    let mut changes = vec![
-        tree::Change::End {
-            agent: hire,
-            how,
-            why,
-        }
-        .into(),
-        waits::Change::Lapse { agent: hire }.into(),
-        parcels::Change::ReceiverLeft { receiver: hire }.into(),
-        steps::Change::Close {
-            row: hire::row(hire),
-        }
-        .into(),
-    ];
-    changes.extend(workers::end_with(rows, hire).await?);
-    Ok(changes)
-}
-
 /// Whose hires to pick.
 pub(in crate::realm) enum HiresOf<'a> {
     Hamlet(&'a HamletId),
@@ -594,7 +545,8 @@ async fn removing(
         .await?
         {
             let changes =
-                ending(rows, hire, how.clone(), why.clone()).await?;
+                tree::ending(rows, hire, how.clone(), why.clone())
+                    .await?;
             hires.push((hire, changes));
         }
     }
@@ -628,7 +580,7 @@ fn removed(
 }
 
 fn retired(hires: &[AgentNumber]) -> Vec<steps::StepId> {
-    hires.iter().copied().map(retire_row).collect()
+    hires.iter().copied().map(retire::row).collect()
 }
 
 impl Act<Client> for RemoveHamlet {
@@ -860,7 +812,7 @@ impl Act<Client> for EraseHamlet {
         &self,
         hires: &Vec<AgentNumber>,
     ) -> Vec<steps::StepId> {
-        hires.iter().copied().map(erase_row).collect()
+        hires.iter().copied().map(erase::row).collect()
     }
 
     fn answer(

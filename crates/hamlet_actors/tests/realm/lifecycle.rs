@@ -227,6 +227,38 @@ async fn erasing_a_hamlet_refuses_a_missing_living_or_erased_one_and_hides_its_h
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_hire_into_a_removed_then_an_erased_hamlet_is_refused()
+ {
+    let (realm, hamlet) = hamlet_of_four().await;
+    let into = || Hire {
+        hamlet: Some(hamlet.clone()),
+        ..hire(None)
+    };
+
+    chief(&realm, remove(&hamlet)).await;
+    let removed = chief(&realm, into()).await;
+    chief(&realm, erase(&hamlet)).await;
+    let erased = chief(&realm, into()).await;
+
+    assert_eq!(
+        [removed, erased],
+        [
+            HireAnswer::Refused {
+                why: HireRefusal::HamletRemoved {
+                    hamlet: hamlet.clone()
+                }
+            },
+            HireAnswer::Refused {
+                why: HireRefusal::HamletErased {
+                    hamlet: hamlet.clone()
+                }
+            },
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_hands_remove_hamlet_waits_for_a_chief_and_runs_once_allowed()
  {
     let (realm, hamlet) = hamlet_with(1).await;
