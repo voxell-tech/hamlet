@@ -30,14 +30,16 @@ use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::peer::{self, When};
 use super::super::world::Part;
 use super::super::{
-    Realm, chiefs, drop_parts, hire, laid, marker, oversight,
-    parcels, profiles, record, roads, steps, tasks, waits, workers,
+    Realm, chiefs, hire, laid, marker, on_task, oversight, parcels,
+    profiles, record, retire, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
+use crate::realm::chiefs::hamlet::Status as HamletStatus;
 
 enum Joining {
     Hamlet(HamletId),
-    Missing(HamletId),
+    /// A hamlet named that a hire cannot join.
+    Refused(HireRefusal),
     Unnamed,
 }
 
@@ -45,7 +47,7 @@ impl Joining {
     fn id(&self) -> Option<&HamletId> {
         match self {
             Self::Hamlet(id) => Some(id),
-            Self::Missing(_) | Self::Unnamed => None,
+            Self::Refused(_) | Self::Unnamed => None,
         }
     }
 }
@@ -187,16 +189,32 @@ impl<By: Lead> Act<By> for Pinned {
         let hire = &self.hire;
         let caller = super::caller(by);
         let own = super::own_hamlet(rows, caller).await?;
-        let hamlet = match (&own, &hire.hamlet) {
-            (Some(own), _) => Joining::Hamlet(own.clone()),
-            (None, Some(named)) => {
-                chiefs::hamlet(rows, named).await?.map_or_else(
-                    || Joining::Missing(named.clone()),
-                    |hamlet| Joining::Hamlet(hamlet.id),
-                )
-            }
-            (None, None) => Joining::Unnamed,
-        };
+        let hamlet =
+            match (&own, &hire.hamlet) {
+                (Some(own), _) => Joining::Hamlet(own.clone()),
+                (None, Some(named)) => {
+                    let hamlet = named.clone();
+                    match chiefs::hamlet::status(rows, named).await? {
+                        None => Joining::Refused(
+                            HireRefusal::NoSuchHamlet { id: hamlet },
+                        ),
+                        Some(HamletStatus::Erased) => {
+                            Joining::Refused(
+                                HireRefusal::HamletErased { hamlet },
+                            )
+                        }
+                        Some(HamletStatus::Removed) => {
+                            Joining::Refused(
+                                HireRefusal::HamletRemoved { hamlet },
+                            )
+                        }
+                        Some(HamletStatus::Living) => {
+                            Joining::Hamlet(hamlet)
+                        }
+                    }
+                }
+                (None, None) => Joining::Unnamed,
+            };
         let under = match (&hire.under, caller, own) {
             (None, Some(caller), Some(_)) => {
                 super::lineage(rows, caller).await?
@@ -263,9 +281,7 @@ impl<By: Lead> Act<By> for Pinned {
             Decision::Answer(HireAnswer::refused(By::refused(why)))
         };
         let named = match hiring.hamlet {
-            Joining::Missing(id) => {
-                return refuse(HireRefusal::NoSuchHamlet { id });
-            }
+            Joining::Refused(why) => return refuse(why),
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,
         };
@@ -355,6 +371,14 @@ pub(in crate::realm) struct Ending {
     /// The changes that stop the hire's living workers.
     workers: Vec<change::Change>,
     how: HowEnded,
+    /// The hires their agents said are on a chief's task.
+    on_task: Vec<AgentNumber>,
+}
+
+impl on_task::Told for Ending {
+    fn on_task(&mut self, on_task: Vec<AgentNumber>) {
+        self.on_task = on_task;
+    }
 }
 
 /// What an end ended.
@@ -382,6 +406,7 @@ impl<By: Lead> Act<By> for End {
             lineage,
             workers,
             how: how_of(rows, by.by()).await?,
+            on_task: Vec::new(),
         })
     }
 
@@ -410,6 +435,9 @@ impl<By: Lead> Act<By> for End {
         }
         if lineage.is_mayor() {
             return refuse(EndRefusal::TheMayor);
+        }
+        if ending.on_task.contains(&hire) {
+            return refuse(EndRefusal::OnChiefsTask { name });
         }
         if lineage.agent.kind == AgentKind::Worker {
             let mut decided = Decided::new(Ended::Worker(name));
@@ -512,7 +540,7 @@ impl<By: RealmWide> Act<By> for Seat {
 
 /// The changes that end `hire`, close its steps and stop its living
 /// `workers`.
-fn hire_ending(
+pub(in crate::realm) fn hire_ending(
     hire: AgentNumber,
     how: HowEnded,
     why: Option<String>,
@@ -535,6 +563,18 @@ fn hire_ending(
     .into_iter()
     .chain(workers)
     .collect()
+}
+
+/// The changes that end the living `hire` as `how`, its workers
+/// with it.
+pub(in crate::realm) async fn ending(
+    rows: &Rows<'_>,
+    hire: AgentNumber,
+    how: HowEnded,
+    why: Option<String>,
+) -> Result<Vec<change::Change>> {
+    let workers = workers::end_with(rows, hire).await?;
+    Ok(hire_ending(hire, how, why, workers))
 }
 
 /// The changes that end `hire`, whose step failed for good, and its
@@ -578,8 +618,7 @@ pub(in crate::realm) async fn failed(
         }
         _ => Calls::none(),
     };
-    let workers = workers::end_with(rows, hire).await?;
-    let changes = hire_ending(hire, left.how, left.why, workers);
+    let changes = ending(rows, hire, left.how, left.why).await?;
     Ok((changes, calls))
 }
 
@@ -602,7 +641,11 @@ pub(in crate::realm) async fn end(
     let rows = writer.rows();
     let lineage = super::lineage_of(&rows, agent).await?;
     let lead = lineage.agent.lead;
-    let moved = living_agents(&lineage.hires);
+    let moved = if matches!(how, HowEnded::HamletRemoved { .. }) {
+        Vec::new()
+    } else {
+        living_agents(&lineage.hires)
+    };
     let places = roads::of(&rows, agent)
         .await?
         .into_iter()
@@ -612,17 +655,24 @@ pub(in crate::realm) async fn end(
         .collect::<BTreeSet<_>>();
     let roads_seen = (!laid::of(&rows, agent).await?.is_empty())
         .then_some(Part::Roads);
-    super::set_ended(writer, agent, &how, why).await?;
+    let retires = !matches!(how, HowEnded::Merged { .. })
+        && lineage.agent.kind == AgentKind::Hire;
+    let ended = super::set_ended(writer, agent, &how, why).await?;
     for hire in moved {
         set_lead(writer, hire, lead).await?;
     }
-    let left = steps::apply(
-        writer,
-        steps::Change::Begin {
-            row: drop_parts::row(agent),
-        },
-    )
-    .await?;
+    // A merge's own row retires the hire it ends.
+    let left = if ended && retires {
+        steps::apply(
+            writer,
+            steps::Change::Begin {
+                row: retire::row(agent),
+            },
+        )
+        .await?
+    } else {
+        Affected::default()
+    };
     let revoked = oversight::apply(
         writer,
         oversight::Change::Revoke {
@@ -651,7 +701,7 @@ fn living_agents(nodes: &[Node]) -> Vec<AgentNumber> {
         .collect()
 }
 
-async fn set_lead(
+pub(super) async fn set_lead(
     writer: &Writer<'_>,
     hire: AgentNumber,
     lead: Option<AgentNumber>,
@@ -774,6 +824,7 @@ mod tests {
             lineage: Some(lineage),
             workers: Vec::new(),
             how: HowEnded::ByTheChief,
+            on_task: Vec::new(),
         }
     }
 

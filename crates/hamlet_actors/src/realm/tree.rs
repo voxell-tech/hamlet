@@ -17,12 +17,13 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
-pub(super) use lead::{Pinned, Pinning, failed};
+pub(super) use lead::{Pinned, Pinning, ending, failed, hire_ending};
+use serde::Deserialize as _;
 
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::world::Part;
-use super::{chiefs, profiles, record};
+use super::{chiefs, erase, hire, profiles, record, steps};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Status {
@@ -53,11 +54,17 @@ impl Status {
     }
 }
 
-/// `how` as a row keeps it: a lead by its number.
+/// The fields of a [`HowEnded`] that name an agent.
+const NAMING: [&str; 3] = ["lead", "into", "by"];
+
+/// `how` as a row keeps it: each agent it names by its number.
 pub(super) fn kept_how(how: &HowEnded) -> Result<String> {
     let mut kept = serde_json::to_value(how)?;
-    if let HowEnded::ByALead { lead } = how {
-        kept["lead"] = lead.agent.0.into();
+    for field in NAMING {
+        if let Some(named) = kept.get(field) {
+            let named = AgentName::deserialize(named)?;
+            kept[field] = named.agent.0.into();
+        }
     }
     Ok(kept.to_string())
 }
@@ -67,13 +74,15 @@ pub(super) async fn read_how(
     kept: &str,
 ) -> Result<HowEnded> {
     let mut how: serde_json::Value = serde_json::from_str(kept)?;
-    if let Some(lead) =
-        how.get("lead").and_then(serde_json::Value::as_u64)
-    {
-        let lead = AgentNumber(u32::try_from(lead)?);
-        how["lead"] = serde_json::to_value(
-            record::agent_name(rows, lead).await?,
-        )?;
+    for field in NAMING {
+        if let Some(agent) =
+            how.get(field).and_then(serde_json::Value::as_u64)
+        {
+            let agent = AgentNumber(u32::try_from(agent)?);
+            how[field] = serde_json::to_value(
+                record::agent_name(rows, agent).await?,
+            )?;
+        }
     }
     Ok(serde_json::from_value(how)?)
 }
@@ -227,6 +236,31 @@ pub(super) async fn named_in(
         Some(agent) => lineage(rows, agent).await,
         None => Ok(None),
     }
+}
+
+/// The agent `named` names, ended too, unless it was erased.
+pub(super) async fn kept_named(
+    rows: &Rows<'_>,
+    named: &Named,
+) -> Result<Option<Lineage>> {
+    let Some(agent) = agent_named(rows, None, named).await? else {
+        return Ok(None);
+    };
+    let erased = rows
+        .value::<bool>(
+            "SELECT erased FROM agent WHERE id = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    match erased {
+        Some(false) => lineage(rows, agent).await,
+        _ => Ok(None),
+    }
+}
+
+/// The branch of its profile a hire's files are kept on.
+pub(super) fn branch(hire: AgentNumber) -> String {
+    format!("hires/{}", hire.0)
 }
 
 pub(super) async fn lineage_of(
@@ -578,6 +612,31 @@ pub(super) enum Change {
     Worker { agent: AgentNumber },
     /// A worker ends `how`, when it had not.
     WorkerEnded { agent: AgentNumber, how: HowEnded },
+    /// An ended hire, not erased, lives again, under `lead` when one
+    /// is given.
+    Back {
+        agent: AgentNumber,
+        lead: Option<AgentNumber>,
+    },
+    /// An ended hire is erased: it stays ended for good.
+    Erased { agent: AgentNumber },
+    /// `kept` takes `absorbed`'s hires, and its lead when it was
+    /// under `absorbed`.
+    Absorb {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+    },
+    /// An absorb taken back: `kept` goes under `absorbed` again when
+    /// it was, and each of `hires` still under `kept` goes back under
+    /// `absorbed`.
+    GiveBack {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        kept_was_under: bool,
+        hires: Vec<AgentNumber>,
+    },
+    /// An erase taken back: the hire is ended, not erased.
+    Unerased { agent: AgentNumber },
 }
 
 pub(super) async fn apply(
@@ -615,6 +674,31 @@ pub(super) async fn apply(
         }
         Change::WorkerEnded { agent, how } => {
             worker_ended(writer, agent, how).await
+        }
+        Change::Back { agent, lead } => {
+            back(writer, agent, lead).await
+        }
+        Change::Erased { agent } => erased(writer, agent).await,
+        Change::Absorb { absorbed, kept } => {
+            absorb(writer, absorbed, kept).await
+        }
+        Change::GiveBack {
+            absorbed,
+            kept,
+            kept_was_under,
+            hires,
+        } => {
+            give_back(writer, absorbed, kept, kept_was_under, hires)
+                .await
+        }
+        Change::Unerased { agent } => {
+            writer
+                .execute(
+                    "UPDATE agent SET erased = 0 WHERE id = ?1",
+                    vec![number(agent)],
+                )
+                .await?;
+            Ok(Affected::seen([Part::Agents]))
         }
     }
 }
@@ -768,23 +852,169 @@ async fn live(
     writer: &Writer<'_>,
     agent: AgentNumber,
 ) -> Result<Affected> {
-    let at = vec![number(agent)];
     writer
         .execute(
             "UPDATE agent SET status = 'live' WHERE id = ?1 AND \
              status = 'hiring'",
-            at.clone(),
+            vec![number(agent)],
         )
         .await?;
+    showing(writer, agent).await
+}
+
+/// The places that show `agent`, under the lead it has now.
+async fn showing(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+) -> Result<Affected> {
     let lead = writer
         .rows()
         .value::<Option<u32>>(
             "SELECT lead FROM hire WHERE agent = ?1",
-            at,
+            vec![number(agent)],
         )
         .await?
         .flatten();
     places_showing(writer, agent, lead.map(AgentNumber)).await
+}
+
+/// The changes that bring the ended `agent` back under `lead`, its
+/// hire row taken up again where its end cut it off.
+pub(super) fn coming_back(
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> [change::Change; 2] {
+    [
+        Change::Back { agent, lead }.into(),
+        steps::Change::Resume {
+            row: hire::row(agent),
+            last: steps::Steps::name(hire::Step::Live),
+        }
+        .into(),
+    ]
+}
+
+/// Brings the ended `agent` back: live, or hiring when its end cut
+/// its making off, which its hire row then takes up again.
+async fn back(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> Result<Affected> {
+    let made = hire::reached(&writer.rows(), agent, hire::Step::Live)
+        .await?;
+    let back = writer
+        .execute(
+            "UPDATE agent SET status = ?2, ended_how = NULL, \
+             ended_why = NULL WHERE id = ?1 AND status = 'ended' \
+             AND erased = 0",
+            vec![
+                number(agent),
+                BindParam::Text(
+                    if made { "live" } else { "hiring" }.to_owned(),
+                ),
+            ],
+        )
+        .await?;
+    if back == 0 {
+        return Ok(Affected::default());
+    }
+    if lead.is_some() {
+        lead::set_lead(writer, agent, lead).await?;
+    }
+    if !made {
+        return showing(writer, agent).await;
+    }
+    let mut places = showing(writer, agent).await?.places;
+    places.insert(agent);
+    Ok(Affected {
+        places,
+        reaches: BTreeSet::from([agent]),
+        ..Affected::seen([Part::Agents, Part::Reaches])
+    })
+}
+
+async fn erased(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+) -> Result<Affected> {
+    let erased = writer
+        .execute(
+            "UPDATE agent SET erased = 1 WHERE id = ?1 AND status = \
+             'ended' AND erased = 0",
+            vec![number(agent)],
+        )
+        .await?;
+    let begun = if erased == 0 {
+        Affected::default()
+    } else {
+        steps::apply(
+            writer,
+            steps::Change::Begin {
+                row: erase::row(agent),
+            },
+        )
+        .await?
+    };
+    Ok(Affected {
+        begun: begun.begun,
+        ..Affected::seen([Part::Agents])
+    })
+}
+
+async fn absorb(
+    writer: &Writer<'_>,
+    absorbed: AgentNumber,
+    kept: AgentNumber,
+) -> Result<Affected> {
+    let rows = writer.rows();
+    let from = lineage_of(&rows, absorbed).await?;
+    let mut places = BTreeSet::from([absorbed, kept]);
+    if from.hires.iter().any(|node| node.agent == kept) {
+        lead::set_lead(writer, kept, from.agent.lead).await?;
+        places.extend(from.agent.lead);
+    }
+    for node in &from.hires {
+        if node.agent != kept
+            && !matches!(node.status, Status::Ended(_))
+        {
+            lead::set_lead(writer, node.agent, Some(kept)).await?;
+            places.insert(node.agent);
+        }
+    }
+    Ok(Affected {
+        places,
+        ..Affected::seen([Part::Agents])
+    })
+}
+
+async fn give_back(
+    writer: &Writer<'_>,
+    absorbed: AgentNumber,
+    kept: AgentNumber,
+    kept_was_under: bool,
+    hires: Vec<AgentNumber>,
+) -> Result<Affected> {
+    let mut places = BTreeSet::from([absorbed, kept]);
+    if kept_was_under {
+        lead::set_lead(writer, kept, Some(absorbed)).await?;
+    }
+    for hire in hires {
+        let moved = writer
+            .execute(
+                "UPDATE hire SET lead = ?2 WHERE agent = ?1 AND \
+                 lead = ?3",
+                vec![number(hire), number(absorbed), number(kept)],
+            )
+            .await?;
+        if moved > 0 {
+            places.insert(hire);
+        }
+    }
+    Ok(Affected {
+        places,
+        ..Affected::seen([Part::Agents])
+    })
 }
 
 async fn purpose(

@@ -4,16 +4,18 @@
 use hamlet_messages::MOST_PART;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, By, Character, CommitId, CommitSeen, Cursor,
-    DreamEnd, DreamId, DreamOf, DreamOpen, DropSaveParts, Edit,
-    EditRefusal, EndDream, Erase, FileChange, Files, FilesAnswer,
-    Gone, Missing, Moved, NotAHire, Paper, PaperList, Papers, Path,
-    Piece, Pin, PinAnswer, PinRefusal, PrepareDream, Prepared,
-    ProfileInput, Protected, Purge, PurgeAnswer, PurgeRefusal, Read,
-    ReadAnswer, ReadFileRefusal, Removal, RemovePath, Revert,
-    RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
-    SaveRefusal, Sha1, Tag, TagAnswer, TagRefusal, TooLarge, TooLong,
-    VersionList, VersionName, VersionSeen, Versions,
+    BadCommit, BadPath, Bundle, BundleAnswer, By, Character,
+    CommitId, CommitSeen, Cursor, DreamEnd, DreamId, DreamOf,
+    DreamOpen, DropBranch, DropSaveParts, Edit, EditRefusal,
+    EndDream, Erase, FileChange, Files, FilesAnswer, Gone,
+    MergeAnswer, MergeBranch, Missing, Moved, NotAHire, Paper,
+    PaperList, Papers, Path, Piece, Pin, PinAnswer, PinRefusal,
+    PrepareDream, Prepared, ProfileInput, Protected, Purge,
+    PurgeAnswer, PurgeRefusal, Read, ReadAnswer, ReadFileRefusal,
+    Removal, RemovePath, Removed, Revert, RevertAnswer,
+    RevertRefusal, Revision, Save, SaveAnswer, SaveRefusal, Sha1,
+    Source, Tag, TagAnswer, TagRefusal, TooLarge, TooLong, Unmerge,
+    UnmergeAnswer, VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
 use hamlet_messages::workspace::AgentNumber;
@@ -37,6 +39,9 @@ pub fn enums() -> Vec<Cases> {
         tagged::<DreamEnd>(),
         tagged::<FilesAnswer>(),
         tagged::<SaveAnswer>(),
+        tagged::<Source>(),
+        tagged::<MergeAnswer>(),
+        tagged::<UnmergeAnswer>(),
         tagged::<ReadAnswer>(),
         tagged::<TagRefusal>(),
         tagged::<BadPath>(),
@@ -92,6 +97,7 @@ pub fn the_profiles_messages(fixtures: &mut Fixtures) {
     the_changes_of_main(fixtures);
     the_dreams(fixtures);
     the_files_of_a_hire(fixtures);
+    the_merges(fixtures);
     the_calls_on_an_agent(fixtures);
 }
 
@@ -642,6 +648,128 @@ fn the_files_of_a_hire(fixtures: &mut Fixtures) {
     ] {
         fixtures.kept(&format!("profile/save.{arm}"), &answer);
     }
+}
+
+fn the_merges(fixtures: &mut Fixtures) {
+    let removed = || Removed {
+        path: "memory/old.md".into(),
+        blob: Sha1([0x42; 20]),
+    };
+    let merge = |from| MergeBranch {
+        id: request(),
+        into: "hires/2".into(),
+        absorbed: HIRE,
+        message: "Took in what hire#12 learned: Their work overlaps"
+            .into(),
+        from,
+    };
+    fixtures.args(
+        "profile/merge_branch",
+        &merge(Source::Branch {
+            name: "hires/12".into(),
+        }),
+    );
+    fixtures.args(
+        "profile/merge_branch.part",
+        &merge(Source::Part {
+            part: 0,
+            last: true,
+            files: vec![piece("memory/tests.md")],
+            removed: vec![removed()],
+        }),
+    );
+    for (arm, answer) in [
+        (
+            "merged",
+            MergeAnswer::Merged {
+                tip: commit(0xcd),
+                set_aside: vec![
+                    "memory/tests.md.from-hire-12".into(),
+                ],
+            },
+        ),
+        ("kept", MergeAnswer::Kept),
+        (
+            "refused.not_a_path",
+            MergeAnswer::refused(not_a_path().into()),
+        ),
+        ("refused.withheld", MergeAnswer::refused(withheld().into())),
+        (
+            "refused.part_too_large",
+            MergeAnswer::refused(SaveRefusal::from(
+                TooLarge::PartTooLarge {
+                    most: MOST_PART as u32,
+                },
+            )),
+        ),
+        (
+            "refused.commit_gone",
+            MergeAnswer::refused(
+                Gone::CommitGone {
+                    commit: commit(0xab),
+                }
+                .into(),
+            ),
+        ),
+    ] {
+        fixtures
+            .kept(&format!("profile/merge_branch.{arm}"), &answer);
+    }
+    fixtures.args(
+        "profile/bundle",
+        &Bundle {
+            branch: "hires/12".into(),
+            after: Some(Cursor {
+                commit: commit(0x12),
+                file: 1,
+                offset: 0,
+            }),
+        },
+    );
+    for (arm, answer) in [
+        (
+            "part",
+            BundleAnswer::Part {
+                files: vec![piece("memory/tests.md")],
+                removed: vec![removed()],
+                next: None,
+            },
+        ),
+        (
+            "refused.commit_gone",
+            BundleAnswer::refused(Gone::CommitGone {
+                commit: commit(0x12),
+            }),
+        ),
+    ] {
+        fixtures.answer(&format!("profile/bundle.{arm}"), &answer);
+    }
+    fixtures.args(
+        "profile/unmerge",
+        &Unmerge {
+            id: request(),
+            branch: "hires/2".into(),
+            merge: commit(0xcd),
+        },
+    );
+    for (arm, answer) in [
+        ("unmerged", UnmergeAnswer::Unmerged { tip: commit(0xef) }),
+        (
+            "refused.commit_gone",
+            UnmergeAnswer::refused(Gone::CommitGone {
+                commit: commit(0xcd),
+            }),
+        ),
+    ] {
+        fixtures.kept(&format!("profile/unmerge.{arm}"), &answer);
+    }
+    fixtures.args(
+        "profile/drop_branch",
+        &DropBranch {
+            name: "hires/12".into(),
+        },
+    );
+    fixtures.answer("profile/drop_branch", &());
 }
 
 fn the_calls_on_an_agent(fixtures: &mut Fixtures) {

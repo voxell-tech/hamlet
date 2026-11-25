@@ -9,6 +9,7 @@ import {
     type FauxResponseStep,
     fauxAssistantMessage,
     fauxToolCall,
+    type Message,
     type Context as ModelContext,
     type Models,
     type ToolResultMessage,
@@ -237,6 +238,39 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     };
 }
 
+/** `fakeFiles` that keeps which files run, as a filesystem with modes does. */
+export function filesThatRun(files: Record<string, string>) {
+    const fake = fakeFiles(files);
+    const runs = new Set<string>();
+    const filesystem: AgentFilesystem = {
+        ...fake,
+        write: async (path, content, context, executable) => {
+            if (executable === true) runs.add(path);
+            if (executable === false) runs.delete(path);
+            return fake.write(path, content, context);
+        },
+        list: async (path, context) => {
+            const listed = await fake.list(path, context);
+            if (!listed.ok) return listed;
+            return ok(
+                listed.value.map((entry) => ({
+                    ...entry,
+                    executable: runs.has(`${path}/${entry.name}`),
+                })),
+            );
+        },
+        walk: async (path, context) => {
+            const walked = await fake.walk(path, context);
+            if (!walked.ok) return walked;
+            const executable = walked.value.files.filter((file) =>
+                runs.has(file),
+            );
+            return ok({ ...walked.value, executable });
+        },
+    };
+    return { filesystem, runs };
+}
+
 /** `fakeFiles(files)`, whose walk stops at its cap. */
 export function cappedFiles(files: Record<string, string>): AgentFilesystem {
     const filesystem = fakeFiles(files);
@@ -246,6 +280,36 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
             const walked = await filesystem.walk(path, context);
             return walked.ok ? ok({ ...walked.value, capped: true }) : walked;
         },
+    };
+}
+
+/** A model step held until `answer`, or until its request is aborted. */
+export function held(): {
+    readonly step: FauxResponseStep;
+    readonly asked: Promise<readonly Message[]>;
+    answer(message: AssistantMessage): void;
+} {
+    const asked = Promise.withResolvers<readonly Message[]>();
+    const answer = Promise.withResolvers<AssistantMessage>();
+    return {
+        step: (request, options) => {
+            asked.resolve(request.messages);
+            const aborted = Promise.withResolvers<AssistantMessage>();
+            options?.signal?.addEventListener(
+                "abort",
+                () =>
+                    aborted.resolve(
+                        fauxAssistantMessage("", {
+                            stopReason: "aborted",
+                            errorMessage: "aborted",
+                        }),
+                    ),
+                { once: true },
+            );
+            return Promise.race([answer.promise, aborted.promise]);
+        },
+        asked: asked.promise,
+        answer: answer.resolve,
     };
 }
 
@@ -358,6 +422,8 @@ export interface Woken {
     readonly reported: string[];
     /** The events the agent broadcast, in order, as `[name, ...args]`. */
     readonly events: unknown[][];
+    /** How many times the agent asked its host to destroy it. */
+    readonly destroyed: number;
     harness(): Promise<Harness>;
     idle(): Promise<void>;
     entries(): Promise<{ kind: string; text: string; data: unknown }[]>;
@@ -456,6 +522,7 @@ export async function wakeAgent(
         const alarms: number[] = [];
         const reported: string[] = [];
         const events: unknown[][] = [];
+        let destroyed = 0;
         const c = {
             actorId: `agent-${address.key}`,
             address,
@@ -477,6 +544,9 @@ export async function wakeAgent(
                 },
             },
             abortSignal: new AbortController().signal,
+            destroy: () => {
+                destroyed += 1;
+            },
         } as unknown as AgentContext;
         if (first) await definition.onCreate(c, given.input ?? HAND);
         await definition.onWake(c);
@@ -494,6 +564,9 @@ export async function wakeAgent(
             alarms,
             reported,
             events,
+            get destroyed() {
+                return destroyed;
+            },
             harness,
             idle: async () => (await harness()).waitForIdle(context),
             entries: async () => entriesOf(await harness(), context),

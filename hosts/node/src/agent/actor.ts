@@ -65,6 +65,7 @@ import {
     tellingFailed,
 } from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
+import { drop_inbox, migrateInbox, read_inbox, take_inbox } from "./inbox.ts";
 import { admissionOf, withdrawnInput } from "./inputs.ts";
 import type { SignIns } from "./login.ts";
 import {
@@ -98,6 +99,7 @@ import {
     promptSources,
 } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
+import { erase, retire } from "./retire.ts";
 import {
     conversationFor,
     current,
@@ -106,6 +108,7 @@ import {
 } from "./sessions.ts";
 import { offeredSociety, society } from "./society.ts";
 import { gated } from "./spend.ts";
+import { followEnds, given, migrateTasks, on_task } from "./tasks.ts";
 import { timers } from "./timers.ts";
 import { type Following, following, watching } from "./transcript.ts";
 import {
@@ -303,6 +306,12 @@ function agentActions(config: AgentConfig): AgentHandlers {
             remove_path,
             shelves_changed,
             stop,
+            retire,
+            erase,
+            read_inbox,
+            take_inbox,
+            drop_inbox,
+            on_task,
         }),
         ...chatActions(config),
         pi: { wake: sentBy<[], null>(ALARM, "pi.wake", () => [], wakeTimers) },
@@ -423,6 +432,8 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
     await migrateCopies(raw);
     await migrateChats(raw);
     await migrateBranch(raw);
+    await migrateInbox(raw);
+    await migrateTasks(raw);
     await raw.execute(`
         CREATE TABLE IF NOT EXISTS agent (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -687,6 +698,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     failed.follow(harness);
     followWork(harness);
+    followEnds(c, harness);
     harness.resume();
     const configuring = () =>
         configured(c, copies).catch((error: unknown) =>
@@ -767,6 +779,7 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
             generation.followWork(harness);
+            followEnds(c, harness);
             const conversation = await harness.conversation(id, context);
             if (conversation === undefined) {
                 throw new Error(`the agent has no conversation ${id}`);
@@ -774,18 +787,26 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             const { input } = message;
             const admitted = async (captions: string) => {
                 const admission = admissionOf(message, captions);
+                if (admission.ended?.end.type === "aborted") {
+                    return conversation.submit(
+                        await endedWithoutRun(
+                            harness,
+                            admission,
+                            input.text,
+                            context,
+                        ),
+                        context,
+                    );
+                }
+                // Kept before the admission, so its end always finds it.
+                if (message.task !== undefined) {
+                    await given(c, id, message.id, message.task);
+                }
                 return conversation.submit(
-                    admission.ended?.end.type === "aborted"
-                        ? await endedWithoutRun(
-                              harness,
-                              admission,
-                              input.text,
-                              context,
-                          )
-                        : draftOf(
-                              admission,
-                              input.type === "line" ? "steer" : undefined,
-                          ),
+                    draftOf(
+                        admission,
+                        input.type === "line" ? "steer" : undefined,
+                    ),
                     context,
                 );
             };

@@ -106,6 +106,7 @@ export function openAgentFilesystem(
                     path: absolute(entry.path),
                     kind: entry.kind as FileEntry["kind"],
                     size: entry.size,
+                    executable: entry.executable,
                 })),
             ),
         search: (pattern, path, options, context) =>

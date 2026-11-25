@@ -29,6 +29,7 @@ import type {
     Rewind,
     RewindAnswer,
     Stop,
+    Withdrawn,
 } from "./messages/agent.ts";
 import type { LapseReason } from "./messages/realm.ts";
 import { type LetterId, u32 } from "./messages/shared.ts";
@@ -74,7 +75,7 @@ export function stop(c: AgentCall, message: Stop): Promise<Stopped> {
     const { stops } = generationOf(c);
     const first = stops.get(message.number);
     if (first !== undefined) return first;
-    const stopping = stopped(c, message);
+    const stopping = stopped(c, message.withdrawn ?? []);
     stops.set(message.number, stopping);
     stopping.catch(() => stops.delete(message.number));
     return stopping;
@@ -82,10 +83,13 @@ export function stop(c: AgentCall, message: Stop): Promise<Stopped> {
 
 type Stopped = ReturnType<AgentActions["stop"]>;
 
-async function stopped(c: AgentCall, message: Stop): Promise<Stopped> {
+/** Stops every turn, and shows the `lines` the realm withdrew without running them. */
+export async function stopped(
+    c: AgentCall,
+    lines: readonly Withdrawn[],
+): Promise<Stopped> {
     const generation = generationOf(c);
     const { options, peers } = generation;
-    const lines = message.withdrawn ?? [];
     // Marked first, so an admission that begins later shows the line and
     // never runs it. Not in `inTurn`, which may hold the very run it ends.
     for (const line of lines) generation.withdrawn.add(line.id);

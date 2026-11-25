@@ -4,6 +4,7 @@
 mod dreams;
 mod files;
 mod hires;
+mod merges;
 mod versions;
 
 use std::path::{Path, PathBuf};
@@ -17,9 +18,10 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
-    Branch, CommitId, DropSaveParts, Edit, EndDream, Erase, Files,
-    Papers, Pin, PrepareDream, ProfileInput, Purge, Read, Revert,
-    Save, Sha1, Tag, TooLong, Versions,
+    Branch, Bundle, CommitId, DropBranch, DropSaveParts, Edit,
+    EndDream, Erase, Files, MergeBranch, Papers, Pin, PrepareDream,
+    ProfileInput, Purge, Read, Revert, Save, Sha1, Tag, TooLong,
+    Unmerge, Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -68,11 +70,14 @@ impl Actor for Profile {
     type Input = Option<ProfileInput>;
     type Actions = (
         Branch,
+        Bundle,
+        DropBranch,
         DropSaveParts,
         Edit,
         EndDream,
         Erase,
         Files,
+        MergeBranch,
         Papers,
         Pin,
         PrepareDream,
@@ -81,6 +86,7 @@ impl Actor for Profile {
         Revert,
         Save,
         Tag,
+        Unmerge,
         Versions,
     );
     type Events = ();
@@ -229,7 +235,7 @@ mod tests {
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
     use hamlet_messages::profile::{
-        By, DreamId, DreamOf, Revision, VersionName,
+        By, DreamId, DreamOf, Revision, Source, VersionName,
     };
     use hamlet_messages::workspace::{AgentNumber, CallId};
     use hamlet_protocol::client::RequestId;
@@ -315,6 +321,27 @@ mod tests {
                 done: true,
                 summary: String::new(),
                 hire_name: None,
+            }),
+            args(&MergeBranch {
+                id: RequestId::new(),
+                into: "hires/7".into(),
+                absorbed: AgentNumber(8),
+                message: "Took in what was learned".into(),
+                from: Source::Branch {
+                    name: "hires/8".into(),
+                },
+            }),
+            args(&Bundle {
+                branch: "hires/8".into(),
+                after: None,
+            }),
+            args(&Unmerge {
+                id: RequestId::new(),
+                branch: "hires/7".into(),
+                merge: CommitId(Sha1([0; 20])),
+            }),
+            args(&DropBranch {
+                name: "hires/8".into(),
             }),
         ]
     }

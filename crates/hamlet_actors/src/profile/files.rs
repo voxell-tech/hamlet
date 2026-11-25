@@ -6,14 +6,11 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
-use hamlet_git::{BlobId, Entry};
-use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, DropSaveParts, FileChange, Files, FilesAnswer,
-    Gone, Path, Piece, Protected, Save, SaveAnswer, SaveRefusal,
-    TooLarge,
+    Gone, Path, Protected, Save, SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_messages::{MOST_PART, Message, PIECE_FRAME};
@@ -21,7 +18,7 @@ use hamlet_messages::{MOST_PART, Message, PIECE_FRAME};
 use super::hires::{self, Hire};
 use super::{CHARACTER, Profile, commit_id, git_commit};
 use crate::repo::git::{By, Reads};
-use crate::repo::parts::{self, Kept, joined};
+use crate::repo::parts::{self, Item, Kept, joined};
 use crate::repo::store::{self, Rows};
 use crate::repo::{
     Admits, Before, Call, Ended, Look, Reply, Takes, Writer,
@@ -41,7 +38,7 @@ impl store::Table for Calls {
 
 /// Whether `path` is one an agent's filesystem is never given and
 /// never gives: the character, and its own inbox.
-fn withheld(path: &str) -> bool {
+pub(super) fn withheld(path: &str) -> bool {
     path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
 }
 
@@ -91,7 +88,8 @@ fn files(look: &Look<'_, Profile, Files>) -> Result<FilesAnswer> {
         (cursor.file as usize, cursor.offset as usize)
     });
     let items = items(git, since, tip)?;
-    let packed = pack(&items, from, room, &|blob| git.blob(blob))?;
+    let packed =
+        parts::pack(&items, from, room, &|blob| git.blob(blob))?;
     let next = packed
         .next
         .map(|(file, offset)| {
@@ -105,23 +103,21 @@ fn files(look: &Look<'_, Profile, Files>) -> Result<FilesAnswer> {
     Ok(FilesAnswer::Part {
         tip: commit_id(tip)?,
         files: packed.files,
-        removed: packed.removed,
+        removed: packed
+            .removed
+            .into_iter()
+            .map(|(path, _)| Path { path })
+            .collect(),
         next,
         character,
     })
-}
-
-/// A removal or a file a fill sends, in the order a cursor counts it.
-enum Item {
-    Remove(String),
-    Write(Entry),
 }
 
 /// The paths `since` held that `tip` does not, then the files of
 /// `tip` that differ from `since`'s in bytes or in whether they run,
 /// in path order; every file of `tip` with no `since`. Never a
 /// withheld path.
-fn items(
+pub(super) fn items(
     git: &Reads,
     since: Option<hamlet_git::CommitId>,
     tip: hamlet_git::CommitId,
@@ -146,86 +142,10 @@ fn items(
         })
         .collect::<Vec<_>>();
     Ok(was
-        .into_keys()
-        .map(Item::Remove)
+        .into_iter()
+        .map(|(path, (blob, _))| Item::Remove { path, blob })
         .chain(written.into_iter().map(Item::Write))
         .collect())
-}
-
-/// One part of a fill.
-struct Packed {
-    files: Vec<Piece>,
-    removed: Vec<Path>,
-    /// The item and the byte within it that the next part starts at;
-    /// `None` after the last.
-    next: Option<(usize, usize)>,
-}
-
-/// The items from `from` on that fit in `room`, each counting its
-/// path, its bytes and [`PIECE_FRAME`]. A file that fits a part of
-/// its own waits for the next part when this one is full; a larger
-/// one is cut by byte range to fill each part it spans.
-fn pack(
-    items: &[Item],
-    (mut at, mut offset): (usize, usize),
-    mut room: usize,
-    bytes: &dyn Fn(BlobId) -> Result<Vec<u8>>,
-) -> Result<Packed> {
-    let mut packed = Packed {
-        files: Vec::new(),
-        removed: Vec::new(),
-        next: None,
-    };
-    while let Some(item) = items.get(at) {
-        match item {
-            Item::Remove(path) => {
-                let cost = parts::cost(path, 0);
-                if cost > room {
-                    packed.next = Some((at, 0));
-                    return Ok(packed);
-                }
-                room -= cost;
-                packed.removed.push(Path { path: path.clone() });
-            }
-            Item::Write(entry) => {
-                let head = parts::cost(&entry.path, 0);
-                ensure!(
-                    head < MOST_PART,
-                    "the path {} is too long to send",
-                    entry.path
-                );
-                let all = bytes(entry.blob)?;
-                let rest = all
-                    .get(offset..)
-                    .context("a cursor past the end of its file")?;
-                let sent = (head + rest.len() <= room)
-                    .then_some(rest.len())
-                    .or_else(|| {
-                        (head + rest.len() > MOST_PART && head < room)
-                            .then(|| room - head)
-                    });
-                let Some(sent) = sent else {
-                    packed.next = Some((at, offset));
-                    return Ok(packed);
-                };
-                packed.files.push(Piece {
-                    path: entry.path.clone(),
-                    offset: u32::try_from(offset)?,
-                    bytes: Base64(rest[..sent].to_vec()),
-                    last: sent == rest.len(),
-                    executable: entry.executable,
-                });
-                room -= head + sent;
-                if sent < rest.len() {
-                    packed.next = Some((at, offset + sent));
-                    return Ok(packed);
-                }
-            }
-        }
-        at += 1;
-        offset = 0;
-    }
-    Ok(packed)
 }
 
 impl Takes<Save> for Profile {

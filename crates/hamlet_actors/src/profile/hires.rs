@@ -348,6 +348,22 @@ where
     Ok(())
 }
 
+/// Removes `hire`'s row.
+pub(super) fn forget<M>(
+    writer: &Writer<'_, Profile, M>,
+    hire: AgentNumber,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    writer.table(Table(())).execute(
+        "DELETE FROM hire WHERE agent = ?1",
+        vec![BindParam::Integer(i64::from(hire.0))],
+    )?;
+    Ok(())
+}
+
 pub(super) fn take_in_main<M>(
     writer: &Writer<'_, Profile, M>,
     hire: &Hire,

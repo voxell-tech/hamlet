@@ -19,6 +19,7 @@ use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
+use super::steps::{self, StepId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -118,6 +119,115 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
+    Merged {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    Split {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    Restored {
+        hire: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    Erased {
+        hire: AgentNumber,
+        by: By,
+    },
+    RemovedHamlet {
+        hamlet: HamletId,
+        by: By,
+        why: Option<String>,
+    },
+    RestoredHamlet {
+        hamlet: HamletId,
+        by: By,
+        why: Option<String>,
+    },
+    ErasedHamlet {
+        hamlet: HamletId,
+        by: By,
+    },
+    ProfileArchived {
+        by: By,
+        why: Option<String>,
+    },
+    ProfileRestored {
+        by: By,
+        why: Option<String>,
+    },
+    ProfileErased {
+        by: By,
+    },
+    Welcomed {
+        by: By,
+        why: Option<String>,
+    },
+    TurnedAway {
+        by: By,
+        why: Option<String>,
+    },
+    HouseMoved {
+        by: By,
+    },
+    Forked {
+        by: By,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) enum Change {
+    /// The entry of `kind` about `agent` that the act at `at` kept,
+    /// taken out: what it said did not happen.
+    TakeBack {
+        kind: &'static str,
+        agent: Option<AgentNumber>,
+        at: i64,
+    },
+}
+
+/// The change that takes back the entry of `kind` about `agent` that
+/// the act that began `row` kept.
+pub(super) async fn taken_back(
+    rows: &Rows<'_>,
+    kind: &'static str,
+    agent: Option<AgentNumber>,
+    row: StepId,
+) -> Result<change::Change> {
+    let at = steps::row(rows, row)
+        .await?
+        .with_context(|| format!("no row {row:?}"))?
+        .at;
+    Ok(Change::TakeBack { kind, agent, at }.into())
+}
+
+pub(super) async fn apply(
+    writer: &Writer<'_>,
+    change: Change,
+) -> Result<change::Affected> {
+    match change {
+        Change::TakeBack { kind, agent, at } => {
+            writer
+                .execute(
+                    "DELETE FROM decision WHERE id = (SELECT \
+                     max(id) FROM decision WHERE kind = ?1 AND \
+                     agent IS ?2 AND at = ?3)",
+                    vec![
+                        BindParam::Text(kind.to_owned()),
+                        agent.map_or(BindParam::Null, number),
+                        BindParam::Integer(at),
+                    ],
+                )
+                .await?;
+        }
+    }
+    Ok(change::Affected::default())
 }
 
 pub(super) async fn write(
@@ -213,6 +323,62 @@ pub(super) async fn write(
             Entry::Allowance { hire, by, why } => {
                 ("allowance", by, Fields::of(hire, why))
             }
+            Entry::Merged {
+                absorbed,
+                kept,
+                by,
+                why,
+            } => ("merged", by, Fields::road(absorbed, kept, why)),
+            Entry::Split {
+                absorbed,
+                kept,
+                by,
+                why,
+            } => ("split", by, Fields::road(absorbed, kept, why)),
+            Entry::Restored { hire, by, why } => {
+                ("restored", by, Fields::of(hire, why))
+            }
+            Entry::Erased { hire, by } => {
+                ("erased", by, Fields::of(hire, None))
+            }
+            Entry::RemovedHamlet { hamlet, by, why } => (
+                "removed-hamlet",
+                by,
+                Fields {
+                    why,
+                    ..Fields::hamlet(hamlet)
+                },
+            ),
+            Entry::RestoredHamlet { hamlet, by, why } => (
+                "restored-hamlet",
+                by,
+                Fields {
+                    why,
+                    ..Fields::hamlet(hamlet)
+                },
+            ),
+            Entry::ErasedHamlet { hamlet, by } => {
+                ("erased-hamlet", by, Fields::hamlet(hamlet))
+            }
+            Entry::ProfileArchived { by, why } => {
+                ("profile-archived", by, Fields::why(why))
+            }
+            Entry::ProfileRestored { by, why } => {
+                ("profile-restored", by, Fields::why(why))
+            }
+            Entry::ProfileErased { by } => {
+                ("profile-erased", by, Fields::default())
+            }
+            Entry::Welcomed { by, why } => {
+                ("welcomed", by, Fields::why(why))
+            }
+            Entry::TurnedAway { by, why } => {
+                ("turned-away", by, Fields::why(why))
+            }
+            Entry::HouseMoved { by } => {
+                ("house-moved", by, Fields::default())
+            }
+            Entry::Forked { by } => ("forked", by, Fields::default()),
         };
         let decided_by = match by {
             By::Chief => BindParam::Text(chief.clone()),
@@ -262,6 +428,13 @@ impl Fields {
     fn of(agent: AgentNumber, why: Option<String>) -> Self {
         Self {
             agent: Some(agent),
+            why,
+            ..Self::default()
+        }
+    }
+
+    fn why(why: Option<String>) -> Self {
+        Self {
             why,
             ..Self::default()
         }
@@ -481,6 +654,10 @@ fn done(kind: &str) -> &'static str {
         "founded" => "founded the hamlet under",
         "hired" => "hired",
         "ended" => "ended",
+        "merged" => "merged",
+        "split" => "split",
+        "restored" => "restored",
+        "erased" => "erased",
         "seated" => "gave the office to",
         "model" => "chose the model of",
         "tools" => "changed the tools of",

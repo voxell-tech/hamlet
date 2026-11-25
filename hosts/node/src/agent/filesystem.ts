@@ -12,7 +12,10 @@ export const LOOKED = 20_000;
 export const FOUND = 100;
 
 /** A name in a folder of the agent's filesystem, a link itself rather than what it names. */
-export type FileEntry = Omit<FileInfo, "mtimeMs">;
+export type FileEntry = Omit<FileInfo, "mtimeMs"> & {
+    /** A file that runs, where the filesystem keeps that. */
+    readonly executable?: boolean;
+};
 
 export interface Found<T> {
     readonly found: T[];

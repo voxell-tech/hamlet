@@ -1,16 +1,16 @@
 //! The `profile` table: each profile the realm hires from, with its
-//! kind and its name, and the society tools that make, read and
-//! change one.
+//! kind, its name, its life and its house in the city, and the
+//! society tools that make, read and change one.
 
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
-use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use anyhow::{Context as _, Result, bail};
+use hamlet_actor::{Action, BindParam, ColumnValue, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::profile::{
-    By, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer, Read,
-    ReadAnswer, Revert, RevertAnswer, Tag, TagAnswer,
+    By, CommitId, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer,
+    Read, ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
@@ -18,25 +18,25 @@ use hamlet_messages::realm::profiles::{
     ReadProfile, ReadProfileRefusal, RevertProfile,
     RevertProfileRefusal, TagProfile, TagProfileRefusal,
 };
-use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
     Refusable, Tool, ToolCall,
 };
 use hamlet_messages::sender::{Client, Hand, sender};
 use hamlet_messages::workspace::{AgentNumber, CallId};
-use hamlet_protocol::client::RequestId;
+use hamlet_protocol::client::{HouseAt, RequestId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::act::{Act, Called, Carried, Decided, Decision, ToolAct};
+use super::act::{Act, Carried, Decided, Decision};
 use super::callers::{self, ByHand, Relay};
-use super::change::{self, Affected, Rows, Writer};
+use super::change::{self, Affected, Column as _, Rows, Writer};
 use super::chiefs::hamlet;
-use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::steps::Cx;
 use super::{Realm, calls, dreams, record, settings};
+
+pub(super) mod lifecycle;
 
 const HAND_CHARACTER: &str =
     include_str!("../../../hamlet_server/assets/hand.md");
@@ -70,18 +70,44 @@ impl Kind {
     }
 }
 
-struct Row {
-    kind: Kind,
-    name: String,
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Status {
+    /// A fork whose actor is not made yet.
+    Making,
+    Living,
+    Archived,
+    Erased,
 }
 
-async fn row(
+/// Where a profile is in the city.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Arrival {
+    Harbor,
+    Housed,
+    Turned,
+}
+
+pub(super) struct Row {
+    pub kind: Kind,
+    pub name: String,
+    pub status: Status,
+    pub arrival: Arrival,
+}
+
+pub(super) async fn row(
     rows: &Rows<'_>,
     profile: ProfileId,
 ) -> Result<Option<Row>> {
-    let Some((kind, name)) = rows
-        .row::<(String, String)>(
-            "SELECT kind, name FROM profile WHERE id = ?1",
+    let Some((kind, name, status, arrival)) = rows
+        .row::<(String, String, String, String)>(
+            "SELECT kind, name, status, arrival FROM profile WHERE \
+             id = ?1",
             vec![id(profile)],
         )
         .await?
@@ -91,7 +117,18 @@ async fn row(
     Ok(Some(Row {
         kind: change::from_case_name(kind)?,
         name,
+        status: change::from_case_name(status)?,
+        arrival: change::from_case_name(arrival)?,
     }))
+}
+
+pub(super) async fn is_living(
+    rows: &Rows<'_>,
+    profile: ProfileId,
+) -> Result<bool> {
+    Ok(row(rows, profile)
+        .await?
+        .is_some_and(|kept| kept.status == Status::Living))
 }
 
 fn id(profile: ProfileId) -> BindParam {
@@ -123,19 +160,22 @@ pub(super) async fn name_of(
     Ok(kept.name)
 }
 
-/// `named`, when it is a shared profile: one a hire may be made of,
-/// and a society tool may read or change.
+/// `named`, when it is a living shared profile.
 pub(super) async fn shared(
     rows: &Rows<'_>,
     named: ProfileId,
 ) -> Result<Result<ProfileId, ProfileRefusal>> {
-    Ok(match row(rows, named).await? {
+    let living = row(rows, named)
+        .await?
+        .filter(|kept| kept.status == Status::Living);
+    Ok(match living {
         Some(Row {
             kind: Kind::Shared, ..
         }) => Ok(named),
         Some(Row {
             kind: Kind::Blank | Kind::Empty,
             name,
+            ..
         }) => Err(ProfileRefusal::Apart {
             label: label(named, &name),
         }),
@@ -201,6 +241,27 @@ pub(super) async fn start(
 pub(super) enum Change {
     /// A shared profile named `name`.
     Made { profile: ProfileId, name: String },
+    /// A shared profile named `name`, making from `from`'s commit
+    /// `at`, housed at `house`.
+    Fork {
+        profile: ProfileId,
+        name: String,
+        from: ProfileId,
+        at: CommitId,
+        house: HouseAt,
+    },
+    /// The profile is `to`, when it was `from`.
+    Status {
+        profile: ProfileId,
+        from: Status,
+        to: Status,
+    },
+    /// The profile is `arrival`, its house at `house` or none.
+    Placed {
+        profile: ProfileId,
+        arrival: Arrival,
+        house: Option<HouseAt>,
+    },
 }
 
 pub(super) async fn apply(
@@ -211,8 +272,161 @@ pub(super) async fn apply(
         Change::Made { profile, name } => {
             insert(writer, profile, Kind::Shared, &name).await?;
         }
+        Change::Fork {
+            profile,
+            name,
+            from,
+            at,
+            house,
+        } => {
+            writer
+                .execute(
+                    "INSERT INTO profile (id, kind, name, status, \
+                     fork_of, fork_at) VALUES (?1, ?2, ?3, ?4, ?5, \
+                     ?6)",
+                    vec![
+                        id(profile),
+                        BindParam::Text(change::case_name(
+                            &Kind::Shared,
+                        )?),
+                        BindParam::Text(name),
+                        BindParam::Text(change::case_name(
+                            &Status::Making,
+                        )?),
+                        id(from),
+                        BindParam::Text(at.0.to_string()),
+                    ],
+                )
+                .await?;
+            place(writer, profile, Arrival::Housed, Some(house))
+                .await?;
+        }
+        Change::Status { profile, from, to } => {
+            writer
+                .execute(
+                    "UPDATE profile SET status = ?3 WHERE id = ?1 \
+                     AND status = ?2",
+                    vec![
+                        id(profile),
+                        BindParam::Text(change::case_name(&from)?),
+                        BindParam::Text(change::case_name(&to)?),
+                    ],
+                )
+                .await?;
+        }
+        Change::Placed {
+            profile,
+            arrival,
+            house,
+        } => place(writer, profile, arrival, house).await?,
     }
     Ok(Affected::default())
+}
+
+async fn place(
+    writer: &Writer<'_>,
+    profile: ProfileId,
+    arrival: Arrival,
+    house: Option<HouseAt>,
+) -> Result<()> {
+    let coordinate = |of: fn(&HouseAt) -> f64| {
+        house.as_ref().map_or(BindParam::Null, |house| {
+            BindParam::Float(of(house))
+        })
+    };
+    writer
+        .execute(
+            "UPDATE profile SET arrival = ?2, house_x = ?3, house_z \
+             = ?4, house_turn = ?5 WHERE id = ?1",
+            vec![
+                id(profile),
+                BindParam::Text(change::case_name(&arrival)?),
+                coordinate(|house| house.x),
+                coordinate(|house| house.z),
+                coordinate(|house| house.turn),
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
+/// The profile and the commit the fork `profile` is made from.
+pub(super) async fn fork_of(
+    rows: &Rows<'_>,
+    profile: ProfileId,
+) -> Result<(ProfileId, CommitId)> {
+    let (from, at) = rows
+        .row::<(u32, String)>(
+            "SELECT fork_of, fork_at FROM profile WHERE id = ?1",
+            vec![id(profile)],
+        )
+        .await?
+        .with_context(|| {
+            format!("profile {} is no fork", profile.0)
+        })?;
+    let at = Sha1::from_hex(&at).with_context(|| {
+        format!("profile {}'s fork commit", profile.0)
+    })?;
+    Ok((ProfileId(from), CommitId(at)))
+}
+
+/// The spots of every house that stands in the city, an archived
+/// profile's included, but `but`'s own.
+pub(super) async fn houses(
+    rows: &Rows<'_>,
+    but: Option<ProfileId>,
+) -> Result<Vec<(f64, f64)>> {
+    let mut houses = Vec::new();
+    for row in rows
+        .select(
+            "SELECT id, house_x, house_z FROM profile WHERE status \
+             != 'erased' AND arrival = 'housed' AND house_x IS NOT \
+             NULL AND house_z IS NOT NULL",
+            Vec::new(),
+        )
+        .await?
+    {
+        let [id, ColumnValue::Float(x), ColumnValue::Float(z)] =
+            &row[..]
+        else {
+            bail!("a house's row of another form: {row:?}");
+        };
+        if Some(ProfileId(u32::of(id)?)) != but {
+            houses.push((*x, *z));
+        }
+    }
+    Ok(houses)
+}
+
+/// The house at `x, z`, its door turned `turn`, else toward the
+/// city's middle.
+pub(super) fn house(x: f64, z: f64, turn: Option<f64>) -> HouseAt {
+    HouseAt {
+        x,
+        z,
+        turn: turn.unwrap_or_else(|| (-x).atan2(-z)),
+    }
+}
+
+/// The first spot on a golden-angle spiral out from the city's middle
+/// that keeps clear of every house in `taken`.
+pub(super) fn free_spot(taken: &[(f64, f64)]) -> Result<HouseAt> {
+    let golden = std::f64::consts::PI * (3.0 - 5f64.sqrt());
+    let first = HouseAt::MIDDLE + HouseAt::APART * 0.5;
+    let ground_per_spot =
+        HouseAt::APART * HouseAt::APART * 1.1 / std::f64::consts::PI;
+    for k in 0..100_000_u32 {
+        let k = f64::from(k);
+        let radius = (first * first + k * ground_per_spot).sqrt();
+        let (x, z) = (
+            radius * (k * golden).cos(),
+            radius * (k * golden).sin(),
+        );
+        if HouseAt::is_clear(taken.iter().copied(), x, z) {
+            return Ok(house(x, z, None));
+        }
+    }
+    bail!("the city has no free spot left")
 }
 
 fn given(character: Option<&str>) -> Option<&str> {
@@ -403,8 +617,12 @@ pub(super) fn request_id(
     agent: AgentNumber,
     call: &CallId,
 ) -> Result<RequestId> {
-    let digest =
-        Sha256::digest(format!("agent/{}/call/{}", agent.0, call.0));
+    id_of(&format!("agent/{}/call/{}", agent.0, call.0))
+}
+
+/// The id a call is asked under, the same for each `text`.
+pub(super) fn id_of(text: &str) -> Result<RequestId> {
+    let digest = Sha256::digest(text);
     let mut bytes = [0; 16];
     bytes.copy_from_slice(&digest[..16]);
     let id = uuid::Builder::from_custom_bytes(bytes).into_uuid();
@@ -508,50 +726,6 @@ impl Handler<Purging> for Realm {
             self.purging(asked.act.profile).try_read_owned().ok();
         callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
             .await
-    }
-}
-
-/// An agent's call of a change to a profile, kept for a chief.
-impl<T: ProfileChange> Act<Hand> for Carried<T> {
-    type Output = <T as ToolCall>::Answer;
-    type Loaded = Kept;
-    /// The wait that keeps it.
-    type Done = WaitId;
-
-    async fn load(
-        &self,
-        _by: &Hand,
-        rows: &Rows<'_>,
-    ) -> Result<Kept> {
-        reserved::keep(
-            rows,
-            T::TOOL,
-            Hand::NUMBER,
-            &self.called,
-            self,
-        )
-        .await
-    }
-
-    fn decide(
-        &self,
-        _by: &Hand,
-        kept: Kept,
-    ) -> Decision<WaitId, Self::Output> {
-        match kept {
-            Kept::Waits(kept) => Decision::Change(kept),
-            Kept::Refused(why) => {
-                Decision::Answer(Refusable::refused(why.into()))
-            }
-        }
-    }
-
-    fn answer(
-        &self,
-        wait: WaitId,
-        _made: &calls::Made,
-    ) -> Self::Output {
-        Refusable::refused(Gate::Reserved { wait }.into())
     }
 }
 
@@ -723,20 +897,3 @@ impl ProfileChange for RevertProfile {
         }
     }
 }
-
-macro_rules! asked_of_the_profile {
-    ($($change:ty),+) => {$(
-        impl ToolAct<Hand> for $change {
-            type Run = Carried<Self>;
-
-            fn run(self, called: &Called) -> Carried<Self> {
-                Carried {
-                    called: called.clone(),
-                    act: self,
-                }
-            }
-        }
-    )+};
-}
-
-asked_of_the_profile!(EditProfile, TagProfile, RevertProfile);

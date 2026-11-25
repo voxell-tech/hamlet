@@ -61,8 +61,12 @@ mod dream_errands;
 mod dreams;
 #[path = "realm/drop_parts.rs"]
 mod drop_parts;
+#[path = "realm/ended.rs"]
+mod ended;
 #[path = "realm/errands.rs"]
 mod errands;
+#[path = "realm/failed_steps.rs"]
+mod failed_steps;
 #[path = "realm/first_start.rs"]
 mod first_start;
 #[path = "realm/found.rs"]
@@ -75,12 +79,18 @@ mod lead;
 mod letters;
 #[path = "realm/librarian.rs"]
 mod librarian;
+#[path = "realm/lifecycle.rs"]
+mod lifecycle;
 #[path = "realm/lines.rs"]
 mod lines;
 #[path = "realm/living.rs"]
 mod living;
+#[path = "realm/merges.rs"]
+mod merges;
 #[path = "realm/names.rs"]
 mod names;
+#[path = "realm/on_task.rs"]
+mod on_task;
 #[path = "realm/oversight.rs"]
 mod oversight;
 #[path = "realm/parcel_files.rs"]
@@ -307,6 +317,48 @@ async fn stopped_open<T>(
     let opened = open(&Connection::open_with_flags(file, flags)?);
     host.get_or_start(at).await?;
     Ok(opened?)
+}
+
+/// Whether the step row `kind` `n` has closed, or `None` before it
+/// begins.
+async fn closed(realm: &Realm, kind: &str, n: i64) -> Option<bool> {
+    realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT closed FROM step WHERE kind = ?1 AND n = ?2",
+                rusqlite::params![kind, n],
+                |row| row.get(0),
+            )
+            .map(Some)
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                error => Err(error),
+            })
+        })
+        .await
+}
+
+/// Waits until the step row `kind` `n` has closed.
+async fn closed_until(realm: &Realm, kind: &str, n: i64) {
+    let begun = Instant::now();
+    while closed(realm, kind, n).await != Some(true) {
+        assert!(
+            begun.elapsed() < DEADLINE,
+            "never: {kind} {n} closes"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The kinds of the realm's decisions, in the order it made them.
+async fn decisions(realm: &Realm) -> Vec<String> {
+    realm
+        .stopped_rows(|db| {
+            db.prepare("SELECT kind FROM decision ORDER BY id")?
+                .query_map([], |row| row.get(0))?
+                .collect()
+        })
+        .await
 }
 
 async fn call<A: Action>(

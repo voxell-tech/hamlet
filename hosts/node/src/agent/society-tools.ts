@@ -592,6 +592,33 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             })),
         said: (answer) => `Ended ${answer.agent.name}.`,
     },
+    merge_hires: {
+        name: "merge_hires",
+        description:
+            "Merge one hire under you into another: the kept hire takes what the other learned, its roads and its hires.",
+        parameters: object({ absorbed: address, into: address, reason }, [
+            "absorbed",
+            "into",
+        ]),
+        act: (args: { absorbed: string; into: string; reason?: string }) =>
+            withNamed({ absorbed: args.absorbed, into: args.into }, (both) => ({
+                ...both,
+                ...why(args.reason),
+            })),
+        said: (answer) =>
+            `Merged ${answer.absorbed.name} into ${answer.into.name}.`,
+    },
+    remove_hamlet: {
+        name: "remove_hamlet",
+        description: "Remove a hamlet; a chief approves it first.",
+        parameters: object({ hamlet: string("The hamlet's id."), reason }, [
+            "hamlet",
+        ]),
+        act: (args: { hamlet: string; reason?: string }) => ({
+            hamlet: args.hamlet.trim(),
+            ...why(args.reason),
+        }),
+    },
     lay_road: {
         name: "lay_road",
         description:

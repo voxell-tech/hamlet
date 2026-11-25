@@ -288,12 +288,37 @@ fn gone(view: &View, left: &Left) -> protocol::Left {
         HowEnded::Stopped => {
             (EndHow::Stopped, realm(), protocol::LeftHow::Stopped)
         }
+        HowEnded::Merged { by, .. } => (
+            EndHow::Merged,
+            by.as_ref().map_or_else(
+                || view.own.chief.clone(),
+                |by| view.address(by.agent),
+            ),
+            protocol::LeftHow::Merged,
+        ),
+        HowEnded::ProfileArchived => (
+            EndHow::Scholar,
+            view.own.chief.clone(),
+            protocol::LeftHow::Scholar,
+        ),
+        HowEnded::HamletRemoved { by } => (
+            EndHow::Hamlet,
+            by.as_ref().map_or_else(
+                || view.own.chief.clone(),
+                |by| view.address(by.agent),
+            ),
+            protocol::LeftHow::Hamlet,
+        ),
+    };
+    let into = match &left.how {
+        HowEnded::Merged { into, .. } => Some(wire(into.agent)),
+        _ => None,
     };
     protocol::Left {
         at: 0,
         by,
         how,
-        into: None,
+        into,
         reason: left.why.clone().unwrap_or_default(),
         words: end.words().into(),
     }

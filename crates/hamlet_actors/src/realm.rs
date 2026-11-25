@@ -10,6 +10,7 @@ mod chiefs;
 mod documents;
 mod dreams;
 mod drop_parts;
+mod erase;
 mod hire;
 mod laid;
 mod lanes;
@@ -17,6 +18,8 @@ mod letters;
 mod librarian;
 mod lines;
 mod marker;
+mod merges;
+mod on_task;
 mod oversight;
 mod parcels;
 mod peer;
@@ -25,6 +28,7 @@ mod profiles;
 mod prompt;
 mod reach;
 mod record;
+mod retire;
 mod reviews;
 mod roads;
 mod say;
@@ -60,8 +64,10 @@ use hamlet_messages::realm::documents::{
     EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
 };
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, ReadRecord, SetFolder, SetMode,
+    EraseHamlet, MoveHamlet, NameHamlet, ReadRecord, RemoveHamlet,
+    RestoreHamlet, SetFolder, SetMode,
 };
+use hamlet_messages::realm::hires::{EraseHire, Merge, Restore};
 use hamlet_messages::realm::lines::{ReadLine, StopAgents, Working};
 use hamlet_messages::realm::models::{
     Credential, KeepCredential, TurnFailed,
@@ -71,8 +77,9 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
-    TagProfile,
+    ArchiveProfile, AskLibrarian, Dream, EditProfile, EraseProfile,
+    ForkProfile, MoveHouse, ReadProfile, RestoreProfile,
+    RevertProfile, TagProfile, TurnAway, Welcome,
 };
 use hamlet_messages::realm::prompt::ReadPlace;
 use hamlet_messages::realm::workers::{
@@ -93,6 +100,8 @@ const SCHEMA: &str = include_str!("realm/schema.sql");
 
 const HIRING_WAIT: Duration = Duration::from_secs(4);
 
+const ANSWER_WITHIN: Duration = Duration::from_secs(8);
+
 const REVIEW_DEADLINE: Duration = Duration::from_secs(120);
 
 const SHORTEST_CALLER_DEADLINE: Duration = Duration::from_secs(10);
@@ -102,6 +111,12 @@ const _: () = assert!(
         < SHORTEST_CALLER_DEADLINE.as_millis(),
     "a letter or a road request waits for the hire, then is \
      delivered, inside a caller's deadline"
+);
+
+const _: () = assert!(
+    ANSWER_WITHIN.as_millis() < SHORTEST_CALLER_DEADLINE.as_millis(),
+    "an act that waits for its row answers inside a caller's \
+     deadline"
 );
 
 const _: () = assert!(
@@ -118,6 +133,9 @@ pub struct Options {
     pub hiring_wait: Duration,
     /// The longest a line held for a lead's review waits for it.
     pub review_deadline: Duration,
+    /// The longest an act that begins steps waits for them before it
+    /// answers.
+    pub answer_within: Duration,
     pub chief: String,
 }
 
@@ -126,6 +144,7 @@ impl Default for Options {
         Self {
             hiring_wait: HIRING_WAIT,
             review_deadline: REVIEW_DEADLINE,
+            answer_within: ANSWER_WITHIN,
             chief: "chief".to_owned(),
         }
     }
@@ -176,6 +195,7 @@ struct Realm {
     lanes: lanes::Lanes,
     lines: lines::Lines,
     hiring_wait: Duration,
+    answer_within: Duration,
     /// Per profile, held shared by each purge of it in flight, and
     /// alone while a dream's folders are checked out of it.
     purging: Mutex<HashMap<ProfileId, Arc<tokio::sync::RwLock<()>>>>,
@@ -203,7 +223,7 @@ impl Actor for Realm {
         tree::Pinning<Asked<Hire>>,
         tree::Pinning<Tool<Hire>>,
         Asked<End>,
-        Tool<End>,
+        on_task::Asking<Tool<End>>,
         Asked<Seat>,
         ByHand<Tool<Seat>>,
         Say,
@@ -275,6 +295,21 @@ impl Actor for Realm {
         librarian::Submitting,
         ReadPlace,
         ReadOwnPlace,
+        Asked<Merge>,
+        on_task::Asking<Tool<Merge>>,
+        Asked<Restore>,
+        Asked<EraseHire>,
+        Asked<RemoveHamlet>,
+        ByHand<Tool<RemoveHamlet>>,
+        Asked<RestoreHamlet>,
+        Asked<EraseHamlet>,
+        profiles::lifecycle::Forking<Asked<ForkProfile>>,
+        Asked<ArchiveProfile>,
+        Asked<RestoreProfile>,
+        Asked<EraseProfile>,
+        Asked<Welcome>,
+        Asked<TurnAway>,
+        Asked<MoveHouse>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -290,6 +325,11 @@ impl Actor for Realm {
                     .value::<Options>()
                     .map_or(HIRING_WAIT, |options| {
                         options.hiring_wait
+                    }),
+                answer_within: host
+                    .value::<Options>()
+                    .map_or(ANSWER_WITHIN, |options| {
+                        options.answer_within
                     }),
                 secrets: secrets::Held::load(
                     host.folder(),

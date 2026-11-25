@@ -15,10 +15,11 @@ use tokio::sync::watch;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::{self, Peers, When};
+use super::profiles::lifecycle;
 use super::workers::errands;
 use super::{
-    Realm, calls, dreams, drop_parts, hire, librarian, parcels,
-    reviews, tree, versions, workers,
+    Realm, calls, dreams, drop_parts, erase, hire, librarian, merges,
+    parcels, retire, reviews, tree, versions, workers,
 };
 
 #[derive(
@@ -36,6 +37,15 @@ pub(super) enum Kind {
     DreamEnd,
     Verdict,
     DropParts,
+    /// An ended hire's agent saves its files.
+    Retire,
+    Merge,
+    /// A merge taken out again by a restore.
+    Split,
+    /// An ended hire's branch and agent removed.
+    Erase,
+    ProfileFork,
+    ProfileErase,
 }
 
 #[derive(
@@ -60,7 +70,13 @@ impl StepId {
             | Kind::Dream
             | Kind::DreamEnd
             | Kind::Verdict
-            | Kind::DropParts => None,
+            | Kind::DropParts
+            | Kind::Retire
+            | Kind::Merge
+            | Kind::Split
+            | Kind::Erase
+            | Kind::ProfileFork
+            | Kind::ProfileErase => None,
         }
     }
 }
@@ -76,7 +92,8 @@ pub(super) trait Steps:
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A new row with no step done.
+    /// A row with no step done: a new one, or one that has closed
+    /// begun again. An open row is left as it is.
     Begin { row: StepId },
     /// `to` is done, when `from` was the last step done and the row
     /// is open.
@@ -87,6 +104,9 @@ pub(super) enum Change {
     },
     /// The row is driven no further.
     Close { row: StepId },
+    /// A closed row whose step `last` is not done, driven again from
+    /// the step after its last one done.
+    Resume { row: StepId, last: &'static str },
 }
 
 /// An `Advance` that finds the row moved or closed changes nothing
@@ -101,20 +121,46 @@ pub(super) async fn apply(
             advance(writer, row, from, to).await
         }
         Change::Close { row } => close(writer, row).await,
+        Change::Resume { row, last } => {
+            resume(writer, row, last).await
+        }
     }
 }
 
 async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     let mut params = key(row)?;
     params.push(BindParam::Integer(writer.at().0));
-    writer
+    let begun = writer
         .execute(
-            "INSERT INTO step (kind, n, at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO step (kind, n, at) VALUES (?1, ?2, ?3) ON \
+             CONFLICT (kind, n) DO UPDATE SET done = NULL, closed = \
+             0, at = excluded.at WHERE closed = 1",
             params,
         )
         .await?;
     Ok(Affected {
-        begun: vec![row],
+        begun: if begun == 0 { Vec::new() } else { vec![row] },
+        ..Affected::default()
+    })
+}
+
+async fn resume(
+    writer: &Writer<'_>,
+    row: StepId,
+    last: &'static str,
+) -> Result<Affected> {
+    let mut params = key(row)?;
+    params.push(BindParam::Integer(writer.at().0));
+    params.push(BindParam::Text(last.to_owned()));
+    let resumed = writer
+        .execute(
+            "UPDATE step SET closed = 0, at = ?3 WHERE kind = ?1 \
+             AND n = ?2 AND closed = 1 AND done IS NOT ?4",
+            params,
+        )
+        .await?;
+    Ok(Affected {
+        begun: if resumed == 0 { Vec::new() } else { vec![row] },
         ..Affected::default()
     })
 }
@@ -186,6 +232,16 @@ pub(super) fn not_done<S: Steps>(
 pub(super) struct Row {
     pub done: Option<String>,
     pub closed: bool,
+    /// When it was last begun.
+    pub at: i64,
+}
+
+impl Row {
+    /// Whether it closed short of its last step, as a row that failed
+    /// for good does.
+    pub fn has_failed(&self, kind: Kind) -> bool {
+        self.closed && self.done.as_deref() != Some(last(kind))
+    }
 }
 
 pub(super) async fn row(
@@ -193,13 +249,87 @@ pub(super) async fn row(
     id: StepId,
 ) -> Result<Option<Row>> {
     Ok(rows
-        .row::<(Option<String>, bool)>(
-            "SELECT done, closed FROM step WHERE kind = ?1 AND n = \
-             ?2",
+        .row::<(Option<String>, bool, i64)>(
+            "SELECT done, closed, at FROM step WHERE kind = ?1 AND \
+             n = ?2",
             key(id)?,
         )
         .await?
-        .map(|(done, closed)| Row { done, closed }))
+        .map(|(done, closed, at)| Row { done, closed, at }))
+}
+
+/// A row that failed for good, with its last step done.
+pub(super) struct Failed {
+    pub done: Option<String>,
+}
+
+/// The first of `ids` that failed for good.
+pub(super) async fn first_failed(
+    rows: &Rows<'_>,
+    ids: &[StepId],
+) -> Result<Option<Failed>> {
+    for &id in ids {
+        if let Some(row) = row(rows, id).await?
+            && row.has_failed(id.kind)
+        {
+            return Ok(Some(Failed { done: row.done }));
+        }
+    }
+    Ok(None)
+}
+
+/// The name of the last step of `kind`'s rows.
+fn last(kind: Kind) -> &'static str {
+    fn of<S: Steps>() -> &'static str {
+        S::ALL.last().map_or("", |step| step.name())
+    }
+    match kind {
+        Kind::Hire => of::<hire::Step>(),
+        Kind::Worker => of::<workers::Step>(),
+        Kind::Errand => of::<errands::Step>(),
+        Kind::Review => of::<reviews::Step>(),
+        Kind::Parcel => of::<parcels::Step>(),
+        Kind::Dream => of::<dreams::Step>(),
+        Kind::DreamEnd => of::<dreams::EndStep>(),
+        Kind::Verdict => of::<librarian::Step>(),
+        Kind::DropParts => of::<drop_parts::Step>(),
+        Kind::Retire => of::<retire::Step>(),
+        Kind::Merge => of::<merges::Step>(),
+        Kind::Split => of::<merges::SplitStep>(),
+        Kind::Erase => of::<erase::Step>(),
+        Kind::ProfileFork => of::<lifecycle::ForkStep>(),
+        Kind::ProfileErase => of::<lifecycle::EraseStep>(),
+    }
+}
+
+/// `ran`, with a callee's refusal made a failure in passing, for a
+/// step past the point where its row could be taken back: it is tried
+/// until done.
+pub(super) fn in_passing<T>(ran: Result<T>) -> Result<T> {
+    ran.map_err(|error| {
+        if peer::refused(&error) {
+            anyhow::anyhow!("{error:#}")
+        } else {
+            error
+        }
+    })
+}
+
+/// Waits for each of `rows` to end, at most `cx`'s answer time each,
+/// and fails while one is open, so the step that waits is tried
+/// again.
+pub(super) async fn after(
+    cx: &Cx<'_>,
+    rows: impl IntoIterator<Item = StepId>,
+) -> Result<()> {
+    for id in rows {
+        cx.realm.drives.ended(id, cx.realm.answer_within).await;
+        if row(&cx.rows()?, id).await?.is_some_and(|row| !row.closed)
+        {
+            bail!("{id:?} has not ended");
+        }
+    }
+    Ok(())
 }
 
 pub(super) struct Cx<'a> {
@@ -342,6 +472,16 @@ async fn end_failed(
         Kind::DreamEnd | Kind::Verdict | Kind::DropParts => {
             (vec![Change::Close { row }.into()], Calls::none())
         }
+        Kind::Retire => retire::failed(&rows, row.n).await?,
+        Kind::Merge => merges::failed(&rows, row.n).await?,
+        Kind::Split => merges::split_failed(&rows, row.n).await?,
+        Kind::Erase => erase::failed(&rows, row.n).await?,
+        Kind::ProfileFork => {
+            lifecycle::fork_failed(&rows, row.n).await?
+        }
+        Kind::ProfileErase => {
+            lifecycle::erase_failed(&rows, row.n).await?
+        }
     };
     if changes.is_empty() {
         return Ok(());
@@ -410,6 +550,42 @@ async fn walk_row(
         Kind::DropParts => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 drop_parts::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Retire => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                retire::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Merge => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                merges::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Split => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                merges::split(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Erase => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                erase::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::ProfileFork => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                lifecycle::fork(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::ProfileErase => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                lifecycle::erase(cx, row.n, step).await
             })
             .await
         }
@@ -554,13 +730,19 @@ impl Drives {
     }
 
     /// Waits until `row`'s drive ends, at most `within`, and at once
-    /// when none runs.
+    /// when none runs, its transaction given up first.
     pub async fn finished(
         &self,
         row: StepId,
         within: Duration,
         _abandoned: change::Abandoned,
     ) {
+        self.ended(row, within).await;
+    }
+
+    /// Waits until `row`'s drive ends, at most `within`, and at once
+    /// when none runs.
+    pub async fn ended(&self, row: StepId, within: Duration) {
         let Some(mut ended) = self
             .running
             .lock()
@@ -643,6 +825,32 @@ mod tests {
             (read.done.as_deref(), read.closed),
             (Some("a"), true)
         );
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_row_begun_again_starts_over_once_it_has_closed() {
+        let started = Started::new().await;
+        let commit = async |made: Change| started.commit(made).await;
+        let read = async || {
+            let read =
+                row(&started.rows(), ROW).await.unwrap().unwrap();
+            (read.done, read.closed)
+        };
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        commit(Change::Advance {
+            row: ROW,
+            from: None,
+            to: "a",
+        })
+        .await
+        .unwrap();
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        assert_eq!(read().await, (Some("a".to_owned()), false));
+
+        commit(Change::Close { row: ROW }).await.unwrap();
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        assert_eq!(read().await, (None, false));
         started.stop().await;
     }
 

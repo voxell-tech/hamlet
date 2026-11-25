@@ -282,7 +282,20 @@ test("a client's call made by the realm, and an input the agent does not take, a
         const { kinds } = kindsAnswering([fauxAssistantMessage("Done.")]);
         const host = await startWithAgent(dir, kinds);
         const r = host.at("realm", "local");
-        const takes = ["submit", "finished", "place", "fill", "copies", "stop"];
+        const takes = [
+            "submit",
+            "finished",
+            "place",
+            "fill",
+            "copies",
+            "retire",
+            "erase",
+            "read_inbox",
+            "take_inbox",
+            "drop_inbox",
+            "on_task",
+            "stop",
+        ];
         const actions = [
             ...new Set(
                 readdirSync(AGENT_FIXTURES)

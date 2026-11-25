@@ -10,20 +10,26 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::profile::Revision;
 use hamlet_messages::realm::client::Answer;
+use hamlet_messages::realm::hamlets::RemoveHamlet;
+use hamlet_messages::realm::hires::{Merge, MergedTo};
 use hamlet_messages::realm::profiles::{
     EditProfile, RevertProfile, TagProfile,
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentName, DoneTo, End, Gate, HireAnswer, LayRoad, Named,
-    RoadDone, SocietyTool, TakeUpRoad,
+    AgentName, Done, DoneTo, End, Gate, HireAnswer, LayRoad, Named,
+    Refusable, RoadDone, SocietyTool, TakeUpRoad, ToolCall,
 };
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::super::act::{Act, Called, Carried, Decided, Decision};
+use super::super::act::{
+    Act, Called, Carried, Decided, Decision, ToolAct,
+};
+use super::super::calls::Made;
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
 use super::super::tasks::TaskId;
@@ -43,6 +49,8 @@ enum Held {
     EditProfile(Carried<EditProfile>),
     Tag(Carried<TagProfile>),
     Revert(Carried<RevertProfile>),
+    MergeHires(Merge),
+    RemoveHamlet(Carried<RemoveHamlet>),
 }
 
 impl Held {
@@ -119,6 +127,21 @@ impl Held {
                 arg("scholar", Some(profiles::address(act.profile)));
                 "revert"
             }
+            Self::MergeHires(Merge {
+                absorbed,
+                into,
+                why,
+            }) => {
+                arg("absorbed", Some(absorbed.to_string()));
+                arg("into", Some(into.to_string()));
+                arg("reason", why.clone());
+                "merge_hires"
+            }
+            Self::RemoveHamlet(Carried { act, .. }) => {
+                arg("hamlet", Some(act.hamlet.0.clone()));
+                arg("reason", act.why.clone());
+                "remove_hamlet"
+            }
         };
         format!("{tool} {}", Value::Object(args))
     }
@@ -147,6 +170,7 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
         SocietyTool::LayRoad | SocietyTool::TakeUpRoad => {
             Some(|reserved| reserved.roads)
         }
+        SocietyTool::MergeHires => Some(|reserved| reserved.merge),
         SocietyTool::Found
         | SocietyTool::Seat
         | SocietyTool::Tell
@@ -168,7 +192,70 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
         | SocietyTool::Tag
         | SocietyTool::Revert
         | SocietyTool::AskLibrarian
-        | SocietyTool::SubmitSkill => None,
+        | SocietyTool::SubmitSkill
+        | SocietyTool::RemoveHamlet => None,
+    }
+}
+
+/// A society tool whose every call by the Hand waits for a chief.
+pub(in crate::realm) trait ForAChief:
+    ToolCall<Answer: Refusable<Why: From<Gate>>>
+    + Serialize
+    + Send
+    + Sync
+    + 'static
+{
+}
+
+macro_rules! for_a_chief {
+    ($($tool:ty),+) => {$(
+        impl ForAChief for $tool {}
+
+        impl ToolAct<Hand> for $tool {
+            type Run = Carried<Self>;
+
+            fn run(self, called: &Called) -> Carried<Self> {
+                Carried {
+                    called: called.clone(),
+                    act: self,
+                }
+            }
+        }
+    )+};
+}
+
+for_a_chief!(EditProfile, TagProfile, RevertProfile, RemoveHamlet);
+
+/// The Hand's call, kept for a chief.
+impl<T: ForAChief> Act<Hand> for Carried<T> {
+    type Output = <T as ToolCall>::Answer;
+    type Loaded = Kept;
+    /// The wait that keeps it.
+    type Done = WaitId;
+
+    async fn load(
+        &self,
+        _by: &Hand,
+        rows: &Rows<'_>,
+    ) -> Result<Kept> {
+        keep(rows, T::TOOL, Hand::NUMBER, &self.called, self).await
+    }
+
+    fn decide(
+        &self,
+        _by: &Hand,
+        kept: Kept,
+    ) -> Decision<WaitId, Self::Output> {
+        match kept {
+            Kept::Waits(kept) => Decision::Change(kept),
+            Kept::Refused(why) => {
+                Decision::Answer(Refusable::refused(why.into()))
+            }
+        }
+    }
+
+    fn answer(&self, wait: WaitId, _made: &Made) -> Self::Output {
+        Refusable::refused(Gate::Reserved { wait }.into())
     }
 }
 
@@ -287,6 +374,13 @@ pub(in crate::realm) async fn ruling(
         Held::TakeUpRoad(act) => {
             replay(rows, &by, act, |_| None).await?
         }
+        Held::MergeHires(act) => {
+            replay(rows, &by, act, |_| None).await?
+        }
+        Held::RemoveHamlet(Carried { act, .. }) => {
+            let removed = format!("Removed {}.", act.hamlet.0);
+            replay(rows, &by, act, |_| Some(removed)).await?
+        }
         Held::EditProfile(_) | Held::Tag(_) | Held::Revert(_) => {
             return Ok(Ruling {
                 deferred: true,
@@ -321,7 +415,9 @@ pub(in crate::realm) async fn carry_out(
         Held::Hire(_)
         | Held::End(_)
         | Held::LayRoad(_)
-        | Held::TakeUpRoad(_) => {
+        | Held::TakeUpRoad(_)
+        | Held::MergeHires(_)
+        | Held::RemoveHamlet(_) => {
             bail!("wait {} keeps no change to a profile", wait.0)
         }
     }
@@ -384,6 +480,11 @@ async fn ran(
                 name(*a).await?,
                 name(*b).await?
             ),
+            record::Entry::Merged { absorbed, kept, .. } => format!(
+                "Merged {} into {}.",
+                name(*absorbed).await?,
+                name(*kept).await?
+            ),
             _ => continue,
         }));
     }
@@ -408,4 +509,4 @@ macro_rules! refused {
     )+};
 }
 
-refused!(DoneTo, RoadDone, HireAnswer);
+refused!(DoneTo, RoadDone, HireAnswer, MergedTo, Done);

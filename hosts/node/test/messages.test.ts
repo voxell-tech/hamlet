@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -20,6 +21,7 @@ import {
     type ChatEvent,
     type ChatRef,
     type Copies,
+    type Retired,
     readClient,
     type Submit,
 } from "../src/agent/messages/agent.ts";
@@ -54,7 +56,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context, FIXTURES, fixture } from "./testing.ts";
+import { context, FIXTURES, fixture, scratchFolder } from "./testing.ts";
 
 function answer(name: string): never {
     return fixture(`${name}.answer`) as never;
@@ -1057,6 +1059,35 @@ const WRITTEN: readonly Written[] = [
         own: ["call", "conversation"],
     },
     {
+        fixture: "realm/merge_hires",
+        tool: [
+            "merge_hires",
+            {
+                absorbed: "hire#12",
+                into: "hire#2",
+                reason: "Their work overlaps",
+            },
+        ],
+        answers: {
+            realm: { merge_hires: () => answer("realm/merge_hires.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/remove_hamlet",
+        tool: [
+            "remove_hamlet",
+            { hamlet: "5f0d2c1b-7a3e-4d9f-8b6a-1c2d3e4f5a6b" },
+        ],
+        answers: {
+            realm: {
+                remove_hamlet: () =>
+                    answer("realm/remove_hamlet.refused.reserved"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
         fixture: "realm/read_record",
         tool: [
             "read_record",
@@ -1435,9 +1466,15 @@ const TAKERS = {
         answer: "library/shelves_changed.answer",
     },
     stop: { by: from.realm, answer: "agent/stop.answer" },
+    retire: { by: from.realm, answer: "agent/retire.answer" },
+    erase: { by: from.realm, answer: "agent/erase.answer" },
+    take_inbox: { by: from.realm, answer: "agent/take_inbox.answer" },
+    drop_inbox: { by: from.realm, answer: "agent/drop_inbox.answer" },
 } as const;
 
 const TAKEN = [
+    "agent/drop_inbox",
+    "agent/erase",
     "agent/fill",
     "library/shelves_changed",
     "profile/moved",
@@ -1450,6 +1487,7 @@ const TAKEN = [
     "agent/finished.run.ran",
     "agent/place",
     "agent/place.hand",
+    "agent/retire",
     "agent/stop",
     "agent/submit.answer",
     "agent/submit.letter",
@@ -1463,6 +1501,7 @@ const TAKEN = [
     "agent/submit.question",
     "agent/submit.question.files",
     "agent/submit.worker_answer",
+    "agent/take_inbox",
 ] as const;
 
 /** The report a taken call makes: a file held whole is not fetched past the workspace's 256 MiB. */
@@ -1487,15 +1526,29 @@ for (const call of TAKEN) {
                 reply: () => answer("realm/reply.done"),
                 fetch_part: () => answer("realm/fetch_part.bytes.last"),
             },
-            profile: { files: () => answer("profile/files.part.last") },
+            profile: {
+                // A retire answers the tip the agent was filled at.
+                files: () =>
+                    action === "retire"
+                        ? {
+                              type: "part",
+                              files: [],
+                              removed: [],
+                              tip: (fixture(TAKERS.retire.answer) as Retired)
+                                  .tip,
+                          }
+                        : answer("profile/files.part.last"),
+            },
         });
         const agent = await wakeAgent(t, {
             calls,
             input: HAND,
             responses: [fauxAssistantMessage(LAST_WORDS)],
+            // An erase removes the folder at the filesystem's root.
+            files: { ...fakeFiles({}), root: join(scratchFolder(t), "7.fs") },
         });
         // A profile's message comes from the profile the agent was filled from.
-        if (name.startsWith("profile/")) {
+        if (name.startsWith("profile/") || action === "retire") {
             await agent.actions.fill(agent.by(from.realm), { profile: 2 });
         }
         const [message, ...more] = fixture(name) as unknown[];
@@ -1639,6 +1692,8 @@ const ANSWERED_BY_TOOLS = [
     "realm/set_nickname",
     "realm/set_model",
     "realm/read_record",
+    "realm/merge_hires",
+    "realm/remove_hamlet",
     "realm/create_profile",
     "realm/read_profile",
     "realm/edit_profile",
@@ -2300,8 +2355,8 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
 
 const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [
-        /^realm\/(edit_profile\.done|tag\.tagged|revert\.(reverted|unchanged))\.answer$/,
-        "the realm keeps an agent's edit, tag and revert for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
+        /^realm\/(edit_profile\.done|tag\.tagged|revert\.(reverted|unchanged)|remove_hamlet\.done)\.answer$/,
+        "the realm keeps an agent's edit, tag, revert and hamlet removal for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
     ],
     [/^realm\/chief_/, "a chief's act, sent by a client"],
     [
@@ -2351,7 +2406,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the library's call of an agent, an action this agent does not take",
     ],
     [
-        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase|drop_save_parts)\./,
+        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase|drop_save_parts|merge_branch|bundle|unmerge|drop_branch)\./,
         "the realm's call of a profile",
     ],
     [
@@ -2363,7 +2418,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a row the workspace keeps in its own file",
     ],
     [
-        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged)$/,
+        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.merge_branch\.kept|profile\.merge_branch\.merged|profile\.merge_branch\.refused\.commit_gone|profile\.merge_branch\.refused\.not_a_path|profile\.merge_branch\.refused\.part_too_large|profile\.merge_branch\.refused\.withheld|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged|profile\.unmerge\.refused\.commit_gone|profile\.unmerge\.unmerged)$/,
         "a row a profile keeps in its own file",
     ],
     [
@@ -2417,6 +2472,14 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...Object.values(TAKERS).map((taker) => taker.answer),
         // `test/branch.test.ts` compares it.
         "profile/remove_path.later.answer",
+        // `test/inbox.test.ts` compares them.
+        "agent/read_inbox.args",
+        "agent/read_inbox.after.args",
+        "agent/read_inbox.answer",
+        "agent/read_inbox.last.answer",
+        // `test/tasks.test.ts` compares them.
+        "agent/on_task.args",
+        "agent/on_task.answer",
         ...CREATED.map((input) => `${input}.input`),
         ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),

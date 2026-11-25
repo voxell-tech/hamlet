@@ -5,10 +5,15 @@ use std::fmt::{Debug, Display};
 
 use hamlet_messages::address::{Party, Profile};
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Author, Brief, BuiltIn, Fill, HeldCall,
-    HeldEnd, Input, InputId, Place, PlaceVersion, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, DropInbox, Erase,
+    Fill, HeldCall, HeldEnd, InboxCursor, InboxPart, Input, InputId,
+    OnTask, Place, PlaceVersion, ReadInbox, Retire, Retired, Submit,
+    TakeInbox,
 };
-use hamlet_messages::profile::{Branch, Missing, VersionName};
+use hamlet_messages::bytes::Base64;
+use hamlet_messages::profile::{
+    Branch, CommitId, Missing, Piece, Sha1, VersionName,
+};
 use hamlet_messages::realm::budget::{
     Budget, BudgetLimit, Charge, MaySpend, Payer, Period,
     ResetBudget, SpendRefusal,
@@ -54,6 +59,7 @@ use serde::de::DeserializeOwned;
 use super::cases::{Cases, Union, family, named, tagged, union};
 use super::{AGENT, Fixtures, call, task};
 
+mod lifecycle;
 mod parcels;
 mod profiles;
 mod society;
@@ -113,6 +119,7 @@ pub fn enums() -> Vec<Cases> {
     .chain(society::enums())
     .chain(parcels::enums())
     .chain(profiles::enums())
+    .chain(lifecycle::enums())
     .collect()
 }
 
@@ -136,6 +143,7 @@ pub fn unions() -> Vec<Union> {
     .chain(society::unions())
     .chain(parcels::unions())
     .chain(profiles::unions())
+    .chain(lifecycle::unions())
     .collect()
 }
 
@@ -168,6 +176,7 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     society::the_oversight_and_the_settings(fixtures);
     parcels::the_parcels(fixtures);
     profiles::the_profiles_through_the_realm(fixtures);
+    lifecycle::the_acts_across_actors(fixtures);
 }
 
 fn answers<A>(
@@ -475,6 +484,14 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 HireRefusal::NoSuchHamlet { id: hamlet() },
             ),
             (
+                "hamlet_erased",
+                HireRefusal::HamletErased { hamlet: hamlet() },
+            ),
+            (
+                "hamlet_removed",
+                HireRefusal::HamletRemoved { hamlet: hamlet() },
+            ),
+            (
                 "no_such_agent",
                 HireRefusal::NoSuchAgent {
                     address: "hire#9".into(),
@@ -591,6 +608,10 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                         why: None,
                     },
                 },
+            ),
+            (
+                "on_chiefs_task",
+                EndRefusal::OnChiefsTask { name: shown(HIRE) },
             ),
         ]
     };
@@ -793,6 +814,8 @@ fn the_society_tools_named_in_a_gate(fixtures: &mut Fixtures) {
             SocietyTool::Revert,
             SocietyTool::AskLibrarian,
             SocietyTool::SubmitSkill,
+            SocietyTool::MergeHires,
+            SocietyTool::RemoveHamlet,
         ],
     );
 }
@@ -1804,6 +1827,70 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         },
     );
     fixtures.answer("agent/fill", &());
+    fixtures.args("agent/retire", &Retire);
+    fixtures.answer(
+        "agent/retire",
+        &Retired {
+            tip: CommitId(Sha1([0xcd; 20])),
+        },
+    );
+    fixtures.args("agent/erase", &Erase);
+    fixtures.answer("agent/erase", &());
+    fixtures.args("agent/read_inbox", &ReadInbox { after: None });
+    let cursor = || InboxCursor {
+        path: "scan.pdf".into(),
+        offset: 737_216,
+    };
+    fixtures.args(
+        "agent/read_inbox.after",
+        &ReadInbox {
+            after: Some(cursor()),
+        },
+    );
+    let letter = || Piece {
+        path: "from-chief/letter.md".into(),
+        offset: 0,
+        bytes: Base64(b"a letter\n".to_vec()),
+        last: true,
+        executable: false,
+    };
+    fixtures.answer(
+        "agent/read_inbox",
+        &InboxPart {
+            files: vec![letter()],
+            next: Some(cursor()),
+        },
+    );
+    fixtures.answer(
+        "agent/read_inbox.last",
+        &InboxPart {
+            files: vec![letter()],
+            next: None,
+        },
+    );
+    fixtures.args(
+        "agent/take_inbox",
+        &TakeInbox {
+            from: AgentNumber(4),
+            files: vec![letter()],
+        },
+    );
+    fixtures.answer("agent/take_inbox", &());
+    fixtures.args(
+        "agent/drop_inbox",
+        &DropInbox {
+            paths: vec!["from-chief/letter.md".into()],
+        },
+    );
+    fixtures.answer("agent/drop_inbox", &());
+    fixtures.args(
+        "agent/on_task",
+        &OnTask {
+            tasks: vec![RealmTask("7".into())],
+            within_ms: 300_000,
+        },
+    );
+    fixtures.answer("agent/on_task", &true);
     fixtures.args(
         "profile/branch",
         &Branch {

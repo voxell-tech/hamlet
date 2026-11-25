@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS hamlet (
 	limits TEXT NOT NULL,
 	x REAL,
 	z REAL,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	-- 'living', 'removed' or 'erased'
+	status TEXT NOT NULL DEFAULT 'living') STRICT;
 CREATE TABLE IF NOT EXISTS hamlet_chief (
 	hamlet TEXT NOT NULL,
 	chief INTEGER NOT NULL,
@@ -31,7 +33,17 @@ CREATE TABLE IF NOT EXISTS hamlet_folder (
 CREATE TABLE IF NOT EXISTS profile (
 	id INTEGER PRIMARY KEY,
 	kind TEXT NOT NULL,
-	name TEXT NOT NULL) STRICT;
+	name TEXT NOT NULL,
+	-- 'making' while a fork is made, 'living', 'archived' or 'erased'
+	status TEXT NOT NULL DEFAULT 'living',
+	-- 'harbor', 'housed' or 'turned'
+	arrival TEXT NOT NULL DEFAULT 'housed',
+	house_x REAL,
+	house_z REAL,
+	house_turn REAL,
+	-- a fork's source profile and the commit it was made at
+	fork_of INTEGER,
+	fork_at TEXT) STRICT;
 
 -- tree.rs
 CREATE TABLE IF NOT EXISTS agent (
@@ -40,7 +52,8 @@ CREATE TABLE IF NOT EXISTS agent (
 	status TEXT NOT NULL,
 	ended_how TEXT,
 	ended_why TEXT,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	erased INTEGER NOT NULL DEFAULT 0) STRICT;
 CREATE TABLE IF NOT EXISTS hire (
 	agent INTEGER PRIMARY KEY,
 	hamlet TEXT NOT NULL,
@@ -324,3 +337,19 @@ CREATE TABLE IF NOT EXISTS librarian (
 	skill TEXT,
 	accepted INTEGER,
 	words TEXT) STRICT;
+
+-- merges.rs
+CREATE TABLE IF NOT EXISTS merge (
+	id INTEGER PRIMARY KEY,
+	absorbed INTEGER NOT NULL,
+	kept INTEGER NOT NULL,
+	-- the ids the profile's calls carry, for the merge and its split
+	request TEXT NOT NULL,
+	split_request TEXT NOT NULL,
+	message TEXT NOT NULL,
+	-- the merge's commit, once the profile made it
+	tip TEXT,
+	-- what it moved in the tree, as JSON, given back if it fails
+	moved TEXT NOT NULL,
+	split INTEGER NOT NULL DEFAULT 0,
+	at INTEGER NOT NULL) STRICT;

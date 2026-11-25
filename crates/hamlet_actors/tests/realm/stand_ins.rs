@@ -1,7 +1,7 @@
 //! The actors the realm calls, stood in for, and the host that
 //! runs the realm among them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -17,15 +17,19 @@ use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{Stop, Stopped};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Fill, InputId, Place, PlaceVersion, Submit,
+    AgentInput, DropInbox, Erase, Fill, InboxCursor, InboxPart,
+    InputId, OnTask, Place, PlaceVersion, ReadInbox, Retire, Retired,
+    Submit, TakeInbox,
 };
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
     ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
-    Branch, DropSaveParts, Edit, EndDream, PrepareDream,
-    ProfileInput, Purge, Read, Revert, Tag,
+    Branch, Bundle, CommitId, DropBranch, DropSaveParts, Edit,
+    EndDream, MergeBranch, Piece, PrepareDream, ProfileInput, Purge,
+    Read, Revert, Sha1, Source, Tag, Unmerge,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable as _};
 use hamlet_messages::workspace::reach::Reach;
@@ -33,6 +37,7 @@ use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, ChiefAnswer, InForce, ReachVersion,
     SetReach,
 };
+use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
 use rusqlite::OpenFlags;
 use serde::{Deserialize, Serialize};
@@ -45,7 +50,13 @@ use super::{DEADLINE, THREE, call, stopped_open};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Callee {
     Branch,
+    /// A profile's read of a branch for a merge, by the profile's
+    /// number.
+    Bundle,
     Create,
+    /// A profile's drop of a hire's branch, by the hire's number.
+    DropBranch,
+    DropInbox,
     /// The library's drop of an agent's offers under way, by the
     /// agent's number.
     DropOfferParts,
@@ -56,7 +67,15 @@ pub(super) enum Callee {
     Edit,
     /// A profile's end of a dream, by the profile's number.
     EndDream,
+    /// An agent's erasure.
+    Erase,
+    /// A profile's erasure, by the profile's number.
+    EraseProfile,
     Fill,
+    /// A profile's making as a fork, by the profile's number.
+    Fork,
+    /// A profile's merge, by the absorbed hire's number.
+    Merge,
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
@@ -65,13 +84,22 @@ pub(super) enum Callee {
     /// A profile's purge, by the profile's number.
     Purge,
     Read,
+    ReadInbox,
+    Retire,
     SetReach,
     /// An agent's stop, by the agent's number.
     Stop,
     Submit,
+    TakeInbox,
+    /// A profile's unmerge, by the profile's number.
+    Unmerge,
     /// The library's verdict, by the offer's number.
     Verdict,
 }
+
+/// An agent's `inbox/`, by path: each file's bytes and whether it is
+/// executable.
+pub(super) type Inbox = BTreeMap<String, (Vec<u8>, bool)>;
 
 #[derive(Default)]
 pub(super) struct Seen {
@@ -106,18 +134,52 @@ pub(super) struct Seen {
     pub(super) offer_drops: Mutex<Vec<DropOfferParts>>,
     /// Each verdict the library was called with, failed calls too.
     pub(super) verdicts: Mutex<Vec<Verdict>>,
+    pub(super) retires: Mutex<Vec<AgentNumber>>,
+    pub(super) erases: Mutex<Vec<AgentNumber>>,
+    pub(super) merges: Mutex<Vec<(ProfileId, MergeBranch)>>,
+    pub(super) bundles: Mutex<Vec<(ProfileId, Bundle)>>,
+    pub(super) unmerges: Mutex<Vec<(ProfileId, Unmerge)>>,
+    pub(super) branch_drops: Mutex<Vec<(ProfileId, DropBranch)>>,
+    pub(super) profile_erases: Mutex<Vec<ProfileId>>,
+    pub(super) inboxes: Mutex<HashMap<AgentNumber, Inbox>>,
+    /// What the callees keep of the calls above: each merge and
+    /// unmerge once by its id, and each retire, erase and branch
+    /// drop once by its agent, as a callee answers a repeat without
+    /// doing it again.
+    pub(super) kept: Mutex<Kept>,
+    /// Each agent asked whether it is on a chief's task, with the
+    /// question.
+    pub(super) asked_on_task: Mutex<Vec<(AgentNumber, OnTask)>>,
+    /// The agents that answer they are on a chief's task.
+    pub(super) on_task: Mutex<HashSet<AgentNumber>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The agents whose every call fails as an actor not ready.
     down: Mutex<HashSet<AgentNumber>>,
     /// The calls that fail every time, with an error of the callee's
-    /// own.
-    refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// own, and how many times each came.
+    refusing: Mutex<HashMap<(Callee, AgentNumber), usize>>,
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     pub(super) waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The callees held for one agent's next call alone, with that
     /// agent and whether its call came.
     alone: Mutex<HashMap<Callee, (AgentNumber, bool)>>,
+}
+
+#[derive(Default)]
+pub(super) struct Kept {
+    pub(super) merges: Vec<RequestId>,
+    pub(super) unmerges: Vec<RequestId>,
+    pub(super) retires: Vec<AgentNumber>,
+    pub(super) erases: Vec<AgentNumber>,
+    pub(super) branch_drops: Vec<AgentNumber>,
+}
+
+/// Keeps `done` in `kept` unless it is there.
+pub(super) fn keep_once<T: PartialEq>(kept: &mut Vec<T>, done: T) {
+    if !kept.contains(&done) {
+        kept.push(done);
+    }
 }
 
 impl Seen {
@@ -153,7 +215,10 @@ impl Seen {
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             return Err(ActorLifecycle::NotReady.build());
         }
-        if self.refusing.lock().unwrap().contains(&(callee, agent)) {
+        if let Some(came) =
+            self.refusing.lock().unwrap().get_mut(&(callee, agent))
+        {
+            *came += 1;
             bail!("the stand-in refuses {callee:?} of {}", agent.0);
         }
         Ok(())
@@ -173,7 +238,29 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) {
-        self.refusing.lock().unwrap().insert((callee, agent));
+        self.refusing.lock().unwrap().insert((callee, agent), 0);
+    }
+
+    /// How many times `callee` refused `agent`.
+    pub(super) fn refused(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) -> usize {
+        self.refusing
+            .lock()
+            .unwrap()
+            .get(&(callee, agent))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub(super) fn stop_refusing(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) {
+        self.refusing.lock().unwrap().remove(&(callee, agent));
     }
 
     /// Fails every call of `agent`'s as an actor not ready, until
@@ -289,7 +376,20 @@ pub(super) struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Stop, Place, Fill, Copies, Forward);
+    type Actions = (
+        Submit,
+        Stop,
+        Place,
+        Fill,
+        Copies,
+        Retire,
+        Erase,
+        ReadInbox,
+        TakeInbox,
+        DropInbox,
+        OnTask,
+        Forward,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -370,6 +470,135 @@ impl Handler<Fill> for AgentStandIn {
         self.seen.called(Callee::Fill, self.agent).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
         Ok(())
+    }
+}
+
+/// The tip of the branch of the hire `agent`, once retired.
+pub(super) fn retired(agent: AgentNumber) -> CommitId {
+    CommitId(Sha1([agent.0.to_le_bytes()[0]; 20]))
+}
+
+impl Handler<Retire> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Retire,
+    ) -> anyhow::Result<Retired> {
+        self.seen.called(Callee::Retire, self.agent).await?;
+        self.seen.retires.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().retires,
+            self.agent,
+        );
+        Ok(Retired {
+            tip: retired(self.agent),
+        })
+    }
+}
+
+impl Handler<Erase> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Erase,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::Erase, self.agent).await?;
+        self.seen.erases.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().erases,
+            self.agent,
+        );
+        Ok(())
+    }
+}
+
+/// Answers one file a part, so a merge reads `inbox/` in more than
+/// one.
+impl Handler<ReadInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        read: ReadInbox,
+    ) -> anyhow::Result<InboxPart> {
+        self.seen.called(Callee::ReadInbox, self.agent).await?;
+        let inboxes = self.seen.inboxes.lock().unwrap();
+        let mut rest =
+            inboxes.get(&self.agent).into_iter().flatten().filter(
+                |(path, _)| {
+                    read.after
+                        .as_ref()
+                        .is_none_or(|after| **path >= after.path)
+                },
+            );
+        let files = rest
+            .next()
+            .map(|(path, (bytes, executable))| Piece {
+                path: path.clone(),
+                offset: 0,
+                bytes: Base64(bytes.clone()),
+                last: true,
+                executable: *executable,
+            })
+            .into_iter()
+            .collect();
+        let next = rest.next().map(|(path, _)| InboxCursor {
+            path: path.clone(),
+            offset: 0,
+        });
+        Ok(InboxPart { files, next })
+    }
+}
+
+impl Handler<TakeInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        take: TakeInbox,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::TakeInbox, self.agent).await?;
+        let mut inboxes = self.seen.inboxes.lock().unwrap();
+        let inbox = inboxes.entry(self.agent).or_default();
+        for piece in take.files {
+            if piece.offset != 0 || !piece.last {
+                bail!("the stand-in takes only whole files");
+            }
+            let path =
+                format!("from-hire-{}/{}", take.from.0, piece.path);
+            inbox.insert(path, (piece.bytes.0, piece.executable));
+        }
+        Ok(())
+    }
+}
+
+impl Handler<DropInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropInbox,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::DropInbox, self.agent).await?;
+        let mut inboxes = self.seen.inboxes.lock().unwrap();
+        if let Some(inbox) = inboxes.get_mut(&self.agent) {
+            for path in dropped.paths {
+                inbox.remove(&path);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Handler<OnTask> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        asked: OnTask,
+    ) -> anyhow::Result<bool> {
+        self.seen
+            .asked_on_task
+            .lock()
+            .unwrap()
+            .push((self.agent, asked));
+        Ok(self.seen.on_task.lock().unwrap().contains(&self.agent))
     }
 }
 
@@ -680,6 +909,64 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
         *seen.branches.lock().unwrap(),
         [(ProfileId(1), branch)]
     );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_and_profile_stand_ins_take_the_calls_of_a_merge_and_an_erasure()
+ {
+    let scratch = Scratch::new("realm-stand-ins");
+    let seen = Arc::new(Seen::default());
+    let host = open(&scratch, &seen, None).await;
+    let hire = address::Agent(AgentNumber(3));
+    let profile = address::Profile(ProfileId(2));
+    let merge = MergeBranch {
+        id: RequestId::new(),
+        into: "hires/2".into(),
+        absorbed: AgentNumber(3),
+        message: "Took in what hire#3 learned".into(),
+        from: Source::Branch {
+            name: "hires/3".into(),
+        },
+    };
+    let bundle = Bundle {
+        branch: "hires/3".into(),
+        after: None,
+    };
+    let unmerge = Unmerge {
+        id: RequestId::new(),
+        branch: "hires/2".into(),
+        merge: retired(AgentNumber(2)),
+    };
+    let drop = DropBranch {
+        name: "hires/3".into(),
+    };
+
+    let tip = call(&host, &hire, &Retire).await.unwrap().tip;
+    call(&host, &hire, &Erase).await.unwrap();
+    call(&host, &profile, &merge).await.unwrap();
+    call(&host, &profile, &bundle).await.unwrap();
+    call(&host, &profile, &unmerge).await.unwrap();
+    call(&host, &profile, &drop).await.unwrap();
+    call(
+        &host,
+        &profile,
+        &hamlet_messages::profile::Erase {
+            id: RequestId::new(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let two = ProfileId(2);
+    assert_eq!(tip, retired(AgentNumber(3)));
+    assert_eq!(*seen.retires.lock().unwrap(), [AgentNumber(3)]);
+    assert_eq!(*seen.erases.lock().unwrap(), [AgentNumber(3)]);
+    assert_eq!(*seen.merges.lock().unwrap(), [(two, merge)]);
+    assert_eq!(*seen.bundles.lock().unwrap(), [(two, bundle)]);
+    assert_eq!(*seen.unmerges.lock().unwrap(), [(two, unmerge)]);
+    assert_eq!(*seen.branch_drops.lock().unwrap(), [(two, drop)]);
+    assert_eq!(*seen.profile_erases.lock().unwrap(), [two]);
     host.shutdown().await.unwrap();
 }
 

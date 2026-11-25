@@ -560,3 +560,109 @@ pub enum Removal {
     Later,
 }
 message!(RemovePath, "remove_path", Profile => Agent, Removal);
+
+/// A path another branch removed, with the blob it held there, so the
+/// taker removes it only where it holds that blob.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Removed {
+    pub path: String,
+    pub blob: Sha1,
+}
+
+/// What a merge takes in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Source {
+    /// A branch of this profile.
+    Branch { name: String },
+    /// One part of another profile's branch, as [`Bundle`] read it.
+    /// The parts of one merge share its `id`, count `part` from 0 and
+    /// come in order; the `last` one merges them all.
+    Part {
+        part: u32,
+        last: bool,
+        files: Vec<Piece>,
+        removed: Vec<Removed>,
+    },
+}
+
+/// Merges `from` into the branch `into`, the kept hire's, as one
+/// commit by the realm with `message`. Where both changed a file the
+/// kept hire's lines win. From another profile's parts, the other's
+/// file is also set aside beside it under `absorbed`'s name:
+/// `<path>.from-hire-<n>`, or `skills/<skill>-from-hire-<n>/...` for
+/// a skill's. `CHARACTER.md` and `inbox/` are not merged. The kept
+/// hire is told the branch moved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeBranch {
+    pub id: RequestId,
+    pub into: String,
+    pub absorbed: AgentNumber,
+    pub message: String,
+    pub from: Source,
+}
+
+answer!(MergeAnswer<SaveRefusal> {
+    /// `tip` is the merge's commit; `set_aside` the paths it wrote
+    /// aside.
+    Merged { tip: CommitId, set_aside: Vec<String> },
+    /// A part that is not the last was kept.
+    Kept,
+});
+message!(MergeBranch, "merge_branch", Realm => Profile, MergeAnswer, |merge| {
+    match &merge.from {
+        Source::Branch { .. } => Repeat::Id(merge.id.as_str()),
+        Source::Part { part, .. } => Repeat::Part {
+            id: merge.id.as_str(),
+            part: *part,
+        },
+    }
+});
+
+/// Reads one part of what `branch` changed since it left `main`, for
+/// a merge into another profile. `CHARACTER.md` and `inbox/` are
+/// never sent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Bundle {
+    pub branch: String,
+    /// The `next` of the part before; absent for the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<Cursor>,
+}
+
+answer!(BundleAnswer<Gone> {
+    Part {
+        files: Vec<Piece>,
+        removed: Vec<Removed>,
+        /// Absent on the last part.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next: Option<Cursor>,
+    },
+});
+message!(Bundle, "bundle", Realm => Profile, BundleAnswer);
+
+/// Takes the merge `merge` out of the branch `branch` again, as one
+/// commit, and keeps what the branch did after it. The branch's hire
+/// is told the branch moved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unmerge {
+    pub id: RequestId,
+    pub branch: String,
+    pub merge: CommitId,
+}
+
+answer!(UnmergeAnswer<Gone> {
+    Unmerged { tip: CommitId },
+});
+message!(Unmerge, "unmerge", Realm => Profile, UnmergeAnswer, |unmerge| {
+    Repeat::Id(unmerge.id.as_str())
+});
+
+/// Removes the branch `name`; answers the same when it is gone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropBranch {
+    pub name: String,
+}
+message!(DropBranch, "drop_branch", Realm => Profile, (), |_| {
+    Repeat::Finds
+});

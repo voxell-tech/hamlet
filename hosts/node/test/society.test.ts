@@ -167,6 +167,25 @@ const TODAY = [
         },
     },
     {
+        name: "merge_hires",
+        description:
+            "Merge one hire under you into another: the kept hire takes what the other learned, its roads and its hires.",
+        parameters: {
+            type: "object",
+            properties: { absorbed: address, into: address, reason: REASON },
+            required: ["absorbed", "into"],
+        },
+    },
+    {
+        name: "remove_hamlet",
+        description: "Remove a hamlet; a chief approves it first.",
+        parameters: {
+            type: "object",
+            properties: { hamlet: text("The hamlet's id."), reason: REASON },
+            required: ["hamlet"],
+        },
+    },
+    {
         name: "lay_road",
         description:
             "Lay a road between two hires under you, so they can write and ask each other.",
@@ -468,6 +487,8 @@ const ACT_FIELDS = {
     create_profile: ["name", "character"],
     read_profile: ["profile", "at", "path"],
     edit_profile: ["profile", "path", "text", "message"],
+    merge_hires: ["absorbed", "into", "why"],
+    remove_hamlet: ["hamlet", "why"],
     tag: ["profile", "version", "note"],
     revert: ["profile", "what", "reason"],
     ask_librarian: ["question"],
@@ -504,6 +525,8 @@ const _everyField: {
     create_profile: true,
     read_profile: true,
     edit_profile: true,
+    merge_hires: true,
+    remove_hamlet: true,
     tag: true,
     revert: true,
     ask_librarian: true,
@@ -1035,6 +1058,7 @@ const LEADS = [
     "create_scholar",
     "hire",
     "end_hire",
+    "merge_hires",
     "set_model",
     "set_tools",
     "set_allowance",
@@ -1048,6 +1072,7 @@ const OFFERED_TO_THE_HAND = new Set([
     ...LEADS,
     "found_hamlet",
     "seat_mayor",
+    "remove_hamlet",
     "read_record",
     "read_scholar",
     "edit_scholar",
@@ -1148,6 +1173,11 @@ test("each society tool's result names the agents it acted on, in today's words"
             ask: () => ({ type: "waiting", on: ada(12), question: 1 }),
             hire: () => ({ type: "hired", agent: ada(22) }),
             end: () => ({ type: "done", agent: ada(22) }),
+            merge_hires: () => ({
+                type: "done",
+                absorbed: ada(22),
+                into: ada(21),
+            }),
             lay_road: () => ({ type: "done", a: ada(1), b: ada(2) }),
             take_up_road: () => ({ type: "done", a: ada(1), b: ada(2) }),
             set_tools: () => ({ type: "done", agent: ada(3) }),
@@ -1187,6 +1217,7 @@ test("each society tool's result names the agents it acted on, in today's words"
         ["ask", { to: "hire#12", question: "Why?" }],
         ["hire", { purpose: "Dig" }],
         ["end_hire", { hire: "hire#22" }],
+        ["merge_hires", { absorbed: "hire#22", into: "hire#21" }],
         ["lay_road", { a: "hire#1", b: "hire#2" }],
         ["take_up_road", { a: "hire#1", b: "hire#2" }],
         ["set_tools", { hire: "hire#3", off: ["tell"] }],
@@ -1226,6 +1257,7 @@ test("each society tool's result names the agents it acted on, in today's words"
             "Waiting for hire#12 (Ada)'s answer.",
             "Hired hire#22 (Ada).",
             "Ended hire#22 (Ada).",
+            "Merged hire#22 (Ada) into hire#21 (Ada).",
             "Laid a road between hire#1 (Ada) and hire#2 (Ada).",
             "Took up the road between hire#1 (Ada) and hire#2 (Ada).",
             "Changed the tools of hire#3 (Ada).",
@@ -1317,6 +1349,16 @@ test("every one of today's parameters leaves as a field of its act, but those th
             set_nickname: () => ({ type: "done", agent: shown(4) }),
             set_model: () => ({ type: "done", agent: shown(4) }),
             read_record: () => ({ type: "read", lines: [] }),
+            merge_hires: () => ({
+                type: "done",
+                absorbed: shown(4),
+                into: shown(5),
+            }),
+            remove_hamlet: () => ({
+                type: "refused",
+                why: { type: "reserved", wait: 1 },
+                words: "This call waits for a chief's answer.",
+            }),
         },
     });
     const every: Record<string, Parameters<typeof toolCall>[1]> = {
@@ -1369,6 +1411,12 @@ test("every one of today's parameters leaves as a field of its act, but those th
             reason: "Harder work.",
         },
         read_record: { hamlet: "h1" },
+        merge_hires: {
+            absorbed: "hire#4",
+            into: "hire#5",
+            reason: "Same work.",
+        },
+        remove_hamlet: { hamlet: " h1 ", reason: "Done with it." },
     };
     const without = (tool: string) =>
         Object.fromEntries(
@@ -1460,6 +1508,8 @@ test("every one of today's parameters leaves as a field of its act, but those th
                 "set_nickname",
                 "set_model",
                 "read_record",
+                "merge_hires",
+                "remove_hamlet",
             ].map((name) => [name, acts(sent, name)]),
         ),
         {
@@ -1561,6 +1611,14 @@ test("every one of today's parameters leaves as a field of its act, but those th
                 },
             ],
             read_record: [{ hamlet: "h1" }],
+            merge_hires: [
+                {
+                    absorbed: four,
+                    into: { type: "agent", agent: 5 },
+                    ...why("Same work."),
+                },
+            ],
+            remove_hamlet: [{ hamlet: "h1", ...why("Done with it.") }],
         },
     );
 });

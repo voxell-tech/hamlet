@@ -655,6 +655,28 @@ fn the_choices(fixtures: &mut Fixtures) {
             ("left.answered", left(HowEnded::Answered)),
             ("left.failed", left(HowEnded::Failed)),
             ("left.stopped", left(HowEnded::Stopped)),
+            (
+                "left.merged",
+                left(HowEnded::Merged {
+                    into: shown(AgentNumber(13)),
+                    by: None,
+                }),
+            ),
+            (
+                "left.merged.by_a_lead",
+                left(HowEnded::Merged {
+                    into: shown(AgentNumber(13)),
+                    by: Some(shown(HIRE)),
+                }),
+            ),
+            (
+                "left.profile_archived",
+                left(HowEnded::ProfileArchived),
+            ),
+            (
+                "left.hamlet_removed",
+                left(HowEnded::HamletRemoved { by: None }),
+            ),
             ("bad_nickname", ChoiceRefusal::BadNickname),
             (
                 "not_a_hire",

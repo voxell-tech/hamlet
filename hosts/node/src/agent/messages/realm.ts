@@ -322,6 +322,24 @@ export interface SocietyActs {
               }
             | Refused;
     };
+    merge_hires: {
+        act: {
+            readonly absorbed: Named;
+            readonly into: Named;
+            readonly why?: string;
+        };
+        answer:
+            | {
+                  readonly type: "done";
+                  readonly absorbed: AgentName;
+                  readonly into: AgentName;
+              }
+            | Refused;
+    };
+    remove_hamlet: {
+        act: { readonly hamlet: HamletId; readonly why?: string };
+        answer: Done;
+    };
     edit_profile: {
         /** An empty `text` removes the file. */
         act: {

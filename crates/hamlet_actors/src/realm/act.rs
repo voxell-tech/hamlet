@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
@@ -47,8 +48,29 @@ pub(super) trait Act<By>:
         Calls::none()
     }
 
+    /// The step rows whose ends its answer waits for, all within
+    /// the realm's `answer_within`, so the caller reads what the
+    /// steps did once answered. Such an act lines no delivery before
+    /// its answer.
+    fn answers_after(
+        &self,
+        _done: &Self::Done,
+    ) -> Vec<steps::StepId> {
+        Vec::new()
+    }
+
     /// The answer of a first run and of a repeat.
     fn answer(&self, done: Self::Done, made: &Made) -> Self::Output;
+
+    /// The answer once a row of `answers_after` failed for good.
+    fn failed(
+        &self,
+        done: Self::Done,
+        made: &Made,
+        _failed: &steps::Failed,
+    ) -> Self::Output {
+        self.answer(done, made)
+    }
 }
 
 /// A read of a copy the realm holds in memory.
@@ -96,6 +118,15 @@ impl<D> Decided<D> {
     #[must_use]
     pub fn change(mut self, change: impl Into<Change>) -> Self {
         self.changes.push(change.into());
+        self
+    }
+
+    #[must_use]
+    pub fn changes(
+        mut self,
+        changes: impl IntoIterator<Item = Change>,
+    ) -> Self {
+        self.changes.extend(changes);
         self
     }
 
@@ -456,14 +487,31 @@ where
         When::BeforeAnswer,
     )
     .await;
-    let answer = act.answer(done, &made);
+    let rows = act.answers_after(&done);
     ctx.register_task(calls::after_answer(
         realm.clone(),
         ctx.clone(),
         after_answer,
         pushes,
     ));
-    Ok(Ok(answer))
+    let within = Instant::now() + realm.answer_within;
+    for &row in &rows {
+        realm
+            .drives
+            .ended(
+                row,
+                within.saturating_duration_since(Instant::now()),
+            )
+            .await;
+    }
+    // A drive commits a failure's end before it ends, so the rows
+    // read here say whether the steps failed.
+    if let Some(failed) =
+        steps::first_failed(&Rows::outside(ctx)?, &rows).await?
+    {
+        return Ok(Ok(act.failed(done, &made, &failed)));
+    }
+    Ok(Ok(act.answer(done, &made)))
 }
 
 fn after_reserving(

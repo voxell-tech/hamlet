@@ -20,8 +20,8 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::asking::chief_task;
 use super::profiles::create;
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    needs, seen_submits, submits_to, to, tool, worker_shown,
+    FOUR, MAYOR, Realm, THREE, answer, decisions, hamlet_with, hire,
+    hired, needs, seen_submits, submits_to, to, tool, worker_shown,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -78,7 +78,7 @@ fn end(hire: AgentNumber) -> End {
     }
 }
 
-fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
+pub(super) fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
     LayRoad {
         a: to(a),
         b: to(b),
@@ -156,16 +156,6 @@ pub(super) async fn notices(
             _ => None,
         })
         .collect()
-}
-
-async fn decisions(realm: &Realm) -> Vec<String> {
-    realm
-        .stopped_rows(|db| {
-            db.prepare("SELECT kind FROM decision ORDER BY id")?
-                .query_map([], |row| row.get(0))?
-                .collect()
-        })
-        .await
 }
 
 #[tokio::test(flavor = "multi_thread")]

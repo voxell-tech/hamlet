@@ -1,6 +1,7 @@
 //! The parts an ended hire leaves in the actors that keep them: the
 //! save under way in its profile, and the offers under way in the
-//! library. A step row drops them once the hire ends.
+//! library. A step row drops them once the hire ends, unless it has
+//! come back.
 
 use anyhow::Result;
 use hamlet_messages::address::{Library, Profile};
@@ -10,9 +11,10 @@ use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::change::{self, number};
-use super::hire;
 use super::peer::When;
-use super::steps::{self, Cx, Kind, StepId, Steps};
+use super::steps::{Cx, Kind, StepId, Steps};
+use super::tree::{self, Life};
+use super::{hire, retire};
 
 /// The row that drops what `agent` leaves.
 pub(super) fn row(agent: AgentNumber) -> StepId {
@@ -49,15 +51,18 @@ pub(super) async fn run(
     step: Step,
 ) -> Result<Vec<change::Change>> {
     let agent = AgentNumber(u32::try_from(n)?);
+    let rows = cx.rows()?;
+    if tree::life(&rows, agent).await? == Life::Living {
+        return Ok(Vec::new());
+    }
     match step {
         Step::Profile => {
-            let rows = cx.rows()?;
             // A hire ended before its Profile step was filled from no
             // profile and saved nothing; its profile may have no
             // actor.
-            let filled = steps::row(&rows, hire::row(agent))
-                .await?
-                .is_none_or(|row| row.done.is_some());
+            let filled =
+                hire::reached(&rows, agent, hire::Step::Profile)
+                    .await?;
             let profile = rows
                 .value::<u32>(
                     "SELECT profile FROM hire WHERE agent = ?1",
@@ -65,13 +70,15 @@ pub(super) async fn run(
                 )
                 .await?;
             if let Some(profile) = profile.filter(|_| filled) {
-                cx.peers()
-                    .call(
-                        &Profile(ProfileId(profile)),
-                        &DropSaveParts { agent },
-                        When::AfterAnswer,
-                    )
-                    .await?;
+                retire::unless_gone(
+                    cx.peers()
+                        .call(
+                            &Profile(ProfileId(profile)),
+                            &DropSaveParts { agent },
+                            When::AfterAnswer,
+                        )
+                        .await,
+                )?;
             }
         }
         Step::Library => {

@@ -98,6 +98,22 @@ fn each_refusal_reads_as_todays_server_words_it() {
         (words(ended(HowEnded::ByTheHand)), "it was ended"),
         // hamlet_server/src/society/agents.rs:119
         (words(ended(HowEnded::Failed)), "its task failed"),
+        // hamlet_server/src/society/agents.rs:115-117
+        (
+            words(ended(HowEnded::Merged {
+                into: mira(),
+                by: None,
+            })),
+            "it was merged into another hire",
+        ),
+        (
+            words(ended(HowEnded::ProfileArchived)),
+            "its scholar left the city",
+        ),
+        (
+            words(ended(HowEnded::HamletRemoved { by: None })),
+            "its hamlet was removed",
+        ),
         // hamlet_server/src/calls/society/letters.rs:128
         (words(LetterRefusal::Yourself), "That is you."),
         // hamlet_server/src/calls/society/letters.rs:133

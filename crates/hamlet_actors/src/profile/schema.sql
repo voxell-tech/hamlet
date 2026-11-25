@@ -50,3 +50,35 @@ CREATE TABLE IF NOT EXISTS dream (
     -- NULL while it runs; then the CBOR of its `DreamEnd`.
     outcome BLOB
 ) STRICT;
+
+-- merges.rs: the pieces of a merge from another profile, kept until
+-- its last part merges them.
+CREATE TABLE IF NOT EXISTS merge_part (
+    id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    offset INTEGER NOT NULL,
+    -- NULL for a path the merge removes.
+    bytes BLOB,
+    last INTEGER NOT NULL,
+    executable INTEGER NOT NULL,
+    -- The blob a removed path held; NULL for a file.
+    blob TEXT,
+    PRIMARY KEY (id, path, offset)
+) STRICT;
+
+-- merges.rs
+CREATE TABLE IF NOT EXISTS merge_call (
+    id TEXT PRIMARY KEY,
+    next_part INTEGER NOT NULL
+) STRICT;
+
+-- merges.rs: the commit of every merge, which a split may undo.
+CREATE TABLE IF NOT EXISTS merge_commit (
+    id TEXT PRIMARY KEY
+) STRICT;
+
+-- merges.rs: each branch's tip after a purge, below which a merge's
+-- repeat looks for no commit of its own.
+CREATE TABLE IF NOT EXISTS merge_floor (
+    id TEXT PRIMARY KEY
+) STRICT;

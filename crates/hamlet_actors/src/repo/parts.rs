@@ -1,11 +1,12 @@
 //! Files sent in parts: what a piece counts for, the paths a part may
 //! name, and the pieces a store keeps joined back into files.
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor::ColumnValue;
-use hamlet_git::Change;
-use hamlet_messages::PIECE_FRAME;
+use hamlet_git::{BlobId, Change, Entry};
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::Piece;
+use hamlet_messages::{MOST_PART, PIECE_FRAME};
 use hamlet_os::fs::TreePath;
 
 /// The longest name of one file or folder a path may hold, in bytes.
@@ -137,6 +138,92 @@ pub(crate) fn joined(pieces: Vec<Kept>) -> Result<Vec<Change>> {
         bail!("the last piece of {path} never came");
     }
     Ok(changes)
+}
+
+/// A removal or a file a part sends, in the order a cursor counts it.
+pub(crate) enum Item {
+    /// A path, with the blob it held.
+    Remove {
+        path: String,
+        blob: BlobId,
+    },
+    Write(Entry),
+}
+
+/// The items one part holds.
+pub(crate) struct Packed {
+    pub files: Vec<Piece>,
+    pub removed: Vec<(String, BlobId)>,
+    /// The item and the byte within it that the next part starts at;
+    /// `None` after the last.
+    pub next: Option<(usize, usize)>,
+}
+
+/// The items from `from` on that fit in `room`, each counting its
+/// path, its bytes and [`PIECE_FRAME`]. A file that fits a part of
+/// its own waits for the next part when this one is full; a larger
+/// one is cut by byte range to fill each part it spans.
+pub(crate) fn pack(
+    items: &[Item],
+    (mut at, mut offset): (usize, usize),
+    mut room: usize,
+    bytes: &dyn Fn(BlobId) -> Result<Vec<u8>>,
+) -> Result<Packed> {
+    let mut packed = Packed {
+        files: Vec::new(),
+        removed: Vec::new(),
+        next: None,
+    };
+    while let Some(item) = items.get(at) {
+        match item {
+            Item::Remove { path, blob } => {
+                let cost = cost(path, 0);
+                if cost > room {
+                    packed.next = Some((at, 0));
+                    return Ok(packed);
+                }
+                room -= cost;
+                packed.removed.push((path.clone(), *blob));
+            }
+            Item::Write(entry) => {
+                let head = cost(&entry.path, 0);
+                ensure!(
+                    head < MOST_PART,
+                    "the path {} is too long to send",
+                    entry.path
+                );
+                let all = bytes(entry.blob)?;
+                let rest = all
+                    .get(offset..)
+                    .context("a cursor past the end of its file")?;
+                let sent = (head + rest.len() <= room)
+                    .then_some(rest.len())
+                    .or_else(|| {
+                        (head + rest.len() > MOST_PART && head < room)
+                            .then(|| room - head)
+                    });
+                let Some(sent) = sent else {
+                    packed.next = Some((at, offset));
+                    return Ok(packed);
+                };
+                packed.files.push(Piece {
+                    path: entry.path.clone(),
+                    offset: u32::try_from(offset)?,
+                    bytes: Base64(rest[..sent].to_vec()),
+                    last: sent == rest.len(),
+                    executable: entry.executable,
+                });
+                room -= head + sent;
+                if sent < rest.len() {
+                    packed.next = Some((at, offset + sent));
+                    return Ok(packed);
+                }
+            }
+        }
+        at += 1;
+        offset = 0;
+    }
+    Ok(packed)
 }
 
 #[cfg(test)]

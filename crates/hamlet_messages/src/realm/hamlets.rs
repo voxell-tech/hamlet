@@ -1,13 +1,14 @@
 //! A chief's requests about a hamlet: its name, its site, its
-//! folder and mode, and its record of decisions.
+//! folder and mode, its record of decisions, and its removal, return
+//! and erasure; and the Hand's `remove_hamlet`.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ChiefRequest, Done, HamletId, HamletRefusal, SocietyTool,
-    ToolCall,
+    AgentRefusal, ChiefRequest, Done, HamletId, HamletRefusal,
+    SocietyTool, ToolCall,
 };
 use crate::workspace::reach::Mode;
 
@@ -56,6 +57,49 @@ pub struct SetFolder {
 
 impl ChiefRequest for SetFolder {
     const NAME: &'static str = "chief_set_folder";
+    type Answer = Done<HamletRefusal>;
+}
+
+/// Removes a hamlet and ends its hires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoveHamlet {
+    pub hamlet: HamletId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for RemoveHamlet {
+    const NAME: &'static str = "chief_remove_hamlet";
+    type Answer = Done<HamletRefusal>;
+}
+
+/// Only the Hand calls it, and a chief allows it first.
+impl ToolCall for RemoveHamlet {
+    const TOOL: SocietyTool = SocietyTool::RemoveHamlet;
+    type Answer = Done<AgentRefusal<HamletRefusal>>;
+}
+
+/// Brings a removed hamlet back with the hires its removal ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreHamlet {
+    pub hamlet: HamletId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for RestoreHamlet {
+    const NAME: &'static str = "chief_restore_hamlet";
+    type Answer = Done<HamletRefusal>;
+}
+
+/// Erases a removed hamlet for good, with its hires.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EraseHamlet {
+    pub hamlet: HamletId,
+}
+
+impl ChiefRequest for EraseHamlet {
+    const NAME: &'static str = "chief_erase_hamlet";
     type Answer = Done<HamletRefusal>;
 }
 

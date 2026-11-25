@@ -12,6 +12,7 @@ use hamlet_messages::agent::chat::{
     ResumeAnswer, Retry,
 };
 use hamlet_messages::agent::copies::Price;
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
@@ -20,8 +21,14 @@ use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::documents::{
     CardSetting, EditCatalogue, EditCharter, ImageLimits,
 };
+use hamlet_messages::realm::hires::{
+    EraseHire, Merge, Restore, Restored,
+};
 use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
+};
+use hamlet_messages::realm::profiles::{
+    Forked, Lifecycle, LifecycleRefusal, MoveHouse, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -166,13 +173,70 @@ fn number(
         })
 }
 
-fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
-    let agent = number(view, target, Reach::Living).ok()?;
-    view.of_kind(agent, AgentKind::Hire).is_none().then(|| {
+/// The first of `targets` that is not a hire, once each is found
+/// within `reach`; the realm answers the rest.
+fn not_hires(
+    view: &View,
+    reach: Reach,
+    targets: &[&Target],
+) -> Option<Refusal> {
+    let found = targets
+        .iter()
+        .map(|target| number(view, target, reach).ok())
+        .collect::<Option<Vec<_>>>()?;
+    found
+        .into_iter()
+        .find_map(|agent| as_hire(view, agent).err())
+}
+
+fn as_hire(
+    view: &View,
+    agent: AgentNumber,
+) -> Result<AgentNumber, Refusal> {
+    view.of_kind(agent, AgentKind::Hire).ok_or_else(|| {
         Refusal::NotHire {
             name: view.name(agent),
         }
     })
+}
+
+/// The hire `target` names, ended or not.
+fn hire_of(
+    view: &View,
+    target: &Target,
+) -> Result<AgentNumber, Refusal> {
+    as_hire(view, number(view, target, Reach::Kept)?)
+}
+
+fn restored(answer: Restored, hire: &str) -> Result<String, Refusal> {
+    match answer {
+        Restored::Back => Ok(words::hire_back(hire)),
+        Restored::Split => Ok(words::hire_split(hire)),
+        Restored::Refused { why } => Err(refused(why)),
+    }
+}
+
+fn forked(
+    answer: Forked,
+    at: Option<&VersionName>,
+    name: &str,
+) -> Result<String, Refusal> {
+    match answer {
+        Forked::Forked { from, .. } => {
+            Ok(words::forked(&from, at.map(|at| at.0.as_str()), name))
+        }
+        Forked::Refused { why } => Err(refused(why)),
+    }
+}
+
+fn lived(
+    answer: Lifecycle,
+    words: impl FnOnce(&str) -> String,
+) -> Result<String, Refusal> {
+    match answer {
+        Lifecycle::Done { label } => Ok(words(&label)),
+        Lifecycle::Refused { why } => Err(refused(why)),
+    }
 }
 
 /// A refusal of an actor, in its own words.
@@ -418,7 +482,8 @@ async fn perform(
             HireAnswer::Refused { why } => Err(refused(why)),
         },
         Act::End { hire, .. }
-            if let Some(refusal) = not_a_hire(view, &hire) =>
+            if let Some(refusal) =
+                not_hires(view, Reach::Living, &[&hire]) =>
         {
             Err(refusal)
         }
@@ -470,11 +535,8 @@ async fn perform(
             done(ask(calls, id, act).await?, || said)
         }
         Act::Road { a, b, .. }
-            if let (Ok(_), Ok(_)) = (
-                number(view, &a, Reach::Living),
-                number(view, &b, Reach::Living),
-            ) && let Some(refusal) = not_a_hire(view, &a)
-                .or_else(|| not_a_hire(view, &b)) =>
+            if let Some(refusal) =
+                not_hires(view, Reach::Living, &[&a, &b]) =>
         {
             Err(refusal)
         }
@@ -523,6 +585,114 @@ async fn perform(
             done(ask(calls, id, ResetBudget { payer }).await?, || {
                 words::BUDGET_RESET.into()
             })
+        }
+        Act::Merge {
+            absorbed,
+            into: Err(refusal),
+            ..
+        } => Err(number(view, &absorbed, Reach::Living)
+            .err()
+            .unwrap_or(refusal)),
+        Act::Merge {
+            absorbed,
+            into: Ok(into),
+            ..
+        } if let Some(refusal) =
+            not_hires(view, Reach::Living, &[&absorbed, &into]) =>
+        {
+            Err(refusal)
+        }
+        Act::Merge {
+            absorbed,
+            into: Ok(into),
+            why,
+        } => {
+            let said = words::merged(&absorbed.text, &into.text);
+            let act = Merge {
+                absorbed: absorbed.named,
+                into: into.named,
+                why: Some(why),
+            };
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::Restore { hire, why } => match hire_of(view, &hire) {
+            Ok(agent) => {
+                let act = Restore {
+                    hire: Named::Agent { agent },
+                    why,
+                };
+                restored(ask(calls, id, act).await?, &hire.text)
+            }
+            Err(refusal) => Err(refusal),
+        },
+        Act::Erase { hire }
+            if let Some(refusal) =
+                not_hires(view, Reach::Kept, &[&hire]) =>
+        {
+            Err(refusal)
+        }
+        Act::Erase { hire } => {
+            let said = words::erased(&hire.text);
+            let act = EraseHire { hire: hire.named };
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::RemoveHamlet(act) => {
+            let said = words::hamlet_removed(&act.hamlet.0);
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::RestoreHamlet(act) => {
+            let said = words::hamlet_restored(&act.hamlet.0);
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::EraseHamlet(act) => {
+            let said = words::hamlet_erased(&act.hamlet.0);
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::Fork(act) => {
+            let (at, name) = (act.at.clone(), act.name.clone());
+            forked(ask(calls, id, act).await?, at.as_ref(), &name)
+        }
+        Act::ArchiveProfile(act) => {
+            lived(ask(calls, id, act).await?, words::profile_archived)
+        }
+        Act::RestoreProfile(act) => {
+            lived(ask(calls, id, act).await?, words::profile_restored)
+        }
+        Act::EraseProfile(act) => {
+            lived(ask(calls, id, act).await?, words::erased)
+        }
+        Act::Welcome(act) => {
+            lived(ask(calls, id, act).await?, words::welcomed)
+        }
+        Act::TurnAway(act) => {
+            lived(ask(calls, id, act).await?, words::turned_away)
+        }
+        Act::MoveHouse {
+            profile,
+            spot: Ok(spot),
+        } => {
+            let act = MoveHouse {
+                profile,
+                site: Site::of(spot),
+            };
+            lived(ask(calls, id, act).await?, |label| {
+                words::house_moved(label, spot.x, spot.z)
+            })
+        }
+        Act::MoveHouse {
+            profile,
+            spot: Err(usage),
+        } => {
+            let act = MoveHouse {
+                profile,
+                site: Site::Unread,
+            };
+            match ask(calls, id, act).await? {
+                Lifecycle::Refused {
+                    why: LifecycleRefusal::Profile(why),
+                } => Err(refused(why)),
+                _ => Err(usage),
+            }
         }
         Act::Unsupported(what) => Err(Refusal::Unsupported { what }),
     };
@@ -679,23 +849,4 @@ async fn steer(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_line_told_on_has_one_id_for_each_command() {
-        let id = RequestId::new();
-        assert_eq!(line_id(&id), line_id(&id));
-        assert_ne!(line_id(&id), id);
-    }
-
-    #[test]
-    fn the_speakers_oldest_wait_comes_before_an_older_one_of_another()
-    {
-        let (one, two) = (AgentNumber(1), AgentNumber(2));
-        let open = [(5, two), (3, one), (7, two)];
-        assert_eq!(oldest_wait(open, two), Some(5));
-        assert_eq!(oldest_wait(open, AgentNumber(9)), Some(3));
-        assert_eq!(oldest_wait([], one), None);
-    }
-}
+mod tests;

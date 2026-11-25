@@ -11,6 +11,7 @@
  * of this work runs at a time.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
@@ -28,7 +29,7 @@ import type { CallId, ProfileId } from "./messages/shared.ts";
 import { type Peers, profileCalls } from "./turn.ts";
 
 /** As `MOST_PART` and `PIECE_FRAME` of `crates/hamlet_messages/src/lib.rs`. */
-const MOST_PART = 720 * 1024;
+export const MOST_PART = 720 * 1024;
 const PIECE_FRAME = 64;
 
 export async function migrateBranch(
@@ -54,6 +55,13 @@ export interface Branch {
     remove(path: string): Promise<Removal>;
     /** Saves, and does what waited for the turns to end, once none runs. */
     turnEnded(conversation: ConversationId): Promise<void>;
+    /**
+     * Saves now, though a turn runs, and gives the commit the filesystem
+     * then holds; absent before a fill.
+     */
+    save(): Promise<CommitId | undefined>;
+    /** Removes the filesystem whole; no work of the branch runs after. */
+    erase(): Promise<void>;
 }
 
 /** Whether a turn runs in a conversation other than `except`. */
@@ -75,7 +83,7 @@ function digestOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
 
-function cost(path: string, bytes: number): number {
+export function cost(path: string, bytes: number): number {
     return Buffer.byteLength(path) + bytes + PIECE_FRAME;
 }
 
@@ -154,11 +162,14 @@ export function branchOf(
     const removals = new Set<string>();
     let last: Promise<unknown> = Promise.resolve();
     let working = 0;
-    const oneAtATime = <T>(work: () => Promise<T>): Promise<T> => {
+    let erased = false;
+    const oneAtATime = (work: () => Promise<void>): Promise<void> => {
         working += 1;
-        const done = last.then(work).finally(() => {
-            working -= 1;
-        });
+        const done = last
+            .then(() => (erased ? undefined : work()))
+            .finally(() => {
+                working -= 1;
+            });
         last = done.catch(() => undefined);
         return done;
     };
@@ -452,5 +463,14 @@ export function branchOf(
             if (await busy(conversation)) return;
             await settle();
         },
+        save: async () => {
+            await settle();
+            return (await held())?.filled ?? undefined;
+        },
+        erase: () =>
+            oneAtATime(async () => {
+                await rm(files.root, { recursive: true, force: true });
+                erased = true;
+            }),
     };
 }
