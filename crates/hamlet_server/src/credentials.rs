@@ -49,34 +49,31 @@ impl Credentials {
     /// Opens the credential owner for a realm held by this process.
     pub fn open(root: &Path) -> Result<Self> {
         let file = root.join("credentials.json");
-        let stored = match fs::read(&file) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .context("reading credentials.json")?,
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound =>
-            {
-                let mut random = [0; 32];
-                SystemRandom::new().fill(&mut random).map_err(
-                    |_| {
-                        anyhow::anyhow!(
-                            "cannot make a connection token"
-                        )
-                    },
-                )?;
-                Stored {
-                    installation_id: uuid::Uuid::new_v4().to_string(),
-                    connection: Connection {
-                        token: random
-                            .iter()
-                            .map(|b| format!("{b:02x}"))
-                            .collect(),
-                    },
-                    models: Default::default(),
-                    workspace: None,
-                }
-            }
-            Err(error) => return Err(error.into()),
+        let stored = match read(&file)? {
+            Some(stored) => stored,
+            None => made()?,
         };
+        let credentials = Self::holding(file, stored)?;
+        credentials.write()?;
+        Ok(credentials)
+    }
+
+    /// Opens the credentials of a realm whose actors own the file,
+    /// writing it only to make it.
+    #[cfg(unix)]
+    pub(crate) fn open_beside_actors(root: &Path) -> Result<Self> {
+        let file = root.join("credentials.json");
+        match read(&file)? {
+            Some(stored) => Self::holding(file, stored),
+            None => {
+                let credentials = Self::holding(file, made()?)?;
+                credentials.write()?;
+                Ok(credentials)
+            }
+        }
+    }
+
+    fn holding(file: PathBuf, stored: Stored) -> Result<Self> {
         let credentials = Self {
             file,
             revisions: HashMap::new(),
@@ -97,7 +94,6 @@ impl Credentials {
             !credentials.stored.connection.token.is_empty(),
             "credentials.json has an empty token"
         );
-        credentials.write()?;
         Ok(credentials)
     }
 
@@ -251,6 +247,41 @@ impl Credentials {
     pub(crate) fn scrub_text(&self, text: &str) -> String {
         scrub::scrub_text(&self.secrets(), text)
     }
+}
+
+/// The file at `file`; `None` where there is none.
+fn read(file: &Path) -> Result<Option<Stored>> {
+    match fs::read(file) {
+        Ok(bytes) => Ok(Some(
+            serde_json::from_slice(&bytes)
+                .context("reading credentials.json")?,
+        )),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// A new installation's file, with a new connection token.
+fn made() -> Result<Stored> {
+    let mut random = [0; 32];
+    SystemRandom::new().fill(&mut random).map_err(|_| {
+        anyhow::anyhow!("cannot make a connection token")
+    })?;
+    Ok(Stored {
+        installation_id: uuid::Uuid::new_v4().to_string(),
+        connection: Connection {
+            token: random
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        },
+        models: Default::default(),
+        workspace: None,
+    })
 }
 
 pub(crate) fn pack(

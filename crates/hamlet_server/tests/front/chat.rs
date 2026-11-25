@@ -16,14 +16,13 @@ use hamlet_protocol::client::{
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
-use super::{PATIENCE, serve, serve_with};
+use super::{
+    KEY, PATIENCE, SIGN_IN, finish_sign_in, frames, keeps_to_itself,
+    login_step, serve, serve_with, start_sign_in,
+};
 
 /// What the faux model answers the first line it is given.
 const REPLY: &str = "The door carried this reply.";
-
-/// A key typed in a sign-in, which nothing the server sends or
-/// prints may hold.
-const KEY: &str = "made-up-door-key-6b1e0c2f";
 
 /// How long a stop may wait for the requests its connection sent
 /// before it, when they wait for an agent that cannot be reached.
@@ -636,7 +635,7 @@ async fn a_sign_in_answer_from_another_connection_is_refused() {
     chief.close().await;
     other.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
-    keeps_the_key_to_itself(&server, &frames);
+    keeps_to_itself(&[server.log()], &frames, &[KEY]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -673,7 +672,7 @@ async fn a_key_given_in_a_sign_in_reaches_no_client() {
         frames.iter().any(|frame| frame.contains("my key is")),
         "the line reached its watcher"
     );
-    keeps_the_key_to_itself(&server, &frames);
+    keeps_to_itself(&[server.log()], &frames, &[KEY]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -758,7 +757,7 @@ async fn a_sign_in_to_a_subscription_shows_each_step_once() {
     let frames = frames(&chief);
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
-    keeps_the_key_to_itself(&server, &frames);
+    keeps_to_itself(&[server.log()], &frames, &[KEY]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -784,118 +783,13 @@ async fn a_sign_in_cancelled_from_another_connection_goes_on() {
     chief.close().await;
     other.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
-    keeps_the_key_to_itself(&server, &frames);
+    keeps_to_itself(&[server.log()], &frames, &[KEY]);
 }
 
 /// A server as [`serve`] starts it, whose Node host also lists two
 /// loopback providers to sign in to.
 async fn serve_signing_in() -> (Server, Scratch, Scratch) {
-    serve_with(json!([REPLY]), &[("HAMLET_DEMO_SIGN_IN", "1")]).await
-}
-
-/// Starts a sign-in with a key on the loopback provider, and waits
-/// for its prompt for the key.
-async fn start_sign_in(chief: &mut Client) -> RequestId {
-    let start = RequestId::new();
-    chief
-        .send(ClientMessage::Login(Login::Start {
-            id: start.clone(),
-            start: LoginStart {
-                method: LoginMethod::Key,
-                provider: "loopback".into(),
-            },
-        }))
-        .await;
-    let step =
-        login_step(chief, &start, "the prompt for the key", |step| {
-            matches!(step, LoginStep::Prompt { .. })
-        })
-        .await;
-    assert_eq!(
-        step,
-        LoginStep::Prompt {
-            prompt: "Paste your key.".into(),
-            secret: true,
-        }
-    );
-    start
-}
-
-/// Answers the sign-in `start` began with the key, and waits for it
-/// to end signed in.
-async fn finish_sign_in(chief: &mut Client, start: &RequestId) {
-    let answered = chief
-        .request(|id| {
-            ClientMessage::Login(Login::Reply {
-                id,
-                reply: LoginReply {
-                    login: start.to_string(),
-                    value: KEY.into(),
-                },
-            })
-        })
-        .await;
-    assert_eq!(
-        (answered.kind, answered.text.as_str()),
-        (ReplyKind::Notice, "Sign-in answer received.")
-    );
-    let ended =
-        login_step(chief, start, "the sign-in's end", |step| {
-            matches!(
-                step,
-                LoginStep::Done { .. } | LoginStep::Failed { .. }
-            )
-        })
-        .await;
-    assert_eq!(
-        ended,
-        LoginStep::Done {
-            done: "loopback".into()
-        }
-    );
-}
-
-/// The first step of the sign-in `start` began that `matches`.
-async fn login_step(
-    chief: &mut Client,
-    start: &RequestId,
-    what: &str,
-    matches: impl Fn(&LoginStep) -> bool,
-) -> LoginStep {
-    let found = |chief: &Client| {
-        chief.messages().iter().find_map(|message| match message {
-            ServerMessage::Login(progress)
-                if progress.to.as_ref() == Some(start)
-                    && matches(&progress.step) =>
-            {
-                Some(progress.step.clone())
-            }
-            _ => None,
-        })
-    };
-    chief.until(what, |chief| found(chief).is_some()).await;
-    found(chief).unwrap()
-}
-
-fn frames(chief: &Client) -> Vec<String> {
-    chief
-        .messages()
-        .iter()
-        .map(|message| serde_json::to_string(message).unwrap())
-        .collect()
-}
-
-fn keeps_the_key_to_itself(server: &Server, frames: &[String]) {
-    for frame in frames {
-        assert!(
-            !frame.contains(KEY),
-            "a frame carried the key: {frame}"
-        );
-    }
-    assert!(
-        !server.log().contains(KEY),
-        "the server printed the key"
-    );
+    serve_with(json!([REPLY]), &[SIGN_IN]).await
 }
 
 /// A `node` for the server that, once its first start ended, starts

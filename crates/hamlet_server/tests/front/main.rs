@@ -7,17 +7,26 @@
 
 mod chat;
 mod commands;
+mod secrets;
 mod view;
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::Client;
-use hamlet_protocol::client::{AgentId, Reply, ReplyKind, State};
+use hamlet_protocol::client::{
+    AgentId, ClientMessage, Login, LoginMethod, LoginReply,
+    LoginStart, LoginStep, Reply, ReplyKind, RequestId,
+    ServerMessage, State,
+};
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
 /// The `hamlet_server` these tests are built with.
 const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
+
+/// Has the Node host list two loopback providers to sign in to.
+const SIGN_IN: (&str, &str) = ("HAMLET_DEMO_SIGN_IN", "1");
 
 /// A server started with `--actors` on a new realm, its faux model
 /// answering with `responses` in order, and the folders it uses.
@@ -34,21 +43,31 @@ async fn serve_with(
 ) -> (Server, Scratch, Scratch) {
     let home = Scratch::new("front-home");
     let side = Scratch::new("front-side");
-    let script = side.join("faux.json");
     std::fs::write(
-        &script,
+        side.join("faux.json"),
         json!({ "responses": responses }).to_string(),
     )
     .unwrap();
-    let server = Server::start(
+    let server = serve_again(&home, &side, env).await;
+    (server, home, side)
+}
+
+/// A server started with `--actors` on `home`, as [`serve_with`]
+/// made it, its faux model answering from the script in `side` from
+/// the first step.
+async fn serve_again(
+    home: &Path,
+    side: &Path,
+    env: &[(&str, &str)],
+) -> Server {
+    Server::start(
         &[SERVER.to_owned(), "--actors".to_owned()],
-        &home,
-        Models::Faux(&script),
+        home,
+        Models::Faux(&side.join("faux.json")),
         env,
     )
     .await
-    .unwrap_or_else(|failure| panic!("{failure}"));
-    (server, home, side)
+    .unwrap_or_else(|failure| panic!("{failure}"))
 }
 
 /// How long a test waits for the realm to show a change; each
@@ -101,5 +120,124 @@ async fn said_once_hired(
             "{agent:?} was never hired"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A key typed in a sign-in, which nothing the server sends or
+/// prints may hold.
+const KEY: &str = "made-up-door-key-6b1e0c2f";
+
+/// Starts a sign-in with a key on the loopback provider, and waits
+/// for its prompt for the key.
+async fn start_sign_in(chief: &mut Client) -> RequestId {
+    let start = RequestId::new();
+    chief
+        .send(ClientMessage::Login(Login::Start {
+            id: start.clone(),
+            start: LoginStart {
+                method: LoginMethod::Key,
+                provider: "loopback".into(),
+            },
+        }))
+        .await;
+    let step =
+        login_step(chief, &start, "the prompt for the key", |step| {
+            matches!(step, LoginStep::Prompt { .. })
+        })
+        .await;
+    assert_eq!(
+        step,
+        LoginStep::Prompt {
+            prompt: "Paste your key.".into(),
+            secret: true,
+        }
+    );
+    start
+}
+
+/// Answers the sign-in `start` began with the key, and waits for it
+/// to end signed in.
+async fn finish_sign_in(chief: &mut Client, start: &RequestId) {
+    let answered = chief
+        .request(|id| {
+            ClientMessage::Login(Login::Reply {
+                id,
+                reply: LoginReply {
+                    login: start.to_string(),
+                    value: KEY.into(),
+                },
+            })
+        })
+        .await;
+    assert_eq!(
+        (answered.kind, answered.text.as_str()),
+        (ReplyKind::Notice, "Sign-in answer received.")
+    );
+    let ended =
+        login_step(chief, start, "the sign-in's end", |step| {
+            matches!(
+                step,
+                LoginStep::Done { .. } | LoginStep::Failed { .. }
+            )
+        })
+        .await;
+    assert_eq!(
+        ended,
+        LoginStep::Done {
+            done: "loopback".into()
+        }
+    );
+}
+
+/// The first step of the sign-in `start` began that `matches`.
+async fn login_step(
+    chief: &mut Client,
+    start: &RequestId,
+    what: &str,
+    matches: impl Fn(&LoginStep) -> bool,
+) -> LoginStep {
+    let found = |chief: &Client| {
+        chief.messages().iter().find_map(|message| match message {
+            ServerMessage::Login(progress)
+                if progress.to.as_ref() == Some(start)
+                    && matches(&progress.step) =>
+            {
+                Some(progress.step.clone())
+            }
+            _ => None,
+        })
+    };
+    chief.until(what, |chief| found(chief).is_some()).await;
+    found(chief).unwrap()
+}
+
+fn frames(chief: &Client) -> Vec<String> {
+    chief
+        .messages()
+        .iter()
+        .map(|message| serde_json::to_string(message).unwrap())
+        .collect()
+}
+
+/// Asserts that no log of `logs` and no frame of `frames` holds one
+/// of `secrets`.
+fn keeps_to_itself(
+    logs: &[String],
+    frames: &[String],
+    secrets: &[&str],
+) {
+    for secret in secrets {
+        for frame in frames {
+            assert!(
+                !frame.contains(secret),
+                "a frame carried {secret}: {frame}"
+            );
+        }
+        for log in logs {
+            assert!(
+                !log.contains(secret),
+                "the server printed {secret}"
+            );
+        }
     }
 }
