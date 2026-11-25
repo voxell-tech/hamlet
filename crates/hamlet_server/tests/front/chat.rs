@@ -2,8 +2,6 @@
 //! of the chat a client follows, and who may answer a sign-in.
 
 use std::collections::HashSet;
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
@@ -16,7 +14,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
-use super::{PATIENCE, serve, serve_with};
+use super::{HeldNode, kill_node, serve, serve_with};
 
 /// What the faux model answers the first line it is given.
 const REPLY: &str = "The door carried this reply.";
@@ -261,8 +259,8 @@ async fn a_line_stopped_while_its_agent_is_down_never_runs() {
         .collect::<Vec<_>>();
     assert_eq!(
         lines,
-        ["Are you up?", "Hello again."],
-        "the dropped line never reached the agent"
+        ["Are you up?", "Are you there?", "Hello again."],
+        "the stopped line is shown where it was said"
     );
     let replies = chief
         .messages()
@@ -896,65 +894,4 @@ fn keeps_the_key_to_itself(server: &Server, frames: &[String]) {
         !server.log().contains(KEY),
         "the server printed the key"
     );
-}
-
-/// A `node` for the server that, once its first start ended, starts
-/// again only when released.
-struct HeldNode {
-    side: Scratch,
-}
-
-impl HeldNode {
-    fn new() -> Self {
-        let side = Scratch::new("front-held-node");
-        let script = format!(
-            "#!/bin/sh\nif [ -e {started} ]; then\nwhile [ ! -e \
-             {go} ]; do sleep 0.05; done\nfi\ntouch {started}\nexec \
-             node \"$@\"\n",
-            started = side.join("started").display(),
-            go = side.join("go").display(),
-        );
-        let node = side.join("node");
-        std::fs::write(&node, script).unwrap();
-        std::fs::set_permissions(
-            &node,
-            Permissions::from_mode(0o755),
-        )
-        .unwrap();
-        Self { side }
-    }
-
-    async fn serve(
-        &self,
-        responses: serde_json::Value,
-    ) -> (Server, Scratch, Scratch) {
-        let node = self.side.join("node");
-        serve_with(
-            responses,
-            &[("HAMLET_NODE", node.to_str().unwrap())],
-        )
-        .await
-    }
-
-    /// Lets the Node host start again.
-    fn release(&self) {
-        std::fs::write(self.side.join("go"), "").unwrap();
-    }
-}
-
-async fn kill_node(home: &Scratch) {
-    let pid = std::fs::read_to_string(home.join("demo-node.pid"))
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
-    hamlet_testing::signals::kill(pid).unwrap();
-    let began = Instant::now();
-    while !hamlet_os::process::has_ended(pid).unwrap() {
-        assert!(
-            began.elapsed() < PATIENCE,
-            "the Node host never ended"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
 }

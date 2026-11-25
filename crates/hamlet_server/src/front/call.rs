@@ -1,20 +1,22 @@
 //! The door's calls of the actors for its clients, and what a failed
 //! call becomes for the client that asked.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
 use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host, Subscription};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::realm::client::{ReadWorld, Say, SayAnswer};
-use hamlet_messages::realm::lines::StopAgents;
+use hamlet_messages::realm::client::{
+    ReadWorld, Say, SayAnswer, SayRefusal,
+};
+use hamlet_messages::realm::lines::{LineIs, ReadLine, StopAgents};
 use hamlet_messages::realm::world::{Seen, Status};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
@@ -23,8 +25,6 @@ use hamlet_protocol::client::{
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use super::frames;
-use super::route::number;
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -33,9 +33,14 @@ use crate::society::refusal::Refusal;
 /// a sign-in waits for its provider, at most 25 s.
 const WITHIN: Duration = Duration::from_secs(60);
 
-/// The time between tries of a call to an agent being made, and of
-/// a line the realm did not take.
+/// The time between tries of a call to an agent being made.
 const AGAIN: Duration = Duration::from_millis(50);
+
+/// The wait before the second read of what became of a line; each
+/// wait after doubles it, up to [`READ_AT_MOST`].
+const FIRST_READ: Duration = Duration::from_millis(10);
+
+const READ_AT_MOST: Duration = Duration::from_secs(1);
 
 /// Calls the actors as a client.
 #[derive(Clone)]
@@ -44,35 +49,61 @@ pub(crate) struct Calls {
     /// Where the request these calls are for stands among its
     /// connection's stops; none for calls no stop ends.
     place: Option<Place>,
+    /// How many stops of each agent the door's clients have had
+    /// answered.
+    stopped: Arc<watch::Sender<BTreeMap<AgentNumber, u64>>>,
 }
 
-/// What became of a chief's line given to the realm.
-pub(crate) enum Given {
-    Taken,
-    /// A stop its connection sent after it came before the agent
-    /// took it.
-    Dropped,
+/// What the realm did with a chief's line.
+pub(crate) enum Said {
+    /// It keeps the line for its agent.
+    Accepted,
+    /// Its agent has left.
+    Left,
     Refused(String),
 }
 
-/// The stops one connection sent. A stop ends the waits of the
-/// requests its connection sent before it.
+/// What became of a line the realm accepted.
+pub(crate) enum Fate {
+    Given,
+    Withdrawn,
+}
+
+/// The agents a stop stops, as far as the door knows them when the
+/// stop is received.
+pub(crate) enum Stopping {
+    Agents(Vec<AgentNumber>),
+    /// Every agent: a stop of all of them, or of one it names by a
+    /// name only the realm's view gives the number of.
+    Every,
+}
+
+impl Stopping {
+    fn stops(&self, agent: AgentNumber) -> bool {
+        match self {
+            Self::Agents(agents) => agents.contains(&agent),
+            Self::Every => true,
+        }
+    }
+}
+
+/// The stops one connection sent. A stop ends the retry waits of
+/// the calls to its agents of the requests its connection sent
+/// before it.
 #[derive(Clone)]
 pub(crate) struct Stops(Arc<Sent>);
 
 struct Sent {
-    count: watch::Sender<u64>,
-    answered: watch::Sender<u64>,
-    /// Each stop's number, with an agent it dropped a line to.
-    dropped: Mutex<BTreeSet<(u64, AgentNumber)>>,
+    /// What each stop stops, in the order sent.
+    sent: watch::Sender<Vec<Stopping>>,
+    answered: watch::Sender<usize>,
 }
 
 impl Stops {
     pub(crate) fn new() -> Self {
         Self(Arc::new(Sent {
-            count: watch::Sender::new(0),
+            sent: watch::Sender::new(Vec::new()),
             answered: watch::Sender::new(0),
-            dropped: Mutex::new(BTreeSet::new()),
         }))
     }
 
@@ -80,29 +111,20 @@ impl Stops {
     pub(crate) fn place(&self) -> Place {
         Place {
             stops: self.clone(),
-            after: *self.0.count.borrow(),
+            after: self.0.sent.borrow().len(),
         }
     }
 
-    /// Counts a stop received now, giving its place: after itself,
-    /// so its number is the count of stops it comes after.
-    pub(crate) fn stop(&self) -> Place {
-        self.0.count.send_modify(|count| *count += 1);
+    /// Keeps a stop of `stopping` received now, giving its place:
+    /// after itself.
+    pub(crate) fn stop(&self, stopping: Stopping) -> Place {
+        self.0.sent.send_modify(|sent| sent.push(stopping));
         self.place()
     }
 
     /// Counts the oldest stop not answered as answered.
     pub(crate) fn answered(&self) {
         self.0.answered.send_modify(|answered| *answered += 1);
-    }
-
-    fn dropped(
-        &self,
-    ) -> MutexGuard<'_, BTreeSet<(u64, AgentNumber)>> {
-        self.0
-            .dropped
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -111,13 +133,21 @@ impl Stops {
 #[derive(Clone)]
 pub(crate) struct Place {
     stops: Stops,
-    after: u64,
+    after: usize,
 }
 
 impl Place {
-    async fn stopped(&self) {
-        let mut count = self.stops.0.count.subscribe();
-        let _ = count.wait_for(|count| *count > self.after).await;
+    /// Resolves once the connection sent a stop of `agent` after the
+    /// request.
+    async fn stopping(&self, agent: AgentNumber) {
+        let mut sent = self.stops.0.sent.subscribe();
+        let _ = sent
+            .wait_for(|sent| {
+                sent[self.after..]
+                    .iter()
+                    .any(|stop| stop.stops(agent))
+            })
+            .await;
     }
 
     /// Resolves once each stop the connection sent before the request
@@ -132,50 +162,34 @@ impl Place {
 
 impl Calls {
     pub(crate) fn new(host: Host) -> Self {
-        Self { host, place: None }
+        Self {
+            host,
+            place: None,
+            stopped: Arc::new(watch::Sender::new(BTreeMap::new())),
+        }
     }
 
     /// These calls, for a request at `place`.
     pub(crate) fn at(&self, place: Place) -> Self {
         Self {
-            host: self.host.clone(),
             place: Some(place),
+            ..self.clone()
         }
     }
 
-    /// Resolves once the connection sent a stop after the request
-    /// these calls are for.
-    pub(crate) async fn stopped(&self) {
-        match &self.place {
-            Some(place) => place.stopped().await,
-            None => std::future::pending().await,
-        }
-    }
-
-    /// Keeps that the stop after the request these calls are for
-    /// dropped its line to `agent`.
-    pub(crate) fn drop_line(&self, agent: AgentNumber) {
-        if let Some(place) = &self.place {
-            place.stops.dropped().insert((place.after + 1, agent));
-        }
-    }
-
-    /// Takes the line to `agent` that the stop these calls are for
-    /// dropped: one, else none.
-    pub(crate) fn take_dropped(&self, agent: AgentNumber) -> u32 {
-        self.place.as_ref().map_or(0, |place| {
-            u32::from(
-                place.stops.dropped().remove(&(place.after, agent)),
-            )
-        })
-    }
-
-    /// Waits before a call's next try; `false` when a stop its
-    /// connection sent after the request came first.
-    async fn pause(&self) -> bool {
+    /// Waits before the next try of a call to `agent`; `false` when a
+    /// stop of `agent` its connection sent after the request came
+    /// first.
+    async fn pause(&self, agent: AgentNumber) -> bool {
+        let stopping = async {
+            match &self.place {
+                Some(place) => place.stopping(agent).await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             () = tokio::time::sleep(AGAIN) => true,
-            () = self.stopped() => false,
+            () = stopping => false,
         }
     }
 
@@ -198,60 +212,73 @@ impl Calls {
         })
     }
 
-    /// Gives the realm the chief's line `say`, sent again with its
-    /// request id until the call's deadline while the realm does not
-    /// take it, as when the agent is cut off, and dropped when a stop
-    /// its connection sent after it comes first.
+    /// Gives the realm the chief's line `say`.
     pub(crate) async fn say(
         &self,
         say: protocol::Say,
-    ) -> Result<Given> {
-        let agent = number(say.to);
-        let realm = address::Realm.address()?;
-        let args = encode_positional(&Say(say))?;
-        let end = Instant::now() + WITHIN;
+    ) -> Result<Said> {
+        Ok(match self.call(&address::Realm, &Say(say)).await? {
+            SayAnswer::Accepted { .. } => Said::Accepted,
+            SayAnswer::Refused {
+                why: SayRefusal::Left { .. },
+            } => Said::Left,
+            SayAnswer::Refused { why } => {
+                Said::Refused(why.to_string())
+            }
+        })
+    }
+
+    /// What became of the line `id` to `agent` that the realm
+    /// accepted: read at once, again after waits from [`FIRST_READ`]
+    /// doubling to [`READ_AT_MOST`], and at once when a stop of
+    /// `agent` is answered.
+    pub(crate) async fn given(
+        &self,
+        agent: AgentNumber,
+        id: &RequestId,
+    ) -> Result<Fate> {
+        let mut stopped = self.stopped.subscribe();
+        let mut wait = FIRST_READ;
         loop {
-            let answer =
-                self.send(&realm, Say::NAME, args.clone()).await?;
-            if let Some(words) = frames::refusal_words(&answer)? {
-                return Ok(Given::Refused(words));
+            let stops = stopped.borrow().get(&agent).copied();
+            match self
+                .call(&address::Realm, &ReadLine(id.clone()))
+                .await?
+            {
+                LineIs::Given => return Ok(Fate::Given),
+                LineIs::Withdrawn => return Ok(Fate::Withdrawn),
+                LineIs::Waiting => {}
             }
-            let taken: SayAnswer =
-                ciborium::from_reader(answer.as_slice())?;
-            if !matches!(taken, SayAnswer::Refused { .. }) {
-                return Ok(Given::Taken);
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                _ = stopped.wait_for(|stopped| {
+                    stopped.get(&agent).copied() != stops
+                }) => {}
             }
-            if Instant::now() >= end {
-                bail!(
-                    "the realm did not take the line within {} s",
-                    WITHIN.as_secs()
-                );
-            }
-            if !self.pause().await {
-                if let Some(agent) = agent {
-                    self.drop_line(agent);
-                }
-                return Ok(Given::Dropped);
-            }
+            wait = (wait * 2).min(READ_AT_MOST);
         }
     }
 
-    /// Stops the running turns of `agent` through the realm, giving
-    /// how many, or one when none ran but the stop dropped a line to
-    /// it.
+    /// Stops `agents` through the realm in one act, giving the turns
+    /// stopped.
     pub(crate) async fn stop(
         &self,
-        agent: AgentNumber,
+        agents: &[AgentNumber],
     ) -> Result<u32> {
         let stopped = self
             .call(
                 &address::Realm,
                 &StopAgents {
-                    agents: vec![agent],
+                    agents: agents.to_vec(),
                 },
             )
             .await?;
-        Ok(stopped.turns.max(self.take_dropped(agent)))
+        self.stopped.send_modify(|stopped| {
+            for agent in agents {
+                *stopped.entry(*agent).or_default() += 1;
+            }
+        });
+        Ok(stopped.turns)
     }
 
     /// Calls the action `name` of the actor at `to` with `args`. An
@@ -289,7 +316,8 @@ impl Calls {
 
     /// Runs `attempt` with the time left until the deadline, again
     /// while it fails as `retried` says, the realm shows the agent at
-    /// `to` and no stop its connection sent after the request came.
+    /// `to` and no stop of it its connection sent after the request
+    /// came.
     async fn again<T, F>(
         &self,
         to: &Address,
@@ -311,26 +339,32 @@ impl Calls {
             };
             let shown = match shown {
                 Some(shown) => shown,
-                None => *shown.insert(self.shows(to).await?),
+                None => *shown.insert(self.shown(to).await?),
             };
-            if !shown {
+            let Some(agent) = shown else {
                 return Err(Refusal::NoOne {
                     address: to.key().to_owned(),
                 }
                 .into());
-            }
-            if !self.pause().await {
+            };
+            if !self.pause(agent).await {
                 return Err(error);
             }
         }
     }
 
-    /// Whether the realm shows the agent at `to` living or being
+    /// The agent at `to`, when the realm shows it living or being
     /// hired.
-    async fn shows(&self, to: &Address) -> Result<bool> {
+    async fn shown(
+        &self,
+        to: &Address,
+    ) -> Result<Option<AgentNumber>> {
         if to.kind() != address::Agent::KIND {
-            return Ok(false);
+            return Ok(None);
         }
+        let Ok(number) = to.key().parse().map(AgentNumber) else {
+            return Ok(None);
+        };
         let answer = self
             .host
             .call_for_client(
@@ -341,10 +375,14 @@ impl Calls {
             )
             .await?;
         let seen: Seen = ciborium::from_reader(answer.as_slice())?;
-        Ok(seen.agents.iter().any(|agent| {
-            agent.agent.0.to_string() == to.key()
-                && !matches!(agent.status, Status::Ended { .. })
-        }))
+        Ok(seen
+            .agents
+            .iter()
+            .any(|agent| {
+                agent.agent == number
+                    && !matches!(agent.status, Status::Ended { .. })
+            })
+            .then_some(number))
     }
 }
 

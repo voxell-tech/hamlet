@@ -1,0 +1,263 @@
+//! A chief's line the door hands to the realm, and the stops that
+//! withdraw it there: a line is the realm's once the door hands it
+//! over, and a stop is one act of the realm.
+
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use hamlet_acceptance::{Client, chat};
+use hamlet_protocol::client::{
+    AgentId, ClientMessage, ItemKind, ReplyKind, Stop, Transcript,
+};
+use hamlet_testing::Scratch;
+use serde_json::json;
+
+use super::{HeldNode, kill_node, said_once_hired, serve, until};
+
+/// Lines to the mayor, each sent with a stop of the Hand right
+/// behind it on the same connection.
+const ROUNDS: usize = 5;
+
+/// What the faux model answers each line the agent runs.
+const ANSWER: &str = "Answered.";
+
+/// A stop's bound with the agent's host frozen: the realm counts the
+/// turns itself after 500 ms, and the rest is the door's two calls of
+/// the realm, a few milliseconds each.
+const FROZEN_BOUND: Duration = Duration::from_secs(1);
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_of_one_agent_leaves_a_line_to_another_on_the_same_connection()
+ {
+    let answers = std::iter::once(json!("Here."))
+        .chain((0..ROUNDS).map(|_| json!(ANSWER)))
+        .collect::<Vec<_>>();
+    let (mut server, _home, _side) = serve(json!(answers)).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.command(hand, "/create-hamlet Docs").await;
+    let founded = until(&server, "the hamlet", |realm| {
+        !realm.hamlets.is_empty()
+    })
+    .await;
+    let mayor = founded.hamlets[0].mayor;
+    said_once_hired(&mut chief, mayor, "Are you hired?").await;
+    for n in 0..ROUNDS {
+        let line = chief.tell(mayor, &format!("Line {n}.")).await;
+        let stop = chief
+            .request(|id| {
+                ClientMessage::Stop(Stop {
+                    agent: Some(hand),
+                    id,
+                })
+            })
+            .await;
+        assert_eq!(
+            (stop.kind, stop.text.as_str()),
+            (ReplyKind::Notice, "Nothing was running."),
+            "round {n}"
+        );
+        let reply = chief.reply(&line).await;
+        assert_eq!(
+            (reply.kind, reply.text.as_str()),
+            (ReplyKind::Notice, ""),
+            "round {n}"
+        );
+    }
+    let page = chief.open(&chat(mayor)).await;
+    for n in 0..ROUNDS {
+        assert_eq!(
+            shown(&page, &format!("Line {n}.")),
+            1,
+            "{page:?}"
+        );
+    }
+    assert_eq!(
+        answers_in(&page).len(),
+        ROUNDS + 1,
+        "each line to the mayor ran: {page:?}"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// The Node host started again answers from the faux model's first
+/// answer again, so each line that runs is answered [`ANSWER`].
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_a_stop_withdrew_is_answered_and_never_runs() {
+    let held = HeldNode::new();
+    let (mut server, home, _side) = held.serve(json!([ANSWER])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
+    kill_node(&home).await;
+    let line = chief.tell(hand, "Are you there?").await;
+    let stop = chief.tell(hand, "/stop").await;
+    let after = chief.tell(hand, "Hello again.").await;
+    let stopped = chief.reply(&stop).await;
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 1 running turns.")
+    );
+    let reply = chief.reply(&line).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "")
+    );
+    held.release();
+    let reply = chief.reply(&after).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "")
+    );
+    let page = chief.open(&chat(hand)).await;
+    assert_eq!(shown(&page, "Are you there?"), 1, "{page:?}");
+    assert_eq!(
+        answers_in(&page),
+        [ANSWER, ANSWER],
+        "only the lines said before the host ended and after the \
+         stop ran: {page:?}"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// The faux model takes 2 s over each answer, so a line the frozen
+/// host admitted before the stop reached it would be answered in the
+/// chat by the time the line after the thaw is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_is_answered_within_a_second_with_the_host_frozen() {
+    let slow = json!({ "text": ANSWER, "waitMs": 2_000 });
+    let (mut server, home, _side) =
+        serve(json!(["Up.", slow, slow])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Are you up?").await;
+    let frozen = Frozen::node(&home);
+    let line = chief.tell(hand, "Wait for me.").await;
+    let sent = Instant::now();
+    let stopped = chief
+        .request(|id| {
+            ClientMessage::Stop(Stop {
+                agent: Some(hand),
+                id,
+            })
+        })
+        .await;
+    let took = sent.elapsed();
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 1 running turns.")
+    );
+    assert!(took < FROZEN_BOUND, "the stop took {took:?}");
+    let reply = chief.reply(&line).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, ""),
+        "the line is answered while the host is still frozen"
+    );
+    drop(frozen);
+    let back = chief.say(hand, "Hello again.").await;
+    assert_eq!(back.kind, ReplyKind::Notice, "{}", back.text);
+    let page = chief.open(&chat).await;
+    assert_eq!(shown(&page, "Wait for me."), 1, "{page:?}");
+    assert_eq!(
+        answers_in(&page),
+        ["Up.", ANSWER],
+        "the stopped line has no answer: {page:?}"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// Each line that runs is answered [`ANSWER`], as in
+/// [`a_line_a_stop_withdrew_is_answered_and_never_runs`].
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_from_another_connection_withdraws_the_line() {
+    let held = HeldNode::new();
+    let (mut server, home, _side) = held.serve(json!([ANSWER])).await;
+    let mut chief = Client::join(&server).await;
+    let mut other = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
+    kill_node(&home).await;
+    let line = chief.tell(hand, "Are you there?").await;
+    // Answered in its turn, so after the realm has the line.
+    let marker = chief.say(AgentId(u64::MAX), "No one.").await;
+    assert_eq!(marker.kind, ReplyKind::Error, "{}", marker.text);
+    let stopped = other
+        .request(|id| {
+            ClientMessage::Stop(Stop {
+                agent: Some(hand),
+                id,
+            })
+        })
+        .await;
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 1 running turns.")
+    );
+    let reply = chief.reply(&line).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "")
+    );
+    held.release();
+    let back = chief.say(hand, "Hello again.").await;
+    assert_eq!(back.kind, ReplyKind::Notice, "{}", back.text);
+    let page = chief.open(&chat(hand)).await;
+    assert_eq!(shown(&page, "Are you there?"), 1, "{page:?}");
+    assert_eq!(answers_in(&page), [ANSWER, ANSWER], "{page:?}");
+    other.close().await;
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// How many items of `page` show `text`.
+fn shown(page: &Transcript, text: &str) -> usize {
+    page.items.iter().filter(|item| item.text == text).count()
+}
+
+/// The model's answers in `page`.
+fn answers_in(page: &Transcript) -> Vec<&str> {
+    page.items
+        .iter()
+        .filter(|item| item.kind == ItemKind::Assistant)
+        .map(|item| item.text.as_str())
+        .collect()
+}
+
+/// The server's Node host, stopped by SIGSTOP until dropped.
+struct Frozen(String);
+
+impl Frozen {
+    fn node(home: &Scratch) -> Self {
+        let pid = std::fs::read_to_string(home.join("demo-node.pid"))
+            .unwrap()
+            .trim()
+            .to_owned();
+        signal("STOP", &pid);
+        Self(pid)
+    }
+}
+
+impl Drop for Frozen {
+    fn drop(&mut self) {
+        signal("CONT", &self.0);
+    }
+}
+
+fn signal(name: &str, pid: &str) {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "it signals the server's Node host, not an agent's \
+                  command"
+    )]
+    let sent = Command::new("kill")
+        .args([&format!("-{name}"), pid])
+        .status()
+        .unwrap();
+    assert!(sent.success(), "kill -{name} {pid}");
+}

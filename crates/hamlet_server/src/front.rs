@@ -36,7 +36,7 @@ use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
 use self::call::{
-    Calls, Given, Place, Stops, failed, failure, server_failed,
+    Calls, Fate, Place, Said, Stops, failed, failure, server_failed,
 };
 use self::commands::Outcome;
 use self::host::HAND;
@@ -279,6 +279,7 @@ impl Door {
             &mut self.connections,
         );
         self.clients.insert(id, client);
+        self.hub.join(id);
     }
 
     fn connection(&mut self, event: Event) -> Result<()> {
@@ -405,9 +406,9 @@ impl Door {
                 let job = self.ask_in_turn(client).command(asked);
                 self.in_turn(client, job);
             }
-            Route::Stop(asked) => {
+            Route::Stop(asked, stopping) => {
                 let stops = self.queue(client).stops.clone();
-                let asker = self.ask_at(client, stops.stop());
+                let asker = self.ask_at(client, stops.stop(stopping));
                 self.in_turn(client, async move {
                     asker.command(asked).await;
                     stops.answered();
@@ -830,37 +831,48 @@ impl Asker {
         }
     }
 
-    /// Gives the realm a chief's line to `agent` once the hub follows
-    /// its chat, unless a stop the connection sent after it comes
-    /// first.
+    /// Gives the realm a chief's line to `agent`, and reads what
+    /// became of it outside the connection's turn while its reply is
+    /// owed.
     async fn line(&self, say: protocol::Say, agent: AgentNumber) {
         let id = say.id.clone();
-        let held = self.hub.owe(self.client, agent, &id);
+        let owed = self.hub.owe(self.client, agent, &id);
+        let said = self.calls.say(say).await;
+        let Some(held) = owed else {
+            return;
+        };
         let settle = |message| {
             self.hub.settle(agent, self.client, &id, message);
         };
-        tokio::select! {
-            biased;
-            () = self.calls.stopped() => {
-                self.calls.drop_line(agent);
-                settle(ended_line(&id));
-                return;
+        match said {
+            Ok(Said::Accepted) => {
+                let (calls, hub) =
+                    (self.calls.clone(), self.hub.clone());
+                let (client, line) = (self.client, id.clone());
+                let reading = tokio::spawn(async move {
+                    let message =
+                        match calls.given(agent, &line).await {
+                            Ok(Fate::Given) => {
+                                if held.await.is_ok() {
+                                    hub.taken(client, agent, &line)
+                                        .await;
+                                }
+                                return;
+                            }
+                            Ok(Fate::Withdrawn) => ended_line(&line),
+                            Err(error) => failed(&line, &error),
+                        };
+                    hub.settle(agent, client, &line, message);
+                });
+                self.hub.reading(
+                    self.client,
+                    agent,
+                    &id,
+                    reading.abort_handle(),
+                );
             }
-            held = held => {
-                if held.is_err() {
-                    return;
-                }
-            }
-        }
-        match self.calls.say(say).await {
-            Ok(Given::Taken) => {
-                let stopped = self.calls.stopped();
-                self.hub
-                    .taken(self.client, agent, &id, stopped)
-                    .await;
-            }
-            Ok(Given::Dropped) => settle(ended_line(&id)),
-            Ok(Given::Refused(words)) => {
+            Ok(Said::Left) => settle(ended_line(&id)),
+            Ok(Said::Refused(words)) => {
                 settle(reply(&id, Err(Refusal::Usage { words })));
             }
             Err(error) => settle(failed(&id, &error)),
