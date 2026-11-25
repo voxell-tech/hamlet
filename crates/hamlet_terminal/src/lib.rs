@@ -1,4 +1,5 @@
-//! The Terminal panels, each showing one terminal beside a list of
+//! The Terminal panel: terminals of the realm's machines and agents'
+//! command logs, each panel showing one terminal beside a list of
 //! them.
 
 mod carry;
@@ -30,28 +31,30 @@ use bevy::ui::widget::Text;
 use bevy::ui::{
     AlignItems, Outline, Overflow, PositionType, UiRect, percent, px,
 };
-use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
+use hamlet_core::client::outbox::RequestId;
+use hamlet_core::client::terminals::{
+    self, TerminalId, TerminalOpened, Watched,
+};
+use hamlet_core::fynix::dock::{DockTab, DockTree, DockWindowKind};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, row,
 };
-use bevy_fynix::{
+use hamlet_core::fynix::{
     ScopedExt, Theme, ViewExt, derived, every_frame, keyed,
 };
-use hamlet_client::outbox::RequestId;
-use hamlet_client::terminals::{
-    self, TerminalId, TerminalOpened, Watched,
-};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::panels::{
-    PanelAppExt, ShowPanel, flush_panel, number, on_a_desk,
+    DeskCapture, PanelAppExt, ShowPanel, flush_panel, number,
+    on_a_desk,
 };
-use hamlet_ui::styles::{
+use hamlet_core::ui::styles::{
     Fills, ICON, caption, description, link_row, note,
 };
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_core::ui::theme::HamletTheme;
+use hamlet_core::ui::widgets::icons::{Glyph, glyph};
+use hamlet_core::ui::{AnyView, View, with_cx};
 
 use self::list::Listed;
 pub use self::pick::{open_menu, pin, show_menu};
@@ -65,6 +68,7 @@ pub const PANEL: &str = "terminal";
 
 pub fn plugin(app: &mut App) {
     app.add_numbered_panel(PANEL, window)
+        .add_overlay(30, || open_menu().boxed())
         .init_resource::<Panels>()
         .init_resource::<Handing>()
         .init_resource::<Opening>()
@@ -79,7 +83,7 @@ pub fn plugin(app: &mut App) {
                 (
                     forget_closed
                         .run_if(resource_changed::<DockTree>)
-                        .after(crate::desk::capture),
+                        .after(DeskCapture),
                     hand_keys,
                     keep_watching,
                     screen::draw,
@@ -810,7 +814,7 @@ fn body(panel: &PanelId) -> impl View + use<> {
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::client as protocol;
+    use hamlet_core::protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
@@ -855,7 +859,7 @@ mod tests {
 
     /// A dock of one area holding the Terminal panels `ids`.
     fn dock(app: &mut App, ids: &[&str]) {
-        use bevy_fynix::dock::{DockAreaStyle, DockLeaf};
+        use hamlet_core::fynix::dock::{DockAreaStyle, DockLeaf};
 
         app.world_mut().resource_mut::<DockTree>().set_root_leaf(
             DockLeaf::new("low", DockAreaStyle::TabBar).with_windows(
@@ -867,9 +871,9 @@ mod tests {
     #[test]
     fn a_panel_shows_what_it_had_or_is_to_show_again_and_never_takes_one_of_itself()
      {
-        let mut app = crate::testing::panel_app();
+        let mut app = hamlet_core::testing::panel_app();
         let terminals = |ids: &[&str]| {
-            let mut state = hamlet_testing::realm::state();
+            let mut state = hamlet_core::testing::realm::state();
             state.revision = 1;
             state.terminals = ids
                 .iter()
@@ -877,11 +881,12 @@ mod tests {
                 .collect();
             protocol::ServerMessage::State(state)
         };
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             terminals(&["t1", "t2", "t3"]),
         );
-        app.init_resource::<Panels>()
+        app.init_resource::<DockTree>()
+            .init_resource::<Panels>()
             .init_resource::<Shown>()
             .init_resource::<Folds>()
             .init_resource::<Pins>()
@@ -928,7 +933,7 @@ mod tests {
             ])
         );
         // A terminal closed leaves its panel showing none.
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             terminals(&["t1", "t3"]),
         );

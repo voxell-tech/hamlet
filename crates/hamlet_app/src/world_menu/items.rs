@@ -10,9 +10,10 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, menu_item, row,
 };
 use hamlet_client::realm::{
-    self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
-    Left, LivesIn,
+    self as agents, Actions, Busy, HamletId, Kind, Lead, Left,
+    LivesIn,
 };
+use hamlet_core::menus::ThingItems;
 use hamlet_core::orders::{self, CarryHouse, CarryLibrary};
 use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
 use hamlet_core::toasts::WatchRequest;
@@ -25,7 +26,6 @@ use super::action::Action;
 use super::{close, restore, stop};
 use crate::profile_tag::ProfileTag;
 use crate::reference::agent_chip;
-use crate::screens::terminal::{Pins, pin};
 
 /// A living agent of a hamlet that is not its lead.
 fn plain_agent(world: &World, thing: Thing) -> Option<Entity> {
@@ -199,25 +199,21 @@ fn channel(world: &World, agent: Entity) -> Option<AnyView> {
     })
 }
 
-/// Pins `agent`'s command log to the Terminal list, or lets it go.
-fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
-    let id = world.get::<Identity>(agent)?.0;
-    let logged = world
-        .try_query::<&hamlet_client::terminals::Terminal>()?
-        .iter(world)
-        .any(|t| {
-            t.0.kind == protocol::TerminalKind::Commands
-                && t.0.agent == Some(id)
-        });
-    let key = format!("agent#{}", id.0);
-    let pinned = world.get_resource::<Pins>()?.0.contains(&key);
-    logged.then(|| {
-        let (which, text) = match pinned {
-            true => (Glyph::Pinned, "Unpin Bash"),
-            false => (Glyph::Pin, "Pin Bash"),
-        };
-        item(which, Tone::Info, text, move |world| pin(world, &key))
-    })
+/// The items the parts add to the menu of `thing`.
+fn from_parts(world: &World, thing: Thing) -> Vec<AnyView> {
+    let Some(producers) = world.get_resource::<ThingItems>() else {
+        return Vec::new();
+    };
+    producers
+        .iter()
+        .filter_map(|make| make(world, thing))
+        .map(|added| {
+            let act = added.act;
+            item(added.glyph, added.tone, added.text, move |world| {
+                act(world);
+            })
+        })
+        .collect()
 }
 
 /// Stops `agent`, telling the chief so in a toast headed `head`.
@@ -246,7 +242,7 @@ fn for_lead(world: &World) -> Vec<AnyView> {
         if let Some(add) = add_under(world, lead) {
             items.insert(0, add);
         }
-        items.extend(pin_bash(world, lead));
+        items.extend(from_parts(world, Thing::Agent(lead)));
     }
     items
 }
@@ -274,7 +270,7 @@ fn for_agent(
 ) -> Vec<AnyView> {
     let mut items = Vec::from_iter(add_under(world, agent));
     items.extend(channel(world, agent));
-    items.extend(pin_bash(world, agent));
+    items.extend(from_parts(world, thing));
     if world.get::<Busy>(agent).is_some() {
         let head =
             format!("Stopped {}", agents::shown_of(world, agent));

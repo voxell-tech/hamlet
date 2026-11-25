@@ -8,7 +8,6 @@ mod memory;
 mod papers;
 mod rail;
 
-pub(crate) use self::rail::guides;
 mod profile;
 pub(crate) mod thread;
 mod visits;
@@ -40,7 +39,8 @@ use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::Connection;
 use hamlet_client::realm::{HamletId, Left, Seen};
 use hamlet_core::panels::{
-    PanelAppExt, PanelSystems, ShowPanel, highlight_panel, number,
+    DeskCapture, PanelAppExt, PanelSystems, ShowPanel,
+    highlight_panel, number,
 };
 use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
@@ -88,7 +88,7 @@ pub fn plugin(app: &mut App) {
                     .run_if(resource_changed::<DockTree>.or_else(
                         resource_exists_and_changed::<Desks>,
                     ))
-                    .after(crate::desk::capture),
+                    .after(DeskCapture),
                 note_collapsed,
                 thread::leave_prompt,
                 // Cheap when nothing changed, and it follows the

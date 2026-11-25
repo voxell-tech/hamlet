@@ -12,23 +12,23 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
-use bevy_fynix::views::{FrameProps, label, row};
-use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_client::messages::Response;
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::Settings;
-use hamlet_protocol::client::{
+use hamlet_core::client::messages::Response;
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::Settings;
+use hamlet_core::fynix::views::{FrameProps, label, row};
+use hamlet_core::fynix::{ViewExt, keyed, resource};
+use hamlet_core::protocol::client::{
     self as protocol, McpAct, McpEntry, McpFound, McpServerView,
     McpState,
 };
-use hamlet_ui::styles::{
+use hamlet_core::ui::styles::{
     Fills, action, bad_action, bare, beside, close, description,
     good_action, group, list, note, pill,
 };
-use hamlet_ui::widgets::forms::{self, Asking, OpenForm};
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::switch::labelled_switch;
-use hamlet_ui::{AnyView, View};
+use hamlet_core::ui::widgets::forms::{self, Asking, OpenForm};
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::switch::labelled_switch;
+use hamlet_core::ui::{AnyView, View};
 
 const SERVER: Asking = Asking::named("mcp-server");
 const PASTE: Asking = Asking::named("mcp-paste");

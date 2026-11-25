@@ -11,11 +11,13 @@ use bevy::picking::events::{
 };
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::MotionTokens;
-use bevy_fynix::views::{self, Axis, BehaviorExt};
-use bevy_fynix::{Dragging, OverrideCursor, ScopedExt, style};
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::{Cx, View};
+use hamlet_core::fynix::tokens::MotionTokens;
+use hamlet_core::fynix::views::{self, Axis, BehaviorExt};
+use hamlet_core::fynix::{
+    Dragging, OverrideCursor, ScopedExt, style,
+};
+use hamlet_core::ui::theme::HamletTheme;
+use hamlet_core::ui::{Cx, View};
 
 use super::{Edge, PanelId, Panels};
 

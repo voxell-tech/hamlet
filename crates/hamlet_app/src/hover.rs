@@ -25,12 +25,13 @@ use bevy::ui::{
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, label, overlay};
-use bevy_fynix::{ScopedExt, resource};
+use bevy_fynix::{ScopedExt, ViewExt, resource};
 use hamlet_client::realm::{
     Account, Activity, Busy, HamletAgent, Lead, Left, LivesIn,
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::pick::{Following, Hovered, Thing};
 use hamlet_core::roll::Roll;
 use hamlet_core::standing::Standing;
@@ -71,6 +72,7 @@ type Living<'a> =
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Card>()
         .init_resource::<Resting>()
+        .add_overlay(90, || view().boxed())
         .add_systems(Update, (describe, place).chain());
 }
 

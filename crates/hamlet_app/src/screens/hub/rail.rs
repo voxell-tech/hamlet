@@ -3,7 +3,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use bevy::app::{App, PostUpdate, Update};
-use bevy::color::Color;
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -50,8 +49,8 @@ use hamlet_core::standing::{Standing, need_you};
 use hamlet_core::words;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, STATUS_PAD, note, scroll_area, status_icon_at, text_input,
-    transparent,
+    CHEVRON, ICON, STATUS_PAD, STEP_IN, note, scroll_area,
+    status_icon_at, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
@@ -95,12 +94,6 @@ const AGE_TEXT: f32 = 12.0;
 
 /// How opaque the icon of one that left is.
 const DIMMED: f32 = 0.6;
-
-/// The column at the rail's edge that holds every chevron.
-const CHEVRON: f32 = 14.0;
-
-/// How far each step down a tree is set in.
-const STEP_IN: f32 = 18.0;
 
 /// The deepest a row is set in; deeper rows line up with it.
 const DEEPEST: u8 = 6;
@@ -1858,49 +1851,6 @@ fn washed(shown: impl View + 'static, held: bool) -> impl View {
             .min_width(px(0.0))
             .radius(cx.theme().space.round)
             .tagged(Wash::new(held, Edge::Left))
-    })
-}
-
-/// The tree lines before a nested row `height` tall.
-pub(crate) fn guides(
-    rails: Vec<bool>,
-    last: bool,
-    height: f32,
-) -> impl View {
-    with_cx(move |cx| {
-        let colour = cx.theme().palette.hairline;
-        let half = height / 2.0;
-        let column_of = |top: bool, bottom: bool, across: bool| {
-            let bar = |on: bool| {
-                frame().width(px(1.0)).height(px(half)).fill(if on {
-                    colour
-                } else {
-                    Color::NONE
-                })
-            };
-            row((
-                frame().width(px(CHEVRON / 2.0)),
-                column((bar(top), bar(bottom))).gap(0.0),
-                column((frame()
-                    .width(px(STEP_IN - CHEVRON / 2.0 - 1.0))
-                    .height(px(1.0))
-                    .fill(if across {
-                        colour
-                    } else {
-                        Color::NONE
-                    }),))
-                .height(px(height))
-                .justify(JustifyContent::Center),
-            ))
-            .gap(0.0)
-            .boxed()
-        };
-        let mut parts = rails
-            .iter()
-            .map(|on| column_of(*on, *on, false))
-            .collect::<Vec<_>>();
-        parts.push(column_of(true, !last, true));
-        row(parts).gap(0.0)
     })
 }
 

@@ -19,7 +19,7 @@ use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{HamletAgent, HamletId, Left};
-use hamlet_core::panels::PanelSystems;
+use hamlet_core::panels::{DeskCapture, PanelSystems};
 use hamlet_core::pick::{Selected, Thing, select};
 use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
@@ -33,9 +33,8 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::appearance::{Appearance, Pick, Zoom};
-use crate::desk::{self, Desks, Part};
+use crate::desk::{Desks, Part};
 use crate::hub;
-use crate::screens::terminal;
 use crate::updates::UpdateChannel;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
@@ -78,7 +77,7 @@ pub(crate) fn plugin(app: &mut App) {
                 keep,
             )
                 .chain()
-                .after(desk::capture),
+                .after(DeskCapture),
         );
 }
 
@@ -372,9 +371,10 @@ pub fn restore(world: &mut World) {
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
-    world.insert_resource(terminal::Restoring(view.terminals));
-    world.insert_resource(terminal::Folds(view.terminal_folds));
-    world.insert_resource(terminal::Pins(view.terminal_pins));
+    world.insert_resource(hamlet_terminal::Restoring(view.terminals));
+    world
+        .insert_resource(hamlet_terminal::Folds(view.terminal_folds));
+    world.insert_resource(hamlet_terminal::Pins(view.terminal_pins));
     world.insert_resource(hub::CollapsedRails(view.collapsed_rails));
 }
 
@@ -424,9 +424,9 @@ pub fn keep(
         Res<NorthTarget>,
         Res<Favorites>,
         Res<LastSide>,
-        Res<terminal::Shown>,
-        Res<terminal::Folds>,
-        Res<terminal::Pins>,
+        Res<hamlet_terminal::Shown>,
+        Res<hamlet_terminal::Folds>,
+        Res<hamlet_terminal::Pins>,
     ),
     (fog, far, wind, appearance, zoom, rails, channel): (
         Res<VolumetricFogSettings>,
@@ -519,6 +519,7 @@ mod tests {
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
+    use crate::desk;
 
     fn dock() -> DockTree {
         let mut tree = DockTree::new();

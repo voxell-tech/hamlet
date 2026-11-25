@@ -12,9 +12,9 @@ mod folder;
 mod hover;
 pub mod lists;
 mod markdown;
-pub mod mcp;
 pub mod menu;
 mod naming;
+pub mod pages;
 mod profile_tag;
 mod reference;
 mod remember;
@@ -49,9 +49,7 @@ pub use self::desk::still as desk_still;
 pub use self::dock::register_numbered;
 pub use self::remember::Remembered;
 pub use self::root::layout;
-pub use self::screens::{
-    chat, hub, links, overview, pictures, settings, terminal, wait,
-};
+pub use self::screens::{chat, hub, links, overview, pictures, wait};
 pub use self::window::window_plugin;
 
 /// The app's panels.
@@ -77,7 +75,8 @@ impl Plugin for UiPlugin {
                 screens::plugin,
                 chief::plugin,
                 folder::plugin,
-                mcp::plugin,
+                hamlet_settings::plugin,
+                pages::plugin,
                 asking::plugin,
                 select::plugin,
                 welcome::plugin,

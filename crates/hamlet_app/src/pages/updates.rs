@@ -6,13 +6,14 @@ use bevy::ecs::world::World;
 use bevy_fynix::views::label;
 use bevy_fynix::{Prop, ViewExt, derived, keyed};
 use hamlet_core::roll::{either, moved};
-use hamlet_core::settings::{SettingsAppExt, SettingsPage};
+use hamlet_core::settings::{
+    SettingsAppExt, SettingsPage, alone, field, shown, told,
+};
 use hamlet_ui::styles::{description, parts, segmented_words};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View};
 use hamlet_update::Channel;
 
-use super::{alone, field, shown, told};
 use crate::updates::{UpdateChannel, Updates};
 
 pub(super) fn plugin(app: &mut App) {

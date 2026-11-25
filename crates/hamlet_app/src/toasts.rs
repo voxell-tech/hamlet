@@ -37,6 +37,7 @@ use hamlet_client::realm::{
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_core::models::{Shelf, model_title};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_core::panels::{PanelSystems, is_in_front};
 use hamlet_core::standing::Standing;
 use hamlet_core::toasts::WatchRequest;
@@ -82,6 +83,7 @@ const HAND: &str = "hand";
 pub fn plugin(app: &mut App) {
     app.init_resource::<Toasts>()
         .init_resource::<Decreed>()
+        .add_overlay(10, || stack().boxed())
         .add_observer(answered)
         .add_observer(failed)
         .add_observer(responded)

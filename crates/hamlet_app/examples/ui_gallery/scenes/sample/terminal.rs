@@ -6,9 +6,9 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
-use hamlet_app::terminal::{PanelId, Panels, Pins, show, show_menu};
 use hamlet_client::terminals::{self, TerminalScreen, TerminalView};
 use hamlet_protocol::client as protocol;
+use hamlet_terminal::{PanelId, Panels, Pins, show, show_menu};
 use serde_json::json;
 
 use crate::scenes::Scene;

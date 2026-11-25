@@ -14,6 +14,7 @@ pub mod limits;
 pub mod menus;
 pub mod models;
 pub mod orders;
+pub mod overlays;
 pub mod paints;
 pub mod panels;
 pub mod pick;
@@ -46,6 +47,7 @@ pub fn plugin(app: &mut App) {
         limits::plugin,
         menus::plugin,
         models::plugin,
+        overlays::plugin,
         paints::plugin,
         panels::plugin,
         pick::plugin,

@@ -5,9 +5,11 @@ use std::path::PathBuf;
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::math::UVec2;
 use bevy_fynix::dock::{DockRegistry, DockTree};
 use hamlet_client::ViewFolder;
+use hamlet_core::panels::DeskCapture;
 use hamlet_core::pick::Selected;
 use hamlet_core::roll::Roll;
 use hamlet_core::settings::SettingsPane;
@@ -25,7 +27,6 @@ use image::{ImageFormat, RgbaImage};
 use crate::appearance::Appearance;
 use crate::desk::{self, Desks};
 use crate::remember::Remembered;
-use crate::screens::settings;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
@@ -89,14 +90,15 @@ pub(crate) fn welcome_app() -> App {
 pub(crate) fn settings_page(pane: Option<&'static str>) -> App {
     let mut app = panel_app();
     app.add_plugins((
-        settings::plugin,
+        hamlet_settings::plugin,
+        crate::pages::plugin,
         hamlet_ui::widgets::secret::plugin,
     ))
     .init_resource::<KeepAwake>()
     .insert_resource(SettingsPane(pane));
     bevy_fynix::mount::<HamletTheme>(
         app.world_mut(),
-        settings::screen(),
+        hamlet_settings::screen(),
     );
     settle(&mut app);
     app
@@ -123,12 +125,12 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<Appearance>()
         .init_resource::<Remembered>()
         .init_resource::<desk::Shown>()
-        .init_resource::<crate::screens::terminal::Shown>()
-        .init_resource::<crate::screens::terminal::Folds>()
-        .init_resource::<crate::screens::terminal::Pins>()
+        .init_resource::<hamlet_terminal::Shown>()
+        .init_resource::<hamlet_terminal::Folds>()
+        .init_resource::<hamlet_terminal::Pins>()
         .init_resource::<crate::hub::CollapsedRails>()
         .init_resource::<crate::updates::UpdateChannel>()
-        .add_systems(Update, desk::capture)
+        .add_systems(Update, desk::capture.in_set(DeskCapture))
         .add_plugins(crate::remember::plugin);
 }
 

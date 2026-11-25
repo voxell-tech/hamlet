@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The Settings panel and its pages"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+bevy = { workspace = true, features = ["bevy_ui"] }
+
+[dev-dependencies]
+hamlet_core = { workspace = true, features = ["testing"] }
+bevy = { workspace = true, features = ["bevy_asset", "bevy_input_focus", "bevy_text", "bevy_ui_widgets"] }
+serde_json.workspace = true

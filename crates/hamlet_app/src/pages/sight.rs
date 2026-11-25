@@ -17,7 +17,9 @@ use bevy_fynix::{
     Binding, Prop, ViewExt, derived, every_frame, resource,
 };
 use hamlet_core::roll::moved;
-use hamlet_core::settings::{SettingsAppExt, SettingsPage};
+use hamlet_core::settings::{
+    SettingsAppExt, SettingsPage, alone, field, shown,
+};
 use hamlet_realm::pick::Orbit;
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, SkySettings, VolumetricFogSettings,
@@ -32,7 +34,6 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, built, with_cx};
 use hamlet_vfx::wind::WindChoice;
 
-use super::{alone, field, shown};
 use crate::window::{self, FrameCap, Vsync};
 use crate::world_view::{NorthTarget, TimeOfDay};
 

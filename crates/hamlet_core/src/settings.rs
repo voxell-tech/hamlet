@@ -6,11 +6,16 @@ use bevy::ecs::event::Event;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, ResMut};
-use bevy_fynix::Prop;
-use hamlet_ui::AnyView;
+use bevy::ecs::world::World;
+use bevy::ui::AlignItems;
+use bevy_fynix::views::{FrameProps, column};
+use bevy_fynix::{Prop, derived};
+use hamlet_ui::styles::{close, section};
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::panels::ShowPanel;
+use crate::roll::moved;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<SettingsPages>()
@@ -127,4 +132,34 @@ fn open(
 ) {
     pane.0 = open.0;
     commands.trigger(ShowPanel(PANEL.into()));
+}
+
+/// A part of a page: its name over `value`.
+pub fn field(name: &'static str, value: impl View) -> impl View {
+    close((section(name), value))
+}
+
+/// What `read` makes of `R`, or nothing while there is no `R`.
+pub fn shown<R: Resource>(
+    read: impl Fn(&R) -> String + Send + Sync + 'static,
+) -> Prop<String> {
+    derived(move |world: &World| {
+        world.get_resource::<R>().map(&read).unwrap_or_default()
+    })
+    .when(moved::<R>())
+    .into()
+}
+
+/// A setting's switch or field, and under it its words.
+pub fn told(control: impl View, words: impl View) -> impl View {
+    with_cx(move |cx| {
+        column((control, words))
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::FlexStart)
+    })
+}
+
+/// A setting's control alone, as wide as itself.
+pub fn alone(control: impl View) -> impl View {
+    column((control,)).align(AlignItems::FlexStart)
 }

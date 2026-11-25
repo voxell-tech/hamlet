@@ -46,6 +46,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, RichField, frame, overlay, row,
 };
 use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
+use hamlet_core::overlays::OverlayAppExt;
 use hamlet_ui::View;
 use hamlet_ui::markdown::{Area, AtomWords};
 use hamlet_ui::styles::{Looks, marked};
@@ -73,6 +74,7 @@ const RESERVE: char = '\u{a0}';
 pub fn plugin(app: &mut App) {
     app.init_resource::<Selecting>()
         .init_resource::<LastClick>()
+        .add_overlay(40, || quote_button().boxed())
         .add_observer(press)
         .add_observer(release)
         .add_observer(drag)

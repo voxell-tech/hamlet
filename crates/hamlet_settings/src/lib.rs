@@ -1,8 +1,11 @@
-//! The settings screen, a page for each part.
+//! The Settings panel and the pages it has of its own: endpoints,
+//! models, MCP servers, agent behaviour, workspace, charter and
+//! realm limits. The window's other parts add their own pages with
+//! [`hamlet_core::settings::SettingsAppExt::add_settings_page`].
 
-pub mod appearance;
-pub mod sight;
-mod updates;
+pub mod mcp;
+#[cfg(test)]
+mod testing;
 mod visits;
 pub mod workspace;
 
@@ -14,51 +17,50 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
-use bevy::ui::{AlignItems, Overflow, OverflowAxis, percent, px};
-use bevy_fynix::dock::DockWindowKind;
-use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
-};
-use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
-    label, number_field, row, scroll, slider,
-};
-use bevy_fynix::{
-    Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
-};
-use hamlet_client::messages::{Reconnected, Response};
-use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::{
+use bevy::ui::{AlignItems, Overflow, OverflowAxis, px};
+use hamlet_core::client::messages::{Reconnected, Response};
+use hamlet_core::client::outbox::Outbox;
+use hamlet_core::client::realm::{
     Confinement, Grants, Providers, Settings,
 };
 use hamlet_core::confirm::Confirm;
+use hamlet_core::desktop::awake::KeepAwake;
+use hamlet_core::desktop::editor::{Edit, Edited};
+use hamlet_core::fynix::dock::DockWindowKind;
+use hamlet_core::fynix::shortcut::{
+    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
+};
+use hamlet_core::fynix::tokens::Tone;
+use hamlet_core::fynix::views::{
+    BehaviorExt, FrameProps, TooltipExt, column, dropdown, frame,
+    label, number_field, row, scroll,
+};
+use hamlet_core::fynix::{
+    Binding, Prop, ScopedExt, ViewExt, derived, keyed, resource,
+};
 use hamlet_core::menus::{MenuAppExt, MenuItem};
 use hamlet_core::orders::Decree;
 use hamlet_core::panels::{PanelAppExt, ShowPanel, panel};
+use hamlet_core::protocol::{Effort, client as protocol};
 use hamlet_core::roll::{either, moved};
 use hamlet_core::saving::Saving;
 use hamlet_core::settings::{
     ENDPOINTS, MODELS, PANEL, SettingsAppExt, SettingsPage,
-    SettingsPages, SettingsPane,
+    SettingsPages, SettingsPane, field, shown, told,
 };
-use hamlet_core::welcome::{OpenProjects, OpenWelcome};
-use hamlet_desktop::awake::KeepAwake;
-use hamlet_desktop::editor::{Edit, Edited};
-use hamlet_protocol::{Effort, client as protocol};
-use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::styles::{
+use hamlet_core::ui::styles::{
     Fills, ICON, action, bad_action, bare, beside, breadcrumb,
     buttons, close, description, filling, list, nav_list, note,
-    parts, pill, section, small_rules, text_input, title, valued_row,
+    parts, pill, small_rules, text_input, title, valued_row,
 };
-use hamlet_ui::widgets::edges::faded;
-use hamlet_ui::widgets::ellipsis::cut;
-use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::widgets::keys::Keys;
-use hamlet_ui::widgets::lasting::Lasting;
-use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, View, built, with_cx};
+use hamlet_core::ui::widgets::edges::faded;
+use hamlet_core::ui::widgets::ellipsis::cut;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::widgets::keys::Keys;
+use hamlet_core::ui::widgets::lasting::Lasting;
+use hamlet_core::ui::widgets::switch::switch;
+use hamlet_core::ui::{AnyView, View, built, with_cx};
+use hamlet_core::welcome::{OpenProjects, OpenWelcome};
 
 /// The keys that bring Settings forward.
 const KEYS: Chord = Keys::new(KeyCode::Comma).primary().chord();
@@ -86,13 +88,7 @@ pub fn plugin(app: &mut App) {
         })
         .keys(KEYS),
     )
-    .add_plugins((
-        sight::plugin,
-        workspace::plugin,
-        appearance::plugin,
-        updates::plugin,
-        visits::plugin,
-    ))
+    .add_plugins((mcp::plugin, visits::plugin, workspace::plugin))
     // Each provider's limits are under it, filled by
     // `hamlet_core::plans::plugin`.
     .init_resource::<hamlet_core::plans::Plans>()
@@ -141,7 +137,7 @@ pub fn plugin(app: &mut App) {
             "MCP Servers",
             Glyph::Bolt,
             30,
-            || crate::mcp::page().boxed(),
+            || mcp::page().boxed(),
         )
         .now(mcp_now),
     )
@@ -177,18 +173,7 @@ pub fn plugin(app: &mut App) {
         Glyph::Globe,
         70,
         hamlet_core::limits::realm,
-    ))
-    .add_settings_page(
-        SettingsPage::new(SOUND, "Sound", Glyph::Speaker, 80, || {
-            sound().boxed()
-        })
-        .now(sound_now),
-    );
-}
-
-/// A part of a page: its name over `value`.
-fn field(name: &'static str, value: impl View) -> impl View {
-    close((section(name), value))
+    ));
 }
 
 /// The id of the page of the MCP servers whose tools agents are
@@ -200,8 +185,6 @@ pub const AGENTS: &str = "agents";
 pub const CHARTER: &str = "charter";
 /// The id of the page of the limits that hold for every hamlet.
 pub const REALM: &str = "realm";
-/// The id of the Sound page.
-pub const SOUND: &str = "sound";
 
 fn endpoints_now() -> Prop<String> {
     derived(|world: &World| {
@@ -257,37 +240,6 @@ fn charter_now() -> Prop<String> {
     })
     .when(either(moved::<Charter>(), moved::<CharterRequests>()))
     .into()
-}
-
-fn sound_now() -> Prop<String> {
-    shown::<SoundSettings>(|s| {
-        if s.muted { "Off" } else { "On" }.to_string()
-    })
-}
-
-/// What `read` makes of `R`, or nothing while there is no `R`.
-fn shown<R: Resource>(
-    read: impl Fn(&R) -> String + Send + Sync + 'static,
-) -> Prop<String> {
-    derived(move |world: &World| {
-        world.get_resource::<R>().map(&read).unwrap_or_default()
-    })
-    .when(moved::<R>())
-    .into()
-}
-
-/// A setting's switch or field, and under it its words.
-fn told(control: impl View, words: impl View) -> impl View {
-    with_cx(move |cx| {
-        column((control, words))
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::FlexStart)
-    })
-}
-
-/// A setting's control alone, as wide as itself.
-fn alone(control: impl View) -> impl View {
-    column((control,)).align(AlignItems::FlexStart)
 }
 
 /// A warning under the network switch while it is not enforced.
@@ -516,14 +468,14 @@ fn permissions() -> AnyView {
                         grant.source == protocol::GrantSource::Grant
                     })
                     .map(|grant| {
-                        let shown = hamlet_client::realm::named(
+                        let shown = hamlet_core::client::realm::named(
                             world,
                             &grant.name,
                         )
                         .map_or_else(
                             || grant.name.clone(),
                             |agent| {
-                                hamlet_client::realm::shown_of(
+                                hamlet_core::client::realm::shown_of(
                                     world, agent,
                                 )
                             },
@@ -766,7 +718,9 @@ fn charter_page() -> impl View {
     .within(bare());
     let shown = keyed(
         resource::<Charter, _>(|c| with_heads(&c.text)),
-        |text| hamlet_ui::markdown::page(text, Tone::Body).boxed(),
+        |text| {
+            hamlet_core::ui::markdown::page(text, Tone::Body).boxed()
+        },
     )
     .within(bare());
     parts((
@@ -805,81 +759,6 @@ fn save(
     });
 }
 
-/// A kind of sound's switch and level.
-fn level(
-    on: fn(&SoundSettings) -> bool,
-    turn: fn(&mut SoundSettings, bool),
-    at: fn(&SoundSettings) -> f32,
-    set: fn(&mut SoundSettings, f32),
-) -> impl View {
-    with_cx(move |cx| {
-        row((
-            switch(
-                resource::<SoundSettings, _>(on),
-                move |world, to| {
-                    turn(
-                        &mut world.resource_mut::<SoundSettings>(),
-                        to,
-                    );
-                },
-            ),
-            slider(Binding::new(
-                resource::<SoundSettings, _>(at),
-                move |world, to| {
-                    set(
-                        &mut world.resource_mut::<SoundSettings>(),
-                        to,
-                    );
-                },
-            ))
-            .grow(1.0),
-        ))
-        .gap(cx.theme().space.gap)
-        .width(percent(100.0))
-        .align(AlignItems::Center)
-    })
-}
-
-/// A switch alone: a group of sounds that is on or off.
-fn sound_switch(
-    on: fn(&SoundSettings) -> bool,
-    turn: fn(&mut SoundSettings, bool),
-) -> impl View {
-    switch(resource::<SoundSettings, _>(on), move |world, to| {
-        turn(&mut world.resource_mut::<SoundSettings>(), to);
-    })
-}
-
-fn sound() -> impl View {
-    parts((
-        field(
-            "Sound",
-            level(
-                |s| !s.muted,
-                |s, on| s.muted = !on,
-                |s| s.sound_level,
-                |s, level| s.sound_level = level,
-            ),
-        ),
-        field(
-            "Music",
-            level(
-                |s| s.music_on,
-                |s, on| s.music_on = on,
-                |s| s.music_level,
-                |s, level| s.music_level = level,
-            ),
-        ),
-        field(
-            "Ambience",
-            alone(sound_switch(
-                |s| s.ambience_on,
-                |s, on| s.ambience_on = on,
-            )),
-        ),
-    ))
-}
-
 fn nav_item(page: &SettingsPage) -> AnyView {
     let id = page.id;
     valued_row(
@@ -894,7 +773,7 @@ fn nav_item(page: &SettingsPage) -> AnyView {
 
 /// The way back to the first-run screen, as a row of the index.
 fn again() -> AnyView {
-    hamlet_ui::styles::nav_row(
+    hamlet_core::ui::styles::nav_row(
         Glyph::Restore,
         "First-Run Setup",
         None,
@@ -904,7 +783,7 @@ fn again() -> AnyView {
 
 /// The index row that opens the projects card.
 fn projects() -> AnyView {
-    hamlet_ui::styles::nav_row(
+    hamlet_core::ui::styles::nav_row(
         Glyph::Hamlet,
         "Bring In Projects",
         None,
@@ -983,8 +862,8 @@ mod tests {
     use bevy::text::EditableText;
     use bevy::ui::Checked;
     use bevy::ui_widgets::{Checkbox, ValueChange};
+    use hamlet_core::protocol::client as protocol;
     use hamlet_core::testing::{control, requests, settle};
-    use hamlet_protocol::client as protocol;
 
     use super::*;
     use crate::testing::settings_page;
@@ -1043,10 +922,11 @@ mod tests {
             })]
         );
 
-        let mut settings = hamlet_testing::realm::state().settings;
+        let mut settings =
+            hamlet_core::testing::realm::state().settings;
         settings.allow_net = true;
         settings.reflect_every = 7;
-        hamlet_client::receive(
+        hamlet_core::client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
                 epoch: 1,

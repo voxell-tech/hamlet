@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The Terminal panel: terminals of the realm's machines and agents' command logs"
+
+[lints]
+workspace = true
+
+[dependencies]
+hamlet_core.workspace = true
+bevy = { workspace = true, features = ["bevy_clipboard", "bevy_input_focus", "bevy_log", "bevy_picking", "bevy_ui"] }
+vt100.workspace = true
+
+[dev-dependencies]
+hamlet_core = { workspace = true, features = ["testing"] }
+serde_json.workspace = true

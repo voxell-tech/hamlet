@@ -52,12 +52,12 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
+use hamlet_ui::widgets::rect_of;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, Cx, View, kinds, with_cx};
 use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
-use crate::menu::rect_of;
 
 /// The width of the providers down the side.
 const RAIL: f32 = 108.0;

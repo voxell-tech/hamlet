@@ -27,14 +27,16 @@ use bevy::ui::{
     UiScale, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::Theme;
-use bevy_fynix::cursor::OverrideCursor;
-use bevy_fynix::dock::{DockArea, DockTab, DropTarget, Edge, NodeId};
-use bevy_fynix::tokens::{
+use hamlet_core::fynix::Theme;
+use hamlet_core::fynix::cursor::OverrideCursor;
+use hamlet_core::fynix::dock::{
+    DockArea, DockTab, DropTarget, Edge, NodeId,
+};
+use hamlet_core::fynix::tokens::{
     SpacingTokens, SurfaceTokens, TextTokens, Tone,
 };
 use hamlet_core::panels::open_numbered;
-use hamlet_ui::theme::HamletTheme;
+use hamlet_core::ui::theme::HamletTheme;
 
 use super::list::{Entry, Listed};
 use super::{Handing, PANEL, PanelId, Panels, tab_name};
@@ -455,7 +457,9 @@ fn place(node: &mut Node, rect: Rect) {
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::{DockAreaStyle, DockLeaf, DockTree};
+    use hamlet_core::fynix::dock::{
+        DockAreaStyle, DockLeaf, DockTree,
+    };
     use hamlet_core::panels::PanelAppExt;
 
     use super::*;

@@ -17,7 +17,9 @@ use bevy_fynix::{
     Prop, ScopedExt, ViewExt, derived, keyed, resource,
 };
 use hamlet_core::roll::{either, moved};
-use hamlet_core::settings::{SettingsAppExt, SettingsPage};
+use hamlet_core::settings::{
+    SettingsAppExt, SettingsPage, field, shown,
+};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
     ICON, bare, card_choice, card_name, group, note, parts,
@@ -29,7 +31,6 @@ use hamlet_ui::widgets::lasting::Lasting;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::{field, shown};
 use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
 
 pub(super) fn plugin(app: &mut App) {
