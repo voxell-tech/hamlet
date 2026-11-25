@@ -2,10 +2,16 @@
 
 use std::path::PathBuf;
 
+use hamlet_git::MAIN;
 use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, SetFolder, SetMode,
+    EraseHamlet, MoveHamlet, NameHamlet, RemoveHamlet, RestoreHamlet,
+    SetFolder, SetMode,
+};
+use hamlet_messages::realm::profiles::{
+    ArchiveProfile, EraseProfile, ForkProfile, MoveHouse,
+    RestoreProfile, TurnAway, Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -94,6 +100,28 @@ pub(super) enum Act {
         hire: Target,
         why: Option<String>,
     },
+    Merge {
+        absorbed: Target,
+        into: Target,
+        why: String,
+    },
+    Restore {
+        hire: Target,
+        why: Option<String>,
+    },
+    Erase {
+        hire: Target,
+    },
+    RemoveHamlet(RemoveHamlet),
+    RestoreHamlet(RestoreHamlet),
+    EraseHamlet(EraseHamlet),
+    Fork(ForkProfile),
+    ArchiveProfile(ArchiveProfile),
+    RestoreProfile(RestoreProfile),
+    EraseProfile(EraseProfile),
+    Welcome(Welcome),
+    TurnAway(TurnAway),
+    MoveHouse(MoveHouse),
     Steer {
         hire: Target,
         part: Part,
@@ -275,6 +303,89 @@ pub(super) fn parse(
             hire: at(first()?)?,
             why: why(1),
         },
+        "merge" => {
+            let (Some(absorbed), Some(&"into"), Some(into)) =
+                (words.first(), words.get(1), words.get(2))
+            else {
+                return Err(usage(name));
+            };
+            Act::Merge {
+                absorbed: at(absorbed)?,
+                into: at(into)?,
+                why: why(3).unwrap_or_else(|| {
+                    words::MERGED_BY_THE_CHIEF.into()
+                }),
+            }
+        }
+        "restore" => Act::Restore {
+            hire: at(first()?)?,
+            why: why(1),
+        },
+        "erase" => Act::Erase {
+            hire: at(first()?)?,
+        },
+        "remove-hamlet" => Act::RemoveHamlet(RemoveHamlet {
+            hamlet: HamletId(first()?.to_owned()),
+            why: Some(why(1).unwrap_or_else(|| {
+                words::CLOSED_BY_THE_CHIEF.into()
+            })),
+        }),
+        "restore-hamlet" => Act::RestoreHamlet(RestoreHamlet {
+            hamlet: HamletId(first()?.to_owned()),
+            why: why(1),
+        }),
+        "erase-hamlet" => Act::EraseHamlet(EraseHamlet {
+            hamlet: HamletId(first()?.to_owned()),
+        }),
+        "fork" => {
+            let given = first()?;
+            let (from, at) =
+                given.split_once('@').unwrap_or((given, MAIN));
+            Act::Fork(ForkProfile {
+                from: profile_of(from)?,
+                at: (at != MAIN).then(|| VersionName(at.to_owned())),
+                name: tail(1),
+            })
+        }
+        "remove-scholar" => Act::ArchiveProfile(ArchiveProfile {
+            profile: profile_of(first()?)?,
+            why: why(1),
+        }),
+        "restore-scholar" => Act::RestoreProfile(RestoreProfile {
+            profile: profile_of(first()?)?,
+            why: why(1),
+        }),
+        "erase-scholar" => Act::EraseProfile(EraseProfile {
+            profile: profile_of(first()?)?,
+        }),
+        "welcome" => Act::Welcome(Welcome {
+            profile: profile_of(first()?)?,
+            why: why(1),
+        }),
+        "turn-away" => Act::TurnAway(TurnAway {
+            profile: profile_of(first()?)?,
+            why: why(1),
+        }),
+        "move-house" => {
+            let profile = profile_of(first()?)?;
+            let number = |at: usize| {
+                words.get(at).map(|word| word.parse::<f64>().ok())
+            };
+            let (Some(Some(x)), Some(Some(z))) =
+                (number(1), number(2))
+            else {
+                return Err(usage(name));
+            };
+            let degrees = number(3)
+                .map(|degrees| degrees.ok_or_else(|| usage(name)))
+                .transpose()?;
+            Act::MoveHouse(MoveHouse {
+                profile,
+                x,
+                z,
+                degrees,
+            })
+        }
         "model" => {
             let (Some(text), Some(model)) =
                 (words.first(), words.get(1))
@@ -505,13 +616,18 @@ fn hire(
     }))
 }
 
-/// The profile a scholar's address names.
+/// The profile a scholar's address names, refusing a version.
 fn profile(text: &str) -> Result<ProfileId, Refusal> {
     if text.contains('@') {
         return Err(Refusal::Unsupported {
             what: "a scholar's `@<version>`".into(),
         });
     }
+    profile_of(text)
+}
+
+/// The profile a scholar's address names.
+fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
     let id = addresses::parse_scholar(text)?;
     u32::try_from(id.0).map(ProfileId).map_err(|_| {
         Refusal::BadAddress {
@@ -522,7 +638,7 @@ fn profile(text: &str) -> Result<ProfileId, Refusal> {
 
 /// The agent `text` addresses, said in `here`: `mayor` is the
 /// office of `here`.
-fn target(
+pub(super) fn target(
     text: &str,
     here: Option<&HamletId>,
 ) -> Result<Target, Refusal> {
@@ -566,248 +682,4 @@ fn no_hamlet() -> Refusal {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A hamlet's id, in the one form an address writes it.
-    const OTHER: &str = "0b9e2c4a-6f1d-4e8b-9a3c-5d7f1e2a4b6c";
-
-    fn docs() -> HamletId {
-        HamletId("docs".into())
-    }
-
-    fn hire(number: u32, text: &str) -> Target {
-        Target {
-            named: Named::Agent {
-                agent: AgentNumber(number),
-            },
-            text: text.into(),
-        }
-    }
-
-    #[test]
-    fn mayor_is_the_office_of_the_hamlet_it_is_said_in() {
-        assert_eq!(
-            parse("/end mayor", Some(&docs())),
-            Ok(Act::End {
-                hire: Target {
-                    named: Named::MayorOf { hamlet: docs() },
-                    text: "mayor".into(),
-                },
-                why: None,
-            })
-        );
-        assert_eq!(
-            parse(&format!("/stop mayor@{OTHER}"), None),
-            Ok(Act::Stop(Some(Target {
-                named: Named::MayorOf {
-                    hamlet: HamletId(OTHER.into()),
-                },
-                text: format!("mayor@{OTHER}"),
-            })))
-        );
-    }
-
-    #[test]
-    fn a_hire_and_a_worker_are_named_by_number() {
-        assert_eq!(
-            parse("/nickname worker#7 Scout", None),
-            Ok(Act::Nickname {
-                hire: Target {
-                    named: Named::Worker {
-                        worker: AgentNumber(7),
-                    },
-                    text: "worker#7".into(),
-                },
-                name: Some("Scout".into()),
-            })
-        );
-        assert_eq!(
-            parse("/road hire#2 hire#3 they share a page", None),
-            Ok(Act::Road {
-                a: hire(2, "hire#2"),
-                b: hire(3, "hire#3"),
-                why: Some("they share a page".into()),
-                lay: true,
-            })
-        );
-    }
-
-    #[test]
-    fn a_bad_address_is_refused_in_todays_words() {
-        assert_eq!(
-            parse("/end scholar#2", None).unwrap_err().to_string(),
-            "`scholar#2` is not an address"
-        );
-    }
-
-    #[test]
-    fn effort_and_fast_each_set_one_part() {
-        assert_eq!(
-            parse("/effort hire#2 high", None),
-            Ok(Act::Steer {
-                hire: hire(2, "hire#2"),
-                part: Part::Effort(Some(Level::High)),
-            })
-        );
-        assert_eq!(
-            parse("/fast hire#2 on", None),
-            Ok(Act::Steer {
-                hire: hire(2, "hire#2"),
-                part: Part::Fast(true),
-            })
-        );
-        assert_eq!(
-            parse("/effort hire#2 hard", None)
-                .unwrap_err()
-                .to_string(),
-            "Use /effort <address> \
-             <off|minimal|low|medium|high|xhigh|max|none>"
-        );
-    }
-
-    #[test]
-    fn a_wait_is_the_one_named_or_none() {
-        assert_eq!(
-            parse("/reply #4 Use the blue one.", None),
-            Ok(Act::Answer {
-                choice: Choice::Reply,
-                wait: Some("4".into()),
-                text: Some("Use the blue one.".into()),
-            })
-        );
-        assert_eq!(
-            parse("/deny", None),
-            Ok(Act::Answer {
-                choice: Choice::Deny,
-                wait: None,
-                text: None,
-            })
-        );
-    }
-
-    #[test]
-    fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_profile_is_named()
-     {
-        assert_eq!(
-            parse("/create-hamlet Docs", None),
-            Ok(Act::Found(Found {
-                name: "Docs".into(),
-                mayor: None,
-                tier: Tier::Fifty,
-                purpose: Some("Mayor of Docs.".into()),
-            }))
-        );
-        assert_eq!(
-            parse(
-                "/create-hamlet scholar#3 Docs: Keep the docs.",
-                None
-            ),
-            Ok(Act::Found(Found {
-                name: "Docs".into(),
-                mayor: Some(ProfileId(3)),
-                tier: Tier::Fifty,
-                purpose: Some("Keep the docs.".into()),
-            }))
-        );
-    }
-
-    #[test]
-    fn a_hire_goes_into_the_hamlet_here_unless_one_is_named() {
-        assert_eq!(
-            parse(
-                "/hire blank under mayor write the guide",
-                Some(&docs())
-            ),
-            Ok(Act::Hire(Hire {
-                hamlet: Some(docs()),
-                under: Some(Named::MayorOf { hamlet: docs() }),
-                profile: None,
-                version: None,
-                purpose: Some("write the guide".into()),
-                name: None,
-            }))
-        );
-        assert_eq!(
-            parse("/hire scholar#2", None).unwrap_err().to_string(),
-            words::NO_HAMLET
-        );
-    }
-
-    #[test]
-    fn every_command_served_is_parsed_into_its_act() {
-        for name in [
-            "hand",
-            "hamlet",
-            "agent",
-            "new",
-            "resume",
-            "retry",
-            "stop",
-            "to",
-            "reflect",
-            "worker",
-            "queue",
-            "allow",
-            "always",
-            "deny",
-            "go",
-            "withdraw",
-            "reply",
-            "dismiss",
-            "grants",
-            "revoke",
-            "hamlets",
-            "create-hamlet",
-            "name-hamlet",
-            "move-hamlet",
-            "tier",
-            "mayor",
-            "hire",
-            "end",
-            "model",
-            "effort",
-            "fast",
-            "nickname",
-            "tools",
-            "allowance",
-            "road",
-            "unroad",
-            "folder",
-            "mode",
-            "budget",
-            "reset-budget",
-        ] {
-            let parsed = parse(&format!("/{name}"), Some(&docs()));
-            assert_ne!(
-                parsed,
-                Ok(Act::Unsupported(format!("`/{name}`"))),
-                "/{name}"
-            );
-            if let Err(refusal) = parsed {
-                assert_ne!(
-                    refusal.to_string(),
-                    words::no_command(name),
-                    "/{name}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn a_command_of_the_table_not_done_yet_is_unsupported() {
-        assert_eq!(
-            parse("/merge hire#2 into hire#3", None),
-            Ok(Act::Unsupported("`/merge`".into()))
-        );
-        assert_eq!(
-            parse("/history", Some(&docs())),
-            Ok(Act::Unsupported("`/history`".into()))
-        );
-        assert_eq!(
-            parse("/dance", None).unwrap_err().to_string(),
-            "There is no command /dance; the client lists the \
-             commands."
-        );
-    }
-}
+mod tests;
