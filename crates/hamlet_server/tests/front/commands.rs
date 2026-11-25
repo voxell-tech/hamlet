@@ -12,7 +12,7 @@ use serde_json::json;
 use super::{look, said_once_hired, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
-async fn found(
+pub(super) async fn found(
     server: &Server,
     chief: &mut Client,
     name: &str,

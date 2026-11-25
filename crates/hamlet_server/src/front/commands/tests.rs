@@ -184,9 +184,11 @@ fn restore_is_worded_as_today() {
             ),
             (
                 Restored::Refused {
-                    why: EndedRefusal::Erased { hire: hire_name(5) },
+                    why: EndedRefusal::NoSuchAgent {
+                        address: "hire#5".into(),
+                    },
                 },
-                "`hire#5` was erased",
+                "no agent has the address `hire#5`",
             ),
             (
                 Restored::Refused {
@@ -238,10 +240,10 @@ fn erase_is_worded_as_today() {
                 "`hire#2` has not left",
             ),
             (
-                refused_with(EndedRefusal::Erased {
-                    hire: hire_name(5),
+                refused_with(EndedRefusal::NoSuchAgent {
+                    address: "hire#5".into(),
                 }),
-                "`hire#5` was erased",
+                "no agent has the address `hire#5`",
             ),
         ],
     );

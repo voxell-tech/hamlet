@@ -7,6 +7,7 @@
 
 mod chat;
 mod commands;
+mod ended;
 mod view;
 
 use std::time::{Duration, Instant};
