@@ -125,7 +125,7 @@ pub(super) enum Act {
     TurnAway(TurnAway),
     MoveHouse {
         profile: ProfileId,
-        /// Refused only once the scholar is found, as today reads
+        /// Refused only once the profile is found, as today reads
         /// the numbers.
         spot: Result<Spot, Refusal>,
     },

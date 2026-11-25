@@ -473,7 +473,7 @@ async fn a_chief_stopping_or_telling_an_ended_hire_reads_that_no_agent_has_its_a
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_move_house_names_a_missing_scholar_before_numbers_it_cannot_read()
+async fn a_move_house_names_a_missing_profile_before_numbers_it_cannot_read()
  {
     let (mut server, _home, _side) = serve(json!([
         {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},

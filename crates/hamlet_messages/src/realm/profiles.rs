@@ -399,7 +399,7 @@ impl ChiefRequest for TurnAway {
 
 /// Sets a profile's house down at `spot`. Without one, as for numbers
 /// a chief wrote that do not read, the realm looks the profile up and
-/// refuses `NoSpot`: today names a missing scholar before them.
+/// refuses `NoSpot`: today names a missing profile before them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MoveHouse {
     pub profile: ProfileId,
