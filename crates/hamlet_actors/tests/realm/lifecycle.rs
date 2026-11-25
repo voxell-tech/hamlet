@@ -40,7 +40,7 @@ use super::{
 const FIVE: AgentNumber = AgentNumber(5);
 
 /// The profile a hamlet's hires are made of in these tests.
-const MASON: ProfileId = ProfileId(3);
+pub(super) const MASON: ProfileId = ProfileId(3);
 
 fn mason() -> String {
     "scholar#3 (Mason)".to_owned()
@@ -352,7 +352,7 @@ async fn mayor_hires(
 }
 
 /// A hamlet whose mayor leads `count` hires of Mason, from 3 on.
-async fn masons_hamlet(count: u32) -> (Realm, HamletId) {
+pub(super) async fn masons_hamlet(count: u32) -> (Realm, HamletId) {
     let (realm, hamlet) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     for n in 0..count {
@@ -367,7 +367,7 @@ async fn masons_hamlet(count: u32) -> (Realm, HamletId) {
     (realm, hamlet)
 }
 
-fn archive(profile: ProfileId) -> ArchiveProfile {
+pub(super) fn archive(profile: ProfileId) -> ArchiveProfile {
     ArchiveProfile { profile, why: None }
 }
 

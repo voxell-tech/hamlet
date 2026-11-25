@@ -12,9 +12,10 @@ use hamlet_messages::profile::{
     CommitId, Erase, Missing, ProfileInput, VersionList, Versions,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, CreateRefusal, EraseProfile, ForkProfile, Forked,
-    LifeRefusal, Lifecycle, LifecycleRefusal, MoveHouse,
-    ProfileRefusal, RestoreProfile, Spot, TurnAway, Welcome,
+    ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
+    ForkProfile, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
+    MoveHouse, ProfileRefusal, RestoreProfile, Spot, TurnAway,
+    Welcome,
 };
 use hamlet_messages::realm::{
     Asked, Done, HamletId, HowEnded, ProfileId, Refusable,
@@ -30,7 +31,7 @@ use super::super::calls::{Calls, Made};
 use super::super::change::{self, Rows};
 use super::super::chiefs::hamlet::{HiresOf, Picked};
 use super::super::chiefs::{self, hamlet};
-use super::super::peer::When;
+use super::super::peer::{self, When};
 use super::super::steps::{self, Cx, StepId, Steps};
 use super::super::tree::{self, Life};
 use super::super::{Realm, erase, marker, record, retire};
@@ -351,7 +352,12 @@ impl Act<Client> for EraseProfile {
         };
         let mut decided = Decided::new(label);
         for agent in erasing.hires {
-            decided = decided.change(tree::Change::Erased { agent });
+            decided = decided
+                .change(tree::Change::Erased { agent })
+                .record(record::Entry::Erased {
+                    hire: agent,
+                    by: record::By::Chief,
+                });
         }
         Decision::Change(
             decided
@@ -375,6 +381,10 @@ impl Act<Client> for EraseProfile {
 
     fn answer(&self, label: String, _made: &Made) -> Lifecycle {
         Lifecycle::Done { label }
+    }
+
+    fn failed(&self, label: String, _made: &Made) -> Lifecycle {
+        refused(LifeRefusal::NotErased { label })
     }
 }
 
@@ -770,6 +780,10 @@ impl Act<Client> for Fork {
     ) -> Forked {
         Forked::Forked { profile, from }
     }
+
+    fn failed(&self, (_, label): Self::Done, _made: &Made) -> Forked {
+        Forked::refused(ForkFailure::NotForked { label }.into())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -839,9 +853,10 @@ pub(in crate::realm) async fn fork(
     }
 }
 
-/// A fork whose profile could not be made is erased unseen.
+/// A fork whose profile could not be made is erased unseen, and its
+/// entry taken back.
 pub(in crate::realm) async fn fork_failed(
-    _rows: &Rows<'_>,
+    rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
     let profile = profile_of_row(n)?;
@@ -857,6 +872,13 @@ pub(in crate::realm) async fn fork_failed(
                 row: fork_row(profile),
             }
             .into(),
+            record::taken_back(
+                rows,
+                "forked",
+                None,
+                fork_row(profile),
+            )
+            .await?,
         ],
         Calls::none(),
     ))
@@ -884,6 +906,20 @@ pub(in crate::realm) async fn erase(
                     .map(|hire| erase::row(AgentNumber(hire))),
             )
             .await?;
+            let kept = cx
+                .rows()?
+                .value::<u32>(
+                    "SELECT count(*) FROM hire JOIN agent ON \
+                     agent.id = hire.agent WHERE hire.profile = ?1 \
+                     AND agent.erased = 0",
+                    vec![super::id(profile)],
+                )
+                .await?;
+            if kept != Some(0) {
+                return Err(peer::refusal(
+                    "a hire of the profile could not be erased",
+                ));
+            }
         }
         EraseStep::Profile => {
             let id = super::id_of(&format!("profile/{n}/erase"))?;
@@ -905,16 +941,32 @@ pub(in crate::realm) async fn erase(
     Ok(Vec::new())
 }
 
+/// Takes back a profile's erase that failed for good: the profile is
+/// archived again, and its hires' erases done stay done.
 pub(in crate::realm) async fn erase_failed(
-    _rows: &Rows<'_>,
+    rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
+    let profile = profile_of_row(n)?;
     Ok((
         vec![
             steps::Change::Close {
-                row: erase_row(profile_of_row(n)?),
+                row: erase_row(profile),
             }
             .into(),
+            super::Change::Status {
+                profile,
+                from: Status::Erased,
+                to: Status::Archived,
+            }
+            .into(),
+            record::taken_back(
+                rows,
+                "profile-erased",
+                None,
+                erase_row(profile),
+            )
+            .await?,
         ],
         Calls::none(),
     ))

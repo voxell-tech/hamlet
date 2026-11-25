@@ -57,6 +57,19 @@ pub enum MergeRefusal {
     OtherHamlet { name: AgentName },
     #[error("a mayor cannot be ended; seat another mayor first")]
     TheMayor,
+    #[error(
+        "`{name}` is on a chief's task; a lead may end or merge it \
+         once it has answered and its protected minutes have passed"
+    )]
+    OnChiefsTask { name: AgentName },
+    #[error(
+        "`{absorbed}` could not be merged into `{into}`, so it is \
+         back"
+    )]
+    NotMerged {
+        absorbed: AgentName,
+        into: AgentName,
+    },
 }
 
 /// Brings an ended hire back: one merged into another is split from
@@ -118,4 +131,11 @@ pub enum EndedRefusal {
     ProfileGone { label: String },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
+    #[error(
+        "`{hire}` is back, but what it brought could not be taken \
+         out of `{into}`"
+    )]
+    NotSplit { hire: AgentName, into: AgentName },
+    #[error("`{hire}` could not be erased, so it stays ended")]
+    NotErased { hire: AgentName },
 }

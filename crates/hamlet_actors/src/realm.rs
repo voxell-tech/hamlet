@@ -18,6 +18,7 @@ mod letters;
 mod librarian;
 mod marker;
 mod merges;
+mod on_task;
 mod oversight;
 mod parcels;
 mod peer;
@@ -218,7 +219,7 @@ impl Actor for Realm {
         tree::Pinning<Asked<Hire>>,
         tree::Pinning<Tool<Hire>>,
         Asked<End>,
-        Tool<End>,
+        on_task::Asking<Tool<End>>,
         Asked<Seat>,
         ByHand<Tool<Seat>>,
         Say,
@@ -287,7 +288,7 @@ impl Actor for Realm {
         librarian::Submitting,
         ReadPlace,
         Asked<Merge>,
-        Tool<Merge>,
+        on_task::Asking<Tool<Merge>>,
         Asked<Restore>,
         Asked<EraseHire>,
         Asked<RemoveHamlet>,

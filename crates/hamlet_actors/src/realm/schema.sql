@@ -349,5 +349,7 @@ CREATE TABLE IF NOT EXISTS merge (
 	message TEXT NOT NULL,
 	-- the merge's commit, once the profile made it
 	tip TEXT,
+	-- what it moved in the tree, as JSON, given back if it fails
+	moved TEXT NOT NULL,
 	split INTEGER NOT NULL DEFAULT 0,
 	at INTEGER NOT NULL) STRICT;

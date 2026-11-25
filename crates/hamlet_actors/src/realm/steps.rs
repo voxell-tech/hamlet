@@ -207,6 +207,16 @@ pub(super) fn not_done<S: Steps>(
 pub(super) struct Row {
     pub done: Option<String>,
     pub closed: bool,
+    /// When it was last begun.
+    pub at: i64,
+}
+
+impl Row {
+    /// Whether it closed short of its last step, as a row that failed
+    /// for good does.
+    pub fn has_failed(&self, kind: Kind) -> bool {
+        self.closed && self.done.as_deref() != Some(last(kind))
+    }
 }
 
 pub(super) async fn row(
@@ -214,13 +224,66 @@ pub(super) async fn row(
     id: StepId,
 ) -> Result<Option<Row>> {
     Ok(rows
-        .row::<(Option<String>, bool)>(
-            "SELECT done, closed FROM step WHERE kind = ?1 AND n = \
-             ?2",
+        .row::<(Option<String>, bool, i64)>(
+            "SELECT done, closed, at FROM step WHERE kind = ?1 AND \
+             n = ?2",
             key(id)?,
         )
         .await?
-        .map(|(done, closed)| Row { done, closed }))
+        .map(|(done, closed, at)| Row { done, closed, at }))
+}
+
+/// Whether one of `ids` failed for good.
+pub(super) async fn any_failed(
+    rows: &Rows<'_>,
+    ids: &[StepId],
+) -> Result<bool> {
+    for &id in ids {
+        if row(rows, id)
+            .await?
+            .is_some_and(|row| row.has_failed(id.kind))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The name of the last step of `kind`'s rows.
+fn last(kind: Kind) -> &'static str {
+    fn of<S: Steps>() -> &'static str {
+        S::ALL.last().map_or("", |step| step.name())
+    }
+    match kind {
+        Kind::Hire => of::<hire::Step>(),
+        Kind::Worker => of::<workers::Step>(),
+        Kind::Errand => of::<errands::Step>(),
+        Kind::Review => of::<reviews::Step>(),
+        Kind::Parcel => of::<parcels::Step>(),
+        Kind::Dream => of::<dreams::Step>(),
+        Kind::DreamEnd => of::<dreams::EndStep>(),
+        Kind::Verdict => of::<librarian::Step>(),
+        Kind::DropParts => of::<drop_parts::Step>(),
+        Kind::Retire => of::<retire::Step>(),
+        Kind::Merge => of::<merges::Step>(),
+        Kind::Split => of::<merges::SplitStep>(),
+        Kind::Erase => of::<erase::Step>(),
+        Kind::ProfileFork => of::<lifecycle::ForkStep>(),
+        Kind::ProfileErase => of::<lifecycle::EraseStep>(),
+    }
+}
+
+/// `ran`, with a callee's refusal made a failure in passing, for a
+/// step past the point where its row could be taken back: it is tried
+/// until done.
+pub(super) fn in_passing<T>(ran: Result<T>) -> Result<T> {
+    ran.map_err(|error| {
+        if peer::refused(&error) {
+            anyhow::anyhow!("{error:#}")
+        } else {
+            error
+        }
+    })
 }
 
 /// Waits for each of `rows` to end, at most `cx`'s answer time each,

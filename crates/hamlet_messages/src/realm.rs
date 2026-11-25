@@ -793,6 +793,11 @@ pub enum EndRefusal {
     TheMayor,
     #[error("`{hire}` has left: {left}")]
     Left { hire: AgentName, left: Left },
+    #[error(
+        "`{name}` is on a chief's task; a lead may end or merge it \
+         once it has answered and its protected minutes have passed"
+    )]
+    OnChiefsTask { name: AgentName },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

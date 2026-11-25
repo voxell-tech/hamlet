@@ -30,8 +30,8 @@ use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::peer::{self, When};
 use super::super::world::Part;
 use super::super::{
-    Realm, chiefs, hire, laid, marker, oversight, parcels, profiles,
-    record, retire, roads, steps, tasks, waits, workers,
+    Realm, chiefs, hire, laid, marker, on_task, oversight, parcels,
+    profiles, record, retire, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
 use crate::realm::chiefs::hamlet::Status as HamletStatus;
@@ -371,6 +371,14 @@ pub(in crate::realm) struct Ending {
     /// The changes that stop the hire's living workers.
     workers: Vec<change::Change>,
     how: HowEnded,
+    /// The hires their agents said are on a chief's task.
+    on_task: Vec<AgentNumber>,
+}
+
+impl on_task::Told for Ending {
+    fn on_task(&mut self, on_task: Vec<AgentNumber>) {
+        self.on_task = on_task;
+    }
 }
 
 /// What an end ended.
@@ -398,6 +406,7 @@ impl<By: Lead> Act<By> for End {
             lineage,
             workers,
             how: how_of(rows, by.by()).await?,
+            on_task: Vec::new(),
         })
     }
 
@@ -426,6 +435,9 @@ impl<By: Lead> Act<By> for End {
         }
         if lineage.is_mayor() {
             return refuse(EndRefusal::TheMayor);
+        }
+        if ending.on_task.contains(&hire) {
+            return refuse(EndRefusal::OnChiefsTask { name });
         }
         if lineage.agent.kind == AgentKind::Worker {
             let mut decided = Decided::new(Ended::Worker(name));
@@ -812,6 +824,7 @@ mod tests {
             lineage: Some(lineage),
             workers: Vec::new(),
             how: HowEnded::ByTheChief,
+            on_task: Vec::new(),
         }
     }
 

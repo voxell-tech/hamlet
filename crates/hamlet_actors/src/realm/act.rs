@@ -61,6 +61,11 @@ pub(super) trait Act<By>:
 
     /// The answer of a first run and of a repeat.
     fn answer(&self, done: Self::Done, made: &Made) -> Self::Output;
+
+    /// The answer once a row of `answers_after` failed for good.
+    fn failed(&self, done: Self::Done, made: &Made) -> Self::Output {
+        self.answer(done, made)
+    }
 }
 
 /// A read of a copy the realm holds in memory.
@@ -478,7 +483,6 @@ where
     )
     .await;
     let rows = act.answers_after(&done);
-    let answer = act.answer(done, &made);
     ctx.register_task(calls::after_answer(
         realm.clone(),
         ctx.clone(),
@@ -486,7 +490,7 @@ where
         pushes,
     ));
     let within = Instant::now() + realm.answer_within;
-    for row in rows {
+    for &row in &rows {
         realm
             .drives
             .ended(
@@ -495,7 +499,12 @@ where
             )
             .await;
     }
-    Ok(Ok(answer))
+    // A drive commits a failure's end before it ends, so the rows
+    // read here say whether the steps failed.
+    if steps::any_failed(&Rows::outside(ctx)?, &rows).await? {
+        return Ok(Ok(act.failed(done, &made)));
+    }
+    Ok(Ok(act.answer(done, &made)))
 }
 
 fn after_reserving(

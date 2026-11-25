@@ -792,7 +792,12 @@ impl Act<Client> for EraseHamlet {
         }
         let mut decided = Decided::new(erasing.hires.clone());
         for agent in erasing.hires {
-            decided = decided.change(tree::Change::Erased { agent });
+            decided = decided
+                .change(tree::Change::Erased { agent })
+                .record(record::Entry::Erased {
+                    hire: agent,
+                    by: By::Chief,
+                });
         }
         Decision::Change(
             decided

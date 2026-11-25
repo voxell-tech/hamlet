@@ -19,6 +19,7 @@ use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
+use super::steps::{self, StepId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -178,6 +179,55 @@ pub(super) enum Entry {
     Forked {
         by: By,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) enum Change {
+    /// The entry of `kind` about `agent` that the act at `at` kept,
+    /// taken out: what it said did not happen.
+    TakeBack {
+        kind: &'static str,
+        agent: Option<AgentNumber>,
+        at: i64,
+    },
+}
+
+/// The change that takes back the entry of `kind` about `agent` that
+/// the act that began `row` kept.
+pub(super) async fn taken_back(
+    rows: &Rows<'_>,
+    kind: &'static str,
+    agent: Option<AgentNumber>,
+    row: StepId,
+) -> Result<change::Change> {
+    let at = steps::row(rows, row)
+        .await?
+        .with_context(|| format!("no row {row:?}"))?
+        .at;
+    Ok(Change::TakeBack { kind, agent, at }.into())
+}
+
+pub(super) async fn apply(
+    writer: &Writer<'_>,
+    change: Change,
+) -> Result<change::Affected> {
+    match change {
+        Change::TakeBack { kind, agent, at } => {
+            writer
+                .execute(
+                    "DELETE FROM decision WHERE id = (SELECT \
+                     max(id) FROM decision WHERE kind = ?1 AND \
+                     agent IS ?2 AND at = ?3)",
+                    vec![
+                        BindParam::Text(kind.to_owned()),
+                        agent.map_or(BindParam::Null, number),
+                        BindParam::Integer(at),
+                    ],
+                )
+                .await?;
+        }
+    }
+    Ok(change::Affected::default())
 }
 
 pub(super) async fn write(

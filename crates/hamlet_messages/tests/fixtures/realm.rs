@@ -609,6 +609,10 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                     },
                 },
             ),
+            (
+                "on_chiefs_task",
+                EndRefusal::OnChiefsTask { name: shown(HIRE) },
+            ),
         ]
     };
     done(fixtures, "realm/chief_end", end_refusals());

@@ -6,7 +6,8 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::agent::{
-    AgentKind, DropInbox, Fill, ReadInbox, TakeInbox,
+    AgentKind, DropInbox, Fill, Input, InputId, ReadInbox, Submit,
+    TakeInbox,
 };
 use hamlet_messages::profile::{
     Bundle, BundleAnswer, CommitId, MergeAnswer, MergeBranch, Sha1,
@@ -26,14 +27,14 @@ use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::callers::{Decider as _, Lead};
-use super::calls::{Calls, Made};
+use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::chiefs::hamlet::Status as HamletStatus;
 use super::peer::{self, When};
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::{self, Life, Lineage};
 use super::{
-    chiefs, drop_parts, erase, hire, laid, profiles, record, retire,
+    chiefs, erase, hire, laid, on_task, profiles, record, retire,
     workers,
 };
 
@@ -49,11 +50,29 @@ pub(super) enum Change {
         absorbed: AgentNumber,
         kept: AgentNumber,
         message: String,
+        moved: Moved,
     },
     /// The merge's commit, once its profile made it.
     Tip { merge: u64, tip: CommitId },
-    /// A restore took the merge out again.
+    /// A restore took the merge out again, or it was taken back.
     Split { merge: u64 },
+    /// A split taken back: the merge stands again.
+    Unsplit { merge: u64 },
+}
+
+/// What a merge moved in the tree, kept with its row so that a merge
+/// taken back gives it back.
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct Moved {
+    /// The lead whose `merge_hires` it was.
+    by: Option<AgentNumber>,
+    /// Whether the kept hire was under the absorbed one.
+    kept_was_under: bool,
+    /// The absorbed hire's living hires, moved under the kept one.
+    hires: Vec<AgentNumber>,
+    /// The other end of each tree road taken up from the absorbed
+    /// hire, with whether the kept hire was given it.
+    roads: Vec<(AgentNumber, bool)>,
 }
 
 pub(super) async fn apply(
@@ -66,12 +85,13 @@ pub(super) async fn apply(
             absorbed,
             kept,
             message,
+            moved,
         } => {
             writer
                 .execute(
                     "INSERT INTO merge (id, absorbed, kept, \
-                     request, split_request, message, at) VALUES \
-                     (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                     request, split_request, message, moved, at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     vec![
                         integer(merge)?,
                         number(absorbed),
@@ -79,6 +99,9 @@ pub(super) async fn apply(
                         BindParam::Text(RequestId::new().to_string()),
                         BindParam::Text(RequestId::new().to_string()),
                         BindParam::Text(message),
+                        BindParam::Text(serde_json::to_string(
+                            &moved,
+                        )?),
                         BindParam::Integer(writer.at().0),
                     ],
                 )
@@ -103,6 +126,14 @@ pub(super) async fn apply(
                 )
                 .await?;
         }
+        Change::Unsplit { merge } => {
+            writer
+                .execute(
+                    "UPDATE merge SET split = 0 WHERE id = ?1",
+                    vec![integer(merge)?],
+                )
+                .await?;
+        }
     }
     Ok(Affected::default())
 }
@@ -115,6 +146,8 @@ struct Kept {
     split_request: RequestId,
     message: String,
     tip: Option<CommitId>,
+    moved: Moved,
+    split: bool,
 }
 
 impl Kept {
@@ -123,6 +156,13 @@ impl Kept {
             rows.row::<(u32, u32, String, String, String, Option<String>)>(
                 "SELECT absorbed, kept, request, split_request, \
                  message, tip FROM merge WHERE id = ?1",
+                vec![integer(merge)?],
+            )
+            .await?
+            .with_context(|| format!("no merge {merge}"))?;
+        let (moved, split) = rows
+            .row::<(String, bool)>(
+                "SELECT moved, split FROM merge WHERE id = ?1",
                 vec![integer(merge)?],
             )
             .await?
@@ -141,6 +181,8 @@ impl Kept {
             split_request: RequestId::try_from(split_request)?,
             message,
             tip,
+            moved: serde_json::from_str(&moved)?,
+            split,
         })
     }
 }
@@ -232,6 +274,14 @@ pub(super) struct Merging {
     address: String,
     /// The agent whose `merge_hires` it is; `None` for a chief.
     by: Option<AgentName>,
+    /// The hires their agents said are on a chief's task.
+    on_task: Vec<AgentNumber>,
+}
+
+impl on_task::Told for Merging {
+    fn on_task(&mut self, on_task: Vec<AgentNumber>) {
+        self.on_task = on_task;
+    }
 }
 
 /// What a merge made.
@@ -240,6 +290,15 @@ pub(super) struct Merged {
     merge: u64,
     absorbed: AgentName,
     into: AgentName,
+}
+
+impl Merged {
+    fn not_merged(self) -> MergeRefusal {
+        MergeRefusal::NotMerged {
+            absorbed: self.absorbed,
+            into: self.into,
+        }
+    }
 }
 
 async fn load_merge(
@@ -280,6 +339,7 @@ async fn load_merge(
         workers,
         address,
         by,
+        on_task: Vec::new(),
     })
 }
 
@@ -329,6 +389,13 @@ fn decide_merge<By: Lead>(
     if absorbed.is_mayor() {
         return Err(By::refused(MergeRefusal::TheMayor));
     }
+    for hire in [&into, &absorbed] {
+        if merging.on_task.contains(&hire.agent.agent) {
+            return Err(By::refused(MergeRefusal::OnChiefsTask {
+                name: hire.agent.name.clone(),
+            }));
+        }
+    }
     let given = merge
         .why
         .as_deref()
@@ -340,6 +407,25 @@ fn decide_merge<By: Lead>(
         (None, Some(_)) => "",
     };
     let why = Some(reason.to_owned()).filter(|why| !why.is_empty());
+    let roads =
+        roads_moved(kept, &merging.roads, &merging.kept_roads);
+    let moved = Moved {
+        by: merging.by.as_ref().map(|by| by.agent),
+        kept_was_under: absorbed
+            .hires
+            .iter()
+            .any(|node| node.agent == kept),
+        hires: absorbed
+            .hires
+            .iter()
+            .filter(|node| {
+                node.agent != kept
+                    && !matches!(node.status, tree::Status::Ended(_))
+            })
+            .map(|node| node.agent)
+            .collect(),
+        roads,
+    };
     let how = HowEnded::Merged {
         into: into.agent.name.clone(),
         by: merging.by,
@@ -353,13 +439,9 @@ fn decide_merge<By: Lead>(
         absorbed: one,
         kept,
     });
-    decided.changes.extend(moved_roads(
-        one,
-        kept,
-        &at,
-        &merging.roads,
-        &merging.kept_roads,
-    ));
+    decided
+        .changes
+        .extend(moved_roads(one, kept, &at, &moved.roads));
     decided.changes.extend(tree::hire_ending(
         one,
         how,
@@ -375,6 +457,7 @@ fn decide_merge<By: Lead>(
                 "Took in what {} learned: {reason}",
                 merging.address
             ),
+            moved,
         })
         .change(steps::Change::Begin {
             row: row(merging.merge),
@@ -387,32 +470,39 @@ fn decide_merge<By: Lead>(
         }))
 }
 
-/// The changes that take up each road laid to `absorbed` and lay it
-/// again from `kept`, unless its other end is `kept` or `kept` has a
-/// road there.
-fn moved_roads(
-    absorbed: AgentNumber,
+/// The other end of each tree road in `roads`, laid to the absorbed
+/// hire, with whether `kept` is given it: unless that end is `kept`
+/// or `kept` has a road there.
+fn roads_moved(
     kept: AgentNumber,
-    hamlet: &HamletId,
     roads: &[(AgentNumber, laid::Kind)],
     kept_roads: &[AgentNumber],
+) -> Vec<(AgentNumber, bool)> {
+    roads
+        .iter()
+        .filter(|(_, kind)| *kind == laid::Kind::Tree)
+        .map(|&(other, _)| {
+            (other, other != kept && !kept_roads.contains(&other))
+        })
+        .collect()
+}
+
+/// The changes that take up each of `roads` from `from` and lay each
+/// one given again from `to`.
+fn moved_roads(
+    from: AgentNumber,
+    to: AgentNumber,
+    hamlet: &HamletId,
+    roads: &[(AgentNumber, bool)],
 ) -> Vec<change::Change> {
     let mut changes = Vec::new();
-    for &(other, kind) in roads {
-        if kind != laid::Kind::Tree {
-            continue;
-        }
-        changes.push(
-            laid::Change::TakeUp {
-                a: absorbed,
-                b: other,
-            }
-            .into(),
-        );
-        if other != kept && !kept_roads.contains(&other) {
+    for &(other, given) in roads {
+        changes
+            .push(laid::Change::TakeUp { a: from, b: other }.into());
+        if given {
             changes.push(
                 laid::Change::Lay {
-                    a: kept,
+                    a: to,
                     b: other,
                     hamlet: hamlet.clone(),
                 }
@@ -454,6 +544,10 @@ impl Act<Client> for Merge {
     fn answer(&self, _: Merged, _made: &Made) -> Self::Output {
         Done::Done
     }
+
+    fn failed(&self, merged: Merged, _made: &Made) -> Self::Output {
+        Done::refused(merged.not_merged())
+    }
 }
 
 impl Act<Agent> for Merge {
@@ -490,11 +584,15 @@ impl Act<Agent> for Merge {
             into: merged.into,
         }
     }
+
+    fn failed(&self, merged: Merged, _made: &Made) -> Self::Output {
+        MergedTo::refused(LeadRefusal::Act(merged.not_merged()))
+    }
 }
 
 /// What a restore decides over, once the hire it names has ended.
 pub(super) struct Coming {
-    agent: AgentNumber,
+    name: AgentName,
     hamlet: HamletId,
     removed: bool,
     /// The label of its profile, when the profile has left the city.
@@ -505,14 +603,18 @@ pub(super) struct Coming {
     lead: AgentNumber,
     /// The merge that absorbed it, while it stands, and the hire
     /// that kept it.
-    merge: Option<(u64, AgentNumber)>,
+    merge: Option<(u64, AgentName)>,
 }
 
 /// What a restore did.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(super) enum Restoring {
     Back,
-    Split { merge: u64 },
+    Split {
+        merge: u64,
+        hire: AgentName,
+        into: AgentName,
+    },
 }
 
 impl Act<Client> for Restore {
@@ -541,26 +643,25 @@ impl Act<Client> for Restore {
         } else {
             Some(profiles::label_of(rows, profile).await?)
         };
-        let lead = match hire.agent.lead {
-            Some(lead)
-                if lead != agent
-                    && tree::life(rows, lead).await?
-                        == Life::Living =>
-            {
-                lead
-            }
-            _ => hamlet.mayor,
-        };
-        let merge = rows
+        let lead =
+            lead_back(rows, agent, hire.agent.lead, hamlet.mayor)
+                .await?;
+        let merge = match rows
             .row::<(u64, u32)>(
                 "SELECT id, kept FROM merge WHERE absorbed = ?1 AND \
                  split = 0 ORDER BY id DESC LIMIT 1",
                 vec![number(agent)],
             )
             .await?
-            .map(|(merge, kept)| (merge, AgentNumber(kept)));
+        {
+            Some((merge, kept)) => Some((
+                merge,
+                record::agent_name(rows, AgentNumber(kept)).await?,
+            )),
+            None => None,
+        };
         Ok(Ok(Coming {
-            agent,
+            name: hire.agent.name,
             living: tree::living(rows, &hamlet.id).await?,
             most: hamlet.most(),
             hamlet: hamlet.id,
@@ -596,9 +697,13 @@ impl Act<Client> for Restore {
                 most: coming.most,
             });
         }
-        let agent = coming.agent;
-        let done = match coming.merge {
-            Some((merge, _)) => Restoring::Split { merge },
+        let agent = coming.name.agent;
+        let done = match &coming.merge {
+            Some((merge, into)) => Restoring::Split {
+                merge: *merge,
+                hire: coming.name.clone(),
+                into: into.clone(),
+            },
             None => Restoring::Back,
         };
         let mut decided = Decided::new(done)
@@ -616,7 +721,7 @@ impl Act<Client> for Restore {
                 })
                 .record(record::Entry::Split {
                     absorbed: agent,
-                    kept,
+                    kept: kept.agent,
                     by: by.by(),
                     why: self.why.clone(),
                 });
@@ -627,7 +732,7 @@ impl Act<Client> for Restore {
     fn answers_after(&self, done: &Restoring) -> Vec<StepId> {
         match done {
             Restoring::Back => Vec::new(),
-            Restoring::Split { merge } => vec![split_row(*merge)],
+            Restoring::Split { merge, .. } => vec![split_row(*merge)],
         }
     }
 
@@ -637,6 +742,36 @@ impl Act<Client> for Restore {
             Restoring::Split { .. } => Restored::Split,
         }
     }
+
+    fn failed(&self, done: Restoring, made: &Made) -> Restored {
+        match done {
+            Restoring::Split { hire, into, .. } => {
+                Restored::Refused {
+                    why: EndedRefusal::NotSplit { hire, into },
+                }
+            }
+            Restoring::Back => self.answer(done, made),
+        }
+    }
+}
+
+/// The lead an ended hire comes back under: `lead`, its own, while it
+/// lives, else the mayor.
+async fn lead_back(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+    mayor: AgentNumber,
+) -> Result<AgentNumber> {
+    Ok(match lead {
+        Some(lead)
+            if lead != agent
+                && tree::life(rows, lead).await? == Life::Living =>
+        {
+            lead
+        }
+        _ => mayor,
+    })
 }
 
 pub(super) async fn run(
@@ -645,17 +780,17 @@ pub(super) async fn run(
     step: Step,
 ) -> Result<Vec<change::Change>> {
     let merge = Kept::read(&cx.rows()?, n).await?;
-    match step {
+    let ran = match step {
         Step::Retire => retire::retire(cx, merge.absorbed).await,
         Step::Merge => merged(cx, n, &merge).await,
-        Step::Fill => {
-            fill(cx, merge.kept).await?;
-            Ok(Vec::new())
-        }
-        Step::Inbox => {
-            inbox(cx, &merge).await?;
-            Ok(Vec::new())
-        }
+        Step::Fill => fill(cx, merge.kept).await.map(|()| Vec::new()),
+        Step::Inbox => inbox(cx, &merge).await.map(|()| Vec::new()),
+    };
+    // Once the merge's commit is made it is not taken back: the steps
+    // after it run until done.
+    match step {
+        Step::Retire | Step::Merge => ran,
+        Step::Fill | Step::Inbox => steps::in_passing(ran),
     }
 }
 
@@ -798,19 +933,105 @@ async fn inbox(cx: &Cx<'_>, merge: &Kept) -> Result<()> {
     }
 }
 
+/// Takes back the merge `n`, which failed for good before its commit:
+/// the absorbed hire lives again under its lead, with what the merge
+/// moved given back, and the merge is marked split. A hire restored
+/// or erased meanwhile stays as it is.
 pub(super) async fn failed(
     rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
     let merge = Kept::read(rows, n).await?;
-    let changes = vec![
+    let mut changes = vec![
         steps::Change::Close { row: row(n) }.into(),
-        steps::Change::Begin {
-            row: drop_parts::row(merge.absorbed),
+        Change::Split { merge: n }.into(),
+    ];
+    let absorbed = tree::lineage_of(rows, merge.absorbed).await?;
+    let erased = rows
+        .value::<bool>(
+            "SELECT erased FROM agent WHERE id = ?1",
+            vec![number(merge.absorbed)],
+        )
+        .await?
+        .unwrap_or(true);
+    if merge.split
+        || erased
+        || !matches!(absorbed.agent.status, tree::Status::Ended(_))
+    {
+        return Ok((changes, Calls::none()));
+    }
+    let hamlet =
+        absorbed.hamlet.context("an absorbed hire's hamlet")?;
+    let lead = lead_back(
+        rows,
+        merge.absorbed,
+        absorbed.agent.lead,
+        hamlet.mayor,
+    )
+    .await?;
+    changes.extend(tree::coming_back(merge.absorbed, Some(lead)));
+    changes.push(
+        tree::Change::GiveBack {
+            absorbed: merge.absorbed,
+            kept: merge.kept,
+            kept_was_under: merge.moved.kept_was_under,
+            hires: merge.moved.hires,
         }
         .into(),
-    ];
-    Ok((changes, Calls::none()))
+    );
+    for (other, given) in merge.moved.roads {
+        if given {
+            changes.push(
+                laid::Change::TakeUp {
+                    a: merge.kept,
+                    b: other,
+                }
+                .into(),
+            );
+        }
+        changes.push(
+            laid::Change::Lay {
+                a: merge.absorbed,
+                b: other,
+                hamlet: hamlet.id.clone(),
+            }
+            .into(),
+        );
+    }
+    changes.push(
+        record::taken_back(
+            rows,
+            "merged",
+            Some(merge.absorbed),
+            row(n),
+        )
+        .await?,
+    );
+    let calls = match merge.moved.by {
+        Some(lead)
+            if tree::life(rows, lead).await? == Life::Living =>
+        {
+            let not_merged = MergeRefusal::NotMerged {
+                absorbed: record::agent_name(rows, merge.absorbed)
+                    .await?,
+                into: record::agent_name(rows, merge.kept).await?,
+            };
+            Calls::after_answer(Delivery::Line {
+                to: lead,
+                submit: Submit {
+                    id: InputId(format!("merge/{n}")),
+                    task: None,
+                    input: Input::Notice {
+                        text: not_merged.to_string(),
+                        conversation: None,
+                        held: None,
+                    },
+                },
+            })
+        }
+        _ => Calls::none(),
+    };
+    Ok((changes, calls))
 }
 
 pub(super) async fn split(
@@ -821,7 +1042,8 @@ pub(super) async fn split(
     match step {
         SplitStep::Unmerge => unmerge(cx, n).await?,
         SplitStep::Fill => {
-            fill(cx, Kept::read(&cx.rows()?, n).await?.kept).await?;
+            let kept = Kept::read(&cx.rows()?, n).await?.kept;
+            steps::in_passing(fill(cx, kept).await)?;
         }
     }
     Ok(Vec::new())
@@ -852,12 +1074,25 @@ async fn unmerge(cx: &Cx<'_>, n: u64) -> Result<()> {
     }
 }
 
+/// Takes back the split of merge `n`, which failed for good before
+/// its unmerge: the merge stands again, and the hire stays back.
 pub(super) async fn split_failed(
-    _rows: &Rows<'_>,
+    rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
-    let close = steps::Change::Close { row: split_row(n) };
-    Ok((vec![close.into()], Calls::none()))
+    let merge = Kept::read(rows, n).await?;
+    let changes = vec![
+        steps::Change::Close { row: split_row(n) }.into(),
+        Change::Unsplit { merge: n }.into(),
+        record::taken_back(
+            rows,
+            "split",
+            Some(merge.absorbed),
+            split_row(n),
+        )
+        .await?,
+    ];
+    Ok((changes, Calls::none()))
 }
 
 #[cfg(test)]
@@ -874,7 +1109,10 @@ mod tests {
         };
         let hamlet = HamletId("mill".to_owned());
         let coming = Coming {
-            agent: AgentNumber(3),
+            name: AgentName {
+                agent: AgentNumber(3),
+                name: "hire#3".to_owned(),
+            },
             hamlet: hamlet.clone(),
             removed: false,
             gone: None,

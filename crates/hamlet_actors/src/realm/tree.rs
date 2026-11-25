@@ -626,6 +626,17 @@ pub(super) enum Change {
         absorbed: AgentNumber,
         kept: AgentNumber,
     },
+    /// An absorb taken back: `kept` goes under `absorbed` again when
+    /// it was, and each of `hires` still under `kept` goes back under
+    /// `absorbed`.
+    GiveBack {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+        kept_was_under: bool,
+        hires: Vec<AgentNumber>,
+    },
+    /// An erase taken back: the hire is ended, not erased.
+    Unerased { agent: AgentNumber },
 }
 
 pub(super) async fn apply(
@@ -670,6 +681,24 @@ pub(super) async fn apply(
         Change::Erased { agent } => erased(writer, agent).await,
         Change::Absorb { absorbed, kept } => {
             absorb(writer, absorbed, kept).await
+        }
+        Change::GiveBack {
+            absorbed,
+            kept,
+            kept_was_under,
+            hires,
+        } => {
+            give_back(writer, absorbed, kept, kept_was_under, hires)
+                .await
+        }
+        Change::Unerased { agent } => {
+            writer
+                .execute(
+                    "UPDATE agent SET erased = 0 WHERE id = ?1",
+                    vec![number(agent)],
+                )
+                .await?;
+            Ok(Affected::seen([Part::Agents]))
         }
     }
 }
@@ -951,6 +980,35 @@ async fn absorb(
         {
             lead::set_lead(writer, node.agent, Some(kept)).await?;
             places.insert(node.agent);
+        }
+    }
+    Ok(Affected {
+        places,
+        ..Affected::seen([Part::Agents])
+    })
+}
+
+async fn give_back(
+    writer: &Writer<'_>,
+    absorbed: AgentNumber,
+    kept: AgentNumber,
+    kept_was_under: bool,
+    hires: Vec<AgentNumber>,
+) -> Result<Affected> {
+    let mut places = BTreeSet::from([absorbed, kept]);
+    if kept_was_under {
+        lead::set_lead(writer, kept, Some(absorbed)).await?;
+    }
+    for hire in hires {
+        let moved = writer
+            .execute(
+                "UPDATE hire SET lead = ?2 WHERE agent = ?1 AND \
+                 lead = ?3",
+                vec![number(hire), number(absorbed), number(kept)],
+            )
+            .await?;
+        if moved > 0 {
+            places.insert(hire);
         }
     }
     Ok(Affected {

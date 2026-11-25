@@ -17,7 +17,7 @@ use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, DropInbox, Erase, Fill, InboxCursor, InboxPart,
-    Place, PlaceVersion, ReadInbox, Retire, Retired, Submit,
+    OnTask, Place, PlaceVersion, ReadInbox, Retire, Retired, Submit,
     TakeInbox,
 };
 use hamlet_messages::bytes::Base64;
@@ -71,6 +71,8 @@ pub(super) enum Callee {
     /// A profile's erasure, by the profile's number.
     EraseProfile,
     Fill,
+    /// A profile's making as a fork, by the profile's number.
+    Fork,
     /// A profile's merge, by the absorbed hire's number.
     Merge,
     /// The workspace's measure of a parcel, by its sender.
@@ -131,16 +133,42 @@ pub(super) struct Seen {
     pub(super) branch_drops: Mutex<Vec<(ProfileId, DropBranch)>>,
     pub(super) profile_erases: Mutex<Vec<ProfileId>>,
     pub(super) inboxes: Mutex<HashMap<AgentNumber, Inbox>>,
+    /// What the callees keep of the calls above: each merge and
+    /// unmerge once by its id, and each retire, erase and branch
+    /// drop once by its agent, as a callee answers a repeat without
+    /// doing it again.
+    pub(super) kept: Mutex<Kept>,
+    /// Each agent asked whether it is on a chief's task, with the
+    /// question.
+    pub(super) asked_on_task: Mutex<Vec<(AgentNumber, OnTask)>>,
+    /// The agents that answer they are on a chief's task.
+    pub(super) on_task: Mutex<HashSet<AgentNumber>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
-    /// own.
-    refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// own, and how many times each came.
+    refusing: Mutex<HashMap<(Callee, AgentNumber), usize>>,
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     pub(super) waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The callees held for one agent's next call alone, with that
     /// agent and whether its call came.
     alone: Mutex<HashMap<Callee, (AgentNumber, bool)>>,
+}
+
+#[derive(Default)]
+pub(super) struct Kept {
+    pub(super) merges: Vec<RequestId>,
+    pub(super) unmerges: Vec<RequestId>,
+    pub(super) retires: Vec<AgentNumber>,
+    pub(super) erases: Vec<AgentNumber>,
+    pub(super) branch_drops: Vec<AgentNumber>,
+}
+
+/// Keeps `done` in `kept` unless it is there.
+pub(super) fn keep_once<T: PartialEq>(kept: &mut Vec<T>, done: T) {
+    if !kept.contains(&done) {
+        kept.push(done);
+    }
 }
 
 impl Seen {
@@ -173,7 +201,10 @@ impl Seen {
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             return Err(ActorLifecycle::NotReady.build());
         }
-        if self.refusing.lock().unwrap().contains(&(callee, agent)) {
+        if let Some(came) =
+            self.refusing.lock().unwrap().get_mut(&(callee, agent))
+        {
+            *came += 1;
             bail!("the stand-in refuses {callee:?} of {}", agent.0);
         }
         Ok(())
@@ -193,7 +224,29 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) {
-        self.refusing.lock().unwrap().insert((callee, agent));
+        self.refusing.lock().unwrap().insert((callee, agent), 0);
+    }
+
+    /// How many times `callee` refused `agent`.
+    pub(super) fn refused(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) -> usize {
+        self.refusing
+            .lock()
+            .unwrap()
+            .get(&(callee, agent))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub(super) fn stop_refusing(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) {
+        self.refusing.lock().unwrap().remove(&(callee, agent));
     }
 
     pub(super) fn has_failed(
@@ -302,6 +355,7 @@ impl Actor for AgentStandIn {
         ReadInbox,
         TakeInbox,
         DropInbox,
+        OnTask,
         Forward,
     );
     type Events = ();
@@ -376,6 +430,10 @@ impl Handler<Retire> for AgentStandIn {
     ) -> anyhow::Result<Retired> {
         self.seen.called(Callee::Retire, self.agent).await?;
         self.seen.retires.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().retires,
+            self.agent,
+        );
         Ok(Retired {
             tip: retired(self.agent),
         })
@@ -390,6 +448,10 @@ impl Handler<Erase> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Erase, self.agent).await?;
         self.seen.erases.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().erases,
+            self.agent,
+        );
         Ok(())
     }
 }
@@ -466,6 +528,21 @@ impl Handler<DropInbox> for AgentStandIn {
             }
         }
         Ok(())
+    }
+}
+
+impl Handler<OnTask> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        asked: OnTask,
+    ) -> anyhow::Result<bool> {
+        self.seen
+            .asked_on_task
+            .lock()
+            .unwrap()
+            .push((self.agent, asked));
+        Ok(self.seen.on_task.lock().unwrap().contains(&self.agent))
     }
 }
 

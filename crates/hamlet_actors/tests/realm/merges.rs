@@ -123,7 +123,7 @@ async fn lay(realm: &Realm, a: AgentNumber, b: AgentNumber) {
     assert_eq!(chief(realm, road(a, b)).await, Done::Done);
 }
 
-async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
+pub(super) async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
     realm
         .stopped_rows(|db| {
             db.prepare(
@@ -170,6 +170,41 @@ fn counts(realm: &Realm) -> [usize; 3] {
         seen.merges.lock().unwrap().len(),
         seen.unmerges.lock().unwrap().len(),
     ]
+}
+
+/// How many merges, unmerges, retires, agent erases and branch drops
+/// the callees keep.
+pub(super) fn kept(realm: &Realm) -> [usize; 5] {
+    let kept = realm.seen.kept.lock().unwrap();
+    [
+        kept.merges.len(),
+        kept.unmerges.len(),
+        kept.retires.len(),
+        kept.erases.len(),
+        kept.branch_drops.len(),
+    ]
+}
+
+/// How many of the realm's decisions are of `kind`.
+pub(super) async fn decided(realm: &Realm, kind: &str) -> usize {
+    decisions(realm)
+        .await
+        .iter()
+        .filter(|seen| *seen == kind)
+        .count()
+}
+
+/// Each merge row's tip and whether it was split.
+pub(super) async fn merge_rows(
+    realm: &Realm,
+) -> Vec<(Option<String>, bool)> {
+    realm
+        .stopped_rows(|db| {
+            db.prepare("SELECT tip, split FROM merge ORDER BY id")?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect()
+        })
+        .await
 }
 
 /// The hamlet's mayor, with hires 3 and 4 of one shared profile.
@@ -601,6 +636,12 @@ async fn every_merge_step_twice_merges_once() {
 
         done_again(&realm, "merge", 1, &["retire", "merge", "fill"])
             .await;
+        assert_eq!(kept(&realm), [1, 0, 1, 0, 0], "{callee:?}");
+        assert_eq!(
+            merge_rows(&realm).await,
+            [(Some(MERGED.0.to_string()), false)]
+        );
+        assert_eq!(decided(&realm, "merged").await, 1);
         realm.host.shutdown().await.unwrap();
     }
 }
@@ -630,6 +671,13 @@ async fn every_split_step_twice_splits_once() {
         );
 
         done_again(&realm, "split", 1, &["unmerge"]).await;
+        assert_eq!(kept(&realm), [1, 1, 1, 0, 0], "{callee:?}");
+        assert_eq!(
+            merge_rows(&realm).await,
+            [(Some(MERGED.0.to_string()), true)]
+        );
+        assert_eq!(decided(&realm, "split").await, 1);
+        assert_eq!(agent(&realm, THREE).await.0, "live");
         realm.host.shutdown().await.unwrap();
     }
 }

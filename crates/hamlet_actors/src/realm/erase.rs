@@ -6,7 +6,7 @@ use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::agent::{AgentKind, Erase};
 use hamlet_messages::profile::DropBranch;
 use hamlet_messages::realm::hires::{EndedRefusal, EraseHire};
-use hamlet_messages::realm::{Done, Named};
+use hamlet_messages::realm::{AgentName, Done, Named};
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
 
@@ -47,7 +47,7 @@ impl Steps for Step {
 impl Act<Client> for EraseHire {
     type Output = Done<EndedRefusal>;
     type Loaded = Option<Lineage>;
-    type Done = AgentNumber;
+    type Done = AgentName;
 
     async fn load(
         &self,
@@ -61,7 +61,7 @@ impl Act<Client> for EraseHire {
         &self,
         by: &Client,
         named: Option<Lineage>,
-    ) -> Decision<AgentNumber, Self::Output> {
+    ) -> Decision<AgentName, Self::Output> {
         let hire = match ended_hire(&self.hire, named) {
             Ok(hire) => hire,
             Err(why) => {
@@ -70,7 +70,7 @@ impl Act<Client> for EraseHire {
         };
         let agent = hire.agent.agent;
         Decision::Change(
-            Decided::new(agent)
+            Decided::new(hire.agent.name)
                 .change(tree::Change::Erased { agent })
                 .record(record::Entry::Erased {
                     hire: agent,
@@ -79,12 +79,18 @@ impl Act<Client> for EraseHire {
         )
     }
 
-    fn answers_after(&self, agent: &AgentNumber) -> Vec<StepId> {
-        vec![row(*agent)]
+    fn answers_after(&self, hire: &AgentName) -> Vec<StepId> {
+        vec![row(hire.agent)]
     }
 
-    fn answer(&self, _: AgentNumber, _made: &Made) -> Self::Output {
+    fn answer(&self, _: AgentName, _made: &Made) -> Self::Output {
         Done::Done
+    }
+
+    fn failed(&self, hire: AgentName, _made: &Made) -> Self::Output {
+        Done::Refused {
+            why: EndedRefusal::NotErased { hire },
+        }
     }
 }
 
@@ -143,26 +149,33 @@ pub(super) async fn run(
                     .await?;
             }
         }
+        // Past the branch's drop an erase is not taken back: it runs
+        // until done.
         Step::Agent => {
             if hire::reached(&rows, agent, hire::Step::Create).await?
             {
                 let to = Agent(agent);
                 let erased =
                     cx.peers().call(&to, &Erase, When::AfterAnswer);
-                retire::unless_gone(erased.await)?;
+                steps::in_passing(retire::unless_gone(erased.await))?;
             }
         }
     }
     Ok(Vec::new())
 }
 
+/// Takes back the erase of the hire `n`, which failed for good before
+/// its branch was dropped: the hire is ended, not erased.
 pub(super) async fn failed(
-    _rows: &Rows<'_>,
+    rows: &Rows<'_>,
     n: u64,
 ) -> Result<(Vec<change::Change>, Calls)> {
-    let row = StepId {
-        kind: Kind::Erase,
-        n,
-    };
-    Ok((vec![steps::Change::Close { row }.into()], Calls::none()))
+    let agent = AgentNumber(u32::try_from(n)?);
+    let changes = vec![
+        steps::Change::Close { row: row(agent) }.into(),
+        tree::Change::Unerased { agent }.into(),
+        record::taken_back(rows, "erased", Some(agent), row(agent))
+            .await?,
+    ];
+    Ok((changes, Calls::none()))
 }
