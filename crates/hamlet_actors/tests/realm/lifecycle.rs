@@ -28,8 +28,8 @@ use super::reserved::{in_turn, notices, waits};
 use super::stand_ins::Callee;
 use super::world::{agent, seen_until};
 use super::{
-    DEADLINE, FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire,
-    hires, named_as, shown, tool, until,
+    FOUR, MAYOR, Realm, THREE, answer, closed_until, hamlet_with,
+    hire, hires, named_as, shown, tool, until,
 };
 
 const FIVE: AgentNumber = AgentNumber(5);
@@ -606,32 +606,6 @@ async fn every_profile_erase_step_twice_erases_it_and_closes_its_row()
     let erased = realm.seen.profile_erases.lock().unwrap().clone();
     assert!(erased.iter().all(|&profile| profile == MASON));
     realm.host.shutdown().await.unwrap();
-}
-
-/// Waits until the step row `kind` `n` has closed.
-async fn closed_until(realm: &Realm, kind: &str, n: u32) {
-    let begun = std::time::Instant::now();
-    while !step_closed(realm, kind, n).await {
-        assert!(
-            begun.elapsed() < DEADLINE,
-            "never: {kind} {n} closed"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(20))
-            .await;
-    }
-}
-
-async fn step_closed(realm: &Realm, kind: &str, n: u32) -> bool {
-    let kind = kind.to_owned();
-    realm
-        .stopped_rows(move |db| {
-            db.query_row(
-                "SELECT closed FROM step WHERE kind = ?1 AND n = ?2",
-                rusqlite::params![kind, n],
-                |row| row.get::<_, bool>(0),
-            )
-        })
-        .await
 }
 
 fn fork(at: Option<&str>, name: &str) -> ForkProfile {

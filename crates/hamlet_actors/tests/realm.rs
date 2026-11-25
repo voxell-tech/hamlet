@@ -311,6 +311,48 @@ async fn stopped_open<T>(
     Ok(opened?)
 }
 
+/// Whether the step row `kind` `n` has closed, or `None` before it
+/// begins.
+async fn closed(realm: &Realm, kind: &str, n: i64) -> Option<bool> {
+    realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT closed FROM step WHERE kind = ?1 AND n = ?2",
+                rusqlite::params![kind, n],
+                |row| row.get(0),
+            )
+            .map(Some)
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                error => Err(error),
+            })
+        })
+        .await
+}
+
+/// Waits until the step row `kind` `n` has closed.
+async fn closed_until(realm: &Realm, kind: &str, n: i64) {
+    let begun = Instant::now();
+    while closed(realm, kind, n).await != Some(true) {
+        assert!(
+            begun.elapsed() < DEADLINE,
+            "never: {kind} {n} closes"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The kinds of the realm's decisions, in the order it made them.
+async fn decisions(realm: &Realm) -> Vec<String> {
+    realm
+        .stopped_rows(|db| {
+            db.prepare("SELECT kind FROM decision ORDER BY id")?
+                .query_map([], |row| row.get(0))?
+                .collect()
+        })
+        .await
+}
+
 async fn call<A: Action>(
     host: &Host,
     to: &impl Party,

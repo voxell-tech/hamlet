@@ -1,7 +1,7 @@
 //! A merge of two hires and its split, and an ended hire restored
 //! and erased.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hamlet_actor_core::ShutdownKind;
 use hamlet_messages::address::{self, Party as _};
@@ -11,19 +11,19 @@ use hamlet_messages::realm::hires::{
 };
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, End, Found, FoundAnswer, Gate,
-    LayRoad, LeadRefusal, Limit, Named, ProfileId, ReservedAct,
-    SetLimits, Tier,
+    LeadRefusal, Limit, Named, ProfileId, ReservedAct, SetLimits,
+    Tier,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::profiles::create;
-use super::reserved::notices;
+use super::reserved::{lay as road, notices};
 use super::stand_ins::{Callee, Seen};
 use super::{
-    DEADLINE, FOUR, MAYOR, Realm, THREE, answer, chief_hires, hire,
-    hires, made, shown, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, chief_hires, closed_until,
+    decisions, hire, hires, made, shown, to, tool, until, words,
 };
 
 const FIVE: AgentNumber = AgentNumber(5);
@@ -116,46 +116,8 @@ async fn agent(
     (status, how, lead)
 }
 
-/// Whether the step row is closed, if there is one.
-async fn closed(realm: &Realm, kind: &str, n: i64) -> Option<bool> {
-    realm
-        .stopped_rows(|db| {
-            db.query_row(
-                "SELECT closed FROM step WHERE kind = ?1 AND n = ?2",
-                rusqlite::params![kind, n],
-                |row| row.get(0),
-            )
-            .map(Some)
-            .or_else(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                error => Err(error),
-            })
-        })
-        .await
-}
-
-async fn closed_until(realm: &Realm, kind: &str, n: i64) {
-    let begun = Instant::now();
-    while closed(realm, kind, n).await != Some(true) {
-        assert!(
-            begun.elapsed() < DEADLINE,
-            "never: {kind} {n} closes"
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 async fn lay(realm: &Realm, a: AgentNumber, b: AgentNumber) {
-    let laid = chief(
-        realm,
-        LayRoad {
-            a: to(a),
-            b: to(b),
-            why: None,
-        },
-    )
-    .await;
-    assert_eq!(laid, Done::Done);
+    assert_eq!(chief(realm, road(a, b)).await, Done::Done);
 }
 
 async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
@@ -167,16 +129,6 @@ async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
             )?
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect()
-        })
-        .await
-}
-
-async fn decisions(realm: &Realm) -> Vec<String> {
-    realm
-        .stopped_rows(|db| {
-            db.prepare("SELECT kind FROM decision ORDER BY id")?
-                .query_map([], |row| row.get(0))?
-                .collect()
         })
         .await
 }
