@@ -256,6 +256,35 @@ async fn a_stop_of_all_withdraws_a_line_to_a_hire_being_hired() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+/// The line and `/new` are sent while the Node host is down, and it
+/// is let start again 1.5 s later: by then the realm tries the line
+/// once a second, and the door tries `/new` every 50 ms, so `/new`
+/// would reach the agent first if it did not wait for the line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_said_before_new_stays_in_the_session_it_was_said_in()
+{
+    let held = HeldNode::new();
+    let (mut server, home, _side) =
+        held.serve(json!([ANSWER, ANSWER, ANSWER, ANSWER])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
+    kill_node(&home).await;
+    let before = chief.tell(hand, "Before new.").await;
+    let new = chief.tell(hand, "/new").await;
+    let after = chief.tell(hand, "After new.").await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    held.release();
+    for line in [&before, &new, &after] {
+        chief.reply(line).await;
+    }
+    let page = chief.open(&chat(hand)).await;
+    assert_eq!(shown(&page, "Before new."), 0, "{page:?}");
+    assert_eq!(shown(&page, "After new."), 1, "{page:?}");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
 /// How many items of `page` show `text`.
 fn shown(page: &Transcript, text: &str) -> usize {
     page.items.iter().filter(|item| item.text == text).count()

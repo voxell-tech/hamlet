@@ -850,19 +850,20 @@ impl Asker {
                 let (calls, hub) =
                     (self.calls.clone(), self.hub.clone());
                 let (client, line) = (self.client, id.clone());
+                let unsettled = self.calls.unsettled(agent);
                 let reading = tokio::spawn(async move {
-                    let message =
-                        match calls.given(agent, &line).await {
-                            Ok(Fate::Given) => {
-                                if held.await.is_ok() {
-                                    hub.taken(client, agent, &line)
-                                        .await;
-                                }
-                                return;
+                    let fate = calls.given(agent, &line).await;
+                    drop(unsettled);
+                    let message = match fate {
+                        Ok(Fate::Given) => {
+                            if held.await.is_ok() {
+                                hub.taken(client, agent, &line).await;
                             }
-                            Ok(Fate::Withdrawn) => ended_line(&line),
-                            Err(error) => failed(&line, &error),
-                        };
+                            return;
+                        }
+                        Ok(Fate::Withdrawn) => ended_line(&line),
+                        Err(error) => failed(&line, &error),
+                    };
                     hub.settle(agent, client, &line, message);
                 });
                 self.hub.reading(

@@ -13,6 +13,9 @@ use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host, Subscription};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::chat::{
+    NewSession, Resume, Retry, Rewind,
+};
 use hamlet_messages::realm::client::{
     ReadWorld, Say, SayAnswer, SayRefusal,
 };
@@ -41,6 +44,12 @@ const AGAIN: Duration = Duration::from_millis(50);
 const FIRST_READ: Duration = Duration::from_millis(10);
 
 const READ_AT_MOST: Duration = Duration::from_secs(1);
+
+/// The calls to an agent that choose the session a line given after
+/// them lands in, so each waits for the lines its connection said to
+/// that agent before it.
+const AFTER_LINES: [&str; 4] =
+    [NewSession::NAME, Resume::NAME, Retry::NAME, Rewind::NAME];
 
 /// Calls the actors as a client.
 #[derive(Clone)]
@@ -87,9 +96,9 @@ impl Stopping {
     }
 }
 
-/// The stops one connection sent. A stop ends the retry waits of
-/// the calls to its agents of the requests its connection sent
-/// before it.
+/// The stops one connection sent, and its lines the realm accepted
+/// that are not yet given. A stop ends the retry waits of the calls
+/// to its agents of the requests its connection sent before it.
 #[derive(Clone)]
 pub(crate) struct Stops(Arc<Sent>);
 
@@ -97,6 +106,29 @@ struct Sent {
     /// What each stop stops, in the order sent.
     sent: watch::Sender<Vec<Stopping>>,
     answered: watch::Sender<usize>,
+    /// How many of the connection's lines to each agent the door has
+    /// not yet read as given or withdrawn.
+    lines: watch::Sender<BTreeMap<AgentNumber, usize>>,
+}
+
+/// A line its connection said to `agent`, counted as not yet given
+/// until it is dropped.
+pub(crate) struct Unsettled {
+    stops: Stops,
+    agent: AgentNumber,
+}
+
+impl Drop for Unsettled {
+    fn drop(&mut self) {
+        self.stops.0.lines.send_modify(|lines| {
+            if let Some(count) = lines.get_mut(&self.agent) {
+                *count -= 1;
+                if *count == 0 {
+                    lines.remove(&self.agent);
+                }
+            }
+        });
+    }
 }
 
 impl Stops {
@@ -104,6 +136,7 @@ impl Stops {
         Self(Arc::new(Sent {
             sent: watch::Sender::new(Vec::new()),
             answered: watch::Sender::new(0),
+            lines: watch::Sender::new(BTreeMap::new()),
         }))
     }
 
@@ -150,6 +183,14 @@ impl Place {
             .await;
     }
 
+    /// Resolves once each line the connection said to `agent` is
+    /// given or withdrawn.
+    async fn lines_settled(&self, agent: AgentNumber) {
+        let mut lines = self.stops.0.lines.subscribe();
+        let _ =
+            lines.wait_for(|lines| !lines.contains_key(&agent)).await;
+    }
+
     /// Resolves once each stop the connection sent before the request
     /// is answered.
     pub(crate) async fn stops_answered(&self) {
@@ -175,6 +216,23 @@ impl Calls {
             place: Some(place),
             ..self.clone()
         }
+    }
+
+    /// Counts a line to `agent` that the realm accepted as not yet
+    /// given, until the result is dropped; none for calls of no
+    /// connection.
+    pub(crate) fn unsettled(
+        &self,
+        agent: AgentNumber,
+    ) -> Option<Unsettled> {
+        let place = self.place.as_ref()?;
+        place.stops.0.lines.send_modify(|lines| {
+            *lines.entry(agent).or_default() += 1;
+        });
+        Some(Unsettled {
+            stops: place.stops.clone(),
+            agent,
+        })
     }
 
     /// Waits before the next try of a call to `agent`; `false` when a
@@ -292,10 +350,31 @@ impl Calls {
         name: &str,
         args: Vec<u8>,
     ) -> Result<Vec<u8>> {
+        if AFTER_LINES.contains(&name) {
+            self.after_lines(to).await;
+        }
         self.again(to, starting, |left| {
             self.host.call_for_client(to, name, args.clone(), left)
         })
         .await
+    }
+
+    /// Waits, at most [`WITHIN`], until the lines this request's
+    /// connection said before it to the agent at `to` are given or
+    /// withdrawn, or the connection sent a stop of that agent after
+    /// the request.
+    async fn after_lines(&self, to: &Address) {
+        let (Some(place), Some(agent)) = (&self.place, agent_of(to))
+        else {
+            return;
+        };
+        let _ = tokio::time::timeout(WITHIN, async {
+            tokio::select! {
+                () = place.lines_settled(agent) => {}
+                () = place.stopping(agent) => {}
+            }
+        })
+        .await;
     }
 
     /// Subscribes to `event` of the actor at `to`, as a client, with
@@ -359,10 +438,7 @@ impl Calls {
         &self,
         to: &Address,
     ) -> Result<Option<AgentNumber>> {
-        if to.kind() != address::Agent::KIND {
-            return Ok(None);
-        }
-        let Ok(number) = to.key().parse().map(AgentNumber) else {
+        let Some(number) = agent_of(to) else {
             return Ok(None);
         };
         let answer = self
@@ -384,6 +460,14 @@ impl Calls {
             })
             .then_some(number))
     }
+}
+
+/// The agent at `to`, when it is an agent's address.
+fn agent_of(to: &Address) -> Option<AgentNumber> {
+    if to.kind() != address::Agent::KIND {
+        return None;
+    }
+    to.key().parse().map(AgentNumber).ok()
 }
 
 /// Whether `error` says the actor called is not there or not started
