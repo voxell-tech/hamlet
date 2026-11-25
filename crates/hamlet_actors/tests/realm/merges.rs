@@ -722,6 +722,27 @@ async fn a_hire_ended_while_hiring_retires_with_no_call() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_hire_ended_before_its_fill_retires_with_no_call_and_is_erased()
+ {
+    let (realm, _) = super::hamlet_with(1).await;
+    realm
+        .write(
+            "UPDATE step SET done = 'create' WHERE kind = 'hire' \
+             AND n = 3;",
+        )
+        .await;
+
+    end(&realm, THREE).await;
+    closed_until(&realm, "retire", 3).await;
+    chief(&realm, erase(THREE)).await;
+    closed_until(&realm, "erase", 3).await;
+
+    assert!(retires(&realm).is_empty());
+    assert_eq!(*realm.seen.erases.lock().unwrap(), [THREE]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn every_retire_step_twice_retires_once() {
     let (realm, _) = super::hamlet_with(1).await;
     realm.seen.fail_once(Callee::Retire, THREE);

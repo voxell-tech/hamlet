@@ -47,13 +47,13 @@ pub(super) async fn run(
     }
 }
 
-/// Retires `agent`, if it was made, and begins the row that drops
+/// Retires `agent`, if it was filled, and begins the row that drops
 /// what it leaves: after the retire, whose save that drop would cut.
 pub(super) async fn retire(
     cx: &Cx<'_>,
     agent: AgentNumber,
 ) -> Result<Vec<change::Change>> {
-    if reached(&cx.rows()?, agent, hire::Step::Create).await? {
+    if reached(&cx.rows()?, agent, hire::Step::Fill).await? {
         let to = Agent(agent);
         unless_gone(
             cx.peers().call(&to, &Retire, When::AfterAnswer).await,
