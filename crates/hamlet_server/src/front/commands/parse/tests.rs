@@ -261,10 +261,10 @@ fn merge_names_two_hires_and_gives_the_chiefs_reason_when_none_is_said()
         parse("/merge hire#3 into mayor", Some(&docs())),
         Ok(Act::Merge {
             absorbed: hire(3, "hire#3"),
-            into: Target {
+            into: Ok(Target {
                 named: Named::MayorOf { hamlet: docs() },
                 text: "mayor".into(),
-            },
+            }),
             why: "merged by the chief".into(),
         })
     );
@@ -272,7 +272,7 @@ fn merge_names_two_hires_and_gives_the_chiefs_reason_when_none_is_said()
         parse("/merge hire#3 into hire#2 they write one guide", None),
         Ok(Act::Merge {
             absorbed: hire(3, "hire#3"),
-            into: hire(2, "hire#2"),
+            into: Ok(hire(2, "hire#2")),
             why: "they write one guide".into(),
         })
     );
