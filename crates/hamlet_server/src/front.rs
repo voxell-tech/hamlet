@@ -102,8 +102,9 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("resolving {}", home.display()))?;
     let _claim = Claim::take(&root)?;
-    let credentials =
-        Keys(Arc::new(RwLock::new(Credentials::open(&root)?)));
+    let credentials = Keys(Arc::new(RwLock::new(
+        Credentials::open_beside_actors(&root)?,
+    )));
     let (host, supervisor) =
         host::open(&root, sandbox, options.faux.as_deref())?;
     let mut published = None;
