@@ -22,6 +22,7 @@ use hamlet_messages::agent::chat::{
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, AgentId, Open, RequestId, ServerMessage,
+    Transcript,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
@@ -70,6 +71,11 @@ struct Watch {
     /// The last change its page and the turns after it hold; none
     /// until the page is sent.
     seen: Option<Mark>,
+    /// The last page it was sent, without the request it answered.
+    /// A page's mark counts the agent's changes to all its chats, so
+    /// a page read again after a change to another chat can be this
+    /// page unchanged.
+    page: Option<Transcript>,
 }
 
 impl Watch {
@@ -165,6 +171,7 @@ impl Hub {
                 client,
                 chat: open.chat.clone(),
                 seen: None,
+                page: None,
             });
         }
         let _ = found.jobs.send(Job::Page { client, open });
@@ -535,7 +542,12 @@ impl Shared {
         });
         match transcript {
             Ok((mark, transcript)) => {
-                found.watches[at].seen = Some(mark);
+                let watch = &mut found.watches[at];
+                watch.seen = Some(mark);
+                watch.page = Some(Transcript {
+                    to: None,
+                    ..transcript.clone()
+                });
                 self.send(
                     client,
                     ServerMessage::Transcript(transcript),
@@ -707,10 +719,15 @@ impl Shared {
             for watch in &mut found.watches {
                 if watch.chat == chat && watch.is_behind(mark) {
                     watch.seen = Some(mark);
-                    self.send(
-                        watch.client,
-                        ServerMessage::Transcript(transcript.clone()),
-                    );
+                    if watch.page.as_ref() != Some(&transcript) {
+                        watch.page = Some(transcript.clone());
+                        self.send(
+                            watch.client,
+                            ServerMessage::Transcript(
+                                transcript.clone(),
+                            ),
+                        );
+                    }
                 }
             }
         }
