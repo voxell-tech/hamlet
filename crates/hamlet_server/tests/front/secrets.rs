@@ -22,7 +22,7 @@ use super::{
     login_step, serve_again, serve_with, start_sign_in,
 };
 
-/// The demo's OAuth login, which the realm keeps as a secret.
+/// The demo's OAuth login up to its quote, which a frame escapes.
 const OAUTH: [&str; 2] =
     ["made-up-oauth-access-", "made-up-oauth-refresh-"];
 
@@ -360,7 +360,6 @@ fn realm_database(home: &Path) -> PathBuf {
     found.into_iter().next().unwrap()
 }
 
-/// Every file under `folder`.
 fn files(folder: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for entry in std::fs::read_dir(folder).unwrap() {

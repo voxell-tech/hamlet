@@ -249,7 +249,6 @@ impl Credentials {
     }
 }
 
-/// The file at `file`; `None` where there is none.
 fn read(file: &Path) -> Result<Option<Stored>> {
     match fs::read(file) {
         Ok(bytes) => Ok(Some(
