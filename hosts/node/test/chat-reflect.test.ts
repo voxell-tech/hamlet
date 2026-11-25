@@ -512,9 +512,12 @@ test("a stop drops the reflection that waits for the run", async (t) => {
     const client = agent.by(from.client);
     assert.equal(await agent.actions.reflect(client), "asked");
 
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 1,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
+        {
+            turns: 1,
+        },
+    );
     await agent.idle();
     assert.deepEqual(await reflections(agent), []);
     assert.equal(agent.faux.state.callCount, 1);

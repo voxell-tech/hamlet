@@ -560,7 +560,7 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
     );
     // A stopped turn leaves the rotation it started to finish.
     await line;
-    await agent.actions.stop(agent.by(from.client), { id: "stop-1" });
+    await agent.actions.stop(agent.by(from.realm), { number: 1 });
     fixture.refreshHeld.resolve();
     const words = (await checked).words;
     await agent.idle();

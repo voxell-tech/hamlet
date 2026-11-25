@@ -99,6 +99,7 @@ fn enums() -> Vec<Cases> {
     .chain(chat::enums())
     .chain(profile::enums())
     .chain(library::enums())
+    .chain(lines::enums())
     .collect()
 }
 
@@ -118,6 +119,7 @@ macro_rules! union {
 
 // After `union!`, which they use.
 mod library;
+mod lines;
 mod profile;
 mod realm;
 
@@ -681,6 +683,7 @@ fn every_fixture(fixtures: &mut Fixtures) {
     chat::the_agents_chat(fixtures);
     profile::the_profiles_messages(fixtures);
     library::the_librarys_messages(fixtures);
+    lines::the_lines_and_the_stop(fixtures);
 }
 
 #[test]

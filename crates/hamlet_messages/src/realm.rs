@@ -5,6 +5,7 @@ pub mod choices;
 pub mod client;
 pub mod documents;
 pub mod hamlets;
+pub mod lines;
 pub mod models;
 pub mod oversight;
 pub mod parcels;

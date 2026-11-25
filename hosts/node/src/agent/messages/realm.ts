@@ -382,6 +382,11 @@ export interface Reply {
     readonly text: string;
 }
 
+/** Whether the agent has an open input, sent each time that changes. */
+export interface Working {
+    readonly open: boolean;
+}
+
 export interface MaySpend {
     readonly task: RealmTask;
 }
@@ -521,6 +526,7 @@ export type RealmActions = {
     errand_done(message: TurnEnded): null;
     read_place(message: ReadPlace): PlaceText;
     fetch_part(message: FetchPart): Part;
+    working(message: Working): null;
 };
 
 export const REALM: Address<RealmActions> = Address.of("realm", "local");

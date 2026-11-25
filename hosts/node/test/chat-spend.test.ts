@@ -457,7 +457,7 @@ test("a stopped turn tells nothing", async (t) => {
     });
     await asked.promise;
 
-    await agent.actions.stop(agent.by(from.client), { id: "stop-1" });
+    await agent.actions.stop(agent.by(from.realm), { number: 1 });
     await agent.idle();
 
     assert.deepEqual(await notices(agent), []);

@@ -243,6 +243,7 @@ export interface AgentActions {
     moved(message: Moved): null;
     remove_path(message: RemovePath): Removal;
     shelves_changed(message: ShelvesChanged): null;
+    stop(message: Stop): { readonly turns: number };
 }
 
 /** As each message's `Message::From` says. */
@@ -255,6 +256,7 @@ export const SENDERS = {
     moved: OWN_PROFILE,
     remove_path: OWN_PROFILE,
     shelves_changed: LIBRARY,
+    stop: REALM,
 } as const satisfies {
     readonly [N in keyof AgentActions]: Address | typeof OWN_PROFILE;
 };
@@ -392,9 +394,16 @@ export interface Session {
     readonly title: string;
 }
 
+/** The realm's stop of the agent; a repeat of its number is the first. */
 export interface Stop {
-    readonly agent?: AgentNumber;
-    readonly id: RequestId;
+    readonly number: number;
+    readonly withdrawn?: readonly Withdrawn[];
+}
+
+/** A chief's line the realm withdrew before the agent took it. */
+export interface Withdrawn {
+    readonly id: string;
+    readonly line: Input;
 }
 
 export interface NewSession {
@@ -509,7 +518,6 @@ export interface Checked {
 
 /** A client's calls of an agent, each answered with a value. */
 export interface ClientActions {
-    stop(message: Stop): { readonly turns: number };
     new_session(message: NewSession): { readonly number: number };
     resume(message: Resume): ResumeAnswer;
     retry(message: Retry): RetryAnswer;
@@ -724,6 +732,21 @@ export const read: {
     shelves_changed: reader(obj({ list: SHELF_LIST }, OPEN), ({ list }) => ({
         list: shelfListOf(list),
     })),
+    stop: reader(
+        obj(
+            {
+                number: union([int(), bigint()]),
+                withdrawn: opt(arr(obj({ id: str(), line: INPUT }, OPEN))),
+            },
+            OPEN,
+        ),
+        ({ number, withdrawn }) => ({
+            number: wide(number),
+            ...(withdrawn === undefined
+                ? {}
+                : { withdrawn: withdrawn as Withdrawn[] }),
+        }),
+    ),
 };
 
 /**
@@ -763,13 +786,6 @@ export const readClient: {
         raw: readonly unknown[],
     ) => Parameters<ClientActions[N]>;
 } = {
-    stop: first(
-        obj({ agent: opt(WIDE), id: str() }, OPEN),
-        ({ agent, id }) => ({
-            id,
-            ...(agent === undefined ? {} : { agent: wide(agent) }),
-        }),
-    ),
     new_session: first(obj({ id: str(), to: WIDE }, OPEN), ({ id, to }) => ({
         id,
         to: wide(to),

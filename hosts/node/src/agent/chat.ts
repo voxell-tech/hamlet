@@ -9,14 +9,7 @@ import {
     rowAt,
     wrongCaller,
 } from "./actor.ts";
-import {
-    newSession,
-    reflectNow,
-    resume,
-    retry,
-    rewind,
-    stop,
-} from "./commands.ts";
+import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
 import { type ClientActions, readClient } from "./messages/agent.ts";
 import { agentKeys, checkModel, modelList, secretsLoaded } from "./models.ts";
 import { promptSections } from "./prompt.ts";
@@ -40,10 +33,7 @@ export type ChatHandlers = {
  * Actions that answer only fixed words or the realm's, so they do not wait
  * on the realm's secret list and are taken in the order they come.
  */
-const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set([
-    "stop",
-    "retry",
-]);
+const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set(["retry"]);
 
 export function askedBy<N extends keyof ClientActions>(
     action: N,
@@ -65,7 +55,6 @@ export function askedBy<N extends keyof ClientActions>(
 
 export function chatActions(config: AgentConfig): ChatHandlers {
     return {
-        stop: askedBy("stop", stop),
         new_session: askedBy("new_session", newSession),
         resume: askedBy("resume", resume),
         retry: askedBy("retry", retry),

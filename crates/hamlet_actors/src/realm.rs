@@ -15,6 +15,7 @@ mod laid;
 mod lanes;
 mod letters;
 mod librarian;
+mod lines;
 mod marker;
 mod oversight;
 mod parcels;
@@ -31,6 +32,7 @@ mod secrets;
 mod settings;
 mod society;
 mod steps;
+mod stop;
 mod tasks;
 mod tree;
 mod versions;
@@ -60,6 +62,7 @@ use hamlet_messages::realm::documents::{
 use hamlet_messages::realm::hamlets::{
     MoveHamlet, NameHamlet, ReadRecord, SetFolder, SetMode,
 };
+use hamlet_messages::realm::lines::{ReadLine, StopAgents, Working};
 use hamlet_messages::realm::models::{
     Credential, KeepCredential, TurnFailed,
 };
@@ -171,6 +174,7 @@ struct Realm {
     secrets: secrets::Held,
     drives: steps::Drives,
     lanes: lanes::Lanes,
+    lines: lines::Lines,
     hiring_wait: Duration,
     /// Per profile, held shared by each purge of it in flight, and
     /// alone while a dream's folders are checked out of it.
@@ -203,6 +207,9 @@ impl Actor for Realm {
         Asked<Seat>,
         ByHand<Tool<Seat>>,
         Say,
+        Looks<ReadLine>,
+        StopAgents,
+        Working,
         Tool<Tell>,
         Tool<Ask>,
         Bare<Reply>,
@@ -293,6 +300,7 @@ impl Actor for Realm {
                 world: world::Held::load(ctx).await?,
                 drives: steps::Drives::default(),
                 lanes: lanes::Lanes::default(),
+                lines: lines::Lines::default(),
                 purging: Mutex::default(),
             })
         }

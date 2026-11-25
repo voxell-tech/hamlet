@@ -28,7 +28,7 @@ test("a stop ends a turn whose model call waits for a secret list the realm has 
     await spending.promise;
 
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 1 },
     );
     await agent.idle();

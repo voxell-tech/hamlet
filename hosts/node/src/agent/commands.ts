@@ -19,6 +19,7 @@ import { textOf } from "./chat-items.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
 import type {
+    AgentActions,
     ClientActions,
     NewSession,
     Resume,
@@ -69,7 +70,9 @@ type Answer<N extends keyof ClientActions> = Promise<
  * its turn was stopped, as today's follow answers it
  * (`crates/hamlet_server/src/talk/follow.rs:70-84`).
  */
-export async function stop(c: AgentCall): Answer<"stop"> {
+export async function stop(
+    c: AgentCall,
+): Promise<ReturnType<AgentActions["stop"]>> {
     const { options, peers, retrying } = generationOf(c);
     // Today runs a chief's commands to one agent one after another
     // (`crates/hamlet_server/src/commands.rs`), so a retry under way is

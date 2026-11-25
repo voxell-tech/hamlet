@@ -39,6 +39,7 @@ import { migratePiTables } from "../pi/storage.ts";
 import { type Branch, branchOf, migrateBranch } from "./branch.ts";
 import { briefTurn } from "./brief.ts";
 import { type ChatHandlers, chatActions } from "./chat.ts";
+import { stop } from "./commands.ts";
 import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
     copiesOf,
@@ -289,6 +290,7 @@ function agentActions(config: AgentConfig): AgentHandlers {
             moved,
             remove_path,
             shelves_changed,
+            stop,
         }),
         ...chatActions(config),
         pi: { wake: sentBy<[], null>(ALARM, "pi.wake", () => [], wakeTimers) },

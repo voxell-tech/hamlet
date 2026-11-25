@@ -86,8 +86,9 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
     Login, NewSession, ReadChat, ReadHistory, ReadPrompt, Reflect,
-    Resume, Retry, Rewind, Stop,
+    Resume, Retry, Rewind,
 };
+use hamlet_messages::realm::lines::StopAgents;
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::{
@@ -288,8 +289,12 @@ async fn client(
     let (id, words) = id_of(words)?;
     match (verb, words) {
         ("new", []) => {
-            asked(host, n, &NewSession(protocol::New { id, to }))
-                .await
+            asked(
+                host,
+                &address::Agent(n),
+                &NewSession(protocol::New { id, to }),
+            )
+            .await
         }
         ("resume", [number]) => {
             let resume = protocol::Resume {
@@ -299,17 +304,19 @@ async fn client(
                 })?,
                 to,
             };
-            asked(host, n, &Resume(resume)).await
+            asked(host, &address::Agent(n), &Resume(resume)).await
         }
         ("retry", []) => {
-            asked(host, n, &Retry(protocol::Retry { id, to })).await
+            asked(
+                host,
+                &address::Agent(n),
+                &Retry(protocol::Retry { id, to }),
+            )
+            .await
         }
         ("stop", []) => {
-            let stop = protocol::Stop {
-                agent: Some(to),
-                id,
-            };
-            asked(host, n, &Stop(stop)).await
+            let stop = StopAgents { agents: vec![n] };
+            asked(host, &address::Realm, &stop).await
         }
         ("rewind", [item]) => {
             let rewind = protocol::Rewind {
@@ -317,16 +324,22 @@ async fn client(
                 id,
                 item: (*item).to_owned(),
             };
-            asked(host, n, &Rewind(rewind)).await
+            asked(host, &address::Agent(n), &Rewind(rewind)).await
         }
         ("chat", words) => {
             let (chat, before) = chat_of(to, words)?;
             let open = protocol::Open { before, chat, id };
-            asked(host, n, &ReadChat(open)).await
+            asked(host, &address::Agent(n), &ReadChat(open)).await
         }
-        ("history", []) => asked(host, n, &ReadHistory).await,
-        ("prompt", []) => asked(host, n, &ReadPrompt).await,
-        ("reflect", []) => asked(host, n, &Reflect).await,
+        ("history", []) => {
+            asked(host, &address::Agent(n), &ReadHistory).await
+        }
+        ("prompt", []) => {
+            asked(host, &address::Agent(n), &ReadPrompt).await
+        }
+        ("reflect", []) => {
+            asked(host, &address::Agent(n), &Reflect).await
+        }
         _ => bail!("usage: {USAGE}"),
     }
 }
@@ -397,23 +410,25 @@ async fn login(
         },
         _ => bail!("usage: {USAGE}"),
     };
-    asked(host, HAND, &Login(login)).await
+    asked(host, &address::Agent(HAND), &Login(login)).await
 }
 
-/// Answers as `Ok` JSON both the agent's answer and the actor's error
+/// Answers as `Ok` JSON both the actor's answer and the actor's error
 /// it failed with.
 async fn asked<M>(
     host: &Host,
-    n: AgentNumber,
+    to: &M::To,
     message: &M,
 ) -> Result<serde_json::Value>
 where
-    M: Message<To = address::Agent, From = Client>,
+    M: Message<From = Client>,
+    M::To: Party,
     M::Output: Serialize + DeserializeOwned,
 {
+    let to = to.address()?;
     let called = host
         .call_for_client(
-            &address::Agent(n).address()?,
+            &to,
             M::NAME,
             encode_positional(message)?,
             ASK_WITHIN,
@@ -429,9 +444,10 @@ where
                     let raw: serde_json::Value =
                         ciborium::from_reader(answer.as_slice())?;
                     bail!(
-                        "agent {} answered `{}` with {raw}, which \
-                         is not its answer: {error}",
-                        n.0,
+                        "{} {} answered `{}` with {raw}, which is \
+                         not its answer: {error}",
+                        to.kind(),
+                        to.key(),
                         M::NAME
                     )
                 }

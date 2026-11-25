@@ -20,6 +20,7 @@ import {
     type ChatEvent,
     type ChatRef,
     type Copies,
+    read,
     readClient,
     type Submit,
 } from "../src/agent/messages/agent.ts";
@@ -289,7 +290,7 @@ async function failed(
 async function stopped(t: TestContext, calls: Calls): Promise<Woken> {
     const agent = await wakeAgent(t, { calls, input: HAND });
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: uuid(1) }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 0 },
     );
     return agent;
@@ -2276,8 +2277,12 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [/^realm\/chief_/, "a chief's act, sent by a client"],
     [
-        /^realm\/(say|answer|read_world|read_charter)\./,
+        /^realm\/(say|answer|read_world|read_charter|read_line|stop_agents)\./,
         "a client's call of the realm",
+    ],
+    [
+        /^realm\/working\./,
+        "the agent's report of its open inputs, which it does not send yet",
     ],
     [
         /^realm\/charge\.args$/,
@@ -2352,6 +2357,19 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 
+test("the realm's stop is read as its fixture holds", () => {
+    const [message] = fixture("agent/stop.args") as unknown[];
+    assert.deepEqual(read.stop(message), {
+        number: 3,
+        withdrawn: [
+            {
+                id: "0b5e7c4a-1d2f-4e3a-8b9c-0d1e2f3a4b01",
+                line: { type: "line", text: "Stop after this", chief: "chief" },
+            },
+        ],
+    });
+});
+
 const CLIENT_CALLS = new RegExp(
     `^agent/(${[...Object.keys(readClient), "copies"].join("|")})(\\..+)?\\.(args|answer)$`,
 );
@@ -2406,6 +2424,9 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "profile/files",
             "profile/save",
         ].flatMap(answersTo),
+        // `the realm's stop is read as its fixture holds` reads them.
+        "agent/stop.args",
+        "agent/stop.answer",
         "agent/chat.event.answer",
         "agent/chat.event.letters.answer",
         "agent/chat.event.past.answer",

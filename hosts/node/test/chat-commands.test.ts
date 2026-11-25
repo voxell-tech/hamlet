@@ -202,7 +202,7 @@ test("stop ends the run and drops the queue", async (t) => {
     const letters = await lettersOf(agent);
 
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 2 },
     );
     assert.deepEqual(
@@ -235,7 +235,7 @@ test("stop answers a queued question that its turn was stopped", async (t) => {
     await question(2, "And why?");
 
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 1 },
     );
     await until(() => named(sent, "reply").length > 1);
@@ -259,14 +259,19 @@ test("a repeated stop answers 0", async (t) => {
     const agent = await wake(t, calls, [slow.step]);
     await submitted(agent, line("Take your time"));
     await slow.asked;
-    const client = agent.by(from.client);
 
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 1,
-    });
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 0,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
+        {
+            turns: 1,
+        },
+    );
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
+        {
+            turns: 0,
+        },
+    );
     // Sent again, so the repeat of a stop cut off before them sends them.
     assert.equal(named(sent, "cancel").length, 2);
     assert.deepEqual(
@@ -286,7 +291,7 @@ test("stop ends a turn whose call is out and cancels the call", async (t) => {
     await workspace.reading;
 
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 1 },
     );
     assert.deepEqual(
@@ -308,17 +313,22 @@ test("A4: stop ends a running turn", async (t) => {
     ]);
     await submitted(agent, line("Take your time"));
     await slow.asked;
-    const client = agent.by(from.client);
 
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 1,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
+        {
+            turns: 1,
+        },
+    );
     await agent.idle();
     slow.answer(fauxAssistantMessage("Slow."));
     assert.ok(!(await said(agent, await now(agent))).includes("Slow."));
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-2" }), {
-        turns: 0,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 2 }),
+        {
+            turns: 0,
+        },
+    );
 });
 
 test("a question turn stopped by /stop replies once that its turn was stopped", async (t) => {
@@ -334,15 +344,20 @@ test("a question turn stopped by /stop replies once that its turn was stopped", 
         text: "How?",
     });
     await slow.asked;
-    const client = agent.by(from.client);
 
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 1,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
+        {
+            turns: 1,
+        },
+    );
     await until(() => named(sent, "reply").length > 0);
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-2" }), {
-        turns: 0,
-    });
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.realm), { number: 2 }),
+        {
+            turns: 0,
+        },
+    );
     await agent.idle();
     await delay(100);
 
@@ -361,7 +376,7 @@ test("a chief's turn stopped by /stop tells the realm nothing", async (t) => {
     await slow.asked;
 
     assert.deepEqual(
-        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 1 },
     );
     await agent.idle();
@@ -482,7 +497,7 @@ test("a stopped turn carries on by retry", async (t) => {
     await submitted(agent, line("Go"));
     await slow.asked;
     const client = agent.by(from.client);
-    await agent.actions.stop(client, { id: "stop-1" });
+    await agent.actions.stop(agent.by(from.realm), { number: 1 });
 
     assert.deepEqual(await agent.actions.retry(client, { id: "r-1", to: 7 }), {
         type: "done",
@@ -523,7 +538,7 @@ test("a stop sent while a retry opens its task waits for it, then stops the retr
     const retrying = agent.actions.retry(client, { id: "retry-1", to: 7 });
     await opening.asked;
 
-    const stopping = agent.actions.stop(client, { id: "stop-1" });
+    const stopping = agent.actions.stop(agent.by(from.realm), { number: 1 });
     opening.answer.resolve({ type: "opened", task: "task-retry" });
 
     assert.deepEqual(await retrying, { type: "done" });
@@ -566,7 +581,7 @@ test("a stop sent after two retries waits for the second, then stops its turn", 
     await asked.promise;
     const retried = agent.actions.retry(client, { id: "retry-2", to: 7 });
 
-    const stopping = agent.actions.stop(client, { id: "stop-1" });
+    const stopping = agent.actions.stop(agent.by(from.realm), { number: 1 });
     first.resolve({
         type: "refused",
         why: { type: "you_left" },
@@ -609,7 +624,9 @@ for (const [why, fails] of [
         const retrying = agent.actions.retry(client, { id: "retry-1", to: 7 });
         await opening.asked;
 
-        const stopping = agent.actions.stop(client, { id: "stop-1" });
+        const stopping = agent.actions.stop(agent.by(from.realm), {
+            number: 1,
+        });
         fails(opening);
 
         await assert.rejects(retrying);

@@ -13,8 +13,8 @@ use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host, Subscription};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::agent::chat::{Stop, Stopped};
 use hamlet_messages::realm::client::{ReadWorld, Say, SayAnswer};
+use hamlet_messages::realm::lines::StopAgents;
 use hamlet_messages::realm::world::{Seen, Status};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
@@ -236,35 +236,22 @@ impl Calls {
         }
     }
 
-    /// Stops the running turns of `agent`, giving how many, or one
-    /// when none ran but the stop dropped a line to it. It is tried
-    /// once: an agent the host cannot reach now, as while it is being
-    /// hired or its Node host starts again, runs no turn.
+    /// Stops the running turns of `agent` through the realm, giving
+    /// how many, or one when none ran but the stop dropped a line to
+    /// it.
     pub(crate) async fn stop(
         &self,
         agent: AgentNumber,
-        stop: protocol::Stop,
     ) -> Result<u32> {
-        let answer = self
-            .host
-            .call_for_client(
-                &address::Agent(agent).address()?,
-                Stop::NAME,
-                encode_positional(&Stop(stop))?,
-                WITHIN,
+        let stopped = self
+            .call(
+                &address::Realm,
+                &StopAgents {
+                    agents: vec![agent],
+                },
             )
-            .await;
-        let turns = match answer {
-            Ok(answer) => {
-                ciborium::from_reader::<Stopped, _>(
-                    answer.as_slice(),
-                )?
-                .turns
-            }
-            Err(error) if starting(&error) || lost(&error) => 0,
-            Err(error) => return Err(error),
-        };
-        Ok(turns.max(self.take_dropped(agent)))
+            .await?;
+        Ok(stopped.turns.max(self.take_dropped(agent)))
     }
 
     /// Calls the action `name` of the actor at `to` with `args`. An

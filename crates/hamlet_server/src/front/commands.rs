@@ -283,13 +283,13 @@ async fn perform(
             };
             match agent {
                 Ok(agent) => {
-                    Ok(words::stopped(stop(calls, id, agent).await?))
+                    Ok(words::stopped(calls.stop(agent).await?))
                 }
                 Err(refusal) => Err(refusal),
             }
         }
         Act::StopAll => {
-            Ok(words::stopped(stop_all(calls, view, id).await?))
+            Ok(words::stopped(stop_all(calls, view).await?))
         }
         Act::To { to: target, text } => {
             match number(view, &target, Reach::Living) {
@@ -529,25 +529,11 @@ async fn perform(
     Ok(Outcome::said(reply))
 }
 
-/// Stops the running turns of `agent`, giving how many.
-async fn stop(
-    calls: &Calls,
-    id: &RequestId,
-    agent: AgentNumber,
-) -> Result<u32> {
-    let stop = protocol::Stop {
-        agent: Some(view::wire(agent)),
-        id: id.clone(),
-    };
-    calls.stop(agent, stop).await
-}
-
 /// Stops the running turns of the agent a client names by `agent`,
 /// in the words of a client's stop.
 pub(crate) async fn stop_one(
     calls: &Calls,
     view: &View,
-    id: &RequestId,
     agent: protocol::AgentId,
 ) -> Result<Result<String, Refusal>> {
     let shown = super::route::number(agent)
@@ -557,7 +543,7 @@ pub(crate) async fn stop_one(
             address: agent.0.to_string(),
         }));
     };
-    let turns = stop(calls, id, number).await?;
+    let turns = calls.stop(number).await?;
     Ok(Ok(words::stopped_or_nothing(turns)))
 }
 
@@ -641,12 +627,11 @@ pub(crate) async fn answer(
 pub(crate) async fn stop_all(
     calls: &Calls,
     view: &View,
-    id: &RequestId,
 ) -> Result<u32> {
     let mut turns = 0;
     for seen in &view.world.agents {
         turns += match seen.status {
-            Status::Live => stop(calls, id, seen.agent).await?,
+            Status::Live => calls.stop(seen.agent).await?,
             _ => calls.take_dropped(seen.agent),
         };
     }

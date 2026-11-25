@@ -1,14 +1,15 @@
-//! The calls a client makes to an agent about its chat, and their
-//! answers. A time in them is in whole seconds, apart from an
-//! item's, which is in milliseconds.
+//! The calls about an agent's chat, a client's but for the realm's
+//! stop, and their answers. A time in them is in whole seconds, apart
+//! from an item's, which is in milliseconds.
 
 use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::address::Agent;
+use crate::address::{Agent, Realm};
 use crate::agent::copies::Price;
+use crate::agent::{Input, InputId};
 use crate::bytes::Sha256;
 use crate::realm::Done;
 use crate::sender::Client;
@@ -28,11 +29,33 @@ macro_rules! from_client {
     };
 }
 
-/// Stops the agent's running turns and their calls out.
+/// Stops the agent's running turns and their calls out, after the
+/// lines it was given, and writes the lines the realm withdrew into
+/// the chat for display. A repeat of its number is answered as the
+/// first.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Stop(pub protocol::Stop);
-from_client!(Stop, "stop", Stopped);
+pub struct Stop {
+    pub number: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withdrawn: Vec<Withdrawn>,
+}
+
+impl Action for Stop {
+    type Output = Stopped;
+    const NAME: &'static str = "stop";
+}
+
+impl Message for Stop {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// A chief's line the realm withdrew before its agent took it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Withdrawn {
+    pub id: InputId,
+    pub line: Input,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stopped {

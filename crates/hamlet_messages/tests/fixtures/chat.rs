@@ -9,8 +9,7 @@ use hamlet_messages::agent::chat::{
     NewSession, Prompt, PromptSection, ReadChat, ReadHistory,
     ReadModels, ReadPrompt, Reflect, Reflecting, Resume,
     ResumeAnswer, ResumeRefusal, Retry, RetryRefusal, Rewind,
-    RewindAnswer, RewindRefusal, Session, Stop, Stopped, ToolChange,
-    Usage,
+    RewindAnswer, RewindRefusal, Session, ToolChange, Usage,
 };
 use hamlet_messages::agent::copies::{
     AgentSettings, Copies, CopyVersion, ModelChoice, Price, Versioned,
@@ -165,14 +164,6 @@ fn item(id: &str, kind: protocol::ItemKind, text: &str) -> ChatItem {
 }
 
 fn the_clients_calls(fixtures: &mut Fixtures) {
-    fixtures.args(
-        "agent/stop",
-        &Stop(protocol::Stop {
-            agent: Some(TO),
-            id: id(1),
-        }),
-    );
-    fixtures.answer("agent/stop", &Stopped { turns: 1 });
     fixtures.args(
         "agent/new_session",
         &NewSession(protocol::New { id: id(2), to: TO }),

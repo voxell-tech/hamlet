@@ -787,19 +787,19 @@ impl Asker {
                 )
                 .await
                 .map(Outcome::said),
-                Asked::Stop(id, agent) => {
-                    commands::stop_one(&self.calls, &view, id, *agent)
+                Asked::Stop(_, agent) => {
+                    commands::stop_one(&self.calls, &view, *agent)
                         .await
                         .map(Outcome::said)
                 }
-                Asked::StopAll(id) => {
-                    commands::stop_all(&self.calls, &view, id)
-                        .await
-                        .map(|turns| {
+                Asked::StopAll(_) => {
+                    commands::stop_all(&self.calls, &view).await.map(
+                        |turns| {
                             Outcome::said(Ok(
                                 words::stopped_or_nothing(turns),
                             ))
-                        })
+                        },
+                    )
                 }
             }
         };
