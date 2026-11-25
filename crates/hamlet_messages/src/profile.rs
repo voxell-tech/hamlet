@@ -588,11 +588,11 @@ pub enum Source {
 
 /// Merges `from` into the branch `into`, the kept hire's, as one
 /// commit by the realm with `message`. Where both changed a file the
-/// kept hire's lines win, and the other's file is set aside beside it
-/// under `absorbed`'s name: `<path>.from-hire-<n>`, or
-/// `skills/<skill>-from-hire-<n>/...` for a skill's. `CHARACTER.md`
-/// and `inbox/` are not merged. The kept hire is told the branch
-/// moved.
+/// kept hire's lines win. From another profile's parts, the other's
+/// file is also set aside beside it under `absorbed`'s name:
+/// `<path>.from-hire-<n>`, or `skills/<skill>-from-hire-<n>/...` for
+/// a skill's. `CHARACTER.md` and `inbox/` are not merged. The kept
+/// hire is told the branch moved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MergeBranch {
     pub id: RequestId,

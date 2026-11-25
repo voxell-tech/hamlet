@@ -4,9 +4,9 @@
 use hamlet_git::Change;
 use hamlet_messages::MOST_PART;
 use hamlet_messages::profile::{
-    Bundle, BundleAnswer, DropBranch, Gone, MergeAnswer, MergeBranch,
-    Piece, Protected, Removed, SaveRefusal, Source, Unmerge,
-    UnmergeAnswer,
+    Bundle, BundleAnswer, By, DropBranch, Gone, MergeAnswer,
+    MergeBranch, Piece, Protected, Purge, PurgeAnswer, Removed,
+    SaveRefusal, Source, Unmerge, UnmergeAnswer,
 };
 
 use super::*;
@@ -131,7 +131,8 @@ async fn merged(dir: &Path, told: Arc<Told>) -> (Host, MergeAnswer) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_merge_sets_a_clash_aside_under_the_absorbed_hires_name() {
+async fn a_merge_within_one_profile_keeps_the_kept_hires_lines_and_sets_nothing_aside()
+ {
     let dir = Scratch::new("profile-merge-clash");
     let told = Arc::new(Told::default());
     let (host, answer) = merged(&dir, told.clone()).await;
@@ -141,26 +142,17 @@ async fn a_merge_sets_a_clash_aside_under_the_absorbed_hires_name() {
         answer,
         MergeAnswer::Merged {
             tip: commit_id(tip),
-            set_aside: vec![
-                "memory/notes.md.from-hire-8".into(),
-                "skills/plan-from-hire-8/SKILL.md".into(),
-            ],
+            set_aside: Vec::new(),
         }
     );
     let file = |path| read(&dir, 1, tip, path);
     assert_eq!(file("memory/notes.md").as_deref(), Some("seven\n"));
-    assert_eq!(
-        file("memory/notes.md.from-hire-8").as_deref(),
-        Some("eight\n")
-    );
+    assert_eq!(file("memory/notes.md.from-hire-8"), None);
     assert_eq!(
         file("skills/plan/SKILL.md").as_deref(),
         Some("plan seven\n")
     );
-    assert_eq!(
-        file("skills/plan-from-hire-8/SKILL.md").as_deref(),
-        Some("plan eight\n")
-    );
+    assert_eq!(file("skills/plan-from-hire-8/SKILL.md"), None);
     assert_eq!(
         file("memory/learned.md").as_deref(),
         Some("learned\n")
@@ -550,5 +542,121 @@ async fn a_merge_that_brings_nothing_splits_to_nothing() {
             Some("a")
         );
     }
+    host.shutdown().await.unwrap();
+}
+
+/// Merges hires/8 into hires/7, splits it, lets hires/8 learn
+/// `memory/b.md`, purges `secret.md` when `purge`, then merges again
+/// with the same message, which must make a commit of its own.
+async fn merged_again(name: &str, purge: bool) {
+    let dir = Scratch::new(name);
+    let main = [write("secret.md", "s\n")];
+    let host = two_hires(&dir, &main, Arc::default()).await;
+    save_on(&dir, 1, "hires/8", &[write("memory/a.md", "a\n")]);
+    let MergeAnswer::Merged { tip: first, .. } = call_as(
+        &host,
+        &realm(),
+        &merge(&RequestId::new(), from_branch()),
+    )
+    .await
+    .unwrap() else {
+        panic!("not merged");
+    };
+    call_as(&host, &realm(), &unmerge(&RequestId::new(), first))
+        .await
+        .unwrap();
+    save_on(&dir, 1, "hires/8", &[write("memory/b.md", "b\n")]);
+    if purge {
+        let purge = Purge {
+            id: RequestId::new(),
+            path: "secret.md".into(),
+            by: By::Chief { chief: 3 },
+        };
+        let purged = call_as(&host, &realm(), &purge).await.unwrap();
+        assert!(
+            matches!(purged, PurgeAnswer::Purged { .. }),
+            "{purged:?}"
+        );
+    }
+    let before = hire_tip(&dir, 7);
+
+    let again = call_as(
+        &host,
+        &realm(),
+        &merge(&RequestId::new(), from_branch()),
+    )
+    .await
+    .unwrap();
+
+    let after = hire_tip(&dir, 7);
+    assert_ne!(after, before, "the second merge made no commit");
+    assert_eq!(
+        again,
+        MergeAnswer::Merged {
+            tip: commit_id(after),
+            set_aside: Vec::new(),
+        }
+    );
+    assert_eq!(
+        read(&dir, 1, after, "memory/b.md").as_deref(),
+        Some("b\n")
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_again_after_its_split_makes_a_commit_of_its_own() {
+    merged_again("profile-merge-again", false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_again_after_a_purge_makes_a_commit_of_its_own() {
+    merged_again("profile-merge-again-purged", true).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_split_takes_out_the_merged_lines_and_keeps_later_ones() {
+    let dir = Scratch::new("profile-split-lines");
+    let main =
+        [write("memory/notes.md", "one\ntwo\nthree\nfour\nfive\n")];
+    let host = two_hires(&dir, &main, Arc::default()).await;
+    save_on(&dir, 1, "hires/7", &[write("memory/own.md", "own\n")]);
+    save_on(
+        &dir,
+        1,
+        "hires/8",
+        &[write(
+            "memory/notes.md",
+            "one\ntwo\nthree\nfour\nfive\nfrom eight\n",
+        )],
+    );
+    let MergeAnswer::Merged { tip: merged, .. } = call_as(
+        &host,
+        &realm(),
+        &merge(&RequestId::new(), from_branch()),
+    )
+    .await
+    .unwrap() else {
+        panic!("not merged");
+    };
+    save_on(
+        &dir,
+        1,
+        "hires/7",
+        &[write(
+            "memory/notes.md",
+            "ONE\ntwo\nthree\nfour\nfive\nfrom eight\n",
+        )],
+    );
+
+    call_as(&host, &realm(), &unmerge(&RequestId::new(), merged))
+        .await
+        .unwrap();
+
+    let tip = hire_tip(&dir, 7);
+    assert_eq!(
+        read(&dir, 1, tip, "memory/notes.md").as_deref(),
+        Some("ONE\ntwo\nthree\nfour\nfive\n")
+    );
     host.shutdown().await.unwrap();
 }

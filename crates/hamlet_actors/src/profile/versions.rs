@@ -19,7 +19,7 @@ use hamlet_os::fs::TreePath;
 
 use super::{
     CHARACTER, CHARACTER_MOST, Profile, commit_id, dreams, files,
-    git_commit, hires,
+    git_commit, hires, merges,
 };
 use crate::library;
 use crate::repo::git::{By, Reads};
@@ -429,6 +429,7 @@ fn purge(
     let path = unit.message().path.clone();
     let mut writer = unit.write();
     let branches = writer.purge(&path)?;
+    merges::purged(&writer, branches.iter().map(|(_, _, tip)| *tip))?;
     files::drop_saves(&writer, None)?;
     // A repeat past a kill rewrites nothing, and still tells every
     // agent and keeps every pin.

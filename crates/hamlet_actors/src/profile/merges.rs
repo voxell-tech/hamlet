@@ -8,9 +8,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor::{BindParam, ColumnValue};
-use hamlet_git::{
-    BlobId, Change, CommitId, FileChange, MAIN, blob_id,
-};
+use hamlet_git::{BlobId, Change, CommitId, MAIN, blob_id};
 use hamlet_messages::profile::{
     BadPath, Bundle, BundleAnswer, Cursor, DropBranch, Gone,
     MergeAnswer, MergeBranch, Piece, Protected, Removed, SaveRefusal,
@@ -46,6 +44,32 @@ struct Merges(());
 
 impl store::Table for Merges {
     const NAME: &'static str = "merge_commit";
+}
+
+struct Floors(());
+
+impl store::Table for Floors {
+    const NAME: &'static str = "merge_floor";
+}
+
+/// Keeps each branch's tip after a purge gave every commit a new id:
+/// a merge's repeat looks for the commit a kill cut off no further
+/// back than these.
+pub(super) fn purged<M>(
+    writer: &Writer<'_, Profile, M>,
+    tips: impl IntoIterator<Item = CommitId>,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    for tip in tips {
+        writer.table(Floors(())).execute(
+            "INSERT OR IGNORE INTO merge_floor (id) VALUES (?1)",
+            vec![BindParam::Text(tip.to_string())],
+        )?;
+    }
+    Ok(())
 }
 
 /// Where the file at `path` of hire `absorbed` is set aside when the
@@ -177,7 +201,8 @@ fn merge_into(
     message: &str,
     learned: &Learned,
 ) -> Result<Ended<MergeBranch>> {
-    let merges = merge_commits(&writer.table(Merges(())).rows())?;
+    let mut stops = ids(&writer.table(Merges(())).rows())?;
+    stops.extend(ids(&writer.table(Floors(())).rows())?);
     let (commit, set_aside) = {
         let (reads, git) = (writer.git()?, writer.writes()?);
         let tip = reads
@@ -186,7 +211,7 @@ fn merge_into(
         let cut_off = reads
             .first_parents(tip)?
             .into_iter()
-            .take_while(|made| !merges.contains(&made.id.to_string()))
+            .take_while(|made| !stops.contains(&made.id.to_string()))
             // The history gives a commit's message trimmed.
             .find(|made| {
                 made.author == By::Realm.name()
@@ -232,8 +257,10 @@ fn merge_into(
     })
 }
 
-/// The files `learned` brings onto `before`, each the kept side's
-/// where both changed it, with the absorbed hire's set aside.
+/// The files `learned` brings onto `before`. Where both changed a
+/// file, the kept side's lines win within one profile; from another
+/// profile, the kept side's file wins and the absorbed hire's is set
+/// aside.
 fn stage(
     git: &Git<'_>,
     reads: &Reads,
@@ -245,28 +272,10 @@ fn stage(
     let mut changes = Vec::new();
     let mut set_aside = Vec::new();
     let (onto, also) = match learned {
-        Learned::Branch(theirs) => {
-            let merged = git.merge_files(before, *theirs, message)?;
-            let files = reads
-                .entries(*theirs)?
-                .into_iter()
-                .map(|entry| (entry.path.clone(), entry))
-                .collect::<BTreeMap<_, _>>();
-            for path in merged.clashes.iter().filter(|p| !withheld(p))
-            {
-                if let Some(entry) = files.get(path) {
-                    let to = aside(path, absorbed);
-                    let bytes = reads.blob(entry.blob)?;
-                    changes.push(file(
-                        to.clone(),
-                        bytes,
-                        entry.executable,
-                    ));
-                    set_aside.push(to);
-                }
-            }
-            (merged.commit, *theirs)
-        }
+        Learned::Branch(theirs) => (
+            git.merge_files(before, *theirs, message)?.commit,
+            *theirs,
+        ),
         Learned::Files { written, removed } => {
             let kept = reads
                 .entries(before)?
@@ -344,14 +353,15 @@ where
     }
 }
 
-fn merge_commits(rows: &Rows<'_, Merges>) -> Result<HashSet<String>> {
-    rows.select("SELECT id FROM merge_commit", Vec::new())?
+/// The commit ids `T`'s rows hold.
+fn ids<T: store::Table>(
+    rows: &Rows<'_, T>,
+) -> Result<HashSet<String>> {
+    rows.select(&format!("SELECT id FROM {}", T::NAME), Vec::new())?
         .into_iter()
         .map(|row| match row.as_slice() {
             [ColumnValue::Text(id)] => Ok(id.clone()),
-            _ => {
-                bail!("a merge_commit row of another shape: {row:?}")
-            }
+            _ => bail!("a {} row of another shape: {row:?}", T::NAME),
         })
         .collect()
 }
@@ -541,81 +551,30 @@ impl Takes<Unmerge> for Profile {
     }
 }
 
-/// Undoes, as one commit, what the merge changed where the branch
-/// still holds what the merge left.
+/// Undoes the merge on its branch as one commit, the branch's later
+/// lines winning where they changed what the merge brought.
 fn unmerge(
     unit: Before<'_, Profile, Unmerge>,
 ) -> Result<Ended<Unmerge>> {
     let Unmerge { branch, merge, .. } = unit.message().clone();
     let at = git_commit(merge)?;
-    let (tip, changes) = {
+    {
         let git = unit.git()?;
         if !(git.has(at)? && git.holds(&branch, at)?) {
             return unit.refuse(Gone::CommitGone { commit: merge });
         }
         ensure!(
-            merge_commits(&unit.rows(Merges(())))?
-                .contains(&at.to_string()),
+            ids(&unit.rows(Merges(())))?.contains(&at.to_string()),
             "the commit {at} is not a merge"
         );
-        let made = git.history(at, 1)?.pop().context("a commit")?;
-        let before =
-            *made.parents.first().context("a merge has a parent")?;
-        let tip = git
-            .tip(&branch)?
-            .with_context(|| format!("no branch {branch}"))?;
-        (tip, undo(git, tip, before, at)?)
-    };
-    let mut writer = unit.write();
-    let after = writer.writes()?.commit(
-        &branch,
-        Some(tip),
-        &changes,
-        SPLIT,
-        By::Realm,
-    )?;
-    tell_hire(&mut writer, &branch, after)?;
-    writer.kept(UnmergeAnswer::Unmerged {
-        tip: commit_id(after)?,
-    })
-}
-
-/// The changes that undo on `tip` what changed from `before` to
-/// `merge`, leaving a file alone where `tip` holds another since.
-fn undo(
-    git: &Reads,
-    tip: CommitId,
-    before: CommitId,
-    merge: CommitId,
-) -> Result<Vec<Change>> {
-    let now = git
-        .entries(tip)?
-        .into_iter()
-        .map(|entry| (entry.path, entry.blob))
-        .collect::<BTreeMap<_, _>>();
-    let mut changes = Vec::new();
-    for change in git.diff(before, merge)? {
-        match change {
-            FileChange::Added { path, blob } => {
-                if now.get(&path) == Some(&blob) {
-                    changes.push(Change::Remove { path });
-                }
-            }
-            FileChange::Changed { path, from, to } => {
-                if now.get(&path) == Some(&to) {
-                    let bytes = git.blob(from)?;
-                    changes.push(Change::Write { path, bytes });
-                }
-            }
-            FileChange::Removed { path, blob } => {
-                if !now.contains_key(&path) {
-                    let bytes = git.blob(blob)?;
-                    changes.push(Change::Write { path, bytes });
-                }
-            }
-        }
     }
-    Ok(changes)
+    let mut writer = unit.write();
+    let after =
+        writer.writes()?.revert(&branch, at, SPLIT, By::Realm)?;
+    tell_hire(&mut writer, &branch, after.commit)?;
+    writer.kept(UnmergeAnswer::Unmerged {
+        tip: commit_id(after.commit)?,
+    })
 }
 
 impl Takes<DropBranch> for Profile {
@@ -740,7 +699,7 @@ mod tests {
             answer,
             MergeAnswer::Merged {
                 tip: commit_id(tip).unwrap(),
-                set_aside: vec!["notes.md.from-hire-8".into()],
+                set_aside: Vec::new(),
             }
         );
         assert_eq!(commit_count(&dir), count);

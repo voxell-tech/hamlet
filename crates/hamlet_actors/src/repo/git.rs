@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_git::{
-    Author, BlobId, Change, Commit, CommitId, Entry, FileChange,
-    MAIN, Merged, Repository, Step, Version, Wins,
+    Author, BlobId, Change, Commit, CommitId, Entry, MAIN, Merged,
+    Repository, Step, Version, Wins,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -89,15 +89,6 @@ impl Reads {
         from: CommitId,
     ) -> Result<Vec<Commit>> {
         self.0.first_parents(from, None, usize::MAX)
-    }
-
-    /// How the files of `to` differ from those of `from`, by path.
-    pub fn diff(
-        &self,
-        from: CommitId,
-        to: CommitId,
-    ) -> Result<Vec<FileChange>> {
-        self.0.diff(Some(from), to)
     }
 
     pub fn merge_base(

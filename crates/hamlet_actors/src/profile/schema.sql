@@ -76,3 +76,9 @@ CREATE TABLE IF NOT EXISTS merge_call (
 CREATE TABLE IF NOT EXISTS merge_commit (
     id TEXT PRIMARY KEY
 ) STRICT;
+
+-- merges.rs: each branch's tip after a purge, below which a merge's
+-- repeat looks for no commit of its own.
+CREATE TABLE IF NOT EXISTS merge_floor (
+    id TEXT PRIMARY KEY
+) STRICT;
