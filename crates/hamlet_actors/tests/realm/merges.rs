@@ -582,6 +582,8 @@ async fn a_restore_of_a_merged_hire_splits_it_again() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_split_waits_for_its_merge_to_end() {
+    // The acts answer while the merge is held; no assertion depends
+    // on how long they wait.
     let realm = answering_within(Duration::from_millis(200)).await;
     realm.seen.hold(Callee::Merge);
 
@@ -817,6 +819,65 @@ async fn every_erase_step_twice_erases_once() {
             (1, 1),
             "{callee:?} failed once"
         );
+        realm.host.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_lead_has_ended_comes_back_under_the_mayor() {
+    let (realm, _) = super::hamlet_with(1).await;
+    hires(&realm, THREE, "h3").await;
+    realm.live(FOUR).await;
+    end(&realm, FOUR).await;
+    end(&realm, THREE).await;
+
+    chief(&realm, restore(FOUR)).await;
+
+    assert_eq!(agent(&realm, FOUR).await.2, Some(MAYOR.0));
+    until("4 is told its place under the mayor", || {
+        let places = realm.seen.places.lock().unwrap();
+        places
+            .iter()
+            .rev()
+            .find(|(to, _)| *to == FOUR)
+            .is_some_and(|(_, place)| place.lead == Some(MAYOR))
+    })
+    .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_row_whose_callee_fails_for_good_closes() {
+    for (callee, at, kind, n) in [
+        (Callee::Retire, THREE, "retire", 3),
+        (Callee::Merge, THREE, "merge", 1),
+        (Callee::Unmerge, AgentNumber(4), "split", 1),
+        (Callee::Erase, THREE, "erase", 3),
+    ] {
+        let (realm, _) = super::hamlet_with(2).await;
+        realm.seen.fail_for_good(callee, at);
+
+        match kind {
+            "retire" => end(&realm, THREE).await,
+            "erase" => {
+                end(&realm, THREE).await;
+                chief(&realm, erase(THREE)).await;
+            }
+            _ => {
+                chief(&realm, merge(THREE, FOUR)).await;
+                if kind == "split" {
+                    chief(&realm, restore(THREE)).await;
+                }
+            }
+        }
+        closed_until(&realm, kind, n).await;
+
+        if kind != "split" {
+            until("the hire's parts are dropped", || {
+                !realm.seen.offer_drops.lock().unwrap().is_empty()
+            })
+            .await;
+        }
         realm.host.shutdown().await.unwrap();
     }
 }

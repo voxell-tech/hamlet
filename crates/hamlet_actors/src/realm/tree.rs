@@ -868,9 +868,10 @@ async fn back(
     if lead.is_some() {
         lead::set_lead(writer, agent, lead).await?;
     }
-    let shown = showing(writer, agent).await?;
+    let mut places = showing(writer, agent).await?.places;
+    places.insert(agent);
     Ok(Affected {
-        places: shown.places,
+        places,
         reaches: BTreeSet::from([agent]),
         ..Affected::seen([Part::Agents, Part::Reaches])
     })

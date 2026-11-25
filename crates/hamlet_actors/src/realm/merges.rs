@@ -824,3 +824,36 @@ pub(super) async fn split_failed(
     let close = steps::Change::Close { row: split_row(n) };
     Ok((vec![close.into()], Calls::none()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_restore_into_a_full_hamlet_is_refused() {
+        let restore = Restore {
+            hire: Named::Agent {
+                agent: AgentNumber(3),
+            },
+            why: None,
+        };
+        let hamlet = HamletId("mill".to_owned());
+        let coming = Coming {
+            agent: AgentNumber(3),
+            hamlet: hamlet.clone(),
+            removed: false,
+            gone: None,
+            living: 50,
+            most: 50,
+            lead: AgentNumber(2),
+            merge: None,
+        };
+
+        assert_eq!(
+            restore.decide(&Client, Ok(coming)),
+            Decision::Answer(Restored::Refused {
+                why: EndedRefusal::Full { hamlet, most: 50 }
+            })
+        );
+    }
+}
