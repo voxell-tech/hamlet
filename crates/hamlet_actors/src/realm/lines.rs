@@ -2,7 +2,7 @@
 //! take them, the stops that withdraw them, and each agent's report
 //! of its open inputs. Memory only.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -37,6 +37,9 @@ struct Held {
     /// The number the last line entered took, which orders them.
     entered: u64,
     lines: HashMap<InputId, Line>,
+    /// The stops not yet done, for which the realm keeps the lines
+    /// they withdrew.
+    owed: HashSet<u64>,
     reports: HashMap<AgentNumber, Report>,
 }
 
@@ -84,6 +87,7 @@ impl Default for Lines {
                 number: u64::try_from(now).unwrap_or(0),
                 entered: 0,
                 lines: HashMap::new(),
+                owed: HashSet::new(),
                 reports: HashMap::new(),
             }),
             stopped: Notify::new(),
@@ -115,9 +119,10 @@ impl Lines {
     ) {
         let mut held = self.held();
         let now = Instant::now();
-        held.lines.retain(|_, line| match line.is {
+        let Held { lines, owed, .. } = &mut *held;
+        lines.retain(|_, line| match line.is {
             Is::Given(at) | Is::Withdrawn(at) => {
-                now.duration_since(at) < KEPT
+                line.owed(owed) || now.duration_since(at) < KEPT
             }
             Is::Reviewed | Is::Waiting | Is::Trying => true,
         });
@@ -132,6 +137,7 @@ impl Lines {
             }
             if let Delivery::Stop { to, number } = delivery {
                 held.withdraw(*to, *number);
+                held.owed.insert(*number);
                 stopped = true;
             }
         }
@@ -231,21 +237,31 @@ impl Lines {
             .collect()
     }
 
+    /// The stop `number` is done: the lines it withdrew are kept for
+    /// it no longer.
+    pub fn done(&self, number: u64) {
+        self.held().owed.remove(&number);
+    }
+
     /// What became of the line said under `id`. Once it was given or
-    /// withdrawn, the realm forgets it as it answers.
+    /// withdrawn, the realm forgets it as it answers, unless a stop
+    /// not yet done names it.
     pub fn read(&self, id: &RequestId) -> LineIs {
         let id = InputId(id.as_str().to_owned());
         let mut held = self.held();
         let Some(line) = held.lines.get(&id) else {
             return LineIs::Withdrawn;
         };
+        let owed = line.owed(&held.owed);
         match (line.is, line.stop) {
             (Is::Given(_), _) => {
                 held.lines.remove(&id);
                 LineIs::Given
             }
             (Is::Withdrawn(_), _) => {
-                held.lines.remove(&id);
+                if !owed {
+                    held.lines.remove(&id);
+                }
                 LineIs::Withdrawn
             }
             (Is::Waiting, Some(_)) => LineIs::Withdrawn,
@@ -284,6 +300,13 @@ impl Lines {
     /// Wakes at the next stop.
     pub fn stopping(&self) -> Notified<'_> {
         self.stopped.notified()
+    }
+}
+
+impl Line {
+    /// Whether a stop not yet done withdrew it.
+    fn owed(&self, owed: &HashSet<u64>) -> bool {
+        self.stop.is_some_and(|number| owed.contains(&number))
     }
 }
 

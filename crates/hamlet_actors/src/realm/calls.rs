@@ -291,7 +291,7 @@ async fn hold(
                 if let Some(first) = first.take() {
                     let _ = first.send(outcome);
                 }
-                return;
+                break;
             }
             Tried::Again(error) => error,
         };
@@ -300,11 +300,14 @@ async fn hold(
             let _ = first.send(Err(error));
         }
         tokio::select! {
-            () = stopping.cancelled() => return,
+            () = stopping.cancelled() => break,
             () = woken => {}
             () = tokio::time::sleep(wait) => {}
         }
         wait = (wait * 2).min(LAST_HOLD);
+    }
+    if let Delivery::Stop { number, .. } = delivery {
+        realm.lines.done(number);
     }
 }
 

@@ -200,6 +200,7 @@ async fn a_stop_with_the_agent_down_is_answered_at_once_and_reaches_it_when_it_r
     let begun = Instant::now();
     let turns = stop(&realm, &[THREE]).await;
     let answered = begun.elapsed();
+    let while_down = read(&realm, &first).await;
     said(&realm, &next, THREE, "then rest").await;
     realm.seen.up(THREE);
     until("the line said after the stop reaches the agent", || {
@@ -212,7 +213,7 @@ async fn a_stop_with_the_agent_down_is_answered_at_once_and_reaches_it_when_it_r
         "the stop was answered after {answered:?}"
     );
     assert_eq!(turns, 1);
-    assert_eq!(read(&realm, &first).await, LineIs::Withdrawn);
+    assert_eq!(while_down, LineIs::Withdrawn);
     let took = took(&realm, THREE);
     assert_eq!(took.len(), 2, "{took:?}");
     assert!(
