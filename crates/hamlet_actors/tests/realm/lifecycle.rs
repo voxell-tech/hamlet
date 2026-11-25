@@ -1,6 +1,8 @@
 //! A hamlet removed, restored and erased, and a profile forked,
 //! archived, restored, erased and placed in the city.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use hamlet_messages::profile::{
     CommitId, Missing, ProfileInput, Sha1, VersionName,
 };
@@ -545,31 +547,37 @@ async fn an_erased_profile_answers_no_call() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_profile_is_erased_only_after_its_hires_branches_are_dropped()
+async fn a_profiles_erase_and_its_answer_wait_for_its_hires_branches_to_drop()
  {
     let (realm, _) = masons_hamlet(2).await;
     chief(&realm, archive(MASON)).await;
     realm.seen.hold(Callee::DropBranch);
 
-    let erasing = chief(&realm, EraseProfile { profile: MASON });
+    let answered = AtomicBool::new(false);
+    let erasing = async {
+        let erased =
+            chief(&realm, EraseProfile { profile: MASON }).await;
+        answered.store(true, Ordering::SeqCst);
+        erased
+    };
     let held = async {
         until("both hires' branch drops wait", || {
             realm.seen.is_waiting(Callee::DropBranch, THREE)
                 && realm.seen.is_waiting(Callee::DropBranch, FOUR)
         })
         .await;
-        let early = realm.seen.profile_erases.lock().unwrap().clone();
+        let early = (
+            answered.load(Ordering::SeqCst),
+            realm.seen.profile_erases.lock().unwrap().clone(),
+        );
         realm.seen.release(Callee::DropBranch);
         early
     };
     let (erased, early) = tokio::join!(erasing, held);
-    until("the profile is erased", || {
-        !realm.seen.profile_erases.lock().unwrap().is_empty()
-    })
-    .await;
 
+    assert_eq!(early, (false, Vec::new()));
     assert_eq!(erased, done(mason()));
-    assert_eq!(early, []);
+    assert_eq!(*realm.seen.profile_erases.lock().unwrap(), [MASON]);
     let dropped = realm
         .seen
         .branch_drops
