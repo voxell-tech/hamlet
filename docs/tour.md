@@ -646,13 +646,16 @@ reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
 An agent, the actor `agent/<n>` keyed by its `AgentNumber`, runs in the
 Node host, in `hosts/node/src/agent/`. It is pi-durable's actor wrapper,
 ported to `hosts/node/src/pi/`, composed in `actor.ts` with actions of
-its own: the realm's `submit`, `place`, `fill` and `copies`, the
+its own: the realm's `submit`, `place`, `fill`, `copies`, `retire`,
+`erase`, `read_inbox`, `take_inbox`, `drop_inbox` and `on_task`, the
 workspace's `finished`, the profile's `moved` and `remove_path`, the
 library's `shelves_changed`, and `pi.wake`, the alarm of its timers. Each action checks
 its sender, reads its message with the lenient readers of `messages/`,
 which type every message the agent takes or sends, one file for each
 actor it hears from or calls, and answers `null`,
-but `remove_path`, which answers `removed` or `later`.
+but `remove_path`, which answers `removed` or `later`, `retire`, its
+branch's tip, `read_inbox`, a part of its inbox, and `on_task`, yes or
+no.
 An input is taken once under its id.
 
 At each wake `actor.ts` builds the agent's parts from its peers: the
@@ -699,6 +702,14 @@ workspace or the realm answers with what it kept.
 - `retire.ts` answers the realm's calls of an ended hire's agent:
   `retire` stops its turn and saves its files, and `erase` removes its
   filesystem and asks the host to destroy the agent.
+- `inbox.ts` answers a merge's move of the absorbed hire's `inbox/`:
+  `read_inbox` gives it in parts, `take_inbox` writes each file under
+  `inbox/from-hire-<n>/` once its last piece arrives, with no turn, and
+  `drop_inbox` removes what was taken.
+- `tasks.ts` keeps each input given under one of the realm's tasks and
+  when it ended, and answers `on_task`: whether an input of one of a
+  chief's tasks is still to end or ended within the protected minutes,
+  which the realm asks before a lead ends or merges the hire.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
@@ -756,8 +767,8 @@ set. `wake` lets an agent come back to its work at a later time without
 holding its turn open. The timer's input starts a new turn.
 
 `hosts/node/test/` tests the agent on fake calls (`agent-testing.ts`) in
-`agent.test.ts`, `spend.test.ts`, `tools.test.ts`, `society.test.ts` and
-`timers.test.ts`, the chat in the `chat-*.test.ts` files, and
+`agent.test.ts`, `spend.test.ts`, `tools.test.ts`, `society.test.ts`,
+`timers.test.ts`, `inbox.test.ts` and `tasks.test.ts`, the chat in the `chat-*.test.ts` files, and
 `messages.test.ts` checks each message the agent
 writes or takes against `hamlet_messages`'s fixtures.
 `test/native/agent-actor.test.ts` runs the agent on the native host.
