@@ -11,6 +11,7 @@ use super::calls::Calls;
 use super::change::{self, Rows};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
+use super::tree::{self, Life};
 use super::{drop_parts, hire};
 
 /// The row that retires `agent`.
@@ -47,13 +48,18 @@ pub(super) async fn run(
     }
 }
 
-/// Retires `agent`, if it was filled, and begins the row that drops
-/// what it leaves: after the retire, whose save that drop would cut.
+/// Retires `agent`, if it was filled and has not come back, and
+/// begins the row that drops what it leaves: after the retire, whose
+/// save that drop would cut.
 pub(super) async fn retire(
     cx: &Cx<'_>,
     agent: AgentNumber,
 ) -> Result<Vec<change::Change>> {
-    if reached(&cx.rows()?, agent, hire::Step::Fill).await? {
+    let rows = cx.rows()?;
+    if tree::life(&rows, agent).await? == Life::Living {
+        return Ok(Vec::new());
+    }
+    if reached(&rows, agent, hire::Step::Fill).await? {
         let to = Agent(agent);
         unless_gone(
             cx.peers().call(&to, &Retire, When::AfterAnswer).await,

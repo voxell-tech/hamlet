@@ -1,6 +1,7 @@
 //! The parts an ended hire leaves in the actors that keep them: the
 //! save under way in its profile, and the offers under way in the
-//! library. A step row drops them once the hire ends.
+//! library. A step row drops them once the hire ends, unless it has
+//! come back.
 
 use anyhow::Result;
 use hamlet_messages::address::{Library, Profile};
@@ -12,6 +13,7 @@ use hamlet_messages::workspace::AgentNumber;
 use super::change::{self, number};
 use super::peer::When;
 use super::steps::{Cx, Kind, StepId, Steps};
+use super::tree::{self, Life};
 use super::{hire, retire};
 
 /// The row that drops what `agent` leaves.
@@ -49,9 +51,12 @@ pub(super) async fn run(
     step: Step,
 ) -> Result<Vec<change::Change>> {
     let agent = AgentNumber(u32::try_from(n)?);
+    let rows = cx.rows()?;
+    if tree::life(&rows, agent).await? == Life::Living {
+        return Ok(Vec::new());
+    }
     match step {
         Step::Profile => {
-            let rows = cx.rows()?;
             // A hire ended before its Profile step was filled from no
             // profile and saved nothing; its profile may have no
             // actor.

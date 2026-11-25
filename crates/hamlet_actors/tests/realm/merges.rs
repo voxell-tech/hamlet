@@ -618,6 +618,62 @@ async fn a_hire_erased_while_it_retires_keeps_its_branch_until_the_retire_ends()
     realm.host.shutdown().await.unwrap();
 }
 
+/// Waits until hire 3's retire row has closed, and its drop-parts row
+/// too if one began; then gives whether any of its parts were
+/// dropped.
+async fn parts_dropped_after_retire(realm: &Realm) -> bool {
+    closed_until(realm, "retire", 3).await;
+    if super::closed(realm, "drop_parts", 3).await.is_some() {
+        closed_until(realm, "drop_parts", 3).await;
+    }
+    !realm.seen.offer_drops.lock().unwrap().is_empty()
+        || !realm.seen.save_drops.lock().unwrap().is_empty()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retire_tried_again_after_a_restore_leaves_the_living_hire()
+{
+    let (realm, _) = super::hamlet_with(1).await;
+    realm.seen.fail_once(Callee::Retire, THREE);
+    end(&realm, THREE).await;
+    until("the retire fails once", || {
+        realm.seen.has_failed(Callee::Retire, THREE)
+    })
+    .await;
+
+    let restored = chief(&realm, restore(THREE)).await;
+    let dropped = parts_dropped_after_retire(&realm).await;
+
+    assert_eq!(restored, Restored::Back);
+    assert_eq!(retires(&realm), []);
+    assert!(!dropped);
+    assert_eq!(agent(&realm, THREE).await.0, "live");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_restored_while_it_retires_keeps_its_parts() {
+    // The retire already sent reaches the hire; nothing after it
+    // does.
+    let (realm, _) = super::hamlet_with(1).await;
+    realm.seen.hold(Callee::Retire);
+    end(&realm, THREE).await;
+    until("the retire waits in the agent", || {
+        realm.seen.is_waiting(Callee::Retire, THREE)
+    })
+    .await;
+
+    let restored = chief(&realm, restore(THREE)).await;
+    realm.seen.release(Callee::Retire);
+    let dropped = parts_dropped_after_retire(&realm).await;
+
+    assert_eq!(restored, Restored::Back);
+    assert_eq!(retires(&realm), [THREE]);
+    assert!(!dropped);
+    assert_eq!(agent(&realm, THREE).await.0, "live");
+    realm.host.shutdown().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_erased_hire_cannot_be_restored() {
     let (realm, _) = super::hamlet_with(1).await;
