@@ -120,21 +120,20 @@ fn the_speakers_oldest_wait_comes_before_an_older_one_of_another() {
 fn merge_is_worded_as_today() {
     let view = view();
     let ends = |absorbed: &str, into: &str| {
-        read(merge_ends(&view, &at(absorbed), &at(into)).map(
-            |(absorbed, into)| format!("{} {}", absorbed.0, into.0),
-        ))
+        not_hires(&view, &[&at(absorbed), &at(into)])
+            .map(|refusal| refusal.to_string())
     };
+    assert_eq!(ends("worker#4", "hire#9"), None);
+    assert_eq!(ends("hire#5", "hire#2"), None);
     assert_eq!(
-        ends("worker#4", "hire#9"),
-        "no agent has the address `hire#9`"
+        ends("worker#4", "hand").as_deref(),
+        Some("`worker#4` is not a hire")
     );
     assert_eq!(
-        ends("hire#5", "hire#2"),
-        "no agent has the address `hire#5`"
+        ends("hire#3", "hand").as_deref(),
+        Some("`hand` is not a hire")
     );
-    assert_eq!(ends("worker#4", "hand"), "`worker#4` is not a hire");
-    assert_eq!(ends("hire#3", "hand"), "`hand` is not a hire");
-    assert_eq!(ends("hire#3", "hire#2"), "3 2");
+    assert_eq!(ends("hire#3", "hire#2"), None);
     let merged = || words::merged("hire#3", "mayor");
     reads(
         |answer: Done<MergeRefusal>| done(answer, merged),

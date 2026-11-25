@@ -171,9 +171,16 @@ fn number(
         })
 }
 
-fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
-    let agent = number(view, target, Reach::Living).ok()?;
-    as_hire(view, agent).err()
+/// The first of `targets` that is not a hire, once each is found
+/// living; the realm answers the rest.
+fn not_hires(view: &View, targets: &[&Target]) -> Option<Refusal> {
+    let found = targets
+        .iter()
+        .map(|target| number(view, target, Reach::Living).ok())
+        .collect::<Option<Vec<_>>>()?;
+    found
+        .into_iter()
+        .find_map(|agent| as_hire(view, agent).err())
 }
 
 fn as_hire(
@@ -185,18 +192,6 @@ fn as_hire(
             name: view.name(agent),
         }
     })
-}
-
-/// The two living hires of a `/merge`, each found before either is
-/// checked to be a hire.
-fn merge_ends(
-    view: &View,
-    absorbed: &Target,
-    into: &Target,
-) -> Result<(AgentNumber, AgentNumber), Refusal> {
-    let absorbed = number(view, absorbed, Reach::Living)?;
-    let into = number(view, into, Reach::Living)?;
-    Ok((as_hire(view, absorbed)?, as_hire(view, into)?))
 }
 
 /// The hire `target` names, ended or not.
@@ -481,7 +476,7 @@ async fn perform(
             HireAnswer::Refused { why } => Err(refused(why)),
         },
         Act::End { hire, .. }
-            if let Some(refusal) = not_a_hire(view, &hire) =>
+            if let Some(refusal) = not_hires(view, &[&hire]) =>
         {
             Err(refusal)
         }
@@ -533,11 +528,7 @@ async fn perform(
             done(ask(calls, id, act).await?, || said)
         }
         Act::Road { a, b, .. }
-            if let (Ok(_), Ok(_)) = (
-                number(view, &a, Reach::Living),
-                number(view, &b, Reach::Living),
-            ) && let Some(refusal) = not_a_hire(view, &a)
-                .or_else(|| not_a_hire(view, &b)) =>
+            if let Some(refusal) = not_hires(view, &[&a, &b]) =>
         {
             Err(refusal)
         }
@@ -587,22 +578,25 @@ async fn perform(
                 words::BUDGET_RESET.into()
             })
         }
+        Act::Merge { absorbed, into, .. }
+            if let Some(refusal) =
+                not_hires(view, &[&absorbed, &into]) =>
+        {
+            Err(refusal)
+        }
         Act::Merge {
             absorbed,
             into,
             why,
-        } => match merge_ends(view, &absorbed, &into) {
-            Ok((from, to)) => {
-                let said = words::merged(&absorbed.text, &into.text);
-                let act = Merge {
-                    absorbed: Named::Agent { agent: from },
-                    into: Named::Agent { agent: to },
-                    why: Some(why),
-                };
-                done(ask(calls, id, act).await?, || said)
-            }
-            Err(refusal) => Err(refusal),
-        },
+        } => {
+            let said = words::merged(&absorbed.text, &into.text);
+            let act = Merge {
+                absorbed: absorbed.named,
+                into: into.named,
+                why: Some(why),
+            };
+            done(ask(calls, id, act).await?, || said)
+        }
         Act::Restore { hire, why } => match hire_of(view, &hire) {
             Ok(agent) => {
                 let act = Restore {
