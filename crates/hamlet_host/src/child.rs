@@ -506,7 +506,14 @@ async fn end_child(
     };
     match ended {
         Ok(status) => {
-            tracing::info!(%status, "the Node host ended");
+            match end {
+                End::Shutdown => {
+                    tracing::info!(%status, "the Node host ended");
+                }
+                End::Lost | End::Closed => {
+                    tracing::warn!(%status, "the Node host ended");
+                }
+            }
             Some(status)
         }
         Err(error) => {

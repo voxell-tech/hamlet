@@ -83,6 +83,26 @@ mod unix {
         leftovers.end();
         assert!(is_gone(&[leader]).await);
     }
+
+    #[tokio::test]
+    async fn a_stopped_leader_has_not_ended_until_it_is_killed() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let (mut tree, stdout) = bash("echo $$; exec sleep 300");
+        let mut lines = BufReader::new(stdout).lines();
+        let line = lines.next_line().await.unwrap().unwrap();
+        let leader = Pid::from_raw(line.parse().unwrap()).unwrap();
+        kill_process(leader, Signal::STOP).unwrap();
+        let ended = tokio::time::timeout(
+            Duration::from_secs(2),
+            tree.ended(),
+        )
+        .await;
+        assert!(ended.is_err(), "the stop read as an end: {ended:?}");
+        kill_process(leader, Signal::KILL).unwrap();
+        let status = tree.ended().await.unwrap();
+        assert_eq!(status.signal(), Some(Signal::KILL.as_raw()));
+    }
 }
 
 #[cfg(windows)]

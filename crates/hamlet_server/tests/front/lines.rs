@@ -304,7 +304,11 @@ fn answers_in(page: &Transcript) -> Vec<&str> {
 
 /// The server's Node host, stopped by SIGSTOP until thawed or
 /// dropped.
-pub(super) struct Frozen(String);
+pub(super) struct Frozen {
+    pid: String,
+    /// When it was stopped, and its processes then.
+    seen: String,
+}
 
 impl Frozen {
     pub(super) fn node(home: &Scratch) -> Self {
@@ -313,32 +317,79 @@ impl Frozen {
             .trim()
             .to_owned();
         assert!(signal("STOP", &pid), "kill -STOP {pid}");
-        Self(pid)
+        let at = chrono::Utc::now().format("%H:%M:%S%.6f");
+        let seen =
+            format!("stopped at {at} UTC:\n{}", processes(&pid));
+        Self { pid, seen }
     }
 
     /// Lets the host run again. Fails with `server`'s log when the
     /// host has ended meanwhile.
     pub(super) fn thaw(self, server: &Server) {
         let frozen = ManuallyDrop::new(self);
-        assert!(
-            signal("CONT", &frozen.0),
-            "the frozen Node host {} has ended: {}",
-            frozen.0,
-            server.log()
-        );
+        if !signal("CONT", &frozen.pid) {
+            frozen.ended(server);
+        }
     }
 
-    /// Ends the frozen host with SIGKILL, as a crash ends it.
-    pub(super) async fn killed(self, home: &Scratch) {
-        let _ended = ManuallyDrop::new(self);
+    /// Ends the frozen host with SIGKILL, as a crash ends it. Fails
+    /// with `server`'s log when the host has ended meanwhile.
+    pub(super) async fn killed(
+        self,
+        server: &Server,
+        home: &Scratch,
+    ) {
+        let frozen = ManuallyDrop::new(self);
+        if hamlet_os::process::has_ended(frozen.pid.parse().unwrap())
+            .unwrap()
+        {
+            frozen.ended(server);
+        }
         kill_node(home).await;
+    }
+
+    fn ended(&self, server: &Server) -> ! {
+        panic!(
+            "the frozen Node host {} has ended. It was \
+             {}\nNow:\n{}\nThe server's log: {}",
+            self.pid,
+            self.seen,
+            processes(&self.pid),
+            server.log()
+        );
     }
 }
 
 impl Drop for Frozen {
     fn drop(&mut self) {
-        signal("CONT", &self.0);
+        signal("CONT", &self.pid);
     }
+}
+
+/// What `ps` shows of the process `pid`, its parent and this test.
+pub(super) fn processes(pid: &str) -> String {
+    let parent = ps(&["-o", "ppid=", "-p", pid]);
+    let listed =
+        [pid, parent.trim(), &std::process::id().to_string()]
+            .into_iter()
+            .filter(|pid| pid.parse::<u32>().is_ok())
+            .collect::<Vec<_>>()
+            .join(",");
+    ps(&["-o", "pid,ppid,pgid,sess,stat,command", "-p", &listed])
+}
+
+fn ps(args: &[&str]) -> String {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "it lists the server's processes, not an agent's \
+                  command"
+    )]
+    let shown = Command::new("ps").args(args).output().unwrap();
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&shown.stdout),
+        String::from_utf8_lossy(&shown.stderr)
+    )
 }
 
 /// Whether `kill` sent the signal `name` to `pid`.

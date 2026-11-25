@@ -7,6 +7,7 @@
 
 mod chat;
 mod commands;
+mod host;
 mod lines;
 mod place;
 mod secrets;

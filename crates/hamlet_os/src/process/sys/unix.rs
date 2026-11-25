@@ -54,8 +54,9 @@ impl Group {
                 | WaitIdOptions::NOHANG;
             if let Some(status) =
                 waitid(WaitId::Pid(self.id), options)?
+                    .and_then(|waited| exit_status(&waited))
             {
-                return Ok(exit_status(&status));
+                return Ok(status);
             }
             self.exits.recv().await.ok_or_else(|| {
                 io::Error::other("the runtime stopped listening")
@@ -75,16 +76,17 @@ impl Group {
     }
 }
 
-/// The status `waitpid` would give for `waited`.
-fn exit_status(waited: &WaitIdStatus) -> ExitStatus {
+/// The status `waitpid` would give for `waited`, or `None` when it
+/// reports no end, as for a stop.
+fn exit_status(waited: &WaitIdStatus) -> Option<ExitStatus> {
     let raw =
         match (waited.exit_status(), waited.terminating_signal()) {
             (Some(code), _) => (code & 0xff) << 8,
             (None, Some(signal)) if waited.dumped() => signal | 0x80,
             (None, Some(signal)) => signal,
-            (None, None) => 0,
+            (None, None) => return None,
         };
-    ExitStatus::from_raw(raw)
+    Some(ExitStatus::from_raw(raw))
 }
 
 /// Whether a process that is not a zombie has `id` as its group.

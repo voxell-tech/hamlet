@@ -43,7 +43,7 @@ async fn a_place_pushed_to_a_node_host_killed_with_it_in_flight_holds_after_the_
     let frozen = Frozen::node(&home);
 
     moved(&mut chief, mayor, &project).await;
-    frozen.killed(&home).await;
+    frozen.killed(&server, &home).await;
 
     holds(&server, &mut chief, mayor, &watched, &project).await;
     chief.close().await;
