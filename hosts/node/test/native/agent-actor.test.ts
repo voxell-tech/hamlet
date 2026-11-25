@@ -290,6 +290,10 @@ test("a client's call made by the realm, and an input the agent does not take, a
             "copies",
             "retire",
             "erase",
+            "read_inbox",
+            "take_inbox",
+            "drop_inbox",
+            "on_task",
         ];
         const actions = [
             ...new Set(
