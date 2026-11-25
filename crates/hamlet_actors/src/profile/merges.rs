@@ -19,10 +19,10 @@ use hamlet_messages::profile::{
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::{MOST_PART, Message};
 
-use super::files::drop_saves;
-use super::{CHARACTER, Profile, commit_id, git_commit, hires};
+use super::files::{drop_saves, items, withheld};
+use super::{Profile, commit_id, git_commit, hires};
 use crate::repo::git::{By, Git, Reads};
-use crate::repo::parts::{self, Item, Kept, joined};
+use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows};
 use crate::repo::{
     Admits, Before, Call, Ended, Look, Reply, Takes, Writer,
@@ -46,19 +46,6 @@ struct Merges(());
 
 impl store::Table for Merges {
     const NAME: &'static str = "merge_commit";
-}
-
-/// The `hire` table, for the one row a dropped branch takes with it.
-struct Hires(());
-
-impl store::Table for Hires {
-    const NAME: &'static str = "hire";
-}
-
-/// Whether `path` is one a merge never takes in: the character, and
-/// the inbox.
-fn withheld(path: &str) -> bool {
-    path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
 }
 
 /// Where the file at `path` of hire `absorbed` is set aside when the
@@ -514,7 +501,7 @@ fn bundle(look: &Look<'_, Profile, Bundle>) -> Result<BundleAnswer> {
         },
     };
     let main = git.tip(MAIN)?.context("a profile has a main")?;
-    let items = learned(git, git.merge_base(tip, main)?, tip)?;
+    let items = items(git, git.merge_base(tip, main)?, tip)?;
     let from = after.as_ref().map_or((0, 0), |cursor| {
         (cursor.file as usize, cursor.offset as usize)
     });
@@ -544,38 +531,6 @@ fn bundle(look: &Look<'_, Profile, Bundle>) -> Result<BundleAnswer> {
         removed,
         next,
     })
-}
-
-/// What `tip` changed since `base`, or every file of `tip` with no
-/// `base`: the paths it removed, then the files that differ in bytes
-/// or in whether they run, in path order. Never a withheld path.
-fn learned(
-    git: &Reads,
-    base: Option<CommitId>,
-    tip: CommitId,
-) -> Result<Vec<Item>> {
-    let mut was = match base {
-        Some(base) => git.entries(base)?,
-        None => Vec::new(),
-    }
-    .into_iter()
-    .filter(|entry| !withheld(&entry.path))
-    .map(|entry| (entry.path, (entry.blob, entry.executable)))
-    .collect::<BTreeMap<_, _>>();
-    let written = git
-        .entries(tip)?
-        .into_iter()
-        .filter(|entry| !withheld(&entry.path))
-        .filter(|entry| {
-            was.remove(&entry.path)
-                != Some((entry.blob, entry.executable))
-        })
-        .collect::<Vec<_>>();
-    Ok(was
-        .into_iter()
-        .map(|(path, (blob, _))| Item::Remove { path, blob })
-        .chain(written.into_iter().map(Item::Write))
-        .collect())
 }
 
 impl Takes<Unmerge> for Profile {
@@ -689,10 +644,7 @@ fn drop_branch(
         writer.writes()?.delete_branch(&name)?;
     }
     if let Some(hire) = hire {
-        writer.table(Hires(())).execute(
-            "DELETE FROM hire WHERE agent = ?1",
-            vec![BindParam::Integer(i64::from(hire.agent.0))],
-        )?;
+        hires::forget(&writer, hire.agent)?;
         drop_saves(&writer, Some(hire.agent))?;
     }
     writer.kept(())
