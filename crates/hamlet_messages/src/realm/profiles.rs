@@ -305,10 +305,20 @@ pub struct ForkProfile {
     pub name: String,
 }
 
+family!(
+    /// Why a fork the realm took was not made. `label` is the label of
+    /// the profile it was made from.
+    ForkFailure {
+        #[error("the scholar `{label}` could not be forked")]
+        NotForked { label: String },
+    }
+);
+
 union!(ForkRefusal {
     Profile(ProfileRefusal),
     Missing(Missing),
     Create(CreateRefusal),
+    Failure(ForkFailure),
 });
 
 answer!(
@@ -434,6 +444,11 @@ family!(
         TheMayor,
         #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
         Full { hamlet: HamletId, most: u32 },
+        #[error(
+            "the scholar `{label}` could not be erased, so it stays \
+             archived"
+        )]
+        NotErased { label: String },
     }
 );
 

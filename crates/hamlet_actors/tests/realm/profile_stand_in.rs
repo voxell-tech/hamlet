@@ -62,6 +62,11 @@ impl Actor for ProfileStandIn {
         ctx: Ctx<Self>,
     ) -> anyhow::Result<()> {
         if let Some(input) = ctx.input()? {
+            if matches!(input, ProfileInput::Fork { .. }) {
+                self.seen
+                    .called(Callee::Fork, AgentNumber(self.profile.0))
+                    .await?;
+            }
             self.seen
                 .profiles
                 .lock()

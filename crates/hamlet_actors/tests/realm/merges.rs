@@ -123,7 +123,7 @@ async fn lay(realm: &Realm, a: AgentNumber, b: AgentNumber) {
     assert_eq!(chief(realm, road(a, b)).await, Done::Done);
 }
 
-async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
+pub(super) async fn open_roads(realm: &Realm) -> Vec<(u32, u32)> {
     realm
         .stopped_rows(|db| {
             db.prepare(
@@ -195,7 +195,9 @@ pub(super) async fn decided(realm: &Realm, kind: &str) -> usize {
 }
 
 /// Each merge row's tip and whether it was split.
-async fn merge_rows(realm: &Realm) -> Vec<(Option<String>, bool)> {
+pub(super) async fn merge_rows(
+    realm: &Realm,
+) -> Vec<(Option<String>, bool)> {
     realm
         .stopped_rows(|db| {
             db.prepare("SELECT tip, split FROM merge ORDER BY id")?

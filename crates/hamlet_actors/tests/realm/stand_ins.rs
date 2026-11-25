@@ -68,6 +68,8 @@ pub(super) enum Callee {
     /// A profile's erasure, by the profile's number.
     EraseProfile,
     Fill,
+    /// A profile's making as a fork, by the profile's number.
+    Fork,
     /// A profile's merge, by the absorbed hire's number.
     Merge,
     /// The workspace's measure of a parcel, by its sender.
@@ -133,8 +135,8 @@ pub(super) struct Seen {
     pub(super) on_task: Mutex<HashSet<AgentNumber>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
-    /// own.
-    refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// own, and how many times each came.
+    refusing: Mutex<HashMap<(Callee, AgentNumber), usize>>,
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     pub(super) waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
@@ -189,7 +191,10 @@ impl Seen {
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             return Err(ActorLifecycle::NotReady.build());
         }
-        if self.refusing.lock().unwrap().contains(&(callee, agent)) {
+        if let Some(came) =
+            self.refusing.lock().unwrap().get_mut(&(callee, agent))
+        {
+            *came += 1;
             bail!("the stand-in refuses {callee:?} of {}", agent.0);
         }
         Ok(())
@@ -209,7 +214,29 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) {
-        self.refusing.lock().unwrap().insert((callee, agent));
+        self.refusing.lock().unwrap().insert((callee, agent), 0);
+    }
+
+    /// How many times `callee` refused `agent`.
+    pub(super) fn refused(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) -> usize {
+        self.refusing
+            .lock()
+            .unwrap()
+            .get(&(callee, agent))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub(super) fn stop_refusing(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) {
+        self.refusing.lock().unwrap().remove(&(callee, agent));
     }
 
     pub(super) fn has_failed(

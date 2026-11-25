@@ -51,6 +51,7 @@ pub(super) enum Change {
     Dreams(dreams::Change),
     Librarian(librarian::Change),
     Merges(merges::Change),
+    Record(record::Change),
 }
 
 macro_rules! change_from {
@@ -89,6 +90,7 @@ change_from!(
     dreams => Dreams,
     librarian => Librarian,
     merges => Merges,
+    record => Record,
 );
 
 #[derive(Debug, Default, PartialEq)]
@@ -595,6 +597,9 @@ impl Transaction {
                     }
                     Change::Merges(change) => {
                         merges::apply(&writer, change).await?
+                    }
+                    Change::Record(change) => {
+                        record::apply(&writer, change).await?
                     }
                 });
             }

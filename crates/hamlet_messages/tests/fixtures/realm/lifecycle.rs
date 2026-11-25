@@ -12,9 +12,10 @@ use hamlet_messages::realm::hires::{
     Restored,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, CreateRefusal, EraseProfile, ForkProfile,
-    ForkRefusal, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    MoveHouse, ProfileRefusal, RestoreProfile, TurnAway, Welcome,
+    ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
+    ForkProfile, ForkRefusal, Forked, LifeRefusal, Lifecycle,
+    LifecycleRefusal, MoveHouse, ProfileRefusal, RestoreProfile,
+    TurnAway, Welcome,
 };
 use hamlet_messages::realm::{
     AgentRefusal, HamletRefusal, Named, ProfileId,
@@ -36,6 +37,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<Restored>(),
         tagged::<LifeRefusal>(),
         tagged::<Forked>(),
+        tagged::<ForkFailure>(),
     ]
 }
 
@@ -47,6 +49,7 @@ pub fn unions() -> Vec<Union> {
             Profile: ProfileRefusal,
             Missing: Missing,
             Create: CreateRefusal,
+            Failure: ForkFailure,
         }),
         union!(LifecycleRefusal {
             Profile: ProfileRefusal,
@@ -104,6 +107,13 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
                 "on_chiefs_task",
                 MergeRefusal::OnChiefsTask { name: shown(HIRE) },
             ),
+            (
+                "not_merged",
+                MergeRefusal::NotMerged {
+                    absorbed: shown(HIRE),
+                    into: shown(MAYOR),
+                },
+            ),
         ]
     };
     done(fixtures, "realm/chief_merge", merge_refusals());
@@ -157,6 +167,17 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
                     hamlet: hamlet(),
                     most: 50,
                 },
+            ),
+            (
+                "not_split",
+                EndedRefusal::NotSplit {
+                    hire: shown(HIRE),
+                    into: shown(MAYOR),
+                },
+            ),
+            (
+                "not_erased",
+                EndedRefusal::NotErased { hire: shown(HIRE) },
             ),
         ]
     };
@@ -312,6 +333,10 @@ fn the_profiles_lives(fixtures: &mut Fixtures) {
                 .into(),
             ),
             ("long_character", CreateRefusal::LongCharacter.into()),
+            (
+                "not_forked",
+                ForkFailure::NotForked { label: label() }.into(),
+            ),
         ],
     );
     fixtures.args(
@@ -384,6 +409,10 @@ fn the_profiles_lives(fixtures: &mut Fixtures) {
                         hamlet: hamlet(),
                         most: 50,
                     },
+                ),
+                (
+                    "not_erased",
+                    LifeRefusal::NotErased { label: label() },
                 ),
             ];
             [

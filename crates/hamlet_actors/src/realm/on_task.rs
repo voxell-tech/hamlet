@@ -217,4 +217,8 @@ where
     fn answer(&self, done: A::Done, made: &Made) -> A::Output {
         self.act.answer(done, made)
     }
+
+    fn failed(&self, done: A::Done, made: &Made) -> A::Output {
+        self.act.failed(done, made)
+    }
 }
