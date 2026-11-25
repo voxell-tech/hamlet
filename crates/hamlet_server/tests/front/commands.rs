@@ -471,3 +471,34 @@ async fn a_chief_stopping_or_telling_an_ended_hire_reads_that_no_agent_has_its_a
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_house_names_a_missing_scholar_before_numbers_it_cannot_read()
+ {
+    let (mut server, _home, _side) = serve(json!([
+        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        "Ada is made.",
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = hamlet_acceptance::chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Make ada.").await;
+    chief.shows(&chat, "Ada is made.").await;
+
+    let missing =
+        chief.refused(hand, "/move-house scholar#99 four 5").await;
+    let unread =
+        chief.refused(hand, "/move-house scholar#2 four 5").await;
+    let short = chief.refused(hand, "/move-house scholar#99 4").await;
+
+    assert_eq!(missing, "no scholar has the address `scholar#99`");
+    assert_eq!(
+        unread,
+        "Use /move-house <scholar#id> <x> <z> [degrees]"
+    );
+    assert_eq!(short, "no scholar has the address `scholar#99`");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}

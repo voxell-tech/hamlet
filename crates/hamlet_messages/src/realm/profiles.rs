@@ -387,11 +387,20 @@ impl ChiefRequest for TurnAway {
     type Answer = Lifecycle;
 }
 
-/// Sets a profile's house down at a spot from the city's middle, in
-/// metres, turned `degrees`, or facing the middle when absent.
+/// Sets a profile's house down at `spot`. Without one, as for numbers
+/// a chief wrote that do not read, the realm looks the profile up and
+/// refuses `NoSpot`: today names a missing scholar before them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MoveHouse {
     pub profile: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<Spot>,
+}
+
+/// A spot from the city's middle, in metres, turned `degrees`, or
+/// facing the middle when absent.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Spot {
     pub x: f64,
     pub z: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -425,6 +434,8 @@ family!(
         /// A site that is not a spot in the city, as `x, z`.
         #[error("`{site}` is not an address")]
         BadSite { site: String },
+        #[error("the house of `{label}` needs a spot, x and z")]
+        NoSpot { label: String },
         #[error(
             "the house of `{label}` would stand on another house or the \
              city's middle"

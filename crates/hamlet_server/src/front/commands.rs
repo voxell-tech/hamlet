@@ -27,7 +27,9 @@ use hamlet_messages::realm::hires::{
 use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
 };
-use hamlet_messages::realm::profiles::{Forked, Lifecycle};
+use hamlet_messages::realm::profiles::{
+    Forked, Lifecycle, LifecycleRefusal, MoveHouse,
+};
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
@@ -665,11 +667,32 @@ async fn perform(
         Act::TurnAway(act) => {
             lived(ask(calls, id, act).await?, words::turned_away)
         }
-        Act::MoveHouse(act) => {
-            let (x, z) = (act.x, act.z);
+        Act::MoveHouse {
+            profile,
+            spot: Ok(spot),
+        } => {
+            let act = MoveHouse {
+                profile,
+                spot: Some(spot),
+            };
             lived(ask(calls, id, act).await?, |label| {
-                words::house_moved(label, x, z)
+                words::house_moved(label, spot.x, spot.z)
             })
+        }
+        Act::MoveHouse {
+            profile,
+            spot: Err(usage),
+        } => {
+            let act = MoveHouse {
+                profile,
+                spot: None,
+            };
+            match ask(calls, id, act).await? {
+                Lifecycle::Refused {
+                    why: LifecycleRefusal::Profile(why),
+                } => Err(refused(why)),
+                _ => Err(usage),
+            }
         }
         Act::Unsupported(what) => Err(Refusal::Unsupported { what }),
     };

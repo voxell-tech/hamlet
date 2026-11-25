@@ -14,7 +14,8 @@ use hamlet_messages::realm::hires::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkProfile,
     ForkRefusal, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    MoveHouse, ProfileRefusal, RestoreProfile, TurnAway, Welcome,
+    MoveHouse, ProfileRefusal, RestoreProfile, Spot, TurnAway,
+    Welcome,
 };
 use hamlet_messages::realm::{
     AgentRefusal, HamletRefusal, Named, ProfileId,
@@ -346,9 +347,11 @@ fn the_profiles_lives(fixtures: &mut Fixtures) {
         "realm/chief_move_house",
         &asked(MoveHouse {
             profile: PROFILE,
-            x: 12.5,
-            z: -4.0,
-            degrees: Some(90.0),
+            spot: Some(Spot {
+                x: 12.5,
+                z: -4.0,
+                degrees: Some(90.0),
+            }),
         }),
     );
     let life_refusals =
@@ -372,6 +375,7 @@ fn the_profiles_lives(fixtures: &mut Fixtures) {
                         site: "NaN, 0".into(),
                     },
                 ),
+                ("no_spot", LifeRefusal::NoSpot { label: label() }),
                 ("crowded", LifeRefusal::Crowded { label: label() }),
                 ("the_mayor", LifeRefusal::TheMayor),
                 (

@@ -14,7 +14,7 @@ use hamlet_messages::profile::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkProfile, Forked,
     LifeRefusal, Lifecycle, LifecycleRefusal, MoveHouse,
-    ProfileRefusal, RestoreProfile, TurnAway, Welcome,
+    ProfileRefusal, RestoreProfile, Spot, TurnAway, Welcome,
 };
 use hamlet_messages::realm::{
     Asked, Done, HamletId, HowEnded, ProfileId, Refusable,
@@ -544,14 +544,18 @@ impl Act<Client> for MoveHouse {
             Ok(found) => found,
             Err(answer) => return Decision::Answer(answer),
         };
-        let (x, z) = (self.x, self.z);
+        let Some(Spot { x, z, degrees }) = self.spot else {
+            return Decision::Answer(refused(LifeRefusal::NoSpot {
+                label: found.label,
+            }));
+        };
         let refusal = if found.row.arrival != Arrival::Housed {
             Some(LifeRefusal::AtHarbor {
                 label: found.label.clone(),
             })
         } else if !(x.is_finite()
             && z.is_finite()
-            && self.degrees.is_none_or(f64::is_finite))
+            && degrees.is_none_or(f64::is_finite))
         {
             Some(LifeRefusal::BadSite {
                 site: format!("{x}, {z}"),
@@ -566,7 +570,7 @@ impl Act<Client> for MoveHouse {
         if let Some(why) = refusal {
             return Decision::Answer(refused(why));
         }
-        let turn = self.degrees.map(f64::to_radians);
+        let turn = degrees.map(f64::to_radians);
         placed(
             self.profile,
             found.label,

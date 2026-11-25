@@ -466,34 +466,48 @@ fn turn_away_names_a_profile_and_a_reason() {
 
 #[test]
 fn move_house_reads_two_numbers_and_degrees_if_given() {
+    assert_eq!(
+        refused("/move-house"),
+        "Use /move-house <scholar#id> <x> <z> [degrees]"
+    );
     for line in [
-        "/move-house",
         "/move-house scholar#2 4",
         "/move-house scholar#2 four 5",
         "/move-house scholar#2 4 5 east",
     ] {
+        let Ok(Act::MoveHouse {
+            profile: ProfileId(2),
+            spot: Err(refusal),
+        }) = parse(line, None)
+        else {
+            panic!("{line}");
+        };
         assert_eq!(
-            refused(line),
+            refusal.to_string(),
             "Use /move-house <scholar#id> <x> <z> [degrees]",
             "{line}"
         );
     }
     assert_eq!(
         parse("/move-house scholar#2 4 -5.5", None),
-        Ok(Act::MoveHouse(MoveHouse {
+        Ok(Act::MoveHouse {
             profile: ProfileId(2),
-            x: 4.0,
-            z: -5.5,
-            degrees: None,
-        }))
+            spot: Ok(Spot {
+                x: 4.0,
+                z: -5.5,
+                degrees: None,
+            }),
+        })
     );
     assert_eq!(
         parse("/move-house scholar#2 4 5 90", None),
-        Ok(Act::MoveHouse(MoveHouse {
+        Ok(Act::MoveHouse {
             profile: ProfileId(2),
-            x: 4.0,
-            z: 5.0,
-            degrees: Some(90.0),
-        }))
+            spot: Ok(Spot {
+                x: 4.0,
+                z: 5.0,
+                degrees: Some(90.0),
+            }),
+        })
     );
 }

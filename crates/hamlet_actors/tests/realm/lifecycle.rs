@@ -15,7 +15,8 @@ use hamlet_messages::realm::hamlets::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkProfile,
     ForkRefusal, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    MoveHouse, ProfileRefusal, RestoreProfile, TurnAway, Welcome,
+    MoveHouse, ProfileRefusal, RestoreProfile, Spot, TurnAway,
+    Welcome,
 };
 use hamlet_messages::realm::world::{Seen, Status};
 use hamlet_messages::realm::{
@@ -853,9 +854,11 @@ async fn placing_a_profile_refuses_in_todays_order() {
     let (realm, _) = masons_hamlet(0).await;
     let place = |x, z| MoveHouse {
         profile: MASON,
-        x,
-        z,
-        degrees: None,
+        spot: Some(Spot {
+            x,
+            z,
+            degrees: None,
+        }),
     };
     let welcome = || Welcome {
         profile: MASON,

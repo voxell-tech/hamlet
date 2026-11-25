@@ -10,8 +10,8 @@ use hamlet_messages::realm::hamlets::{
     SetFolder, SetMode,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, EraseProfile, ForkProfile, MoveHouse,
-    RestoreProfile, TurnAway, Welcome,
+    ArchiveProfile, EraseProfile, ForkProfile, RestoreProfile, Spot,
+    TurnAway, Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -123,7 +123,12 @@ pub(super) enum Act {
     EraseProfile(EraseProfile),
     Welcome(Welcome),
     TurnAway(TurnAway),
-    MoveHouse(MoveHouse),
+    MoveHouse {
+        profile: ProfileId,
+        /// Refused only once the scholar is found, as today reads
+        /// the numbers.
+        spot: Result<Spot, Refusal>,
+    },
     Steer {
         hire: Target,
         part: Part,
@@ -373,20 +378,24 @@ pub(super) fn parse(
             let number = |at: usize| {
                 words.get(at).map(|word| word.parse::<f64>().ok())
             };
-            let (Some(Some(x)), Some(Some(z))) =
-                (number(1), number(2))
-            else {
-                return Err(usage(name));
+            let spot = match (number(1), number(2), number(3)) {
+                (Some(Some(x)), Some(Some(z)), None) => Ok(Spot {
+                    x,
+                    z,
+                    degrees: None,
+                }),
+                (
+                    Some(Some(x)),
+                    Some(Some(z)),
+                    Some(Some(degrees)),
+                ) => Ok(Spot {
+                    x,
+                    z,
+                    degrees: Some(degrees),
+                }),
+                _ => Err(usage(name)),
             };
-            let degrees = number(3)
-                .map(|degrees| degrees.ok_or_else(|| usage(name)))
-                .transpose()?;
-            Act::MoveHouse(MoveHouse {
-                profile,
-                x,
-                z,
-                degrees,
-            })
+            Act::MoveHouse { profile, spot }
         }
         "model" => {
             let (Some(text), Some(model)) =
