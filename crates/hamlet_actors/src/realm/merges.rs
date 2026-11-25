@@ -26,11 +26,13 @@ use super::act::{Act, Decided, Decision};
 use super::callers::{Decider as _, Lead};
 use super::calls::{Calls, Made};
 use super::change::{self, Affected, Rows, Writer, integer, number};
+use super::chiefs::hamlet::Status as HamletStatus;
 use super::peer::{self, When};
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::{self, Life, Lineage};
 use super::{
-    drop_parts, erase, hire, laid, profiles, record, retire, workers,
+    chiefs, drop_parts, erase, hire, laid, profiles, record, retire,
+    workers,
 };
 
 /// A chief's reason for a merge when it gives none.
@@ -289,8 +291,7 @@ fn decide_merge<By: Lead>(
             address: named.to_string(),
         })
     };
-    // A chief's two names are found first, as today's door finds
-    // them.
+    // A chief's two names are both found before either is checked.
     if merging.by.is_none()
         && merging.absorbed.is_some()
         && merging.into.is_none()
@@ -529,24 +530,11 @@ impl Act<Client> for Restore {
         };
         let agent = hire.agent.agent;
         let hamlet = hire.hamlet.context("an ended hire's hamlet")?;
-        let removed = status(
-            rows,
-            "hamlet",
-            BindParam::Text(hamlet.id.0.clone()),
-        )
-        .await?
-        .as_deref()
-            != Some("living");
+        let removed = chiefs::hamlet::status(rows, &hamlet.id)
+            .await?
+            != Some(HamletStatus::Living);
         let profile = tree::profile_of(rows, agent).await?;
-        let gone = if status(
-            rows,
-            "profile",
-            BindParam::Integer(profile.0.into()),
-        )
-        .await?
-        .as_deref()
-            == Some("living")
-        {
+        let gone = if profiles::is_living(rows, profile).await? {
             None
         } else {
             Some(profiles::label_of(rows, profile).await?)
@@ -647,18 +635,6 @@ impl Act<Client> for Restore {
             Restoring::Split { .. } => Restored::Split,
         }
     }
-}
-
-async fn status(
-    rows: &Rows<'_>,
-    table: &str,
-    id: BindParam,
-) -> Result<Option<String>> {
-    rows.value(
-        &format!("SELECT status FROM {table} WHERE id = ?1"),
-        vec![id],
-    )
-    .await
 }
 
 pub(super) async fn run(

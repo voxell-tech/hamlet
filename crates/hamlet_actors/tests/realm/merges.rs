@@ -855,6 +855,28 @@ async fn a_hire_ended_before_its_fill_retires_with_no_call_and_is_erased()
     realm.host.shutdown().await.unwrap();
 }
 
+/// Sets the closed row `kind` `n` back to before each step that is
+/// not its last, `NULL` first, and waits each time for it to close
+/// again.
+async fn done_again(
+    realm: &Realm,
+    kind: &str,
+    n: i64,
+    done: &[&str],
+) {
+    let set_back = std::iter::once("NULL".to_owned())
+        .chain(done.iter().map(|step| format!("'{step}'")));
+    for done in set_back {
+        realm
+            .write(&format!(
+                "UPDATE step SET done = {done}, closed = 0 WHERE \
+                 kind = '{kind}' AND n = {n};"
+            ))
+            .await;
+        closed_until(realm, kind, n).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn every_retire_step_twice_retires_once() {
     let (realm, _) = super::hamlet_with(1).await;
@@ -867,8 +889,9 @@ async fn every_retire_step_twice_retires_once() {
     .await;
     let realm = realm.restart().await;
     closed_until(&realm, "retire", 3).await;
-
     assert_eq!(retires(&realm), [THREE]);
+
+    done_again(&realm, "retire", 3, &[]).await;
     realm.host.shutdown().await.unwrap();
 }
 
@@ -899,6 +922,9 @@ async fn every_merge_step_twice_merges_once() {
             ([1, 1, 0], 2),
             "{callee:?} failed once"
         );
+
+        done_again(&realm, "merge", 1, &["retire", "merge", "fill"])
+            .await;
         realm.host.shutdown().await.unwrap();
     }
 }
@@ -926,6 +952,8 @@ async fn every_split_step_twice_splits_once() {
             (1, 3),
             "{callee:?} failed once"
         );
+
+        done_again(&realm, "split", 1, &["unmerge"]).await;
         realm.host.shutdown().await.unwrap();
     }
 }
@@ -953,6 +981,8 @@ async fn every_erase_step_twice_erases_once() {
             (1, 1),
             "{callee:?} failed once"
         );
+
+        done_again(&realm, "erase", 3, &["branch"]).await;
         realm.host.shutdown().await.unwrap();
     }
 }
