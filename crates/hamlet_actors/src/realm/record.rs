@@ -132,7 +132,6 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Restored {
         hire: AgentNumber,
         by: By,
@@ -143,52 +142,42 @@ pub(super) enum Entry {
         hire: AgentNumber,
         by: By,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     RemovedHamlet {
         hamlet: HamletId,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     RestoredHamlet {
         hamlet: HamletId,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     ErasedHamlet {
         hamlet: HamletId,
         by: By,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     ProfileArchived {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     ProfileRestored {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     ProfileErased {
         by: By,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Welcomed {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     TurnedAway {
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     HouseMoved {
         by: By,
     },
-    #[expect(dead_code, reason = "no built act makes it yet")]
     Forked {
         by: By,
     },
