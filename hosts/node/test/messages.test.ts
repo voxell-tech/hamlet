@@ -1378,8 +1378,6 @@ for (const row of WRITTEN) {
         const call = of().at(-1);
         assert.ok(call, `the agent sent no ${action}`);
         const expected = fixture(`${row.fixture}.args`) as unknown[];
-        // Each action takes one message, but `list_tools`, `secrets` and
-        // `read_own_place` take none.
         const args =
             call.message === undefined ? [] : [structuredClone(call.message)];
         for (const path of row.own ?? []) {

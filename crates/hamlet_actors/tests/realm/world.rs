@@ -169,9 +169,6 @@ async fn the_revision_survives_a_restart() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reach_the_workspace_failed_is_pushed_again_when_the_realm_starts()
  {
-    // fail the SetReach of hire 3's end: its reach stays pending
-    // while the realm runs; restart: the realm pushes it again, and
-    // the workspace holds the end.
     let (realm, _) = hamlet_with(1).await;
     realm.seen.fail_once(Callee::SetReach, THREE);
     end_the_hire(&realm).await;

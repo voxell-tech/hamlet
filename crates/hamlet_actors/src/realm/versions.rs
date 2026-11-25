@@ -141,7 +141,7 @@ pub(super) async fn reach(
 }
 
 /// The agents whose wanted reach the workspace has not answered as in
-/// force: its push failed, or the realm stopped before the answer.
+/// force.
 pub(super) async fn unapplied(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {

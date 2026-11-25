@@ -46,9 +46,7 @@ impl Message for Secrets {
     type From = Scrubber;
 }
 
-/// Asks for the caller's place as the realm holds it now. An agent
-/// asks at each wake, since a push of its place is lost with its
-/// host.
+/// Asks for the caller's place as the realm holds it now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadOwnPlace;
 
