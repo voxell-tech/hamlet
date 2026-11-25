@@ -61,8 +61,12 @@ mod dream_errands;
 mod dreams;
 #[path = "realm/drop_parts.rs"]
 mod drop_parts;
+#[path = "realm/ended.rs"]
+mod ended;
 #[path = "realm/errands.rs"]
 mod errands;
+#[path = "realm/failed_steps.rs"]
+mod failed_steps;
 #[path = "realm/first_start.rs"]
 mod first_start;
 #[path = "realm/found.rs"]
