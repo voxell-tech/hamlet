@@ -72,7 +72,7 @@ test(
             const demo = startDemo(dir, ["--realm-actor"]);
             assert.match(
                 await demo.ask("realm say 1 l1 hello there"),
-                /^taken\/l1 \d+$/,
+                /^accepted\/l1 \d+$/,
             );
             await chatHolds(
                 demo,
@@ -95,7 +95,7 @@ test(
             await hamlet(demo, 3);
             assert.match(
                 await demo.ask("realm say 2 s1 tell 3: hello"),
-                /^taken\/s1 /,
+                /^accepted\/s1 /,
             );
             await chatHolds(
                 demo,
@@ -171,7 +171,7 @@ test(
             assert.equal(await demo.ask("pi die-after tell"), "die/tell 1");
             assert.match(
                 await demo.ask("realm say 2 s1 tell 3: once"),
-                /^taken\/s1 /,
+                /^accepted\/s1 /,
             );
             await chatHolds(
                 demo,
