@@ -102,7 +102,9 @@ pub(super) enum Act {
     },
     Merge {
         absorbed: Target,
-        into: Target,
+        /// Refused only once `absorbed` is found, as today reads
+        /// them.
+        into: Result<Target, Refusal>,
         why: String,
     },
     Restore {
@@ -311,7 +313,7 @@ pub(super) fn parse(
             };
             Act::Merge {
                 absorbed: at(absorbed)?,
-                into: at(into)?,
+                into: at(into),
                 why: why(3).unwrap_or_else(|| {
                     words::MERGED_BY_THE_CHIEF.into()
                 }),

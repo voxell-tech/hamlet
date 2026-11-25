@@ -584,18 +584,25 @@ async fn perform(
                 words::BUDGET_RESET.into()
             })
         }
-        Act::Merge { absorbed, into, .. }
-            if let Some(refusal) = not_hires(
-                view,
-                Reach::Living,
-                &[&absorbed, &into],
-            ) =>
+        Act::Merge {
+            absorbed,
+            into: Err(refusal),
+            ..
+        } => Err(number(view, &absorbed, Reach::Living)
+            .err()
+            .unwrap_or(refusal)),
+        Act::Merge {
+            absorbed,
+            into: Ok(into),
+            ..
+        } if let Some(refusal) =
+            not_hires(view, Reach::Living, &[&absorbed, &into]) =>
         {
             Err(refusal)
         }
         Act::Merge {
             absorbed,
-            into,
+            into: Ok(into),
             why,
         } => {
             let said = words::merged(&absorbed.text, &into.text);
