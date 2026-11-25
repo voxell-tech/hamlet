@@ -367,7 +367,7 @@ impl Drop for Frozen {
 }
 
 /// What `ps` shows of the process `pid`, its parent and this test.
-pub(super) fn processes(pid: &str) -> String {
+fn processes(pid: &str) -> String {
     let parent = ps(&["-o", "ppid=", "-p", pid]);
     let listed =
         [pid, parent.trim(), &std::process::id().to_string()]

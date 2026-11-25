@@ -13,6 +13,8 @@ const SKIP = { skip: process.platform === "win32" };
  */
 const TURN_MS = 60_000;
 
+const NOISE = /\b(WARN|ERROR)\b/;
+
 /** Waits until agent `n`'s current chat holds an item `found` accepts. */
 async function chatHolds(
     demo: Demo,
@@ -185,7 +187,7 @@ test(
 );
 
 test(
-    "a demo with the realm actor stops with a hire's place in flight, starts again, and the hire holds that place",
+    "a demo with the realm actor stops with a hire's place in flight, logs no warning, starts again, and the hire holds that place",
     SKIP,
     async () => {
         await inFolder(async (dir) => {
@@ -198,6 +200,7 @@ test(
                     "folder/h1 1",
                 );
                 assert.equal(await first.stop(), 0);
+                assert.doesNotMatch(first.stderr(), NOISE);
                 const second = startDemo(dir, ["--realm-actor"]);
                 assert.equal(await second.ask("realm live 6"), "live/6 1");
                 assert.ok(
@@ -206,6 +209,7 @@ test(
                     ),
                 );
                 assert.equal(await second.stop(), 0);
+                assert.doesNotMatch(second.stderr(), NOISE);
             });
         });
     },

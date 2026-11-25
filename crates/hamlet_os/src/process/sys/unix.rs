@@ -77,7 +77,7 @@ impl Group {
 }
 
 /// The status `waitpid` would give for `waited`, or `None` when it
-/// reports no end, as for a stop.
+/// reports no end: macOS reports a stopped process to `EXITED` too.
 fn exit_status(waited: &WaitIdStatus) -> Option<ExitStatus> {
     let raw =
         match (waited.exit_status(), waited.terminating_signal()) {
