@@ -41,7 +41,7 @@ pub fn the_lines_and_the_stop(fixtures: &mut Fixtures) {
     fixtures.args(
         "agent/stop",
         &Stop {
-            number: 3,
+            number: 1_790_000_000_000_003,
             withdrawn: vec![Withdrawn {
                 id: InputId(
                     "0b5e7c4a-1d2f-4e3a-8b9c-0d1e2f3a4b01".into(),

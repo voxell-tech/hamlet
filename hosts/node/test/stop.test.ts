@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { HarnessSettings } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type { Input } from "../src/agent/messages/agent.ts";
+import { type Input, read } from "../src/agent/messages/agent.ts";
 import {
     fakeCalls,
     from,
@@ -18,6 +18,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import { fixture } from "./testing.ts";
 
 async function wake(
     t: TestContext,
@@ -269,4 +270,9 @@ test("a stop waits for the admission under way of a line it withdrew, and aborts
     assert.deepEqual(await stopping, { turns: 1 });
     await agent.idle();
     assert.deepEqual(await shown(agent), ["Racing."]);
+});
+
+test("the realm's stop number, counted from the wall clock in microseconds, is read whole", () => {
+    const [stop] = fixture("agent/stop.args") as [unknown];
+    assert.equal(read.stop(stop).number, 1_790_000_000_000_003);
 });

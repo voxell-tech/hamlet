@@ -396,6 +396,7 @@ export interface Session {
 
 /** The realm's stop of the agent; a repeat of its number is the first. */
 export interface Stop {
+    /** Below 2^53, so it is read whole even when it comes as a bigint. */
     readonly number: number;
     readonly withdrawn?: readonly Withdrawn[];
 }
@@ -741,7 +742,7 @@ export const read: {
             OPEN,
         ),
         ({ number, withdrawn }) => ({
-            number: wide(number),
+            number: Number(number),
             ...(withdrawn === undefined
                 ? {}
                 : { withdrawn: withdrawn as Withdrawn[] }),
