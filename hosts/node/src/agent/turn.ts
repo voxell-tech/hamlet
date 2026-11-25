@@ -377,9 +377,8 @@ function isQueuedInput(item: InboxItem): boolean {
 }
 
 /**
- * Follows each harness it is given and tells the realm when the agent's
- * open inputs go from none to some and back: once per busy period, however
- * many inputs it holds.
+ * A follower of harnesses that tells the realm when the agent's open inputs
+ * go from none to some and back.
  */
 export function workReporter(peers: Peers): (harness: Harness) => void {
     const running = new Set<ConversationId>();
@@ -777,8 +776,8 @@ export const MAY_HAVE_RUN =
     "interrupted by a restart and may have partially run";
 
 /**
- * What the model reads for a held call that ended without an answer, as
- * pi-durable's abort writes it: "Tool <name> was aborted".
+ * The result of a held call that ended without an answer, as pi-durable's
+ * abort writes it: "Tool <name> was aborted".
  */
 export function abortedResult(held: ToolResultMessage): ToolResultMessage {
     return {

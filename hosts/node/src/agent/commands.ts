@@ -66,15 +66,9 @@ type Answer<N extends keyof ClientActions> = Promise<
 >;
 
 /**
- * The realm's stop of the agent, run once per number: a repeat answers the
- * first count. The inputs it withdrew are marked first, so an admission
- * that begins later shows them and never runs them. It waits for the
- * admissions under way and a retry, not for `inTurn`, which may hold the
- * very run it ends. Then each conversation with a run or a queued input
- * is stopped and counted, the withdrawn inputs are shown in their chats,
- * and, as today, every call the agent has out is cancelled. Each question
- * dropped is answered that its turn was stopped, as today's follow answers
- * it (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+ * The realm's stop of the agent, run once per number; a repeat answers the
+ * first count. It counts the conversations it stops and the chats its
+ * withdrawn inputs are shown in.
  */
 export function stop(c: AgentCall, message: Stop): Promise<Stopped> {
     const { stops } = generationOf(c);
@@ -92,6 +86,8 @@ async function stopped(c: AgentCall, message: Stop): Promise<Stopped> {
     const generation = generationOf(c);
     const { options, peers } = generation;
     const lines = message.withdrawn ?? [];
+    // Marked first, so an admission that begins later shows the line and
+    // never runs it. Not in `inTurn`, which may hold the very run it ends.
     for (const line of lines) generation.withdrawn.add(line.id);
     await Promise.allSettled(generation.admitting);
     // Today runs a chief's commands to one agent one after another
@@ -119,6 +115,7 @@ async function stopped(c: AgentCall, message: Stop): Promise<Stopped> {
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
+    // As today's follow answers them (`crates/hamlet_server/src/talk/follow.rs:70-84`).
     for (const question of ended.flatMap((one) => one.dropped)) {
         await couldNotAnswer(
             peers,

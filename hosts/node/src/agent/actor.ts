@@ -526,10 +526,7 @@ export interface Generation {
      * or has failed. A stop waits for it, so it stops the retry's turn too.
      */
     retrying: Promise<void> | undefined;
-    /**
-     * The inputs the realm's stops withdrew: an admission that begins later
-     * shows such an input and never runs it.
-     */
+    /** The ids of the inputs the realm's stops withdrew, which are shown and never run. */
     readonly withdrawn: Set<string>;
     /** The admissions under way, which a stop waits for. */
     readonly admitting: Set<Promise<void>>;
@@ -759,7 +756,7 @@ const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
 async function submit(c: AgentCall, message: Submit): Promise<void> {
     const generation = generationOf(c);
     const { options, inTurn, receiving, peers, admitting } = generation;
-    const admission = async (withdrawn: boolean) => {
+    const admission = async () => {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
             generation.followWork(harness);
@@ -768,10 +765,6 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                 throw new Error(`the agent has no conversation ${id}`);
             }
             const { input } = message;
-            if (withdrawn) {
-                await shownWithdrawn(harness, id, message.id, input, context);
-                return;
-            }
             const admitted = async (captions: string) => {
                 const admission = admissionOf(message, captions);
                 return conversation.submit(
@@ -807,20 +800,25 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             });
         });
     };
+    const shown = async () => {
+        const id = await conversationFor(c, message.input);
+        await withHarness(c, options, (harness, context) =>
+            shownWithdrawn(harness, id, message.id, message.input, context),
+        );
+    };
     // The mark is read and the admission counted under way in one step, so a
     // stop either finds the admission to wait for or is read by it.
     const admit = () => {
-        const under = admission(generation.withdrawn.has(message.id));
+        const under = generation.withdrawn.has(message.id)
+            ? shown()
+            : admission();
         admitting.add(under);
         return under.finally(() => admitting.delete(under));
     };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
 }
 
-/**
- * Shows the withdrawn input `id` in `chat`, unless it was admitted there
- * before its stop.
- */
+/** Shows the withdrawn input `id` in `chat`, unless it was admitted there first. */
 export async function shownWithdrawn(
     harness: Harness,
     chat: ConversationId,
@@ -838,8 +836,8 @@ export async function shownWithdrawn(
 }
 
 /**
- * A held call's end that brings no answer: shown, and put in place of the
- * call's result, so the model reads the call aborted and no run starts.
+ * The write of a held call's end that brings no answer: shown, and put in
+ * place of the call's result, so the model reads the call aborted.
  */
 async function endedWithoutRun(
     harness: Harness,

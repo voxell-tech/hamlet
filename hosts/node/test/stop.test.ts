@@ -248,3 +248,25 @@ test("a line the agent took before the stop that names it shows once, and its re
     assert.deepEqual(await shown(agent), ["Taken."]);
     assert.equal(agent.faux.state.callCount, 1);
 });
+
+// A frozen host reads the line's `Submit` and then the `Stop` that names it:
+// the stop waits for the admission under way and aborts its turn.
+test("a stop waits for the admission under way of a line it withdrew, and aborts its turn", async (t) => {
+    const slow = held();
+    const agent = await wake(t, fakeCalls({}).calls, [slow.step]);
+    const reading = agent.holdRead(
+        "SELECT conversation FROM chat WHERE kind = 'chief' AND current = 1",
+    );
+    const admitted = submitted(agent, line("Racing."), "line-5");
+    await reading.reached;
+    const stopping = agent.actions.stop(agent.by(from.realm), {
+        number: 1,
+        withdrawn: [{ id: "line-5", line: line("Racing.") }],
+    });
+    reading.release();
+
+    assert.equal(await admitted, null);
+    assert.deepEqual(await stopping, { turns: 1 });
+    await agent.idle();
+    assert.deepEqual(await shown(agent), ["Racing."]);
+});

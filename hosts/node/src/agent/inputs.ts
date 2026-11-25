@@ -88,9 +88,8 @@ export function admissionOf(message: Submit, captions = ""): Admission {
 }
 
 /**
- * An input the realm withdrew before the agent took it, shown in its chat as
- * it would have been and never read by the model. Its request id is the
- * input's, so it shows once whichever of it and the input lands first.
+ * The write that shows an input the realm withdrew, never read by the
+ * model. Its request id is the input's, so it shows once.
  */
 export function withdrawnInput(id: string, input: Input): SubmissionDraft {
     const admission = admissionOf({ id, input });
