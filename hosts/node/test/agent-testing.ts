@@ -229,6 +229,39 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     };
 }
 
+/** `fakeFiles` that keeps which files run, as a filesystem with modes does. */
+export function filesThatRun(files: Record<string, string>) {
+    const fake = fakeFiles(files);
+    const runs = new Set<string>();
+    const filesystem: AgentFilesystem = {
+        ...fake,
+        write: async (path, content, context, executable) => {
+            if (executable === true) runs.add(path);
+            if (executable === false) runs.delete(path);
+            return fake.write(path, content, context);
+        },
+        list: async (path, context) => {
+            const listed = await fake.list(path, context);
+            if (!listed.ok) return listed;
+            return ok(
+                listed.value.map((entry) => ({
+                    ...entry,
+                    executable: runs.has(`${path}/${entry.name}`),
+                })),
+            );
+        },
+        walk: async (path, context) => {
+            const walked = await fake.walk(path, context);
+            if (!walked.ok) return walked;
+            const executable = walked.value.files.filter((file) =>
+                runs.has(file),
+            );
+            return ok({ ...walked.value, executable });
+        },
+    };
+    return { filesystem, runs };
+}
+
 /** `fakeFiles(files)`, whose walk stops at its cap. */
 export function cappedFiles(files: Record<string, string>): AgentFilesystem {
     const filesystem = fakeFiles(files);

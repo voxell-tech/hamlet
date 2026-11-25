@@ -349,6 +349,101 @@ async fn a_merge_from_another_profile_brings_its_files() {
     host.shutdown().await.unwrap();
 }
 
+fn runs(path: &str, bytes: &str) -> Change {
+    Change::WriteExecutable {
+        path: path.into(),
+        bytes: bytes.into(),
+    }
+}
+
+/// Whether each file at `at` of profile 1 runs.
+fn modes(
+    dir: &Path,
+    at: hamlet_git::CommitId,
+) -> Vec<(String, bool)> {
+    repository(dir, 1)
+        .entries(at)
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.path, entry.executable))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_merged_from_another_profile_does_not_run_and_one_merged_within_a_profile_keeps_its_mode()
+ {
+    let other = Scratch::new("profile-merge-mode-from");
+    let common = [
+        write("memory/notes.md", "one\n"),
+        write("skills/run/run.sh", "#!/bin/sh\n"),
+    ];
+    let from = hired(&other, &common, Arc::default()).await;
+    hire(&from, 8).await;
+    save_on(
+        &other,
+        1,
+        "hires/8",
+        &[
+            runs("skills/new/go.sh", "#!/bin/sh\necho go\n"),
+            runs("memory/notes.md", "#!/bin/sh\necho theirs\n"),
+            runs("skills/run/run.sh", "#!/bin/sh\n"),
+        ],
+    );
+    let parts = bundle(&from, "hires/8").await;
+    from.shutdown().await.unwrap();
+    let dir = Scratch::new("profile-merge-mode-into");
+    let host = hired(&dir, &common, Arc::default()).await;
+    host.get_or_start(&agent()).await.unwrap();
+    save_on(
+        &dir,
+        1,
+        "hires/7",
+        &[write("memory/notes.md", "kept\n")],
+    );
+    let id = RequestId::new();
+    let last = parts.len() - 1;
+    for (number, sent) in parts.into_iter().enumerate() {
+        let asked = merge(&id, part(number, number == last, sent));
+        call_as(&host, &realm(), &asked).await.unwrap();
+    }
+    let across = modes(&dir, hire_tip(&dir, 7));
+    host.shutdown().await.unwrap();
+
+    let same = Scratch::new("profile-merge-mode-within");
+    let host = two_hires(&same, &common, Arc::default()).await;
+    save_on(
+        &same,
+        1,
+        "hires/8",
+        &[runs("skills/new/go.sh", "#!/bin/sh\necho go\n")],
+    );
+    let asked = merge(&RequestId::new(), from_branch());
+    call_as(&host, &realm(), &asked).await.unwrap();
+    let within = modes(&same, hire_tip(&same, 7));
+    host.shutdown().await.unwrap();
+
+    let named = |path: &str, runs: bool| (path.to_owned(), runs);
+    assert_eq!(
+        across,
+        [
+            named("CHARACTER.md", false),
+            named("memory/notes.md", false),
+            named("memory/notes.md.from-hire-8", false),
+            named("skills/new/go.sh", false),
+            named("skills/run/run.sh", false),
+        ]
+    );
+    assert_eq!(
+        within,
+        [
+            named("CHARACTER.md", false),
+            named("memory/notes.md", false),
+            named("skills/new/go.sh", true),
+            named("skills/run/run.sh", false),
+        ]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_part_that_names_the_character_or_the_inbox_is_refused()
  {

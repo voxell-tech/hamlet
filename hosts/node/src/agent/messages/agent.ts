@@ -26,6 +26,9 @@ import {
     type CommitId,
     characterOf,
     OWN_PROFILE,
+    PIECE,
+    type Piece,
+    pieceOf,
 } from "./profile.ts";
 import { REALM, type ToolName } from "./realm.ts";
 import {
@@ -239,6 +242,41 @@ export interface Retired {
     readonly tip: CommitId;
 }
 
+/** Where the next part of an inbox starts: at the first file whose path is `path` or after it, from its byte `offset`. */
+export interface InboxCursor {
+    readonly path: string;
+    readonly offset: number;
+}
+
+/** Reads one part of the files in the agent's `inbox/`, in path order from `after`. */
+export interface ReadInbox {
+    readonly after?: InboxCursor;
+}
+
+/** Each piece's path is from `inbox/`. */
+export interface InboxPart {
+    readonly files: readonly Piece[];
+    /** Absent on the last part. */
+    readonly next?: InboxCursor;
+}
+
+/** One part of the inbox of the hire `from`, merged into this agent's, to write under `inbox/from-hire-<from>/`. */
+export interface TakeInbox {
+    readonly from: AgentNumber;
+    readonly files: readonly Piece[];
+}
+
+/** Paths from `inbox/` to remove, once the hire this one was merged into took them. */
+export interface DropInbox {
+    readonly paths: readonly string[];
+}
+
+/** Whether an input under one of `tasks` is still to end, or one ended less than `within_ms` ago. */
+export interface OnTask {
+    readonly tasks: readonly RealmTask[];
+    readonly within_ms: number | bigint;
+}
+
 export interface AgentActions {
     submit(message: Submit): null;
     finished(message: Finished): null;
@@ -251,6 +289,11 @@ export interface AgentActions {
     retire(message: null): Retired;
     /** The agent answers, then ends itself for good. */
     erase(message: null): null;
+    read_inbox(message: ReadInbox): InboxPart;
+    /** It gives no turn. */
+    take_inbox(message: TakeInbox): null;
+    drop_inbox(message: DropInbox): null;
+    on_task(message: OnTask): boolean;
 }
 
 /** As each message's `Message::From` says. */
@@ -265,6 +308,10 @@ export const SENDERS = {
     shelves_changed: LIBRARY,
     retire: REALM,
     erase: REALM,
+    read_inbox: REALM,
+    take_inbox: REALM,
+    drop_inbox: REALM,
+    on_task: REALM,
 } as const satisfies {
     readonly [N in keyof AgentActions]: Address | typeof OWN_PROFILE;
 };
@@ -535,9 +582,12 @@ export interface ClientActions {
 
 const AUTHOR = obj({ agent: U32, name: opt(str()) }, OPEN);
 
+/** A `u64`: a number while it is a safe integer, else a bigint. */
+const U64 = union([int(), bigint()]);
+
 const PLACE = obj(
     {
-        version: union([int(), bigint()]),
+        version: U64,
         lead: opt(U32),
         hires: arr(U32),
         roads: arr(U32),
@@ -554,10 +604,12 @@ const PARCEL_FILE = obj(
         parcel: U32,
         file: U32,
         path: str(),
-        size: union([int(), bigint()]),
+        size: U64,
     },
     OPEN,
 );
+
+const INBOX_CURSOR = obj({ path: str(), offset: U32 }, OPEN);
 
 const MODEL = obj(
     {
@@ -736,6 +788,22 @@ export const read: {
     })),
     retire: reader(unknown(), () => null),
     erase: reader(unknown(), () => null),
+    read_inbox: reader(obj({ after: opt(INBOX_CURSOR) }, OPEN), ({ after }) =>
+        after === undefined
+            ? {}
+            : { after: { path: after.path, offset: after.offset } },
+    ),
+    take_inbox: reader(
+        obj({ from: U32, files: arr(PIECE) }, OPEN),
+        ({ from, files }) => ({ from, files: files.map(pieceOf) }),
+    ),
+    drop_inbox: reader(obj({ paths: arr(str()) }, OPEN), ({ paths }) => ({
+        paths,
+    })),
+    on_task: reader(
+        obj({ tasks: arr(str()), within_ms: U64 }, OPEN),
+        ({ tasks, within_ms }) => ({ tasks, within_ms }),
+    ),
 };
 
 /**

@@ -271,16 +271,19 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
         [
             "check",
             "copies",
+            "drop_inbox",
             "erase",
             "fill",
             "finished",
             "login",
             "moved",
             "new_session",
+            "on_task",
             "pi.wake",
             "place",
             "read_chat",
             "read_history",
+            "read_inbox",
             "read_models",
             "read_prompt",
             "reflect",
@@ -292,6 +295,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "shelves_changed",
             "stop",
             "submit",
+            "take_inbox",
         ],
     );
     await agent.stop();

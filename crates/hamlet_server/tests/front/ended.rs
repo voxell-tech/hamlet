@@ -1,9 +1,6 @@
 //! Hires ended through the door: merged, restored and erased.
 
 use hamlet_acceptance::Client;
-use hamlet_protocol::client::{
-    ClientMessage, ReplyKind, RequestId, Say,
-};
 use hamlet_testing::Server;
 use serde_json::json;
 
@@ -72,36 +69,22 @@ async fn a_chief_restores_ends_and_erases_a_hire_and_then_finds_no_agent()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_merge_sent_again_under_its_id_answers_as_it_did() {
+async fn a_merge_names_a_missing_hire_before_an_address_it_cannot_read()
+ {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
     let mayor = found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
-    let absorbed = hire_blank(&mut chief, &docs).await;
-    let kept = hire_blank(&mut chief, &docs).await;
-    let line = Say {
-        id: RequestId::new(),
-        to: mayor,
-        text: format!("/merge {absorbed} into {kept}"),
-        files: Vec::new(),
-        images: Vec::new(),
-    };
+    let living = hire_blank(&mut chief, &docs).await;
 
-    let mut answers = Vec::new();
-    for _ in 0..2 {
-        let mut sender = Client::join(&server).await;
-        sender.send(ClientMessage::Say(line.clone())).await;
-        let reply = sender.reply(&line.id).await;
-        answers.push((reply.kind, reply.text));
-        ended(&server, &absorbed).await;
-        sender.close().await;
-    }
+    let missing =
+        chief.refused(mayor, "/merge hire#99 into bogus").await;
+    let unread = chief
+        .refused(mayor, &format!("/merge {living} into bogus"))
+        .await;
 
-    let merged = (
-        ReplyKind::Notice,
-        format!("Merged `{absorbed}` into `{kept}`."),
-    );
-    assert_eq!(answers, [merged.clone(), merged]);
+    assert_eq!(missing, "no agent has the address `hire#99`");
+    assert_eq!(unread, "`bogus` is not an address");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

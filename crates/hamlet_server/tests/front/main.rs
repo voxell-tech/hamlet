@@ -8,6 +8,7 @@
 mod chat;
 mod commands;
 mod ended;
+mod resend;
 mod secrets;
 mod view;
 

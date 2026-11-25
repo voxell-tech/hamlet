@@ -112,7 +112,7 @@ export const OWN_PROFILE = "own profile";
 
 export const CHARACTER = obj({ version: U32, text: str() }, OPEN);
 
-const PIECE = obj(
+export const PIECE = obj(
     {
         path: str(),
         offset: U32,
@@ -132,7 +132,7 @@ export function characterOf({
     return { version, text };
 }
 
-function pieceOf({
+export function pieceOf({
     path,
     offset,
     bytes,

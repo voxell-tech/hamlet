@@ -29,7 +29,7 @@ import type { CallId, ProfileId } from "./messages/shared.ts";
 import { type Peers, profileCalls } from "./turn.ts";
 
 /** As `MOST_PART` and `PIECE_FRAME` of `crates/hamlet_messages/src/lib.rs`. */
-const MOST_PART = 720 * 1024;
+export const MOST_PART = 720 * 1024;
 const PIECE_FRAME = 64;
 
 export async function migrateBranch(
@@ -83,7 +83,7 @@ function digestOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
 
-function cost(path: string, bytes: number): number {
+export function cost(path: string, bytes: number): number {
     return Buffer.byteLength(path) + bytes + PIECE_FRAME;
 }
 

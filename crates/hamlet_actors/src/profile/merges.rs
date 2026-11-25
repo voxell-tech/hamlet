@@ -290,22 +290,20 @@ fn stage(
                         "a merge's file of another kind: {change:?}"
                     );
                 };
+                // As today's merge from another profile writes it, a
+                // file brought in does not run.
+                let brought = |path: String| Change::Write {
+                    path,
+                    bytes: bytes.clone(),
+                };
                 match kept.get(path) {
                     Some(own) if *own == blob_id(bytes) => {}
                     Some(_) => {
                         let to = aside(path, absorbed);
-                        let runs = matches!(
-                            change,
-                            Change::WriteExecutable { .. }
-                        );
-                        changes.push(file(
-                            to.clone(),
-                            bytes.clone(),
-                            runs,
-                        ));
+                        changes.push(brought(to.clone()));
                         set_aside.push(to);
                     }
-                    None => changes.push(change.clone()),
+                    None => changes.push(brought(path.clone())),
                 }
             }
             for (path, blob) in removed {
@@ -325,14 +323,6 @@ fn stage(
         also,
         set_aside,
     })
-}
-
-fn file(path: String, bytes: Vec<u8>, runs: bool) -> Change {
-    if runs {
-        Change::WriteExecutable { path, bytes }
-    } else {
-        Change::Write { path, bytes }
-    }
 }
 
 fn tell_hire<M>(
