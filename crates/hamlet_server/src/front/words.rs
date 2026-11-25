@@ -51,6 +51,12 @@ pub(crate) const CATALOGUE_SAVED: &str = "Saved.";
 pub(crate) const FAUX_MODELS: &str =
     "Every agent runs the faux model here.";
 
+/// The reason of a `/merge` said without one.
+pub(crate) const MERGED_BY_THE_CHIEF: &str = "merged by the chief";
+
+/// The reason of a `/remove-hamlet` said without one.
+pub(crate) const CLOSED_BY_THE_CHIEF: &str = "closed by the chief";
+
 /// One line of a payer's spend in its period: what it spent of the
 /// cap it is nearest, or what it spent when it has none. `whose` is
 /// `Hamlet` or `Realm`.
@@ -284,6 +290,70 @@ pub(crate) fn hired(hire: &str) -> String {
 
 pub(crate) fn ended(hire: &str) -> String {
     format!("`{hire}` was ended.")
+}
+
+pub(crate) fn merged(absorbed: &str, into: &str) -> String {
+    format!("Merged `{absorbed}` into `{into}`.")
+}
+
+pub(crate) fn hire_back(hire: &str) -> String {
+    format!("`{hire}` is back.")
+}
+
+/// The answer to restoring a hire that was merged.
+pub(crate) fn hire_split(hire: &str) -> String {
+    format!(
+        "`{hire}` is back; what it brought to the hire it was \
+         merged into is taken out again."
+    )
+}
+
+pub(crate) fn erased(subject: &str) -> String {
+    format!("`{subject}` was erased for good.")
+}
+
+pub(crate) fn hamlet_removed(hamlet: &str) -> String {
+    format!("The hamlet `{hamlet}` was removed and its hires ended.")
+}
+
+pub(crate) fn hamlet_restored(hamlet: &str) -> String {
+    format!("The hamlet `{hamlet}` is restored.")
+}
+
+pub(crate) fn hamlet_erased(hamlet: &str) -> String {
+    format!("The hamlet `{hamlet}` was erased for good.")
+}
+
+/// `at` is absent for `main`.
+pub(crate) fn forked(
+    from: &str,
+    at: Option<&str>,
+    name: &str,
+) -> String {
+    match at {
+        Some(at) => format!("Forked {from} at {at} as {name}."),
+        None => format!("Forked {from} as {name}."),
+    }
+}
+
+pub(crate) fn left_the_city(profile: &str) -> String {
+    format!("`{profile}` left the city, with its hires.")
+}
+
+pub(crate) fn back_in_the_city(profile: &str) -> String {
+    format!("`{profile}` is back in the city.")
+}
+
+pub(crate) fn welcomed(profile: &str) -> String {
+    format!("`{profile}` moved into its house in the city.")
+}
+
+pub(crate) fn turned_away(profile: &str) -> String {
+    format!("`{profile}` waits at the harbor.")
+}
+
+pub(crate) fn house_moved(profile: &str, x: f64, z: f64) -> String {
+    format!("`{profile}`'s house stands at {x}, {z}.")
 }
 
 pub(crate) fn runs(hire: &str, model: Option<&str>) -> String {
