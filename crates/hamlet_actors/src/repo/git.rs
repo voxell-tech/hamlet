@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_git::{
-    Author, BlobId, Change, Commit, CommitId, Entry, MAIN, Merged,
-    Repository, Step, Version, Wins,
+    Author, BlobId, Change, Commit, CommitId, Entry, FileChange,
+    MAIN, Merged, Repository, Step, Version, Wins,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -80,6 +80,24 @@ impl Reads {
         limit: usize,
     ) -> Result<Vec<Commit>> {
         self.0.history(from, limit)
+    }
+
+    /// The commits from `from` back along first parents, newest
+    /// first: those made on a branch itself.
+    pub fn first_parents(
+        &self,
+        from: CommitId,
+    ) -> Result<Vec<Commit>> {
+        self.0.first_parents(from, None, usize::MAX)
+    }
+
+    /// How the files of `to` differ from those of `from`, by path.
+    pub fn diff(
+        &self,
+        from: CommitId,
+        to: CommitId,
+    ) -> Result<Vec<FileChange>> {
+        self.0.diff(Some(from), to)
     }
 
     pub fn merge_base(
@@ -202,6 +220,70 @@ impl Git<'_> {
     ) -> Result<Merged> {
         let by = By::Realm.name();
         self.repo.merge(branch, from, message, self.author(&by))
+    }
+
+    /// Removes `branch`, when it is there.
+    pub fn delete_branch(&self, branch: &str) -> Result<()> {
+        self.repo.delete_branch(branch)
+    }
+
+    /// The files of `from` merged into those of `onto` as a commit
+    /// no branch names, `onto`'s lines winning where both changed
+    /// the same ones: those paths are its clashes.
+    pub fn merge_files(
+        &self,
+        onto: CommitId,
+        from: CommitId,
+        message: &str,
+    ) -> Result<Merged> {
+        let by = By::Realm.name();
+        self.repo.merge_commits(
+            onto,
+            from,
+            Wins::Onto,
+            message,
+            self.author(&by),
+        )
+    }
+
+    /// `changes` on the files of `base`, or on no files, as a commit
+    /// no branch names; `base` when they change nothing.
+    pub fn stage(
+        &self,
+        base: Option<CommitId>,
+        changes: &[Change],
+        message: &str,
+        by: By,
+    ) -> Result<CommitId> {
+        let by = by.name();
+        self.repo
+            .commit_on(base, changes, message, self.author(&by))
+    }
+
+    /// Commits the files of `files` onto `branch` as a merge whose
+    /// second parent is `also`, but for the paths `keep` names, which
+    /// stay as the tip has them. It is a commit of its own even when
+    /// it changes no file.
+    pub fn merge_onto(
+        &self,
+        branch: &str,
+        files: CommitId,
+        keep: &dyn Fn(&str) -> bool,
+        also: CommitId,
+        message: &str,
+        by: By,
+    ) -> Result<CommitId> {
+        let by = by.name();
+        self.repo
+            .commit_listing(
+                branch,
+                &self.repo.entries(files)?,
+                keep,
+                &[also],
+                message,
+                self.author(&by),
+            )?
+            .context("a commit with a further parent is always made")
     }
 
     /// Undoes `commit` on `branch`, the tip winning clashes.
