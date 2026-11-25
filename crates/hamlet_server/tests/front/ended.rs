@@ -7,7 +7,23 @@ use serde_json::json;
 use super::commands::found;
 use super::{look, serve, until};
 
-async fn ended(server: &Server, address: &str) {
+/// Hires a blank hire into the hamlet `docs` from the Hand, and gives
+/// its address.
+pub(super) async fn hire_blank(
+    chief: &mut Client,
+    docs: &str,
+) -> String {
+    let hand = chief.hand();
+    let hired =
+        chief.command(hand, &format!("/hire blank in {docs}")).await;
+    hired
+        .strip_suffix(" is hired.")
+        .unwrap_or_else(|| panic!("{hired}"))
+        .trim_matches('`')
+        .to_owned()
+}
+
+pub(super) async fn ended(server: &Server, address: &str) {
     until(server, "the hire's end", |realm| {
         realm.agents.iter().any(|agent| {
             agent.name == address && agent.left.is_some()
@@ -21,16 +37,9 @@ async fn a_chief_restores_ends_and_erases_a_hire_and_then_finds_no_agent()
  {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
-    let hand = chief.hand();
     let mayor = found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
-    let hired =
-        chief.command(hand, &format!("/hire blank in {docs}")).await;
-    let address = hired
-        .strip_suffix(" is hired.")
-        .unwrap_or_else(|| panic!("{hired}"))
-        .trim_matches('`')
-        .to_owned();
+    let address = hire_blank(&mut chief, &docs).await;
     chief.command(mayor, &format!("/end {address}")).await;
     ended(&server, &address).await;
 

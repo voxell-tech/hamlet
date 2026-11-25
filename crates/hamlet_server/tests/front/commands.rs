@@ -9,6 +9,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::Server;
 use serde_json::json;
 
+use super::ended::{ended, hire_blank};
 use super::{look, said_once_hired, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
@@ -450,23 +451,11 @@ async fn a_chief_stopping_or_telling_an_ended_hire_reads_that_no_agent_has_its_a
  {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
-    let hand = chief.hand();
     let mayor = found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
-    let hired =
-        chief.command(hand, &format!("/hire blank in {docs}")).await;
-    let address = hired
-        .strip_suffix(" is hired.")
-        .unwrap_or_else(|| panic!("{hired}"))
-        .trim_matches('`')
-        .to_owned();
+    let address = hire_blank(&mut chief, &docs).await;
     chief.command(mayor, &format!("/end {address}")).await;
-    until(&server, "the hire's end", |realm| {
-        realm.agents.iter().any(|agent| {
-            agent.name == address && agent.left.is_some()
-        })
-    })
-    .await;
+    ended(&server, &address).await;
 
     let none = format!("no agent has the address `{address}`");
     assert_eq!(
