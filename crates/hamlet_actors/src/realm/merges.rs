@@ -887,10 +887,9 @@ async fn fill(cx: &Cx<'_>, agent: AgentNumber) -> Result<()> {
 }
 
 /// Moves the absorbed hire's inbox to the kept hire's
-/// `inbox/from-hire-<absorbed>/`, a part at a time. A parcel would
-/// reach the kept hire as a letter, which gives a turn a merge does
-/// not give. Repeated from the start, it takes again what it took
-/// and has not dropped.
+/// `inbox/from-hire-<absorbed>/`, a part at a time, giving no turn.
+/// Repeated from the start, it takes again what it took and has not
+/// dropped.
 async fn inbox(cx: &Cx<'_>, merge: &Kept) -> Result<()> {
     let rows = cx.rows()?;
     for agent in [merge.absorbed, merge.kept] {
