@@ -351,7 +351,12 @@ impl Act<Client> for EraseProfile {
         };
         let mut decided = Decided::new(label);
         for agent in erasing.hires {
-            decided = decided.change(tree::Change::Erased { agent });
+            decided = decided
+                .change(tree::Change::Erased { agent })
+                .record(record::Entry::Erased {
+                    hire: agent,
+                    by: record::By::Chief,
+                });
         }
         Decision::Change(
             decided

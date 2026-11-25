@@ -6,20 +6,24 @@ use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::hamlets::{
-    NameHamlet, ReadRecord, Record, RecordLine, SetMode,
+    EraseHamlet, NameHamlet, ReadRecord, Record, RecordLine,
+    RemoveHamlet, SetMode,
 };
+use hamlet_messages::realm::profiles::EraseProfile;
 use hamlet_messages::realm::{
     Done, DoneTo, HamletId, HamletRefusal, SetTools, ToolName,
 };
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
+use super::lifecycle::{MASON, archive, masons_hamlet};
 use super::stand_ins::Seen;
 use super::{
-    MAYOR, Realm, THREE, done_to, founded, hamlet_with, named_as,
-    say, seen_submits, to, tool,
+    FOUR, MAYOR, Realm, THREE, done_to, founded, hamlet_with,
+    named_as, say, seen_submits, to, tool,
 };
 
 fn read(lines: &[&str]) -> Record {
@@ -226,5 +230,67 @@ async fn the_record_and_a_line_name_the_chief_as_its_server_was_started()
         })
         .collect::<Vec<_>>();
     assert_eq!(chiefs, [Some("bo")]);
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The kind and subject of each of the realm's decisions after the
+/// first `from`.
+async fn kept_after(
+    realm: &Realm,
+    from: usize,
+) -> Vec<(String, Option<u32>)> {
+    let kept = realm
+        .stopped_rows(|db| {
+            db.prepare(
+                "SELECT kind, agent FROM decision ORDER BY id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .await;
+    kept[from..].to_vec()
+}
+
+fn erased(agent: AgentNumber) -> (String, Option<u32>) {
+    ("erased".to_owned(), Some(agent.0))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_a_hamlet_or_a_profile_keeps_an_erased_entry_for_each_hire()
+ {
+    let (realm, hamlet) = hamlet_with(2).await;
+    chief(
+        &realm,
+        RemoveHamlet {
+            hamlet: hamlet.clone(),
+            why: None,
+        },
+    )
+    .await;
+    let before = super::decisions(&realm).await.len();
+    chief(&realm, EraseHamlet { hamlet }).await;
+    assert_eq!(
+        kept_after(&realm, before).await,
+        [
+            erased(MAYOR),
+            erased(THREE),
+            erased(FOUR),
+            ("erased-hamlet".to_owned(), None),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+
+    let (realm, _) = masons_hamlet(2).await;
+    chief(&realm, archive(MASON)).await;
+    let before = super::decisions(&realm).await.len();
+    chief(&realm, EraseProfile { profile: MASON }).await;
+    assert_eq!(
+        kept_after(&realm, before).await,
+        [
+            erased(THREE),
+            erased(FOUR),
+            ("profile-erased".to_owned(), None),
+        ]
+    );
     realm.host.shutdown().await.unwrap();
 }
