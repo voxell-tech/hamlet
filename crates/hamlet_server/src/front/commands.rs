@@ -176,7 +176,6 @@ fn not_a_hire(view: &View, target: &Target) -> Option<Refusal> {
     as_hire(view, agent).err()
 }
 
-/// `agent`, refused unless it is a hire.
 fn as_hire(
     view: &View,
     agent: AgentNumber,
@@ -201,14 +200,13 @@ fn merge_ends(
 }
 
 /// The hire `target` names, ended or not.
-fn ended_hire(
+fn hire_of(
     view: &View,
     target: &Target,
 ) -> Result<AgentNumber, Refusal> {
     as_hire(view, number(view, target, Reach::Kept)?)
 }
 
-/// The words of a `/restore` of `hire`.
 fn restored(answer: Restored, hire: &str) -> Result<String, Refusal> {
     match answer {
         Restored::Back => Ok(words::hire_back(hire)),
@@ -217,7 +215,6 @@ fn restored(answer: Restored, hire: &str) -> Result<String, Refusal> {
     }
 }
 
-/// The words of a `/fork` at `at` into the profile `name`.
 fn forked(
     answer: Forked,
     at: Option<&VersionName>,
@@ -231,8 +228,6 @@ fn forked(
     }
 }
 
-/// The words of an act on a profile's life in the city, said of the
-/// label the realm answers.
 fn lived(
     answer: Lifecycle,
     words: impl FnOnce(&str) -> String,
@@ -608,7 +603,7 @@ async fn perform(
             }
             Err(refusal) => Err(refusal),
         },
-        Act::Restore { hire, why } => match ended_hire(view, &hire) {
+        Act::Restore { hire, why } => match hire_of(view, &hire) {
             Ok(agent) => {
                 let act = Restore {
                     hire: Named::Agent { agent },
@@ -618,7 +613,7 @@ async fn perform(
             }
             Err(refusal) => Err(refusal),
         },
-        Act::Erase { hire } => match ended_hire(view, &hire) {
+        Act::Erase { hire } => match hire_of(view, &hire) {
             Ok(agent) => {
                 let said = words::erased(&hire.text);
                 let act = EraseHire {

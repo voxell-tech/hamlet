@@ -17,10 +17,8 @@ use hamlet_protocol::client::Confinement;
 use super::*;
 use crate::front::view::Own;
 
-/// The hamlet every test names.
 const DOCS: &str = "docs";
 
-/// The label the realm gives the profile every test names.
 const ADA: &str = "scholar#2 (Ada)";
 
 /// The Hand, the living hires 2 and 3, the worker 4 and the ended
@@ -70,7 +68,6 @@ fn at(text: &str) -> Target {
     parse::target(text, None).unwrap()
 }
 
-/// What the chief reads of `reply`.
 fn read(reply: Result<impl Display, Refusal>) -> String {
     reply.map_or_else(
         |refusal| refusal.to_string(),
@@ -165,7 +162,7 @@ fn merge_is_worded_as_today() {
 fn restore_is_worded_as_today() {
     let view = view();
     let hire = |text: &str| {
-        read(ended_hire(&view, &at(text)).map(|agent| agent.0))
+        read(hire_of(&view, &at(text)).map(|agent| agent.0))
     };
     assert_eq!(hire("hire#9"), "no agent has the address `hire#9`");
     assert_eq!(hire("worker#4"), "`worker#4` is not a hire");
@@ -225,7 +222,7 @@ fn restore_is_worded_as_today() {
 fn erase_is_worded_as_today() {
     let view = view();
     assert_eq!(
-        read(ended_hire(&view, &at("hand")).map(|agent| agent.0)),
+        read(hire_of(&view, &at("hand")).map(|agent| agent.0)),
         "`hand` is not a hire"
     );
     reads(
@@ -381,7 +378,6 @@ fn life(why: LifeRefusal) -> Lifecycle {
     }
 }
 
-/// The refusal of a profile the realm does not know.
 fn no_profile() -> (Lifecycle, &'static str) {
     (
         Lifecycle::Refused {
