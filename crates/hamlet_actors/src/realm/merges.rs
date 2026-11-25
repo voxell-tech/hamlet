@@ -5,7 +5,9 @@
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::{Agent, Profile};
-use hamlet_messages::agent::{AgentKind, Fill};
+use hamlet_messages::agent::{
+    AgentKind, DropInbox, Fill, ReadInbox, TakeInbox,
+};
 use hamlet_messages::profile::{
     Bundle, BundleAnswer, CommitId, MergeAnswer, MergeBranch, Sha1,
     Source, Unmerge, UnmergeAnswer,
@@ -650,10 +652,10 @@ pub(super) async fn run(
             fill(cx, merge.kept).await?;
             Ok(Vec::new())
         }
-        // A parcel goes with a letter, which would give the kept hire
-        // a turn a merge never gives: the absorbed hire's inbox
-        // stays.
-        Step::Inbox => Ok(Vec::new()),
+        Step::Inbox => {
+            inbox(cx, &merge).await?;
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -747,6 +749,53 @@ async fn fill(cx: &Cx<'_>, agent: AgentNumber) -> Result<()> {
     let filled = cx.peers().call(&to, &fill, When::AfterAnswer);
     retire::unless_gone(filled.await)?;
     Ok(())
+}
+
+/// Moves the absorbed hire's inbox to the kept hire's
+/// `inbox/from-hire-<absorbed>/`, a part at a time. A parcel would
+/// reach the kept hire as a letter, which gives a turn a merge does
+/// not give. Repeated from the start, it takes again what it took
+/// and has not dropped.
+async fn inbox(cx: &Cx<'_>, merge: &Kept) -> Result<()> {
+    let rows = cx.rows()?;
+    for agent in [merge.absorbed, merge.kept] {
+        if !hire::reached(&rows, agent, hire::Step::Create).await? {
+            return Ok(());
+        }
+    }
+    let (from, into) = (Agent(merge.absorbed), Agent(merge.kept));
+    let mut after = None;
+    loop {
+        let read = ReadInbox { after };
+        let read = cx.peers().call(&from, &read, When::AfterAnswer);
+        let Some(part) = retire::unless_gone(read.await)? else {
+            return Ok(());
+        };
+        let taken: Vec<String> = part
+            .files
+            .iter()
+            .filter(|piece| piece.last)
+            .map(|piece| piece.path.clone())
+            .collect();
+        let take = TakeInbox {
+            from: merge.absorbed,
+            files: part.files,
+        };
+        let took = cx.peers().call(&into, &take, When::AfterAnswer);
+        if retire::unless_gone(took.await)?.is_none() {
+            return Ok(());
+        }
+        if !taken.is_empty() {
+            let drop = DropInbox { paths: taken };
+            let dropped =
+                cx.peers().call(&from, &drop, When::AfterAnswer);
+            retire::unless_gone(dropped.await)?;
+        }
+        match part.next {
+            Some(next) => after = Some(next),
+            None => return Ok(()),
+        }
+    }
 }
 
 pub(super) async fn failed(

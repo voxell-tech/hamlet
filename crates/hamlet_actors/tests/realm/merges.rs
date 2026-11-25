@@ -17,7 +17,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 
 use super::profiles::create;
 use super::reserved::{lay as road, notices};
-use super::stand_ins::{Callee, Seen};
+use super::stand_ins::{Callee, Inbox, Seen};
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, chief_hires, closed_until,
     decisions, hire, hires, shown, to, tool, until, words,
@@ -281,6 +281,55 @@ async fn a_merge_within_one_profile_takes_the_branch() {
         )
     );
     assert!(realm.seen.bundles.lock().unwrap().is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+fn inbox(files: &[(&str, &str, bool)]) -> Inbox {
+    files
+        .iter()
+        .map(|&(path, text, executable)| {
+            (path.to_owned(), (text.as_bytes().to_vec(), executable))
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_moves_the_absorbed_hires_inbox_and_gives_no_turn() {
+    // the first drop fails in passing: the step reads the inbox again
+    // from its start and takes the files it took over themselves.
+    let (realm, _) = super::hamlet_with(2).await;
+    realm.seen.inboxes.lock().unwrap().extend([
+        (
+            THREE,
+            inbox(&[
+                ("a.md", "one", false),
+                ("chief/run.sh", "two", true),
+            ]),
+        ),
+        (FOUR, inbox(&[("own.md", "mine", false)])),
+    ]);
+    realm.seen.fail_once(Callee::DropInbox, THREE);
+    let submits = || {
+        let submits = realm.seen.submits.lock().unwrap();
+        submits.iter().filter(|(to, _)| *to == FOUR).count()
+    };
+    let before = submits();
+
+    chief(&realm, merge(THREE, FOUR)).await;
+    closed_until(&realm, "merge", 1).await;
+
+    let inboxes = realm.seen.inboxes.lock().unwrap().clone();
+    assert_eq!(inboxes[&THREE], Inbox::new());
+    assert_eq!(
+        inboxes[&FOUR],
+        inbox(&[
+            ("from-hire-3/a.md", "one", false),
+            ("from-hire-3/chief/run.sh", "two", true),
+            ("own.md", "mine", false),
+        ])
+    );
+    assert!(realm.seen.has_failed(Callee::DropInbox, THREE));
+    assert_eq!(submits(), before, "the kept hire is given no turn");
     realm.host.shutdown().await.unwrap();
 }
 

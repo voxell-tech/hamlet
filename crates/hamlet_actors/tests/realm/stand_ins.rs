@@ -1,7 +1,7 @@
 //! The actors the realm calls, stood in for, and the host that
 //! runs the realm among them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -16,17 +16,19 @@ use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Erase, Fill, Place, PlaceVersion, Retire, Retired,
-    Submit,
+    AgentInput, DropInbox, Erase, Fill, InboxCursor, InboxPart,
+    Place, PlaceVersion, ReadInbox, Retire, Retired, Submit,
+    TakeInbox,
 };
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
     ShelfList, Skill, Verdict, VerdictRefusal,
 };
 use hamlet_messages::profile::{
     Branch, Bundle, CommitId, DropBranch, DropSaveParts, Edit,
-    EndDream, MergeBranch, PrepareDream, ProfileInput, Purge, Read,
-    Revert, Sha1, Source, Tag, Unmerge,
+    EndDream, MergeBranch, Piece, PrepareDream, ProfileInput, Purge,
+    Read, Revert, Sha1, Source, Tag, Unmerge,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable as _};
 use hamlet_messages::workspace::reach::Reach;
@@ -53,6 +55,7 @@ pub(super) enum Callee {
     Create,
     /// A profile's drop of a hire's branch, by the hire's number.
     DropBranch,
+    DropInbox,
     /// The library's drop of an agent's offers under way, by the
     /// agent's number.
     DropOfferParts,
@@ -78,14 +81,20 @@ pub(super) enum Callee {
     /// A profile's purge, by the profile's number.
     Purge,
     Read,
+    ReadInbox,
     Retire,
     SetReach,
     Submit,
+    TakeInbox,
     /// A profile's unmerge, by the profile's number.
     Unmerge,
     /// The library's verdict, by the offer's number.
     Verdict,
 }
+
+/// An agent's `inbox/`, by path: each file's bytes and whether it is
+/// executable.
+pub(super) type Inbox = BTreeMap<String, (Vec<u8>, bool)>;
 
 #[derive(Default)]
 pub(super) struct Seen {
@@ -121,6 +130,7 @@ pub(super) struct Seen {
     pub(super) unmerges: Mutex<Vec<(ProfileId, Unmerge)>>,
     pub(super) branch_drops: Mutex<Vec<(ProfileId, DropBranch)>>,
     pub(super) profile_erases: Mutex<Vec<ProfileId>>,
+    pub(super) inboxes: Mutex<HashMap<AgentNumber, Inbox>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -282,8 +292,18 @@ pub(super) struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions =
-        (Submit, Place, Fill, Copies, Retire, Erase, Forward);
+    type Actions = (
+        Submit,
+        Place,
+        Fill,
+        Copies,
+        Retire,
+        Erase,
+        ReadInbox,
+        TakeInbox,
+        DropInbox,
+        Forward,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -370,6 +390,81 @@ impl Handler<Erase> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Erase, self.agent).await?;
         self.seen.erases.lock().unwrap().push(self.agent);
+        Ok(())
+    }
+}
+
+/// Answers one file a part, so a merge reads `inbox/` in more than
+/// one.
+impl Handler<ReadInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        read: ReadInbox,
+    ) -> anyhow::Result<InboxPart> {
+        self.seen.called(Callee::ReadInbox, self.agent).await?;
+        let inboxes = self.seen.inboxes.lock().unwrap();
+        let mut rest =
+            inboxes.get(&self.agent).into_iter().flatten().filter(
+                |(path, _)| {
+                    read.after
+                        .as_ref()
+                        .is_none_or(|after| **path >= after.path)
+                },
+            );
+        let files = rest
+            .next()
+            .map(|(path, (bytes, executable))| Piece {
+                path: path.clone(),
+                offset: 0,
+                bytes: Base64(bytes.clone()),
+                last: true,
+                executable: *executable,
+            })
+            .into_iter()
+            .collect();
+        let next = rest.next().map(|(path, _)| InboxCursor {
+            path: path.clone(),
+            offset: 0,
+        });
+        Ok(InboxPart { files, next })
+    }
+}
+
+impl Handler<TakeInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        take: TakeInbox,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::TakeInbox, self.agent).await?;
+        let mut inboxes = self.seen.inboxes.lock().unwrap();
+        let inbox = inboxes.entry(self.agent).or_default();
+        for piece in take.files {
+            if piece.offset != 0 || !piece.last {
+                bail!("the stand-in takes only whole files");
+            }
+            let path =
+                format!("from-hire-{}/{}", take.from.0, piece.path);
+            inbox.insert(path, (piece.bytes.0, piece.executable));
+        }
+        Ok(())
+    }
+}
+
+impl Handler<DropInbox> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        dropped: DropInbox,
+    ) -> anyhow::Result<()> {
+        self.seen.called(Callee::DropInbox, self.agent).await?;
+        let mut inboxes = self.seen.inboxes.lock().unwrap();
+        if let Some(inbox) = inboxes.get_mut(&self.agent) {
+            for path in dropped.paths {
+                inbox.remove(&path);
+            }
+        }
         Ok(())
     }
 }
