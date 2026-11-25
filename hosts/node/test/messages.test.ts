@@ -1451,7 +1451,6 @@ const TAKEN = [
     "agent/finished.run.ran",
     "agent/place",
     "agent/place.hand",
-    // It names one withdrawn line, so an idle agent counts its chat.
     "agent/stop",
     "agent/submit.answer",
     "agent/submit.letter",

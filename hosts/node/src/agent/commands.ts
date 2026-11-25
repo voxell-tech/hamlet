@@ -115,7 +115,7 @@ async function stopped(c: AgentCall, message: Stop): Promise<Stopped> {
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
-    // As today's follow answers them (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+    // As today's follow answers them (`crates/hamlet_server/src/talk/follow.rs`).
     for (const question of ended.flatMap((one) => one.dropped)) {
         await couldNotAnswer(
             peers,

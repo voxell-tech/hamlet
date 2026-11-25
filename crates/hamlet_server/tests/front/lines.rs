@@ -215,7 +215,6 @@ async fn a_stop_from_another_connection_withdraws_the_line() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// How many items of `page` show `text`.
 /// With the Node host down, a founded hamlet's mayor stays hired no
 /// further, so a line to it waits in the realm until `/stop all`.
 #[tokio::test(flavor = "multi_thread")]
@@ -257,6 +256,7 @@ async fn a_stop_of_all_withdraws_a_line_to_a_hire_being_hired() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+/// How many items of `page` show `text`.
 fn shown(page: &Transcript, text: &str) -> usize {
     page.items.iter().filter(|item| item.text == text).count()
 }
