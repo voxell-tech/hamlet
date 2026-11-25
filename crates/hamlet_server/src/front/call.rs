@@ -58,8 +58,8 @@ pub(crate) struct Calls {
 pub(crate) enum Said {
     /// It keeps the line for its agent.
     Accepted,
-    /// Its agent has left.
-    Left,
+    /// Its agent has left, in the realm's words.
+    Left(String),
     Refused(String),
 }
 
@@ -220,8 +220,8 @@ impl Calls {
         Ok(match self.call(&address::Realm, &Say(say)).await? {
             SayAnswer::Accepted { .. } => Said::Accepted,
             SayAnswer::Refused {
-                why: SayRefusal::Left { .. },
-            } => Said::Left,
+                why: why @ SayRefusal::Left { .. },
+            } => Said::Left(why.to_string()),
             SayAnswer::Refused { why } => {
                 Said::Refused(why.to_string())
             }

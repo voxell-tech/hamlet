@@ -302,10 +302,10 @@ async fn perform(
                         to: view::wire(agent),
                     };
                     match calls.say(line).await? {
-                        Said::Accepted | Said::Left => {
+                        Said::Accepted => {
                             Ok(words::told(&view.name(agent)))
                         }
-                        Said::Refused(words) => {
+                        Said::Left(words) | Said::Refused(words) => {
                             Err(Refusal::Usage { words })
                         }
                     }

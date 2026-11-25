@@ -871,7 +871,7 @@ impl Asker {
                     reading.abort_handle(),
                 );
             }
-            Ok(Said::Left) => settle(ended_line(&id)),
+            Ok(Said::Left(_)) => settle(ended_line(&id)),
             Ok(Said::Refused(words)) => {
                 settle(reply(&id, Err(Refusal::Usage { words })));
             }
