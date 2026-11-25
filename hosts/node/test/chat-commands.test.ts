@@ -21,6 +21,7 @@ import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     from,
+    held,
     itemOfLine,
     named,
     toolCall,
@@ -29,35 +30,6 @@ import {
     wakeAgent,
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
-
-function held(): {
-    readonly step: FauxResponseStep;
-    readonly asked: Promise<readonly Message[]>;
-    answer(message: AssistantMessage): void;
-} {
-    const asked = Promise.withResolvers<readonly Message[]>();
-    const answer = Promise.withResolvers<AssistantMessage>();
-    return {
-        step: (request, options) => {
-            asked.resolve(request.messages);
-            const aborted = Promise.withResolvers<AssistantMessage>();
-            options?.signal?.addEventListener(
-                "abort",
-                () =>
-                    aborted.resolve(
-                        fauxAssistantMessage("", {
-                            stopReason: "aborted",
-                            errorMessage: "aborted",
-                        }),
-                    ),
-                { once: true },
-            );
-            return Promise.race([answer.promise, aborted.promise]);
-        },
-        asked: asked.promise,
-        answer: answer.resolve,
-    };
-}
 
 function seen(asked: (readonly Message[])[], text: string): FauxResponseStep {
     return (request) => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -20,6 +21,7 @@ import {
     type ChatEvent,
     type ChatRef,
     type Copies,
+    type Retired,
     readClient,
     type Submit,
 } from "../src/agent/messages/agent.ts";
@@ -54,7 +56,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context, FIXTURES, fixture } from "./testing.ts";
+import { context, FIXTURES, fixture, scratchFolder } from "./testing.ts";
 
 function answer(name: string): never {
     return fixture(`${name}.answer`) as never;
@@ -1047,6 +1049,35 @@ const WRITTEN: readonly Written[] = [
         own: ["call", "conversation"],
     },
     {
+        fixture: "realm/merge_hires",
+        tool: [
+            "merge_hires",
+            {
+                absorbed: "hire#12",
+                into: "hire#2",
+                reason: "Their work overlaps",
+            },
+        ],
+        answers: {
+            realm: { merge_hires: () => answer("realm/merge_hires.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/remove_hamlet",
+        tool: [
+            "remove_hamlet",
+            { hamlet: "5f0d2c1b-7a3e-4d9f-8b6a-1c2d3e4f5a6b" },
+        ],
+        answers: {
+            realm: {
+                remove_hamlet: () =>
+                    answer("realm/remove_hamlet.refused.reserved"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
         fixture: "realm/read_record",
         tool: [
             "read_record",
@@ -1428,9 +1459,12 @@ const TAKERS = {
         by: from.library,
         answer: "library/shelves_changed.answer",
     },
+    retire: { by: from.realm, answer: "agent/retire.answer" },
+    erase: { by: from.realm, answer: "agent/erase.answer" },
 } as const;
 
 const TAKEN = [
+    "agent/erase",
     "agent/fill",
     "library/shelves_changed",
     "profile/moved",
@@ -1443,6 +1477,7 @@ const TAKEN = [
     "agent/finished.run.ran",
     "agent/place",
     "agent/place.hand",
+    "agent/retire",
     "agent/submit.answer",
     "agent/submit.letter",
     "agent/submit.letter.files",
@@ -1479,15 +1514,29 @@ for (const call of TAKEN) {
                 reply: () => answer("realm/reply.done"),
                 fetch_part: () => answer("realm/fetch_part.bytes.last"),
             },
-            profile: { files: () => answer("profile/files.part.last") },
+            profile: {
+                // A retire answers the tip the agent was filled at.
+                files: () =>
+                    action === "retire"
+                        ? {
+                              type: "part",
+                              files: [],
+                              removed: [],
+                              tip: (fixture(TAKERS.retire.answer) as Retired)
+                                  .tip,
+                          }
+                        : answer("profile/files.part.last"),
+            },
         });
         const agent = await wakeAgent(t, {
             calls,
             input: HAND,
             responses: [fauxAssistantMessage(LAST_WORDS)],
+            // An erase removes the folder at the filesystem's root.
+            files: { ...fakeFiles({}), root: join(scratchFolder(t), "7.fs") },
         });
         // A profile's message comes from the profile the agent was filled from.
-        if (name.startsWith("profile/")) {
+        if (name.startsWith("profile/") || action === "retire") {
             await agent.actions.fill(agent.by(from.realm), { profile: 2 });
         }
         const [message, ...more] = fixture(name) as unknown[];
@@ -1610,6 +1659,8 @@ const ANSWERED_BY_TOOLS = [
     "realm/set_nickname",
     "realm/set_model",
     "realm/read_record",
+    "realm/merge_hires",
+    "realm/remove_hamlet",
     "realm/create_profile",
     "realm/read_profile",
     "realm/edit_profile",
@@ -2271,8 +2322,8 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
 
 const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [
-        /^realm\/(edit_profile\.done|tag\.tagged|revert\.(reverted|unchanged))\.answer$/,
-        "the realm keeps an agent's edit, tag and revert for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
+        /^realm\/(edit_profile\.done|tag\.tagged|revert\.(reverted|unchanged)|remove_hamlet\.done)\.answer$/,
+        "the realm keeps an agent's edit, tag, revert and hamlet removal for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
     ],
     [/^realm\/chief_/, "a chief's act, sent by a client"],
     [
@@ -2350,14 +2401,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a model change with an effort and a speed, which today's set_model does not take",
     ],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
-    [
-        /^agent\/(retire|erase)\./,
-        "the realm's call of an ended hire's agent, which this agent does not take yet",
-    ],
-    [
-        /^realm\/(merge_hires|remove_hamlet)\./,
-        "a society tool this agent does not offer yet",
-    ],
 ];
 
 const CLIENT_CALLS = new RegExp(

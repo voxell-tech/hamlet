@@ -87,6 +87,7 @@ import {
     promptSources,
 } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
+import { erase, retire } from "./retire.ts";
 import {
     conversationFor,
     current,
@@ -289,8 +290,8 @@ function agentActions(config: AgentConfig): AgentHandlers {
             moved,
             remove_path,
             shelves_changed,
-            retire: unbuilt,
-            erase: unbuilt,
+            retire,
+            erase,
         }),
         ...chatActions(config),
         pi: { wake: sentBy<[], null>(ALARM, "pi.wake", () => [], wakeTimers) },
@@ -849,10 +850,6 @@ async function moved(c: AgentCall, message: Moved): Promise<void> {
         await keep(c, { character: { version, value: text } });
     }
     generationOf(c).branch.moved();
-}
-
-function unbuilt(): never {
-    throw new Error("not implemented");
 }
 
 function remove_path(c: AgentCall, message: RemovePath): Promise<Removal> {

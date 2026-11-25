@@ -480,6 +480,8 @@ const OWN: {
     create_profile: [false, false],
     read_profile: [false, false],
     edit_profile: [false, false],
+    merge_hires: [false, false],
+    remove_hamlet: [false, false],
     tag: [false, false],
     revert: [false, false],
     ask_librarian: [false, false],

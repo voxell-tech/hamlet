@@ -30,6 +30,7 @@ import {
     fakeCalls,
     fakeFiles,
     from,
+    named,
     reflecting,
     type Sent,
     toolCall,
@@ -644,6 +645,62 @@ test("a ruling closes its call as today does: a refusal is blocked with no time,
             "end_hire",
             1,
             undefined,
+            "Tool call blocked: the chief refused it: keep it",
+        ],
+    ]);
+});
+
+test("remove_hamlet stays open until a chief rules, and the ruling closes it with words that say how it ended", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            remove_hamlet: () => ({
+                type: "refused",
+                why: { type: "reserved", wait: 1 },
+                words: "This call waits for a chief's answer.",
+            }),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall("remove_hamlet", { hamlet: "h1" }, "c1"),
+            toolCall("remove_hamlet", { hamlet: "h2" }, "c2"),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Removed."),
+            fauxAssistantMessage("Kept."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Remove both." });
+    const open = [
+        ["remove_hamlet", undefined, ""],
+        ["remove_hamlet", undefined, ""],
+    ];
+    assert.deepEqual(tools((await read(agent)).items), open);
+
+    const [first, second] = named(sent, "remove_hamlet").map(
+        (one) => (one.message as { call: CallId }).call,
+    );
+    assert.ok(first !== undefined && second !== undefined);
+    await send(agent, {
+        type: "notice",
+        text: "Removed h1.",
+        held: { call: first, end: "ran" },
+    });
+    assert.deepEqual(tools((await read(agent)).items), [
+        ["remove_hamlet", 0, ""],
+        ["remove_hamlet", undefined, ""],
+    ]);
+    await send(agent, {
+        type: "notice",
+        text: "the chief refused it: keep it",
+        held: { call: second, end: "blocked" },
+    });
+    assert.deepEqual(tools((await read(agent)).items), [
+        ["remove_hamlet", 0, ""],
+        [
+            "remove_hamlet",
+            1,
             "Tool call blocked: the chief refused it: keep it",
         ],
     ]);
