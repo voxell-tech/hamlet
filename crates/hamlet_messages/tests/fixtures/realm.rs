@@ -5,12 +5,14 @@ use std::fmt::{Debug, Display};
 
 use hamlet_messages::address::{Party, Profile};
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Author, Brief, BuiltIn, Erase, Fill,
-    HeldCall, HeldEnd, Input, InputId, Place, PlaceVersion, Retire,
-    Retired, Submit,
+    AgentInput, AgentKind, Author, Brief, BuiltIn, DropInbox, Erase,
+    Fill, HeldCall, HeldEnd, InboxCursor, InboxPart, Input, InputId,
+    OnTask, Place, PlaceVersion, ReadInbox, Retire, Retired, Submit,
+    TakeInbox,
 };
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
-    Branch, CommitId, Missing, Sha1, VersionName,
+    Branch, CommitId, Missing, Piece, Sha1, VersionName,
 };
 use hamlet_messages::realm::budget::{
     Budget, BudgetLimit, Charge, MaySpend, Payer, Period,
@@ -1835,6 +1837,61 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
     );
     fixtures.args("agent/erase", &Erase);
     fixtures.answer("agent/erase", &());
+    fixtures.args("agent/read_inbox", &ReadInbox { after: None });
+    let cursor = || InboxCursor {
+        path: "scan.pdf".into(),
+        offset: 737_216,
+    };
+    fixtures.args(
+        "agent/read_inbox.after",
+        &ReadInbox {
+            after: Some(cursor()),
+        },
+    );
+    let letter = || Piece {
+        path: "from-chief/letter.md".into(),
+        offset: 0,
+        bytes: Base64(b"a letter\n".to_vec()),
+        last: true,
+        executable: false,
+    };
+    fixtures.answer(
+        "agent/read_inbox",
+        &InboxPart {
+            files: vec![letter()],
+            next: Some(cursor()),
+        },
+    );
+    fixtures.answer(
+        "agent/read_inbox.last",
+        &InboxPart {
+            files: vec![letter()],
+            next: None,
+        },
+    );
+    fixtures.args(
+        "agent/take_inbox",
+        &TakeInbox {
+            from: AgentNumber(4),
+            files: vec![letter()],
+        },
+    );
+    fixtures.answer("agent/take_inbox", &());
+    fixtures.args(
+        "agent/drop_inbox",
+        &DropInbox {
+            paths: vec!["from-chief/letter.md".into()],
+        },
+    );
+    fixtures.answer("agent/drop_inbox", &());
+    fixtures.args(
+        "agent/on_task",
+        &OnTask {
+            tasks: vec![RealmTask("7".into())],
+            within_ms: 300_000,
+        },
+    );
+    fixtures.answer("agent/on_task", &true);
     fixtures.args(
         "profile/branch",
         &Branch {

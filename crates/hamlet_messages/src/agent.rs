@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use self::copies::Copies;
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
-use crate::profile::CommitId;
+use crate::profile::{CommitId, Piece};
 use crate::realm::parcels::ParcelFile;
 use crate::realm::{LetterId, ProfileId, ToolName};
 use crate::workspace::files::ChangeEnd;
@@ -313,6 +313,100 @@ impl Action for Erase {
 }
 
 impl Message for Erase {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Reads one part of the files that wait in the agent's `inbox/`, in
+/// path order from `after`: an absorbed hire's, for the hire it was
+/// merged into. Each piece's path is from `inbox/`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadInbox {
+    /// The `next` of the part before; absent for the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<InboxCursor>,
+}
+
+/// Where the next part of an inbox starts: at the first file whose
+/// path is `path` or after it, from its byte `offset`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxCursor {
+    pub path: String,
+    pub offset: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxPart {
+    pub files: Vec<Piece>,
+    /// Absent on the last part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<InboxCursor>,
+}
+
+impl Action for ReadInbox {
+    type Output = InboxPart;
+    const NAME: &'static str = "read_inbox";
+}
+
+impl Message for ReadInbox {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Writes `files`, one part of the inbox of the hire `from` that was
+/// merged into this agent's, under `inbox/from-hire-<from>/`, over a
+/// file of the same path. A file's pieces come in order from offset
+/// 0, and it is written once its last piece arrives. It gives no
+/// turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeInbox {
+    pub from: AgentNumber,
+    pub files: Vec<Piece>,
+}
+
+impl Action for TakeInbox {
+    type Output = ();
+    const NAME: &'static str = "take_inbox";
+}
+
+impl Message for TakeInbox {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Removes `paths`, each from `inbox/`, once the hire this one was
+/// merged into has taken them. A path already gone is removed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DropInbox {
+    pub paths: Vec<String>,
+}
+
+impl Action for DropInbox {
+    type Output = ();
+    const NAME: &'static str = "drop_inbox";
+}
+
+impl Message for DropInbox {
+    type To = Agent;
+    type From = Realm;
+}
+
+/// Asks whether the agent works on one of the chief's tasks `tasks`:
+/// an input under one is still to end, or one ended less than
+/// `within_ms` ago. The realm asks it before a lead ends or merges
+/// the hire (H7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnTask {
+    pub tasks: Vec<RealmTask>,
+    pub within_ms: u64,
+}
+
+impl Action for OnTask {
+    type Output = bool;
+    const NAME: &'static str = "on_task";
+}
+
+impl Message for OnTask {
     type To = Agent;
     type From = Realm;
 }
