@@ -696,3 +696,49 @@ async fn a_profile_whose_hire_kept_its_inbox_from_a_living_hire_is_archived_agai
     assert_eq!(inbox_of(&realm, THREE), waiting);
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_whose_inbox_is_refused_after_a_file_moved_names_what_stays()
+ {
+    // 4 takes 3's first file, then refuses the second for good: the
+    // first stays with 4, the second with 3, and the words say so.
+    let (realm, _) = super::hamlet_with(2).await;
+    realm.seen.inboxes.lock().unwrap().insert(
+        THREE,
+        inbox(&[
+            ("a.md", "the first", false),
+            ("b.md", "the second", false),
+        ]),
+    );
+    realm.seen.hold(Callee::DropInbox);
+
+    let (merged, ()) =
+        tokio::join!(chief(&realm, merge(THREE, FOUR)), async {
+            until("3's first file is taken", || {
+                realm.seen.is_waiting(Callee::DropInbox, THREE)
+            })
+            .await;
+            realm.seen.fail_for_good(Callee::TakeInbox, FOUR);
+            realm.seen.release(Callee::DropInbox);
+        });
+
+    let Done::Refused { why } = merged else {
+        panic!("{merged:?}");
+    };
+    assert_eq!(why, inbox_kept(shown(THREE)));
+    assert_eq!(
+        why.to_string(),
+        "`hire#3 (Hire 1)` was merged into `hire#4 (Hire 2)`, but \
+         not all that waited in its inbox could be moved; what was \
+         not stays with `hire#3 (Hire 1)`"
+    );
+    let first = inbox(&[("from-hire-3/a.md", "the first", false)]);
+    let second = inbox(&[("b.md", "the second", false)]);
+    assert_eq!(inbox_of(&realm, FOUR), first);
+    assert_eq!(inbox_of(&realm, THREE), second);
+
+    assert_eq!(chief(&realm, restore(THREE)).await, Restored::Split);
+    assert_eq!(inbox_of(&realm, THREE), second);
+    assert_eq!(inbox_of(&realm, FOUR), first);
+    realm.host.shutdown().await.unwrap();
+}
