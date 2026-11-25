@@ -18,7 +18,7 @@ use hamlet_messages::profile::{
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
 
-use super::stand_ins::{Callee, Seen, key, seen};
+use super::stand_ins::{Callee, Seen, keep_once, key, seen};
 
 pub(super) struct ProfileStandIn {
     seen: Arc<Seen>,
@@ -365,6 +365,12 @@ impl Handler<MergeBranch> for ProfileStandIn {
         self.seen.called(Callee::Merge, merge.absorbed).await?;
         let kept =
             matches!(merge.from, Source::Part { last: false, .. });
+        if !kept {
+            keep_once(
+                &mut self.seen.kept.lock().unwrap().merges,
+                merge.id.clone(),
+            );
+        }
         self.seen.merges.lock().unwrap().push((self.profile, merge));
         Ok(if kept {
             MergeAnswer::Kept
@@ -404,6 +410,10 @@ impl Handler<Unmerge> for ProfileStandIn {
         unmerge: Unmerge,
     ) -> anyhow::Result<UnmergeAnswer> {
         self.seen.called(Callee::Unmerge, self.number()).await?;
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().unmerges,
+            unmerge.id.clone(),
+        );
         self.seen
             .unmerges
             .lock()
@@ -427,6 +437,10 @@ impl Handler<DropBranch> for ProfileStandIn {
         self.seen
             .called(Callee::DropBranch, AgentNumber(agent))
             .await?;
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().branch_drops,
+            AgentNumber(agent),
+        );
         self.seen
             .branch_drops
             .lock()

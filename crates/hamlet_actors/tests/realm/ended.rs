@@ -8,8 +8,8 @@ use hamlet_messages::realm::hires::{EraseHire, Restore, Restored};
 use hamlet_messages::realm::{Done, Named, ProfileId};
 
 use super::merges::{
-    agent, answering_within, chief, done_again, end, erase, fills_of,
-    hire_done, merge, restore, retires,
+    agent, answering_within, chief, decided, done_again, end, erase,
+    fills_of, hire_done, kept, merge, restore, retires,
 };
 use super::stand_ins::Callee;
 use super::{
@@ -390,6 +390,9 @@ async fn every_retire_step_twice_retires_once() {
     assert_eq!(retires(&realm), [THREE]);
 
     done_again(&realm, "retire", 3, &[]).await;
+    assert_eq!(kept(&realm), [0, 0, 1, 0, 0]);
+    assert_eq!(decided(&realm, "ended").await, 1);
+    assert_eq!(agent(&realm, THREE).await.0, "ended");
     realm.host.shutdown().await.unwrap();
 }
 
@@ -418,6 +421,8 @@ async fn every_erase_step_twice_erases_once() {
         );
 
         done_again(&realm, "erase", 3, &["branch"]).await;
+        assert_eq!(kept(&realm), [0, 0, 1, 1, 1], "{callee:?}");
+        assert_eq!(decided(&realm, "erased").await, 1);
         realm.host.shutdown().await.unwrap();
     }
 }

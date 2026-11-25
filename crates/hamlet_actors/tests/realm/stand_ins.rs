@@ -121,6 +121,11 @@ pub(super) struct Seen {
     pub(super) unmerges: Mutex<Vec<(ProfileId, Unmerge)>>,
     pub(super) branch_drops: Mutex<Vec<(ProfileId, DropBranch)>>,
     pub(super) profile_erases: Mutex<Vec<ProfileId>>,
+    /// What the callees keep of the calls above: each merge and
+    /// unmerge once by its id, and each retire, erase and branch
+    /// drop once by its agent, as a callee answers a repeat without
+    /// doing it again.
+    pub(super) kept: Mutex<Kept>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -131,6 +136,22 @@ pub(super) struct Seen {
     /// The callees held for one agent's next call alone, with that
     /// agent and whether its call came.
     alone: Mutex<HashMap<Callee, (AgentNumber, bool)>>,
+}
+
+#[derive(Default)]
+pub(super) struct Kept {
+    pub(super) merges: Vec<RequestId>,
+    pub(super) unmerges: Vec<RequestId>,
+    pub(super) retires: Vec<AgentNumber>,
+    pub(super) erases: Vec<AgentNumber>,
+    pub(super) branch_drops: Vec<AgentNumber>,
+}
+
+/// Keeps `done` in `kept` unless it is there.
+pub(super) fn keep_once<T: PartialEq>(kept: &mut Vec<T>, done: T) {
+    if !kept.contains(&done) {
+        kept.push(done);
+    }
 }
 
 impl Seen {
@@ -356,6 +377,10 @@ impl Handler<Retire> for AgentStandIn {
     ) -> anyhow::Result<Retired> {
         self.seen.called(Callee::Retire, self.agent).await?;
         self.seen.retires.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().retires,
+            self.agent,
+        );
         Ok(Retired {
             tip: retired(self.agent),
         })
@@ -370,6 +395,10 @@ impl Handler<Erase> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Erase, self.agent).await?;
         self.seen.erases.lock().unwrap().push(self.agent);
+        keep_once(
+            &mut self.seen.kept.lock().unwrap().erases,
+            self.agent,
+        );
         Ok(())
     }
 }
