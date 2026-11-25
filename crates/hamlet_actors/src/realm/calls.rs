@@ -296,7 +296,7 @@ async fn hold(
             Tried::Again(error) => error,
         };
         if let Some(first) = first.take() {
-            tracing::warn!(?delivery, "a delivery failed: {error:#}");
+            log_failure(&delivery, &error);
             let _ = first.send(Err(error));
         }
         tokio::select! {
@@ -417,9 +417,13 @@ async fn make(
 ) -> Result<()> {
     let made = send(realm, ctx, delivery, when).await;
     if let Err(error) = &made {
-        tracing::warn!(?delivery, "a delivery failed: {error:#}");
+        log_failure(delivery, error);
     }
     made.map(drop)
+}
+
+fn log_failure(delivery: &Delivery, error: &anyhow::Error) {
+    tracing::warn!(?delivery, "a delivery failed: {error:#}");
 }
 
 /// Makes `delivery`, giving a stop's answer.
