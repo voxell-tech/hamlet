@@ -67,7 +67,8 @@ pub(super) trait Steps:
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A new row with no step done.
+    /// A row with no step done: a new one, or one that has closed
+    /// begun again. An open row is left as it is.
     Begin { row: StepId },
     /// `to` is done, when `from` was the last step done and the row
     /// is open.
@@ -98,14 +99,16 @@ pub(super) async fn apply(
 async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     let mut params = key(row)?;
     params.push(BindParam::Integer(writer.at().0));
-    writer
+    let begun = writer
         .execute(
-            "INSERT INTO step (kind, n, at) VALUES (?1, ?2, ?3)",
+            "INSERT INTO step (kind, n, at) VALUES (?1, ?2, ?3) ON \
+             CONFLICT (kind, n) DO UPDATE SET done = NULL, closed = \
+             0, at = excluded.at WHERE closed = 1",
             params,
         )
         .await?;
     Ok(Affected {
-        begun: vec![row],
+        begun: if begun == 0 { Vec::new() } else { vec![row] },
         ..Affected::default()
     })
 }
@@ -682,6 +685,32 @@ mod tests {
             (read.done.as_deref(), read.closed),
             (Some("a"), true)
         );
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_row_begun_again_starts_over_once_it_has_closed() {
+        let started = Started::new().await;
+        let commit = async |made: Change| started.commit(made).await;
+        let read = async || {
+            let read =
+                row(&started.rows(), ROW).await.unwrap().unwrap();
+            (read.done, read.closed)
+        };
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        commit(Change::Advance {
+            row: ROW,
+            from: None,
+            to: "a",
+        })
+        .await
+        .unwrap();
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        assert_eq!(read().await, (Some("a".to_owned()), false));
+
+        commit(Change::Close { row: ROW }).await.unwrap();
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        assert_eq!(read().await, (None, false));
         started.stop().await;
     }
 
