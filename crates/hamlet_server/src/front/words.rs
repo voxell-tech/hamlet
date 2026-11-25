@@ -336,11 +336,11 @@ pub(crate) fn forked(
     }
 }
 
-pub(crate) fn left_the_city(profile: &str) -> String {
+pub(crate) fn profile_archived(profile: &str) -> String {
     format!("`{profile}` left the city, with its hires.")
 }
 
-pub(crate) fn back_in_the_city(profile: &str) -> String {
+pub(crate) fn profile_restored(profile: &str) -> String {
     format!("`{profile}` is back in the city.")
 }
 

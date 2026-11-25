@@ -640,10 +640,10 @@ async fn perform(
             forked(ask(calls, id, act).await?, at.as_ref(), &name)
         }
         Act::ArchiveProfile(act) => {
-            lived(ask(calls, id, act).await?, words::left_the_city)
+            lived(ask(calls, id, act).await?, words::profile_archived)
         }
         Act::RestoreProfile(act) => {
-            lived(ask(calls, id, act).await?, words::back_in_the_city)
+            lived(ask(calls, id, act).await?, words::profile_restored)
         }
         Act::EraseProfile(act) => {
             lived(ask(calls, id, act).await?, words::erased)

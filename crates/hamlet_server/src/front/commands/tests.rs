@@ -429,7 +429,7 @@ fn done_with_ada() -> Lifecycle {
 #[test]
 fn remove_profile_is_worded_as_today() {
     reads(
-        |answer| lived(answer, words::left_the_city),
+        |answer| lived(answer, words::profile_archived),
         [
             (
                 done_with_ada(),
@@ -448,7 +448,7 @@ fn remove_profile_is_worded_as_today() {
 #[test]
 fn restore_profile_is_worded_as_today() {
     reads(
-        |answer| lived(answer, words::back_in_the_city),
+        |answer| lived(answer, words::profile_restored),
         [
             (
                 done_with_ada(),
