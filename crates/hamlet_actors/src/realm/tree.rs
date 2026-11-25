@@ -17,13 +17,13 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
-pub(super) use lead::{Pinned, Pinning, failed};
+pub(super) use lead::{Pinned, Pinning, failed, hire_ending};
 use serde::Deserialize as _;
 
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::world::Part;
-use super::{chiefs, profiles, record};
+use super::{chiefs, erase, profiles, record, steps};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Status {
@@ -236,6 +236,31 @@ pub(super) async fn named_in(
         Some(agent) => lineage(rows, agent).await,
         None => Ok(None),
     }
+}
+
+/// The agent `named` names, ended too, unless it was erased.
+pub(super) async fn kept_named(
+    rows: &Rows<'_>,
+    named: &Named,
+) -> Result<Option<Lineage>> {
+    let Some(agent) = agent_named(rows, None, named).await? else {
+        return Ok(None);
+    };
+    let erased = rows
+        .value::<bool>(
+            "SELECT erased FROM agent WHERE id = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    match erased {
+        Some(false) => lineage(rows, agent).await,
+        _ => Ok(None),
+    }
+}
+
+/// The branch of its profile a hire's files are kept on.
+pub(super) fn branch(hire: AgentNumber) -> String {
+    format!("hires/{}", hire.0)
 }
 
 pub(super) async fn lineage_of(
@@ -595,6 +620,12 @@ pub(super) enum Change {
     },
     /// An ended hire is erased: it stays ended for good.
     Erased { agent: AgentNumber },
+    /// `kept` takes `absorbed`'s hires, and its lead when it was
+    /// under `absorbed`.
+    Absorb {
+        absorbed: AgentNumber,
+        kept: AgentNumber,
+    },
 }
 
 pub(super) async fn apply(
@@ -637,6 +668,9 @@ pub(super) async fn apply(
             back(writer, agent, lead).await
         }
         Change::Erased { agent } => erased(writer, agent).await,
+        Change::Absorb { absorbed, kept } => {
+            absorb(writer, absorbed, kept).await
+        }
     }
 }
 
@@ -834,9 +868,10 @@ async fn back(
     if lead.is_some() {
         lead::set_lead(writer, agent, lead).await?;
     }
-    let shown = showing(writer, agent).await?;
+    let mut places = showing(writer, agent).await?.places;
+    places.insert(agent);
     Ok(Affected {
-        places: shown.places,
+        places,
         reaches: BTreeSet::from([agent]),
         ..Affected::seen([Part::Agents, Part::Reaches])
     })
@@ -846,14 +881,54 @@ async fn erased(
     writer: &Writer<'_>,
     agent: AgentNumber,
 ) -> Result<Affected> {
-    writer
+    let erased = writer
         .execute(
             "UPDATE agent SET erased = 1 WHERE id = ?1 AND status = \
-             'ended'",
+             'ended' AND erased = 0",
             vec![number(agent)],
         )
         .await?;
-    Ok(Affected::seen([Part::Agents]))
+    let begun = if erased == 0 {
+        Affected::default()
+    } else {
+        steps::apply(
+            writer,
+            steps::Change::Begin {
+                row: erase::row(agent),
+            },
+        )
+        .await?
+    };
+    Ok(Affected {
+        begun: begun.begun,
+        ..Affected::seen([Part::Agents])
+    })
+}
+
+async fn absorb(
+    writer: &Writer<'_>,
+    absorbed: AgentNumber,
+    kept: AgentNumber,
+) -> Result<Affected> {
+    let rows = writer.rows();
+    let from = lineage_of(&rows, absorbed).await?;
+    let mut places = BTreeSet::from([absorbed, kept]);
+    if from.hires.iter().any(|node| node.agent == kept) {
+        lead::set_lead(writer, kept, from.agent.lead).await?;
+        places.extend(from.agent.lead);
+    }
+    for node in &from.hires {
+        if node.agent != kept
+            && !matches!(node.status, Status::Ended(_))
+        {
+            lead::set_lead(writer, node.agent, Some(kept)).await?;
+            places.insert(node.agent);
+        }
+    }
+    Ok(Affected {
+        places,
+        ..Affected::seen([Part::Agents])
+    })
 }
 
 async fn purpose(
