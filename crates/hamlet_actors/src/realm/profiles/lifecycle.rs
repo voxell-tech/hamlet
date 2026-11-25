@@ -873,22 +873,13 @@ pub(in crate::realm) async fn erase(
                     vec![super::id(profile)],
                 )
                 .await?;
-            for hire in hires.into_iter().map(AgentNumber) {
-                let row = erase::row(hire);
-                cx.realm
-                    .drives
-                    .ended(row, cx.realm.answer_within)
-                    .await;
-                if steps::row(&cx.rows()?, row)
-                    .await?
-                    .is_some_and(|row| !row.closed)
-                {
-                    bail!(
-                        "hire {}'s branch is not dropped yet",
-                        hire.0
-                    );
-                }
-            }
+            steps::after(
+                cx,
+                hires
+                    .into_iter()
+                    .map(|hire| erase::row(AgentNumber(hire))),
+            )
+            .await?;
         }
         EraseStep::Profile => {
             let id = super::id_of(&format!("profile/{n}/erase"))?;
@@ -899,8 +890,10 @@ pub(in crate::realm) async fn erase(
                     &Erase { id },
                     When::AfterAnswer,
                 )
-                .await?;
-            if let Done::Refused { why } = erased {
+                .await;
+            if let Some(Done::Refused { why }) =
+                retire::unless_gone(erased)?
+            {
                 bail!("{why}");
             }
         }

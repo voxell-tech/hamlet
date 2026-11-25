@@ -149,6 +149,24 @@ fn row(merge: u64) -> StepId {
     }
 }
 
+/// The merge and split rows of every merge `agent` was absorbed into
+/// or kept in.
+pub(super) async fn rows_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<StepId>> {
+    let merges = rows
+        .values::<u64>(
+            "SELECT id FROM merge WHERE kept = ?1 OR absorbed = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    Ok(merges
+        .into_iter()
+        .flat_map(|merge| [row(merge), split_row(merge)])
+        .collect())
+}
+
 /// The row that takes the merge out again.
 fn split_row(merge: u64) -> StepId {
     StepId {
@@ -754,7 +772,8 @@ async fn fill(cx: &Cx<'_>, agent: AgentNumber) -> Result<()> {
     };
     let to = Agent(agent);
     let filled = cx.peers().call(&to, &fill, When::AfterAnswer);
-    retire::unless_gone(filled.await)
+    retire::unless_gone(filled.await)?;
+    Ok(())
 }
 
 pub(super) async fn failed(
@@ -789,14 +808,8 @@ pub(super) async fn split(
 /// Takes the merge's commit out of the kept hire's branch, once the
 /// merge's own row has ended: before that its commit may yet come.
 async fn unmerge(cx: &Cx<'_>, n: u64) -> Result<()> {
-    cx.realm.drives.ended(row(n), cx.realm.answer_within).await;
+    steps::after(cx, [row(n)]).await?;
     let rows = cx.rows()?;
-    if steps::row(&rows, row(n))
-        .await?
-        .is_some_and(|row| !row.closed)
-    {
-        bail!("merge {n} has not ended");
-    }
     let merge = Kept::read(&rows, n).await?;
     let Some(tip) = merge.tip else {
         return Ok(());

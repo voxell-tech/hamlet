@@ -65,13 +65,15 @@ pub(super) async fn run(
                 )
                 .await?;
             if let Some(profile) = profile.filter(|_| filled) {
-                cx.peers()
-                    .call(
-                        &Profile(ProfileId(profile)),
-                        &DropSaveParts { agent },
-                        When::AfterAnswer,
-                    )
-                    .await?;
+                retire::unless_gone(
+                    cx.peers()
+                        .call(
+                            &Profile(ProfileId(profile)),
+                            &DropSaveParts { agent },
+                            When::AfterAnswer,
+                        )
+                        .await,
+                )?;
             }
         }
         Step::Library => {

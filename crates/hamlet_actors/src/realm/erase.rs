@@ -17,7 +17,7 @@ use super::change::{self, Rows};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::{self, Lineage, Status};
-use super::{hire, record, retire};
+use super::{hire, merges, record, retire};
 
 /// The row that erases `agent`.
 pub(super) fn row(agent: AgentNumber) -> StepId {
@@ -121,8 +121,12 @@ pub(super) async fn run(
     let rows = cx.rows()?;
     match step {
         // A hire ended before its Profile step has no branch, and its
-        // profile may have no actor.
+        // profile may have no actor. Its retire, and a merge or split
+        // of it, read or write the branch first.
         Step::Branch => {
+            let mut first = merges::rows_of(&rows, agent).await?;
+            first.push(retire::row(agent));
+            steps::after(cx, first).await?;
             if retire::reached(&rows, agent, hire::Step::Profile)
                 .await?
             {

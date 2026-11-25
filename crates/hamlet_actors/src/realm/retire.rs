@@ -95,17 +95,17 @@ pub(super) async fn reached(
     Ok(row.done.as_deref().and_then(at) >= at(step.name()))
 }
 
-/// `called`, done also when its agent is gone: an erased hire's agent
-/// destroys itself.
-pub(super) fn unless_gone<T>(called: Result<T>) -> Result<()> {
+/// `called`'s answer, or none when its actor is gone: an erased
+/// hire's agent and an erased profile destroy themselves.
+pub(super) fn unless_gone<T>(called: Result<T>) -> Result<Option<T>> {
     match called {
-        Ok(_) => Ok(()),
+        Ok(answer) => Ok(Some(answer)),
         Err(error) => {
             let answer = ActorError::extract(&error);
             if (answer.group(), answer.code())
                 == ("actor", "not_found")
             {
-                Ok(())
+                Ok(None)
             } else {
                 Err(error)
             }

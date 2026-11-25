@@ -557,6 +557,68 @@ async fn a_split_waits_for_its_merge_to_end() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_hire_erased_while_its_merge_runs_keeps_its_branch_until_the_merge_ends()
+ {
+    // The absorbed hire, then the kept one, is erased while the merge
+    // waits in the profile; no assertion depends on how long the
+    // erase's answer waits.
+    for erased in [THREE, FOUR] {
+        let realm =
+            answering_within(Duration::from_millis(200)).await;
+        realm.seen.hold(Callee::Merge);
+        chief(&realm, merge(THREE, FOUR)).await;
+        until("the merge waits in the profile", || {
+            realm.seen.is_waiting(Callee::Merge, THREE)
+        })
+        .await;
+        if erased == FOUR {
+            end(&realm, FOUR).await;
+        }
+
+        chief(&realm, erase(erased)).await;
+        let dropped_early =
+            realm.seen.branch_drops.lock().unwrap().len();
+        realm.seen.release(Callee::Merge);
+        closed_until(&realm, "erase", i64::from(erased.0)).await;
+
+        assert_eq!(dropped_early, 0, "hire {}", erased.0);
+        assert_eq!(realm.seen.merges.lock().unwrap().len(), 1);
+        let dropped = realm
+            .seen
+            .branch_drops
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, drop)| drop.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(dropped, [format!("hires/{}", erased.0)]);
+        realm.host.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_erased_while_it_retires_keeps_its_branch_until_the_retire_ends()
+ {
+    let realm = answering_within(Duration::from_millis(200)).await;
+    realm.seen.hold(Callee::Retire);
+    end(&realm, THREE).await;
+    until("the retire waits in the agent", || {
+        realm.seen.is_waiting(Callee::Retire, THREE)
+    })
+    .await;
+
+    chief(&realm, erase(THREE)).await;
+    let dropped_early = realm.seen.branch_drops.lock().unwrap().len();
+    realm.seen.release(Callee::Retire);
+    closed_until(&realm, "erase", 3).await;
+
+    assert_eq!(dropped_early, 0);
+    assert_eq!(retires(&realm), [THREE]);
+    assert_eq!(realm.seen.branch_drops.lock().unwrap().len(), 1);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_erased_hire_cannot_be_restored() {
     let (realm, _) = super::hamlet_with(1).await;
     end(&realm, THREE).await;

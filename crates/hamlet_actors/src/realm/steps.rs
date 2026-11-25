@@ -196,6 +196,23 @@ pub(super) async fn row(
         .map(|(done, closed)| Row { done, closed }))
 }
 
+/// Waits for each of `rows` to end, at most `cx`'s answer time each,
+/// and fails while one is open, so the step that waits is tried
+/// again.
+pub(super) async fn after(
+    cx: &Cx<'_>,
+    rows: impl IntoIterator<Item = StepId>,
+) -> Result<()> {
+    for id in rows {
+        cx.realm.drives.ended(id, cx.realm.answer_within).await;
+        if row(&cx.rows()?, id).await?.is_some_and(|row| !row.closed)
+        {
+            bail!("{id:?} has not ended");
+        }
+    }
+    Ok(())
+}
+
 pub(super) struct Cx<'a> {
     pub realm: &'a Arc<Realm>,
     pub ctx: &'a Ctx<Realm>,

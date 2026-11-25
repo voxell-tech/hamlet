@@ -3,6 +3,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use hamlet_actor_core::ShutdownKind;
+use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::profile::{
     CommitId, Missing, ProfileInput, Sha1, VersionName,
 };
@@ -654,6 +656,58 @@ async fn every_profile_erase_step_twice_erases_it_and_closes_its_row()
     );
     let erased = realm.seen.profile_erases.lock().unwrap().clone();
     assert!(erased.iter().all(|&profile| profile == MASON));
+    realm.host.shutdown().await.unwrap();
+}
+
+/// Mason's hamlet with one hire, Mason archived and erased, and
+/// Mason's actor gone as a profile goes once it has answered an
+/// erase.
+async fn mason_gone() -> Realm {
+    let (realm, _) = masons_hamlet(1).await;
+    chief(&realm, archive(MASON)).await;
+    chief(&realm, EraseProfile { profile: MASON }).await;
+    closed_until(&realm, "profile_erase", 3).await;
+    closed_until(&realm, "drop_parts", 3).await;
+    realm
+        .host
+        .stop(
+            &address::Profile(MASON).address().unwrap(),
+            ShutdownKind::Destroy,
+        )
+        .await
+        .unwrap();
+    realm
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_erase_done_again_after_the_profile_is_gone_closes()
+{
+    let realm = mason_gone().await;
+
+    realm
+        .write(
+            "UPDATE step SET done = 'hires', closed = 0 WHERE kind \
+             = 'profile_erase' AND n = 3;",
+        )
+        .await;
+
+    closed_until(&realm, "profile_erase", 3).await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drop_parts_row_done_again_after_its_profile_is_gone_closes()
+ {
+    let realm = mason_gone().await;
+
+    realm
+        .write(
+            "UPDATE step SET done = NULL, closed = 0 WHERE kind = \
+             'drop_parts' AND n = 3;",
+        )
+        .await;
+
+    closed_until(&realm, "drop_parts", 3).await;
     realm.host.shutdown().await.unwrap();
 }
 
