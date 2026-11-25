@@ -278,6 +278,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "login",
             "moved",
             "new_session",
+            "on_task",
             "pi.wake",
             "place",
             "read_chat",

@@ -2444,6 +2444,9 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         "agent/read_inbox.after.args",
         "agent/read_inbox.answer",
         "agent/read_inbox.last.answer",
+        // `test/tasks.test.ts` compares them.
+        "agent/on_task.args",
+        "agent/on_task.answer",
         ...CREATED.map((input) => `${input}.input`),
         ...ANSWERED_BY_TOOLS.flatMap(answersTo).filter((name) => !listed(name)),
         ...answersTo("realm/may_spend"),

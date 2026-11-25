@@ -271,6 +271,12 @@ export interface DropInbox {
     readonly paths: readonly string[];
 }
 
+/** Whether an input under one of `tasks` is still to end, or one ended less than `within_ms` ago. */
+export interface OnTask {
+    readonly tasks: readonly RealmTask[];
+    readonly within_ms: number | bigint;
+}
+
 export interface AgentActions {
     submit(message: Submit): null;
     finished(message: Finished): null;
@@ -287,6 +293,7 @@ export interface AgentActions {
     /** It gives no turn. */
     take_inbox(message: TakeInbox): null;
     drop_inbox(message: DropInbox): null;
+    on_task(message: OnTask): boolean;
 }
 
 /** As each message's `Message::From` says. */
@@ -304,6 +311,7 @@ export const SENDERS = {
     read_inbox: REALM,
     take_inbox: REALM,
     drop_inbox: REALM,
+    on_task: REALM,
 } as const satisfies {
     readonly [N in keyof AgentActions]: Address | typeof OWN_PROFILE;
 };
@@ -792,6 +800,10 @@ export const read: {
     drop_inbox: reader(obj({ paths: arr(str()) }, OPEN), ({ paths }) => ({
         paths,
     })),
+    on_task: reader(
+        obj({ tasks: arr(str()), within_ms: U64 }, OPEN),
+        ({ tasks, within_ms }) => ({ tasks, within_ms }),
+    ),
 };
 
 /**
