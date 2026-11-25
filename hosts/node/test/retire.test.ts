@@ -116,3 +116,24 @@ test("an erased agent's files are gone, and it asks its host to destroy it", asy
     assert.equal(agent.destroyed, 1);
     assert.deepEqual(saves(sent), []);
 });
+
+test("an erase asked again answers again and asks its host to destroy it again", async (t) => {
+    const root = join(scratchFolder(t), "7.fs");
+    const { calls } = fakeCalls({ profile: profile([part({ tip: A })], []) });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: { ...fakeFiles({}), root },
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+
+    for (const _ of [1, 2]) {
+        assert.equal(
+            await agent.actions.erase(agent.by(from.realm), null),
+            null,
+        );
+    }
+    await agent.stop();
+
+    assert.ok(!existsSync(root), `${root} is still there`);
+    assert.equal(agent.destroyed, 2);
+});
