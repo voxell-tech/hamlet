@@ -35,7 +35,7 @@ use hamlet_protocol::client::{
 };
 
 use self::parse::{Act, Part, Target, parse};
-use super::call::{Calls, Given};
+use super::call::{Calls, Said};
 use super::host::HAND;
 use super::view::{self, View};
 use super::words;
@@ -283,7 +283,7 @@ async fn perform(
             };
             match agent {
                 Ok(agent) => {
-                    Ok(words::stopped(calls.stop(agent).await?))
+                    Ok(words::stopped(calls.stop(&[agent]).await?))
                 }
                 Err(refusal) => Err(refusal),
             }
@@ -302,10 +302,10 @@ async fn perform(
                         to: view::wire(agent),
                     };
                     match calls.say(line).await? {
-                        Given::Taken | Given::Dropped => {
+                        Said::Accepted => {
                             Ok(words::told(&view.name(agent)))
                         }
-                        Given::Refused(words) => {
+                        Said::Left(words) | Said::Refused(words) => {
                             Err(Refusal::Usage { words })
                         }
                     }
@@ -543,7 +543,7 @@ pub(crate) async fn stop_one(
             address: agent.0.to_string(),
         }));
     };
-    let turns = calls.stop(number).await?;
+    let turns = calls.stop(&[number]).await?;
     Ok(Ok(words::stopped_or_nothing(turns)))
 }
 
@@ -621,21 +621,20 @@ pub(crate) async fn answer(
     }))
 }
 
-/// Stops each living agent `view` shows, and gives the turns
-/// stopped. Any other agent counts one when the stop dropped a line
-/// to it.
+/// Stops each living agent `view` shows in one act, and gives the
+/// turns stopped.
 pub(crate) async fn stop_all(
     calls: &Calls,
     view: &View,
 ) -> Result<u32> {
-    let mut turns = 0;
-    for seen in &view.world.agents {
-        turns += match seen.status {
-            Status::Live => calls.stop(seen.agent).await?,
-            _ => calls.take_dropped(seen.agent),
-        };
-    }
-    Ok(turns)
+    let living = view
+        .world
+        .agents
+        .iter()
+        .filter(|seen| matches!(seen.status, Status::Live))
+        .map(|seen| seen.agent)
+        .collect::<Vec<_>>();
+    calls.stop(&living).await
 }
 
 /// Sets one part of an agent's model, the other two as the realm

@@ -8,7 +8,7 @@
 //! agent took the line and a read of that chat showed it busy, or
 //! that read itself when it shows the agent idle.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Result;
@@ -22,6 +22,7 @@ use hamlet_messages::agent::chat::{
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, AgentId, Open, RequestId, ServerMessage,
+    Transcript,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
@@ -44,6 +45,8 @@ struct Shared {
     calls: Calls,
     frames: Frames,
     credentials: Keys,
+    /// The clients whose connection is open.
+    clients: Mutex<BTreeSet<u64>>,
     followed: Mutex<BTreeMap<AgentNumber, Followed>>,
 }
 
@@ -70,6 +73,11 @@ struct Watch {
     /// The last change its page and the turns after it hold; none
     /// until the page is sent.
     seen: Option<Mark>,
+    /// The last page it was sent, without the request it answered,
+    /// while no turn was sent after it. A page's mark counts the
+    /// agent's changes to all its chats, so a page read again after
+    /// a change to another chat can be this page unchanged.
+    page: Option<Transcript>,
 }
 
 impl Watch {
@@ -106,6 +114,17 @@ struct Owed {
     client: u64,
     id: RequestId,
     taken: Taken,
+    /// The task that reads what became of the line, aborted when
+    /// the reply is no longer owed.
+    reading: Option<AbortHandle>,
+}
+
+impl Drop for Owed {
+    fn drop(&mut self) {
+        if let Some(reading) = &self.reading {
+            reading.abort();
+        }
+    }
 }
 
 enum Taken {
@@ -140,6 +159,7 @@ impl Hub {
                 calls,
                 frames,
                 credentials,
+                clients: Mutex::new(BTreeSet::new()),
                 followed: Mutex::new(BTreeMap::new()),
             }),
         }
@@ -165,6 +185,7 @@ impl Hub {
                 client,
                 chat: open.chat.clone(),
                 seen: None,
+                page: None,
             });
         }
         let _ = found.jobs.send(Job::Page { client, open });
@@ -185,9 +206,15 @@ impl Hub {
         }
     }
 
+    /// Takes in `client`, whose connection opened.
+    pub(crate) fn join(&self, client: u64) {
+        self.shared.clients().insert(client);
+    }
+
     /// Drops what `client`, whose connection closed, watched and was
     /// owed. Its lines go on.
     pub(crate) fn forget(&self, client: u64) {
+        self.shared.clients().remove(&client);
         let mut followed = self.shared.followed();
         for found in followed.values_mut() {
             found.watches.retain(|watch| watch.client != client);
@@ -196,45 +223,65 @@ impl Hub {
         }
     }
 
-    /// Owes `client` the reply of its line `id` to `agent`. The
-    /// receiver resolves once `agent`'s chat is followed, so no
-    /// change after it is missed, and fails when the hub answered the
-    /// line already.
+    /// Owes `client` the reply of its line `id` to `agent`, unless
+    /// its connection closed. The receiver resolves once `agent`'s
+    /// chat is followed, so no change after it is missed, and fails
+    /// when the hub answered the line already.
     pub(crate) fn owe(
         &self,
         client: u64,
         agent: AgentNumber,
         id: &RequestId,
-    ) -> oneshot::Receiver<()> {
-        let (held, holds) = oneshot::channel();
-        {
-            let shared = &self.shared;
-            let mut followed = shared.followed();
-            let found = shared.follow(&mut followed, agent);
-            found.owed.push(Owed {
-                client,
-                id: id.clone(),
-                taken: Taken::Not,
-            });
-            let _ = found.jobs.send(Job::Held(held));
+    ) -> Option<oneshot::Receiver<()>> {
+        let shared = &self.shared;
+        let mut followed = shared.followed();
+        if !shared.clients().contains(&client) {
+            return None;
         }
-        holds
+        let (held, holds) = oneshot::channel();
+        let found = shared.follow(&mut followed, agent);
+        found.owed.push(Owed {
+            client,
+            id: id.clone(),
+            taken: Taken::Not,
+            reading: None,
+        });
+        let _ = found.jobs.send(Job::Held(held));
+        Some(holds)
+    }
+
+    /// Keeps `reading`, the task that reads what became of the line
+    /// `id` of `client` to `agent`, while its reply is owed; aborts
+    /// it when it is not.
+    pub(crate) fn reading(
+        &self,
+        client: u64,
+        agent: AgentNumber,
+        id: &RequestId,
+        reading: AbortHandle,
+    ) {
+        let mut followed = self.shared.followed();
+        let owed = followed.get_mut(&agent).and_then(|found| {
+            found
+                .owed
+                .iter_mut()
+                .find(|owed| owed.client == client && owed.id == *id)
+        });
+        match owed {
+            Some(owed) => owed.reading = Some(reading),
+            None => reading.abort(),
+        }
     }
 
     /// Takes in that `agent` took the line `id` of `client`: reads
-    /// the chief's chat to learn where the agent's work on it stands,
-    /// unless `stopped` comes first.
+    /// the chief's chat to learn where the agent's work on it stands.
     pub(crate) async fn taken(
         &self,
         client: u64,
         agent: AgentNumber,
         id: &RequestId,
-        stopped: impl Future<Output = ()>,
     ) {
-        let read = tokio::select! {
-            read = self.shared.current(agent) => read.ok(),
-            () = stopped => None,
-        };
+        let read = self.shared.current(agent).await.ok();
         let shared = &self.shared;
         let mut followed = shared.followed();
         let Some(found) = followed.get_mut(&agent) else {
@@ -352,6 +399,10 @@ impl Drop for ResetsHeld {
 }
 
 impl Shared {
+    fn clients(&self) -> MutexGuard<'_, BTreeSet<u64>> {
+        self.clients.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn followed(
         &self,
     ) -> MutexGuard<'_, BTreeMap<AgentNumber, Followed>> {
@@ -535,7 +586,12 @@ impl Shared {
         });
         match transcript {
             Ok((mark, transcript)) => {
-                found.watches[at].seen = Some(mark);
+                let watch = &mut found.watches[at];
+                watch.seen = Some(mark);
+                watch.page = Some(Transcript {
+                    to: None,
+                    ..transcript.clone()
+                });
                 self.send(
                     client,
                     ServerMessage::Transcript(transcript),
@@ -606,6 +662,7 @@ impl Shared {
             match frames::turn(event.clone(), &watch.chat) {
                 Ok(Some(turn)) => {
                     watch.seen = Some(mark);
+                    watch.page = None;
                     self.send(
                         watch.client,
                         ServerMessage::Turn(turn),
@@ -707,10 +764,15 @@ impl Shared {
             for watch in &mut found.watches {
                 if watch.chat == chat && watch.is_behind(mark) {
                     watch.seen = Some(mark);
-                    self.send(
-                        watch.client,
-                        ServerMessage::Transcript(transcript.clone()),
-                    );
+                    if watch.page.as_ref() != Some(&transcript) {
+                        watch.page = Some(transcript.clone());
+                        self.send(
+                            watch.client,
+                            ServerMessage::Transcript(
+                                transcript.clone(),
+                            ),
+                        );
+                    }
                 }
             }
         }

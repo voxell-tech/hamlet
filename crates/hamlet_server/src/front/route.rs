@@ -18,6 +18,7 @@ use hamlet_protocol::client::{
     ServerMessage,
 };
 
+use super::call::Stopping;
 use super::host::HAND;
 use super::view::Own;
 use super::{commands, frames, words};
@@ -32,8 +33,9 @@ pub(crate) enum Route {
     Close(protocol::ChatRef),
     /// A chief's command or edit, which `commands` answers.
     Command(Asked),
-    /// A stop, which `commands` answers.
-    Stop(Asked),
+    /// A stop, which `commands` answers, and the agents it stops as
+    /// far as the door knows them before it runs.
+    Stop(Asked, Stopping),
     /// An answer that names its wait, which `commands` answers once
     /// the stops sent before it are answered.
     Answer(Asked),
@@ -105,7 +107,13 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             if say.text.trim().starts_with('/') =>
         {
             if commands::parse::is_stop(&say.text) {
-                Route::Stop(Asked::Command(say))
+                let stopping =
+                    if say.text.split_whitespace().nth(1).is_none() {
+                        stopping(say.to)
+                    } else {
+                        Stopping::Every
+                    };
+                Route::Stop(Asked::Command(say), stopping)
             } else if commands::parse::names_its_wait(&say.text) {
                 Route::Answer(Asked::Command(say))
             } else {
@@ -126,12 +134,12 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             Route::Answer(Asked::Answer(answer))
         }
         ClientMessage::Stop(protocol::Stop { agent: None, id }) => {
-            Route::Stop(Asked::StopAll(id))
+            Route::Stop(Asked::StopAll(id), Stopping::Every)
         }
         ClientMessage::Stop(protocol::Stop {
             agent: Some(agent),
             id,
-        }) => Route::Stop(Asked::Stop(id, agent)),
+        }) => Route::Stop(Asked::Stop(id, agent), stopping(agent)),
         ClientMessage::New(new) => {
             let (to, id) = (new.to, new.id.clone());
             agent_call(
@@ -230,6 +238,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
 /// number.
 pub(crate) fn number(agent: AgentId) -> Option<AgentNumber> {
     u32::try_from(agent.0).ok().map(AgentNumber)
+}
+
+/// A stop of the agent a client names by `agent`.
+fn stopping(agent: AgentId) -> Stopping {
+    Stopping::Agents(number(agent).into_iter().collect())
 }
 
 /// The refusal of request `id` to agent `agent`, which no agent is.
@@ -335,7 +348,7 @@ mod tests {
     #[test]
     fn stops_keep_their_turn_and_named_answers_do_not() {
         let stop = |message| {
-            matches!(route(message).unwrap(), Route::Stop(_))
+            matches!(route(message).unwrap(), Route::Stop(..))
         };
         let named = |message| {
             matches!(route(message).unwrap(), Route::Answer(_))
