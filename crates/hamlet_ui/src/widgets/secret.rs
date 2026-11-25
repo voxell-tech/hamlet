@@ -23,9 +23,10 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, label, overlay, row, text_field,
 };
 use bevy_fynix::{Binding, Prop, ScopedExt};
-use hamlet_ui::View;
-use hamlet_ui::styles::text_input;
-use hamlet_ui::widgets::platform::{ClipInside, Mono};
+
+use crate::View;
+use crate::styles::text_input;
+use crate::widgets::platform::{ClipInside, Mono};
 
 pub fn plugin(app: &mut App) {
     app.add_systems(
@@ -36,7 +37,7 @@ pub fn plugin(app: &mut App) {
 
 /// A [`text_field`] for a key or a token, drawn as stars. It takes a
 /// paste but does not copy or cut.
-pub(crate) fn secret_field(
+pub fn secret_field(
     value: impl Into<Prop<String>>,
     on_commit: impl Fn(&mut World, String) + Send + Sync + 'static,
 ) -> impl View {

@@ -13,6 +13,7 @@ mod who;
 pub mod work;
 
 use bevy::prelude::*;
+use hamlet_core::sound::Sound;
 
 pub use self::acts::{
     Act, CRANK_RATE, MERGE_GAP, SEAT_BACK, TALK_GAP,
@@ -24,7 +25,6 @@ use self::pose::{Pose, Prop, arc, ramp, rx, ry};
 pub use self::spawn::{spawn_agent, spawn_as};
 pub use self::trip::{Step, Stride, Trip};
 pub use self::who::{Emblem, Hat, Paint, Who};
-use crate::sound::Sound;
 
 /// The robots' walk, and their poses each frame.
 pub fn plugin(app: &mut App) {

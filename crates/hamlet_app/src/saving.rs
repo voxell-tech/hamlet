@@ -7,6 +7,7 @@ use bevy::ecs::prelude::*;
 use bevy_fynix::views::{FrameProps, column};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::messages::{Reconnected, Response};
+use hamlet_core::saving::Saving;
 use hamlet_desktop::editor;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{action, bad_action, note};
@@ -15,6 +16,11 @@ use hamlet_ui::{AnyView, View};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Saves>()
+        .add_observer(
+            |saving: On<Saving>, mut saves: ResMut<Saves>| {
+                saves.pending.insert(saving.0.clone(), None);
+            },
+        )
         .add_observer(answered)
         .add_observer(reconnected)
         .add_systems(Update, settle.run_if(closing));
@@ -28,13 +34,6 @@ pub(crate) struct Saves {
     pending: HashMap<protocol::RequestId, Option<String>>,
     closing: bool,
     then: Option<Then>,
-}
-
-pub(crate) fn track(world: &mut World, id: protocol::RequestId) {
-    world
-        .get_resource_or_init::<Saves>()
-        .pending
-        .insert(id, None);
 }
 
 pub(crate) fn close(world: &mut World) {
@@ -261,7 +260,7 @@ mod tests {
     #[test]
     fn a_step_on_closing_waits_for_the_saves_and_keep_open_drops_it()
     {
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },
@@ -322,7 +321,7 @@ mod tests {
     #[test]
     fn an_in_flight_save_keeps_the_window_open_and_offers_visible_recovery_copies()
      {
-        use crate::testing::{all_words, press};
+        use hamlet_core::testing::{all_words, press};
         let mut app = crate::testing::panel_app();
         app.add_plugins((
             hamlet_desktop::DesktopPlugin { window: false },

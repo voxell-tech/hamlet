@@ -16,8 +16,8 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{self as agents, Actions, Profile};
+use hamlet_core::{orders, words};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders;
 use hamlet_ui::styles::{
     self, ICON, Looks, choice, description, lettered, note,
     scroll_area, section, text_input,
@@ -27,7 +27,6 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built};
 
 use super::{TakesFocus, close, optional};
-use crate::words;
 
 /// How tall the list of profiles grows before it scrolls.
 const LIST: f32 = 220.0;
@@ -282,7 +281,7 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
             label(format!("Add Agent Under {}", under))
                 .size(heading)
                 .bold(true),
-            crate::search::search(
+            hamlet_ui::widgets::search::search(
                 "Search profiles",
                 String::new(),
                 |world, text| {
@@ -345,19 +344,20 @@ pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::press;
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     #[test]
     fn a_profile_chosen_from_the_list_is_added_under_the_parent() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let mut state = realm::state();
         state.actions = realm::actions(&["add-agent"]);
         hamlet_client::receive(

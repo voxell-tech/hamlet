@@ -11,7 +11,7 @@ use hamlet_ui::widgets::icons::Glyph;
 
 /// What an agent is doing, the most pressing first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Standing {
+pub enum Standing {
     Waits,
     Stopped,
     Works,
@@ -25,12 +25,12 @@ pub(crate) enum Standing {
 
 impl Standing {
     /// What `agent` is doing.
-    pub(crate) fn of(world: &World, agent: Entity) -> Self {
+    pub fn of(world: &World, agent: Entity) -> Self {
         Self::raised(world, agent, waits(world, agent))
     }
 
     /// What `agent` is doing, which has raised `waits`.
-    pub(crate) fn raised(
+    pub fn raised(
         world: &World,
         agent: Entity,
         waits: usize,
@@ -49,9 +49,7 @@ impl Standing {
     }
 
     /// The most pressing of `all`, or at rest when there are none.
-    pub(crate) fn of_all(
-        all: impl IntoIterator<Item = Self>,
-    ) -> Self {
+    pub fn of_all(all: impl IntoIterator<Item = Self>) -> Self {
         all.into_iter()
             .filter(|one| {
                 !matches!(
@@ -63,7 +61,7 @@ impl Standing {
             .unwrap_or(Self::Rests)
     }
 
-    pub(crate) fn glyph(self) -> Glyph {
+    pub fn glyph(self) -> Glyph {
         match self {
             Self::Waits => Glyph::Bell,
             Self::Stopped => Glyph::Stop,
@@ -75,7 +73,7 @@ impl Standing {
     }
 
     /// Its status kind.
-    pub(crate) fn kind(self) -> StatusKind {
+    pub fn kind(self) -> StatusKind {
         match self {
             Self::Waits => StatusKind::Attention,
             Self::Stopped | Self::Turned => StatusKind::Danger,
@@ -86,16 +84,16 @@ impl Standing {
     }
 
     /// The colour of its mark, by the tone of its status.
-    pub(crate) fn tone(self) -> Tone {
+    pub fn tone(self) -> Tone {
         self.kind().tone()
     }
 
     /// The colour of the words that say it.
-    pub(crate) fn words(self) -> Tone {
+    pub fn words(self) -> Tone {
         self.kind().words()
     }
 
-    pub(crate) fn word(self) -> &'static str {
+    pub fn word(self) -> &'static str {
         match self {
             Self::Waits => "Needs you",
             Self::Stopped => "Stopped",
@@ -109,12 +107,12 @@ impl Standing {
 }
 
 /// What `count` waits for the chief do, after their number.
-pub(crate) fn need_you(count: usize) -> &'static str {
+pub fn need_you(count: usize) -> &'static str {
     if count == 1 { "needs you" } else { "need you" }
 }
 
 /// How many waits `agent` has raised, newcomers' left out.
-pub(crate) fn waits(world: &World, agent: Entity) -> usize {
+pub fn waits(world: &World, agent: Entity) -> usize {
     let address = name_of(world, agent);
     world.try_query::<&Waiting>().map_or(0, |mut waiting| {
         waiting

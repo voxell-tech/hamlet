@@ -23,6 +23,7 @@ use bevy_fynix::{
 use hamlet_client::realm::{
     self, Actions, HamletId, Profile, profile_address,
 };
+use hamlet_core::words;
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -33,8 +34,8 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
 use super::{asks, asks_first, close, optional};
+use crate::chat;
 use crate::hub::{Showing, bring_following, show};
-use crate::{chat, words};
 
 /// Seconds a founding is waited for before it is let go.
 const WAIT: f64 = 60.0;
@@ -356,18 +357,19 @@ pub(super) fn founding(at: Vec2) -> impl View {
 #[cfg(test)]
 mod tests {
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::press;
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     #[test]
     fn founding_goes_to_the_hand_even_from_another_chat() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let mut state = realm::state();
         state.actions = realm::actions(&["create-hamlet"]);
         state.agents.push(realm::agent(3, "home", false));

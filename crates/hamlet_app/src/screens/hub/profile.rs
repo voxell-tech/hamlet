@@ -18,6 +18,8 @@ use bevy_fynix::{
 use hamlet_client::realm::{
     Actions, Learned, LivesIn, Pin, Profile, name_of, profile_address,
 };
+use hamlet_core::orders::CarryHouse;
+use hamlet_core::standing::Standing;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, action, bad_action, bare, beside, buttons,
@@ -33,7 +35,6 @@ use super::thread::dim;
 use super::{Showing, memory, open_hamlet, rail, show};
 use crate::convo::talk_to;
 use crate::profile_tag::{learned_mark, learned_words};
-use crate::standing::Standing;
 use crate::{chat, world_menu};
 
 /// The server's names of the actions a profile's page offers.
@@ -521,9 +522,7 @@ fn arrival(hub: Entity, shown: &Shown) -> AnyView {
                 let profile = shown.entity;
                 buttons_row.push(
                     action(Glyph::Move, "Move House", move |world| {
-                        hamlet_realm::orders::carry_house(
-                            world, profile,
-                        );
+                        world.trigger(CarryHouse(profile));
                     })
                     .tooltip(|| {
                         note(

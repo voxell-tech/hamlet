@@ -7,8 +7,9 @@ use bevy::audio::{ChannelCount, Decodable, SampleRate, Source};
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
+use hamlet_core::sound::Sound;
 
-use super::{RATE, Sound};
+use super::{Playback, RATE};
 
 /// Samples made in code: one channel, or two with the left first.
 #[derive(Asset, TypePath, Clone)]

@@ -4,8 +4,9 @@ use bevy::ecs::system::SystemParam;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
+use hamlet_core::drops::{FileDrop, FileDropped};
 
-use super::{FileDrop, FileDropped, Hand, PlaySettings};
+use super::{Hand, PlaySettings};
 
 /// The nodes that take dropped files, and whether the pointer is on
 /// one.

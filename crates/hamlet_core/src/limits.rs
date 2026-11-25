@@ -21,7 +21,7 @@ use hamlet_client::realm::{Bylaws, HamletId, RealmBylaws};
 use hamlet_protocol::client::{self as protocol, Limits, Period};
 use hamlet_ui::styles::{
     Fills, action, bare, beside, breadcrumb, close, description,
-    group, nav_list, nav_row, note, parts, segmented_words,
+    group, heading, nav_list, nav_row, note, parts, segmented_words,
     text_input,
 };
 use hamlet_ui::widgets::icons::Glyph;
@@ -29,15 +29,14 @@ use hamlet_ui::widgets::switch::switch as toggle;
 use hamlet_ui::{AnyView, View, with_cx};
 use serde_json::Value;
 
-use crate::PanelSystems;
-use crate::overview::heading;
+use crate::panels::PanelSystems;
 
 const CONTROLS: f32 = 150.0;
 
 /// The server's default budget, in dollars.
 const DEFAULT_BUDGET: f64 = 50.0;
 
-pub(crate) fn plugin(app: &mut App) {
+pub fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
@@ -70,7 +69,7 @@ pub fn follow(hamlets: Query<&Bylaws>, mut book: ResMut<Book>) {
 }
 
 /// `limits` as the map a whole edit sends.
-pub(crate) fn whole_of(limits: &Limits) -> BTreeMap<String, Value> {
+pub fn whole_of(limits: &Limits) -> BTreeMap<String, Value> {
     match serde_json::to_value(limits) {
         Ok(Value::Object(fields)) => fields.into_iter().collect(),
         _ => unreachable!(
@@ -414,7 +413,7 @@ fn budget(hamlet: Entity) -> impl View {
                 Glyph::Restore,
                 "Start It Again Now",
                 move |world| {
-                    crate::overview::tell(
+                    crate::orders::decree_for(
                         world,
                         hamlet,
                         "/reset-budget".into(),
@@ -557,8 +556,12 @@ pub fn realm() -> AnyView {
     .boxed()
 }
 
-/// The bylaws of `hamlet`, for its chief to change.
-pub fn panel(hamlet: Entity) -> AnyView {
+/// The bylaws of `hamlet`, for its chief to change, opening on
+/// `front` for it.
+pub fn panel(
+    hamlet: Entity,
+    front: fn(Entity) -> AnyView,
+) -> AnyView {
     let page =
         keyed(resource::<Part, _>(|part| *part), move |part| {
             if *part == Part::Front {
@@ -574,9 +577,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 .boxed()
                         };
                         // Open on the front; the others are pages.
-                        let open = [padded(
-                            crate::folder::section(hamlet).boxed(),
-                        )];
+                        let open = [padded(front(hamlet))];
                         let rows =
                             Part::PAGES.into_iter().map(|part| {
                                 nav_row(
@@ -788,7 +789,7 @@ mod tests {
         *app.world_mut().resource_mut::<Part>() = part;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            panel(hamlet),
+            panel(hamlet, |_| column(()).boxed()),
         );
         app.update();
         (app, hamlet)

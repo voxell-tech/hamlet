@@ -114,7 +114,7 @@ fn whole(
 
 /// The efforts a chief can choose with their words, `unset` naming
 /// none.
-pub(crate) const fn efforts(
+pub const fn efforts(
     unset: &'static str,
 ) -> [(Option<Effort>, &'static str); 8] {
     [
@@ -129,7 +129,7 @@ pub(crate) const fn efforts(
     ]
 }
 
-pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
+pub fn of_hamlet(hamlet: Entity) -> impl View {
     built(move |cx| {
         if cx.world.get::<Bylaws>(hamlet).is_none() {
             return cx.build(column(()));
@@ -148,7 +148,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
             },
         );
         cx.build(group((
-            crate::overview::heading(
+            hamlet_ui::styles::heading(
                 Glyph::Chip,
                 "Model this hamlet runs",
             ),

@@ -18,6 +18,8 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
 use hamlet_client::realm::Lead;
+use hamlet_core::drops::FileDropped;
+use hamlet_core::pick::{Hovered, Taken, Thing};
 
 pub use self::greet::greet;
 use self::lift::Fall;
@@ -29,7 +31,7 @@ use crate::generator::{Passage, Robot, Thought};
 use crate::hamlet::Housed;
 use crate::keeper::Act;
 use crate::moving::Carrying;
-use crate::pick::{Hovered, Reach, Taken, Thing, Travel};
+use crate::pick::{Reach, Travel};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<PlaySettings>()
@@ -236,17 +238,6 @@ pub struct Hand {
     drops: Vec<(PathBuf, f32)>,
     /// The robot under the pointer that could be lifted.
     within: Option<Entity>,
-}
-
-/// A node, or any node in it, that takes the files dropped on it,
-/// which the hand tells as [`FileDropped`].
-#[derive(Component)]
-pub struct FileDrop;
-
-/// A file or folder dropped on a [`FileDrop`].
-#[derive(Message, Clone, Debug, PartialEq, Eq)]
-pub struct FileDropped {
-    pub path: PathBuf,
 }
 
 /// The hand's hold on the thing under the pointer.

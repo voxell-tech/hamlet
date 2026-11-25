@@ -27,6 +27,9 @@ use bevy_fynix::{
 };
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::Chief as SignedIn;
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
+use hamlet_core::roll::{agents_moved, either, moved};
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -34,7 +37,6 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     Fills, breadcrumb, choice, filling, group, scroll_area, section,
     segmented_words, status_label,
@@ -45,10 +47,8 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::portrait::{Portrait, Sitter};
-use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::hub::Following;
-use crate::roll::{agents_moved, either, moved};
 
 mod portrait;
 
@@ -108,7 +108,7 @@ pub(crate) fn go_home(world: &mut World) {
     };
     let thing = Thing::ChiefPlace(chief);
     select(world, Some(thing));
-    bring_into_view(world, thing);
+    world.trigger(BringIntoView(thing));
 }
 
 /// The company of the mascot of a chief who has chosen `selected`,

@@ -2,11 +2,10 @@
 //! is chosen.
 
 use bevy::prelude::*;
+use hamlet_core::pick::{Also, Hovered, Selected, Thing};
 use hamlet_vfx::mark::{MarkMaterial, Marks, Shape, lie};
 
-use super::{
-    Also, Footprint, Hovered, PickSettings, Selected, Thing,
-};
+use super::{Footprint, PickSettings};
 use crate::generator::Floor;
 
 pub(super) fn plugin(app: &mut App) {

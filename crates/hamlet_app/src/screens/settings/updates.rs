@@ -1,16 +1,41 @@
 //! The Updates page: this copy's version, and the channel it takes
 //! updates from.
 
+use bevy::app::App;
 use bevy::ecs::world::World;
 use bevy_fynix::views::label;
-use bevy_fynix::{ViewExt, derived, keyed};
+use bevy_fynix::{Prop, ViewExt, derived, keyed};
+use hamlet_core::roll::{either, moved};
+use hamlet_core::settings::{SettingsAppExt, SettingsPage};
 use hamlet_ui::styles::{description, parts, segmented_words};
+use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View};
 use hamlet_update::Channel;
 
-use super::{alone, field, told};
-use crate::roll::{either, moved};
+use super::{alone, field, shown, told};
 use crate::updates::{UpdateChannel, Updates};
+
+pub(super) fn plugin(app: &mut App) {
+    app.add_settings_page(
+        SettingsPage::new(
+            UPDATES,
+            "Updates",
+            Glyph::Rise,
+            110,
+            || page().boxed(),
+        )
+        .now(now),
+    );
+}
+
+/// The id of the Updates page.
+pub const UPDATES: &str = "updates";
+
+fn now() -> Prop<String> {
+    shown::<UpdateChannel>(|channel| {
+        channel.followed().name().to_string()
+    })
+}
 
 pub(super) fn page() -> impl View {
     parts((

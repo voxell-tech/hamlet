@@ -14,6 +14,10 @@ use bevy_fynix::{
     Binding, ScopedExt, ViewExt, derived, keyed, resource, style,
 };
 use hamlet_client::realm::{Providers, Settings};
+use hamlet_core::models::{
+    Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
+};
+use hamlet_core::roll::{either, moved};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
@@ -31,10 +35,6 @@ use hamlet_ui::{AnyView, Cx, View, built, kinds, rules, with_cx};
 
 use super::providers::{self, Tile};
 use super::{NOTHING_LOCAL, Pick, Step, Welcome, go, look, pick};
-use crate::models::{
-    Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
-};
-use crate::roll::{either, moved};
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
     description(text.into()).boxed()
@@ -498,7 +498,7 @@ fn providers_shown() -> AnyView {
         // Built once, keeping its focus and text.
         let search = built(|cx| {
             let seek = cx.world.resource::<Welcome>().seek.clone();
-            cx.build(crate::search::search(
+            cx.build(hamlet_ui::widgets::search::search(
                 "Search providers",
                 seek,
                 |world, text| providers::search(world, &text),
@@ -685,7 +685,7 @@ fn models() -> AnyView {
     .within(bare());
     let search = built(|cx| {
         let narrow = cx.world.resource::<Welcome>().narrow.clone();
-        cx.build(crate::search::search(
+        cx.build(hamlet_ui::widgets::search::search(
             "Search models",
             narrow,
             |world, text| {
@@ -799,7 +799,7 @@ fn manual() -> AnyView {
 pub fn view() -> impl View {
     built(|cx| {
         cx.world.init_resource::<providers::Login>();
-        cx.world.init_resource::<super::Browser>();
+        cx.world.init_resource::<hamlet_core::browser::Browser>();
         cx.world.init_resource::<super::Committing>();
         cx.build(screen())
     })

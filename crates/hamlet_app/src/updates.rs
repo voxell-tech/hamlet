@@ -17,6 +17,7 @@ use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_client::Tokio;
+use hamlet_core::panels::PanelSystems;
 use hamlet_ui::theme::StatusKind;
 use hamlet_update::{Channel, Feed, Install, Version};
 use tokio::sync::mpsc::{
@@ -24,7 +25,6 @@ use tokio::sync::mpsc::{
 };
 use tokio::sync::watch;
 
-use crate::PanelSystems;
 use crate::remember::Remembered;
 use crate::toasts::Toasts;
 
@@ -428,8 +428,10 @@ fn hand_over(version: Version, file: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use hamlet_core::testing::all_words;
+
     use super::*;
-    use crate::testing::{all_words, panel_app};
+    use crate::testing::panel_app;
 
     /// The window with toasts and a way to the looks, the end of it
     /// the looks would send on, and the end the asks arrive at.

@@ -14,8 +14,10 @@ use hamlet_client::realm::{
     Account, HamletId, Identity, Kind, Lead, Left, LivesIn,
     MergedInto, OwnModel, Parent, Treasury,
 };
+use hamlet_core::pick::Thing;
+use hamlet_core::roll::Roll;
+use hamlet_core::standing::{Standing, need_you};
 use hamlet_protocol::client::{AgentId, AgentKind};
-use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -24,8 +26,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::naming::Naming;
 use crate::profile_tag::ProfileTag;
-use crate::roll::Roll;
-use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
 /// A check that fires when the agents, hamlets or waits changed.
@@ -216,7 +216,9 @@ pub(super) fn agent_rows(
                 let account = account
                     .map(|account| {
                         let model = own.map(|_| {
-                            crate::models::model_name(&account.model)
+                            hamlet_core::models::model_name(
+                                &account.model,
+                            )
                         });
                         let spent = (account.spent.micros > 0)
                             .then_some(account.cost.as_str());

@@ -14,13 +14,13 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::Access;
+use hamlet_core::words;
 use hamlet_ui::styles::{ICON, description, link_row, small_rules};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::{close, model};
-use crate::words;
 
 /// The width of the popup.
 const WIDE: f32 = 300.0;

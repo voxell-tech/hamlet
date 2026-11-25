@@ -38,6 +38,11 @@ use hamlet_client::realm::{
     Account, Bylaws, Fast, Kind, LivesIn, OwnEffort, Settings,
     name_of,
 };
+use hamlet_core::models::{
+    Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
+    model_title, over_rows, provider_name, provider_of, tag,
+    title_of,
+};
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
     ICON, RailRow, description, hairline, note, radio, rail_item,
@@ -53,11 +58,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
 use crate::menu::rect_of;
-use crate::models::{
-    Detail, ModelRow, Shelf, legend, mark, model_name, model_row,
-    model_title, over_rows, provider_name, provider_of, tag,
-    title_of,
-};
 
 /// The width of the providers down the side.
 const RAIL: f32 = 108.0;
@@ -714,7 +714,8 @@ fn rail() -> impl View {
         derived(|world: &World| {
             let picking = world.resource::<Picking>();
             let searching = !picking.search.trim().is_empty();
-            let plans = world.get_resource::<crate::plans::Plans>();
+            let plans =
+                world.get_resource::<hamlet_core::plans::Plans>();
             // A plan that refuses or runs short says so beside its
             // provider.
             let providers = providers(world)
@@ -723,13 +724,17 @@ fn rail() -> impl View {
                     let warns = plans
                         .and_then(|plans| plans.of(&id))
                         .and_then(|plan| {
-                            crate::plans::alert_of(plan.reading.mood)
-                                .map(|kind| {
+                            hamlet_core::plans::alert_of(
+                                plan.reading.mood,
+                            )
+                            .map(
+                                |kind| {
                                     (
                                         kind,
                                         plan.reading.sentence.clone(),
                                     )
-                                })
+                                },
+                            )
                         });
                     (id, name, warns)
                 })
@@ -869,7 +874,7 @@ fn nothing(title: &'static str, then: &'static str) -> AnyView {
 
 /// The search and the models it finds.
 fn models(agent: Entity, search: String) -> impl View {
-    let search = crate::search::search(
+    let search = hamlet_ui::widgets::search::search(
         "Search models",
         search,
         |world, text| {
@@ -1263,9 +1268,10 @@ mod tests {
     use bevy::window::{PrimaryWindow, Window};
     use hamlet_client::outbox::Outbox;
     use hamlet_client::realm;
+    use hamlet_core::testing::press;
 
     use super::*;
-    use crate::testing::{panel_app, press};
+    use crate::testing::panel_app;
 
     /// The part the focus is in, and whether the focus is anywhere.
     fn focus_in(app: &mut App) -> Option<Part> {
@@ -1347,8 +1353,8 @@ mod tests {
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)
             .init_resource::<Shelf>()
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>();
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>();
         let listed = |name: &str| protocol::Listed {
             context: None,
             default_effort: Some(Effort::Medium),

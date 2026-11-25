@@ -22,10 +22,14 @@ use bevy_fynix::{ViewExt, component, derived, each, keyed};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
+use hamlet_core::age::Age;
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::pick::{TagAnswered, TagOpened};
+use hamlet_core::roll::{either, moved};
+use hamlet_core::standing::Standing;
 use hamlet_protocol::client::{
     Change, Lasting, Questions, RequestId, WaitDanger, WaitDetail,
 };
-use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Looks, bare, buttons, command_block, marked, marked_wrapping,
@@ -37,12 +41,9 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::age::Age;
 use crate::convo::{Convo, talk_at};
 use crate::hub::{Sheet, Showing};
-use crate::roll::{either, moved};
-use crate::standing::Standing;
-use crate::{PanelSystems, asking, chat};
+use crate::{asking, chat};
 
 /// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
@@ -125,7 +126,8 @@ pub(crate) struct Need {
 impl Need {
     pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
         let waited =
-            Age::of(crate::clock::now_ms(), waiting.since).short();
+            Age::of(hamlet_core::clock::now_ms(), waiting.since)
+                .short();
         Self {
             entity,
             detail: waiting.detail.clone(),

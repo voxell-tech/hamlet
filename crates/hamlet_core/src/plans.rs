@@ -10,12 +10,10 @@ use std::collections::HashSet;
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::observer::On;
-use bevy::ecs::query::Changed;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::time::Time;
 use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, percent,
     px,
@@ -41,12 +39,11 @@ use hamlet_ui::{AnyView, with_cx};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
-pub(crate) use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
-use crate::PanelSystems;
-use crate::hub::Showing;
+pub use self::reading::{CHATGPT_USAGE, Mood, Reading, Row};
 use crate::models::mark;
-use crate::settings::Pane;
-use crate::toasts::Toasts;
+use crate::panels::PanelSystems;
+use crate::settings::{ENDPOINTS, OpenSettings, SettingsPane};
+use crate::toasts::Toast;
 
 /// The width of a window's name before its bar, of what it used after
 /// it, and the gap between them.
@@ -79,11 +76,11 @@ pub fn plugin(app: &mut App) {
 /// Each signed-in provider that told its limits, as the chief reads
 /// them now.
 #[derive(Resource, Default, Clone, PartialEq)]
-pub struct Plans(pub(crate) Vec<Plan>);
+pub struct Plans(pub Vec<Plan>);
 
 /// A provider's plan and how it stands.
 #[derive(Clone, PartialEq)]
-pub(crate) struct Plan {
+pub struct Plan {
     pub provider: String,
     /// Its provider's name and the plan's, as "Claude · Max".
     pub title: String,
@@ -94,7 +91,7 @@ pub(crate) struct Plan {
 
 impl Plans {
     /// The plan of `provider`, once it told its limits.
-    pub(crate) fn of(&self, provider: &str) -> Option<&Plan> {
+    pub fn of(&self, provider: &str) -> Option<&Plan> {
         self.0.iter().find(|plan| plan.provider == provider)
     }
 }
@@ -103,29 +100,24 @@ impl Plans {
 #[derive(Resource, Default)]
 struct Asking(Option<RequestId>);
 
-/// Asks the server for the limits when a page that shows them opens,
-/// or the connection comes back while one is open: a Hub's realm
-/// page, or Settings' endpoints. The server reads a provider at most
-/// once a minute however often it is asked.
+/// Asks the server for the limits when Settings' endpoints page
+/// opens, or the connection comes back while it is open. The server
+/// reads a provider at most once a minute however often it is asked.
 fn ask(
-    turned: Query<(), Changed<Showing>>,
-    hubs: Query<&Showing>,
-    pane: Option<Res<Pane>>,
+    pane: Option<Res<SettingsPane>>,
     connection: Res<Connection>,
     mut commands: Commands,
 ) {
     let moved = connection.is_changed()
-        || !turned.is_empty()
         || pane.as_ref().is_some_and(DetectChanges::is_changed);
-    let shown = hubs.iter().any(|showing| *showing == Showing::Realm)
-        || pane.is_some_and(|pane| *pane == Pane::Endpoints);
+    let shown = pane.is_some_and(|pane| pane.0 == Some(ENDPOINTS));
     if moved && shown {
         commands.queue(check);
     }
 }
 
 /// Asks the server to read each signed-in provider's limits again.
-pub(crate) fn check(world: &mut World) {
+pub fn check(world: &mut World) {
     if world.resource::<Connection>().state != Contact::Connected
         || world.resource::<Asking>().0.is_some()
     {
@@ -191,16 +183,14 @@ fn follow(
 /// window, until it resets. What stood when the window began is not
 /// new.
 fn warn(
-    time: Res<Time>,
     plans: Res<Plans>,
-    mut toasts: ResMut<Toasts>,
+    mut commands: Commands,
     mut told: Local<HashSet<(String, String, i64)>>,
     mut primed: Local<bool>,
 ) {
     if !plans.is_changed() {
         return;
     }
-    let now = time.elapsed_secs();
     for plan in &plans.0 {
         let reading = &plan.reading;
         let near =
@@ -234,21 +224,24 @@ fn warn(
             key.1,
         );
         if told.insert(key) && *primed {
-            toasts.note(kind, head, reading.sentence.clone(), now);
+            commands.trigger(Toast {
+                kind,
+                head,
+                line: reading.sentence.clone(),
+            });
         }
     }
     *primed = true;
 }
 
 /// Opens `provider`'s limits under it in Settings' endpoints.
-pub(crate) fn open(world: &mut World) {
-    *world.resource_mut::<Pane>() = Pane::Endpoints;
-    crate::dock::show_tab(world, "settings");
+pub fn open(world: &mut World) {
+    world.trigger(OpenSettings(Some(ENDPOINTS)));
 }
 
 /// The colour of `mood`: green with plenty left, yellow with some,
 /// orange when low, red when used up, and none while unknown.
-pub(crate) fn status_of(mood: Mood) -> Option<StatusKind> {
+pub fn status_of(mood: Mood) -> Option<StatusKind> {
     match mood {
         Mood::Unknown => None,
         Mood::Plenty => Some(StatusKind::Success),
@@ -259,7 +252,7 @@ pub(crate) fn status_of(mood: Mood) -> Option<StatusKind> {
 }
 
 /// The status of a plan that needs the chief: low or used up.
-pub(crate) fn alert_of(mood: Mood) -> Option<StatusKind> {
+pub fn alert_of(mood: Mood) -> Option<StatusKind> {
     status_of(mood).filter(|_| mood >= Mood::Low)
 }
 
@@ -459,7 +452,7 @@ fn detail(plan: &Plan) -> AnyView {
 
 /// The limits of `provider` under its row in Settings, once it told
 /// them.
-pub(crate) fn of_provider(provider: String) -> AnyView {
+pub fn of_provider(provider: String) -> AnyView {
     keyed(
         resource::<Plans, _>(move |plans| {
             plans.of(&provider).cloned()
@@ -475,7 +468,7 @@ pub(crate) fn of_provider(provider: String) -> AnyView {
 
 /// The name of `provider`'s plan beside the provider's name in
 /// Settings, once it told it.
-pub(crate) fn plan_name(provider: String) -> AnyView {
+pub fn plan_name(provider: String) -> AnyView {
     keyed(
         resource::<Plans, _>(move |plans| {
             plans.of(&provider).and_then(|plan| plan.name.clone())
@@ -569,7 +562,7 @@ fn line(plan: &Plan) -> AnyView {
 /// The plans at a glance, for the Hub's realm page: one line each,
 /// drawn only while a subscription told its limits, with when the
 /// oldest of them was read.
-pub(crate) fn part() -> AnyView {
+pub fn part() -> AnyView {
     keyed(resource::<Plans, _>(glanced), |plans| {
         if plans.is_empty() {
             return frame().boxed();
@@ -585,7 +578,7 @@ pub(crate) fn part() -> AnyView {
                 .boxed();
         with_cx(move |cx| {
             let mut title = vec![
-                crate::screens::overview::part_title(
+                hamlet_ui::styles::part_title(
                     "Plans".into(),
                     Tone::Faint,
                 )
@@ -638,7 +631,7 @@ fn glanced(plans: &Plans) -> Vec<Plan> {
 /// Words for a reply the plan of the chat's model refused: what was
 /// used up and, where the provider says, when it lifts. None when the
 /// failure was not a plan's limit.
-pub(crate) fn refusal(
+pub fn refusal(
     world: &World,
     model: &str,
     error: &str,
@@ -676,90 +669,4 @@ pub(crate) fn refusal(
     } else {
         format!("{} stopped at a usage limit.", plan.title)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy_fynix::mount;
-    use hamlet_ui::theme::HamletTheme;
-    use serde_json::json;
-
-    use super::*;
-    use crate::testing::{all_words, panel_app, sent, settle};
-
-    /// The window on the realm's page, connected, with the provider
-    /// `claude` signed in.
-    fn realm_page() -> App {
-        let mut app = panel_app();
-        app.init_resource::<Toasts>().add_plugins(plugin);
-        app.world_mut().spawn(Showing::Realm);
-        app.world_mut().resource_mut::<Connection>().state =
-            Contact::Connected;
-        app.world_mut().resource_mut::<Providers>().0 =
-            vec![protocol::ProviderView {
-                configured: true,
-                id: "claude".into(),
-                label: "Sign in to Claude".into(),
-                limits: None,
-                methods: vec![protocol::LoginMethod::Subscription],
-                name: "Claude".into(),
-            }];
-        settle(&mut app);
-        app
-    }
-
-    fn told(app: &mut App, limits: serde_json::Value) {
-        let limits = serde_json::from_value(limits).unwrap();
-        app.world_mut().resource_mut::<Providers>().0[0].limits =
-            Some(limits);
-        settle(app);
-    }
-
-    fn toasted(app: &App) -> usize {
-        app.world().resource::<Toasts>().len()
-    }
-
-    #[test]
-    fn the_realm_page_asks_for_the_limits_and_toasts_a_refusal_once()
-    {
-        let mut app = realm_page();
-        // Mounted before any plan told its limits, as the page opens.
-        mount::<HamletTheme>(app.world_mut(), part());
-        let asked = sent(&mut app)
-            .into_iter()
-            .filter(|m| m["type"] == "check")
-            .collect::<Vec<_>>();
-        assert_eq!(asked.len(), 1, "{asked:?}");
-        assert_eq!(asked[0]["what"], "limits");
-
-        let now = Timestamp::now().as_millisecond();
-        let window = |used: f64| {
-            json!({"id": "five_hour", "name": "Session", "length": 300,
-                   "used": used, "resets": now + 3_600_000})
-        };
-        told(
-            &mut app,
-            json!({"checked": now, "plan": "Max", "state": "ok",
-                   "windows": [window(46.0)]}),
-        );
-        let shown = all_words(&mut app);
-        for text in ["Plans", "Claude · Max", "Session", "54% left"]
-        {
-            assert!(shown.contains(text), "{shown}");
-        }
-        assert_eq!(toasted(&app), 0);
-
-        // A refusal is toasted once, however often it is told again.
-        let refused = json!({"checked": now, "plan": "Max",
-            "state": "refused", "windows": [window(100.0)]});
-        told(&mut app, refused.clone());
-        assert_eq!(toasted(&app), 1);
-        told(
-            &mut app,
-            json!({"checked": now + 1, "plan": "Max",
-            "state": "refused", "windows": [window(100.0)]}),
-        );
-        assert_eq!(toasted(&app), 1);
-        assert!(all_words(&mut app).contains("0% left"));
-    }
 }

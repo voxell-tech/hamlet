@@ -32,8 +32,8 @@ use bevy_fynix::{
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::realm::Kind;
+use hamlet_core::drops::FileDrop;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::hand::FileDrop;
 use hamlet_ui::styles::{
     Fills, Looks, Tipped, lettered, note, quiet_text_button,
     small_rules,
@@ -610,7 +610,10 @@ fn working<B: Board>(hub: Entity, key: RowKey) -> impl View {
         match start {
             Some(start) if start > 0 => format!(
                 " for {}",
-                lasted(crate::clock::now_ms().saturating_sub(start))
+                lasted(
+                    hamlet_core::clock::now_ms()
+                        .saturating_sub(start)
+                )
             ),
             _ => String::new(),
         }

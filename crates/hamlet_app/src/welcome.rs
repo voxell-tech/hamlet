@@ -18,11 +18,12 @@ use hamlet_client::connection::Contact;
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Seen, Settings};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_protocol::client as protocol;
 
 pub use self::pages::view;
-pub use self::providers::{Browser, search};
-use crate::PanelSystems;
+pub use self::providers::search;
 
 /// What the local-model search says when nothing answered.
 pub const NOTHING_LOCAL: &str = "Nothing answered yet. Install \
@@ -35,12 +36,19 @@ const LOCAL: (&str, &str) = ("local", "http://localhost:11434/v1");
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Welcome>()
         .init_resource::<Committing>()
-        .init_resource::<Browser>()
         .init_resource::<providers::Login>()
         .add_observer(answered)
         .add_observer(|_: On<Reconnected>, mut commands: Commands| {
             commands.queue(providers::reconnected);
         })
+        .add_observer(
+            |open: On<OpenWelcome>, mut commands: Commands| {
+                commands.queue(match *open {
+                    OpenWelcome::Again => again,
+                    OpenWelcome::AddProvider => add,
+                });
+            },
+        )
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
         .add_plugins((key_plugin, projects::plugin))
         // After the field's text is committed, so it replies this
@@ -412,9 +420,9 @@ fn answered(response: On<Response>, mut commands: Commands) {
                 let local =
                     world.resource::<Welcome>().step == Step::Local;
                 // The rows read prices from the newest catalogue.
-                if let Some(mut shelf) =
-                    world.get_resource_mut::<crate::models::Shelf>()
-                {
+                if let Some(mut shelf) = world
+                    .get_resource_mut::<hamlet_core::models::Shelf>(
+                ) {
                     shelf.models.clone_from(&models);
                 }
                 let endpoints =
@@ -449,10 +457,10 @@ fn answered(response: On<Response>, mut commands: Commands) {
                             .into()
                     });
                 } else if welcome.adding {
-                    if let Some(mut pane) = world
-                        .get_resource_mut::<crate::settings::Pane>()
-                    {
-                        *pane = crate::settings::Pane::Models;
+                    if let Some(mut pane) = world.get_resource_mut::<
+                        hamlet_core::settings::SettingsPane,
+                    >() {
+                        pane.0 = Some(hamlet_core::settings::MODELS);
                     }
                     close(world);
                 } else {
@@ -547,14 +555,14 @@ mod server_tests {
     use bevy::ecs::query::With;
     use bevy::text::EditableText;
     use bevy_fynix::mount;
+    use hamlet_core::testing::{
+        all_words, connect, incoming, press, press_and_update, sent,
+    };
     use hamlet_protocol::client as protocol;
     use hamlet_ui::theme::HamletTheme;
 
     use super::*;
-    use crate::testing::{
-        all_words, connect, incoming, press, press_and_update, sent,
-        welcome_app,
-    };
+    use crate::testing::welcome_app;
 
     #[test]
     fn a_later_state_does_not_reopen_the_welcome_page() {
@@ -686,11 +694,11 @@ mod server_tests {
     fn login_urls_open_only_https_or_loopback_http_and_always_show_the_steps_words()
      {
         let mut app = welcome_app();
-        app.init_resource::<Opened>().insert_resource(Browser(
-            |world, url| {
+        app.init_resource::<Opened>().insert_resource(
+            hamlet_core::browser::Browser(|world, url| {
                 world.resource_mut::<Opened>().0.push(url.into());
-            },
-        ));
+            }),
+        );
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());

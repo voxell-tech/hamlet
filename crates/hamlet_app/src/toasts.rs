@@ -36,6 +36,11 @@ use hamlet_client::realm::{
     Shown, name_of,
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
+use hamlet_core::models::{Shelf, model_title};
+use hamlet_core::panels::{PanelSystems, is_in_front};
+use hamlet_core::standing::Standing;
+use hamlet_core::toasts::WatchRequest;
+use hamlet_core::welcome::OpenWelcome;
 use hamlet_protocol::client::{
     AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
     Setup, SetupCause, WaitDetail,
@@ -48,12 +53,10 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
+use crate::chat;
 use crate::hub::{Hub, Sheet, Showing};
-use crate::models::{Shelf, model_title};
 use crate::screens::wait::{self, ChatWaits, Need, answers};
-use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
-use crate::{PanelSystems, chat};
 
 /// The most toasts kept at once.
 const MOST: usize = 5;
@@ -82,6 +85,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(answered)
         .add_observer(failed)
         .add_observer(responded)
+        .add_observer(watched)
+        .add_observer(toasted)
         .add_systems(
             PreUpdate,
             (raise, judged, keep.after(wait::follow), settle)
@@ -269,12 +274,6 @@ impl Toasts {
             .retain(|toast| !matches!(toast.what, What::Update(_)));
     }
 
-    /// How many toasts are on show.
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.shown.len()
-    }
-
     /// The [`Place`] of toast `id` in the stack.
     fn place(&self, id: u64) -> Place {
         let Some(at) =
@@ -437,25 +436,21 @@ fn failed(
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashMap<RequestId, Option<String>>);
 
-/// Watches the request `id`, so that its rejection is toasted.
-pub(crate) fn watch(world: &mut World, id: RequestId) {
-    decree(world, id, None);
+fn watched(watch: On<WatchRequest>, mut decreed: ResMut<Decreed>) {
+    decreed.0.insert(watch.request.clone(), watch.head.clone());
 }
 
-/// Watches the request `id`, toasting its response under `head`.
-pub(crate) fn announce(
-    world: &mut World,
-    id: RequestId,
-    head: impl Into<String>,
+fn toasted(
+    toast: On<hamlet_core::toasts::Toast>,
+    time: Res<Time>,
+    mut toasts: ResMut<Toasts>,
 ) {
-    decree(world, id, Some(head.into()));
-}
-
-fn decree(world: &mut World, id: RequestId, head: Option<String>) {
-    // A window drawn without toasts watches nothing.
-    if let Some(mut decreed) = world.get_resource_mut::<Decreed>() {
-        decreed.0.insert(id, head);
-    }
+    toasts.note(
+        toast.kind,
+        toast.head.clone(),
+        toast.line.clone(),
+        time.elapsed_secs(),
+    );
 }
 
 /// Toasts the response to a watched command.
@@ -523,9 +518,9 @@ fn keep(
             *showing == Showing::Thread
                 && sheet != Some(&Sheet::Details)
                 && waits.holds(wait)
-                && tree.as_ref().is_none_or(|tree| {
-                    crate::dock::is_in_front(tree, &hub.0)
-                })
+                && tree
+                    .as_ref()
+                    .is_none_or(|tree| is_in_front(tree, &hub.0))
         })
     };
     let mut next = toasts.shown.clone();
@@ -737,7 +732,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 let buttons = buttons(vec![
                     action(Glyph::Chip, "Set Up Models", |world| {
-                        crate::welcome::again(world);
+                        world.trigger(OpenWelcome::Again);
                     }),
                     action(
                         Glyph::Cross,

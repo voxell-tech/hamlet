@@ -25,11 +25,13 @@ use hamlet_ui::styles::{
     Fills, action, bad_action, bare, beside, close, description,
     good_action, group, list, note, pill,
 };
+use hamlet_ui::widgets::forms::{self, Asking, OpenForm};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View};
 
-use crate::forms::{self, Asking, OpenForm};
+const SERVER: Asking = Asking::named("mcp-server");
+const PASTE: Asking = Asking::named("mcp-paste");
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<McpPage>()
@@ -157,7 +159,7 @@ pub(crate) fn page() -> impl View {
         |(editing, filled)| {
             let editing = editing.clone();
             forms::filled_form(
-                Asking::McpServer,
+                SERVER,
                 if editing.is_some() {
                     "Change the server."
                 } else {
@@ -176,7 +178,7 @@ pub(crate) fn page() -> impl View {
     )
     .within(bare());
     let paste = forms::form(
-        Asking::McpPaste,
+        PASTE,
         "The address your browser ended on.",
         &[("Address", "")],
         "Sign In",
@@ -242,7 +244,7 @@ fn open(
     let mut page = world.resource_mut::<McpPage>();
     page.editing = editing;
     page.filled = filled;
-    world.resource_mut::<OpenForm>().0 = Some(Asking::McpServer);
+    world.resource_mut::<OpenForm>().0 = Some(SERVER);
 }
 
 /// One server: its name, how it is, its tools, and what a chief does
@@ -368,8 +370,7 @@ fn sign_in(name: &str, address: Option<&str>) -> AnyView {
             action(Glyph::Notes, "Paste Address", move |world| {
                 world.resource_mut::<McpPage>().pasting =
                     Some(name.clone());
-                world.resource_mut::<OpenForm>().0 =
-                    Some(Asking::McpPaste);
+                world.resource_mut::<OpenForm>().0 = Some(PASTE);
             }),
         ))
         .gap(8.0),
@@ -379,9 +380,9 @@ fn sign_in(name: &str, address: Option<&str>) -> AnyView {
 
 /// Opens `address` in the chief's browser, when it is a web page.
 fn browse(world: &mut World, address: &str) {
-    if crate::welcome::providers::is_browsable(address) {
+    if hamlet_core::browser::is_browsable(address) {
         let browse =
-            world.resource::<crate::welcome::providers::Browser>().0;
+            world.resource::<hamlet_core::browser::Browser>().0;
         browse(world, address);
     }
 }

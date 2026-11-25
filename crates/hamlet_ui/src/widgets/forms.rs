@@ -1,7 +1,8 @@
-//! A small form for a chief's command that takes words: labelled
-//! fields over a button that sends what was typed. One form is open
-//! at a time, keyed by what it is for.
+//! A small form that takes words: labelled fields over a button that
+//! sends what was typed. One form is open at a time, keyed by what it
+//! is for.
 
+use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -14,36 +15,51 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, label, row, text_field,
 };
 use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
-use hamlet_ui::styles::{
-    self, Looks, bare, lettered, note, text_input,
-};
-use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::{AnyView, with_cx};
+
+use crate::styles::{self, Looks, bare, lettered, note, text_input};
+use crate::widgets::effects::Variant;
+use crate::{AnyView, with_cx};
+
+pub fn plugin(app: &mut App) {
+    app.init_resource::<OpenForm>();
+}
 
 /// The width of a field's label, so the fields line up.
 const LABEL: f32 = 90.0;
 
-/// What the open form is for.
+/// What the open form is for: the name its panel gives it, and the
+/// entity it is about, if any.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Asking {
-    /// Starting a worker in this hamlet.
-    Worker(Entity),
-    /// Adding an MCP server, or changing one.
-    McpServer,
-    /// The address a sign-in to an MCP server ended on.
-    McpPaste,
+pub struct Asking {
+    pub what: &'static str,
+    pub about: Option<Entity>,
+}
+
+impl Asking {
+    /// A form about nothing in particular.
+    pub const fn named(what: &'static str) -> Self {
+        Self { what, about: None }
+    }
+
+    /// A form about `entity`.
+    pub const fn about(what: &'static str, entity: Entity) -> Self {
+        Self {
+            what,
+            about: Some(entity),
+        }
+    }
 }
 
 /// The form that is open, if one is.
 #[derive(Resource, Default, PartialEq)]
-pub(crate) struct OpenForm(pub Option<Asking>);
+pub struct OpenForm(pub Option<Asking>);
 
 /// The field at a place in the open form.
 #[derive(Component)]
 struct Field(usize);
 
 /// Opens the form for `asking`, or closes it when it is open.
-pub(crate) fn toggle(world: &mut World, asking: Asking) {
+pub fn toggle(world: &mut World, asking: Asking) {
     let mut open = world.resource_mut::<OpenForm>();
     open.0 = if open.0 == Some(asking) {
         None
@@ -80,7 +96,7 @@ fn values(world: &mut World) -> Vec<String> {
 /// over `fields`, each a label and what to type in it, and `go`
 /// naming the button. `send` sends the command of what was typed and
 /// returns whether it did; the form closes once it has.
-pub(crate) fn form(
+pub fn form(
     asking: Asking,
     says: &'static str,
     fields: &'static [(&'static str, &'static str)],
@@ -95,7 +111,7 @@ pub(crate) fn form(
 }
 
 /// The form of [`form`], its fields holding `filled` as it opens.
-pub(crate) fn filled_form(
+pub fn filled_form(
     asking: Asking,
     says: &'static str,
     fields: &'static [(&'static str, &'static str)],

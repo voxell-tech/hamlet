@@ -22,6 +22,7 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::{Answer, Answered};
 use hamlet_client::waits::{Choice, Rejected, Waiting};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client::{Offer, Pick, Questions, RequestId};
 use hamlet_ui::styles::{
     Fills, Looks, bare, marked, note, note_rules, small_rules,
@@ -31,8 +32,6 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
-
-use crate::PanelSystems;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
@@ -453,11 +452,12 @@ mod tests {
     use bevy::text::EditableText;
     use hamlet_client::chats::Chat;
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::{press, words};
     use hamlet_protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{panel_app, press, words};
+    use crate::testing::panel_app;
 
     #[test]
     fn the_chat_shows_its_oldest_request_and_sends_its_response() {

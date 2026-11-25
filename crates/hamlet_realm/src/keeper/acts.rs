@@ -10,6 +10,8 @@ mod plain;
 
 use std::f32::consts::{PI, TAU};
 
+use hamlet_core::sound::Sound;
+
 use self::chores::{
     celebrate, crank, done, hammer, kite, lift, oops, read, recall,
     stow, tend, think, write,
@@ -25,7 +27,6 @@ use self::plain::{
 use super::KeeperState;
 use super::pose::{Pose, dice};
 use super::work::RING_EVERY;
-use crate::sound::Sound;
 
 /// One motion a robot can play.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -33,6 +33,7 @@ use bevy_fynix::{
 };
 use hamlet_client::realm;
 use hamlet_client::terminals::{self, Terminal, TerminalKind};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::client::{AgentId, AgentKind};
 use hamlet_ui::styles::{
     Fills, ICON, caption, close_button, hairline, link_row, note,
@@ -44,7 +45,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::resize::NARROWEST;
 use super::{Folds, Handing, PanelId, Panels, Pins, activate};
-use crate::PanelSystems;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Listed>()

@@ -4,8 +4,9 @@
 use bevy::prelude::*;
 use hamlet_client::messages::{Answer, Veto};
 use hamlet_client::waits::Choice;
+use hamlet_core::sound::{Cue, Sound};
 
-use super::{Cue, Sound};
+use super::kinds;
 use crate::DayPart;
 use crate::play::Played;
 
@@ -19,7 +20,7 @@ pub(super) fn hear_hand(
     for played in played.read() {
         *turn = turn.wrapping_add(1);
         cues.write(Cue {
-            sound: Sound::played(played.what),
+            sound: kinds::played(played.what),
             at: played.at,
             turn: *turn,
         });

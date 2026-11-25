@@ -46,12 +46,14 @@ use hamlet_client::files::{
 };
 use hamlet_client::images::{ImageKept, ImageRejected, Upload};
 use hamlet_client::realm::Account;
+use hamlet_core::drops::FileDropped;
+use hamlet_core::models::Shelf;
+use hamlet_core::roll::{either, moved};
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
 use hamlet_protocol::client::{
     AttachedFile, AttachedImage, ImageId, ImageInput,
 };
-use hamlet_realm::hand::FileDropped;
 use hamlet_ui::markdown::ATOM;
 use hamlet_ui::styles::{
     ICON, Looks, Tipped, bare, close_button, note,
@@ -67,9 +69,7 @@ use tokio::sync::mpsc::{
 
 use super::ChatField;
 use crate::convo;
-use crate::models::Shelf;
 use crate::pictures::{Drawn, Pictures, Source, State, want};
-use crate::roll::{either, moved};
 use crate::screens::viewer;
 
 /// How high Bevy lays out a line of text, in its font size.

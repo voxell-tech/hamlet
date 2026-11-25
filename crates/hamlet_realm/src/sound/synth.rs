@@ -9,7 +9,8 @@ mod panel;
 
 use std::f32::consts::{PI, TAU};
 
-use super::Sound;
+use hamlet_core::sound::Sound;
+
 pub(super) use crate::meshes::hump;
 
 /// Samples per second of every clip.

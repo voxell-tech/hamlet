@@ -594,6 +594,49 @@ pub fn raised(mark: impl View + 'static) -> impl View + FrameProps {
     row((mark,)).padding(UiRect::bottom(px(2.0)))
 }
 
+/// A heading over a part of a panel, behind its icon.
+pub fn heading(which: Glyph, text: impl Into<String>) -> AnyView {
+    let text = text.into();
+    with_cx(move |cx| {
+        row((
+            raised(glyph(which, ICON).tone(Tone::Dim)),
+            label(text.clone())
+                .size(cx.theme().text.heading)
+                .bold(true)
+                .wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// A [`heading`] with `end` at the far end of its line.
+pub fn heading_line(
+    which: Glyph,
+    text: &'static str,
+    end: AnyView,
+) -> AnyView {
+    with_cx(move |cx| {
+        row((heading(which, text), frame().grow(1.0), end))
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
+    })
+    .boxed()
+}
+
+/// The title of a part of a list, as a panel's rail heads its parts.
+pub fn part_title(text: String, tone: Tone) -> impl View {
+    with_cx(move |cx| {
+        label(text.clone())
+            .size(cx.theme().text.heading)
+            .bold(true)
+            .tone(tone)
+            .wrap(false)
+    })
+}
+
 /// An icon before `words`.
 pub fn headed(
     mark: impl View + 'static,

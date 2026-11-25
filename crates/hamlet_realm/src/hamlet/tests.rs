@@ -618,10 +618,10 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
 #[test]
 fn an_agent_housed_after_the_first_state_crosses_by_boat() {
     use bevy::transform::TransformPlugin;
+    use hamlet_core::pick::Following;
 
     use super::crossing::Voyage;
     use crate::harbor::ferry::Ferry;
-    use crate::pick::Following;
 
     let mut app = App::new();
     testing::rehearse(&mut app);

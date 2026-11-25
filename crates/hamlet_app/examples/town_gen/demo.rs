@@ -1,10 +1,11 @@
 //! A town at work with nobody at the keys.
 
 use bevy::prelude::*;
+use hamlet_core::sound::{Cue, Sound};
 use hamlet_realm::generator::Trips;
 use hamlet_realm::generator::society::Society;
 use hamlet_realm::keeper::KeeperState;
-use hamlet_realm::sound::{Cue, Hearing, Sound};
+use hamlet_realm::sound::Hearing;
 
 /// With TOWN_DEMO set to a number of seconds: a town at work with
 /// nobody at the keys, and what is heard printed each second.

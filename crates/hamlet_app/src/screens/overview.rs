@@ -13,9 +13,7 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Display, InteractionDisabled, percent, px,
-};
+use bevy::ui::{AlignItems, Display, InteractionDisabled, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
@@ -31,14 +29,16 @@ use hamlet_client::realm::{
     Treasury,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::pick::{CrossHarbor, Thing};
+use hamlet_core::standing::{Standing, need_you};
+use hamlet_core::toasts::WatchRequest;
+use hamlet_core::words;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::harbor::glide_to_other_pier;
-use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, card_button,
-    card_name, close, group, note, raised, scroll_area, small_rules,
-    title,
+    card_name, close, group, note, part_title, scroll_area,
+    small_rules, title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::{Variant, lit_panels};
@@ -52,67 +52,20 @@ pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
-use crate::standing::{Standing, need_you};
 use crate::wait::Queue;
-use crate::{chat, words, world_menu};
+use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((record::plugin, crate::naming::plugin))
         .init_resource::<Erasing>()
-        // Its plans part reads them, filled by `plans::plugin`.
-        .init_resource::<crate::plans::Plans>()
+        // Its plans part reads them, filled by
+        // `hamlet_core::plans::plugin`.
+        .init_resource::<hamlet_core::plans::Plans>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
-        .init_resource::<crate::forms::OpenForm>()
         .add_systems(Update, tabs::mark_on::<Page>);
-}
-
-/// A heading over a part of the panel, behind its icon.
-pub(crate) fn heading(
-    which: Glyph,
-    text: impl Into<String>,
-) -> AnyView {
-    let text = text.into();
-    with_cx(move |cx| {
-        row((
-            raised(glyph(which, ICON).tone(Tone::Dim)),
-            label(text.clone())
-                .size(cx.theme().text.heading)
-                .bold(true)
-                .wrap(false),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-    })
-    .boxed()
-}
-
-/// A [`heading`] with `end` at the far end of its line.
-pub(crate) fn heading_line(
-    which: Glyph,
-    text: &'static str,
-    end: AnyView,
-) -> AnyView {
-    with_cx(move |cx| {
-        row((heading(which, text), frame().grow(1.0), end))
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::Center)
-            .width(percent(100.0))
-    })
-    .boxed()
-}
-
-/// The title of a part of a list, as the rail heads its parts.
-pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
-    with_cx(move |cx| {
-        label(text.clone())
-            .size(cx.theme().text.heading)
-            .bold(true)
-            .tone(tone)
-            .wrap(false)
-    })
 }
 
 /// A [`part_title`] with its count.
@@ -152,9 +105,11 @@ pub fn overview(hub: Entity) -> impl View {
                 )
                 .tooltip(|| note(words::HEARTH))
                 .boxed(),
-                action(Glyph::Anchor, "Harbor", glide_to_other_pier)
-                    .tooltip(|| note("Cross to the other island"))
-                    .boxed(),
+                action(Glyph::Anchor, "Harbor", |world| {
+                    world.trigger(CrossHarbor);
+                })
+                .tooltip(|| note("Cross to the other island"))
+                .boxed(),
                 action(
                     Glyph::Profile,
                     "New Profile",
@@ -164,7 +119,7 @@ pub fn overview(hub: Entity) -> impl View {
                 .boxed(),
             ]),
             scroll_area((column((
-                crate::plans::part(),
+                hamlet_core::plans::part(),
                 needs(),
                 hamlets(hub),
                 closed(hub),
@@ -259,11 +214,10 @@ fn stop_all() -> AnyView {
         |&any| {
             let stop = bad_action(Glyph::Stop, "Stop All", |world| {
                 let request = RequestId::new();
-                crate::toasts::announce(
-                    world,
-                    request.clone(),
-                    "Stopped every agent",
-                );
+                world.trigger(WatchRequest {
+                    request: request.clone(),
+                    head: Some("Stopped every agent".into()),
+                });
                 world.trigger(Veto {
                     request,
                     agent: None,
@@ -735,28 +689,18 @@ fn closed(hub: Entity) -> AnyView {
     .boxed()
 }
 
-/// Gives a chief's command to `hamlet`, whoever the chat is with.
-pub(crate) fn tell(world: &mut World, hamlet: Entity, text: String) {
-    let Some(name) =
-        world.get::<HamletId>(hamlet).map(|id| id.0.clone())
-    else {
-        return;
-    };
-    chat::decree(world, &name, text);
-}
-
 #[cfg(test)]
 mod tests {
+    use hamlet_core::testing::words;
     use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::testing::{panel_app, words};
+    use crate::testing::panel_app;
 
     #[test]
     fn closed_hamlets_restore_and_need_confirmation_to_erase() {
         use hamlet_client::outbox::Outbox;
-
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
@@ -805,7 +749,7 @@ mod tests {
     #[test]
     fn restoring_or_leaving_the_closed_list_disarms_permanent_deletion()
      {
-        use crate::testing::press;
+        use hamlet_core::testing::press;
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();

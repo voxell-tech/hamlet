@@ -49,9 +49,11 @@ use hamlet_client::messages::{
     Withdraw,
 };
 use hamlet_client::realm as agents;
+use hamlet_core::drops::FileDrop;
+use hamlet_core::orders::{Decree, Tell};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::hand::FileDrop;
-use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::markdown::{Inks, marks};
 use hamlet_ui::styles::{ICON, Looks, Tipped, note, text_input};
 use hamlet_ui::theme::HamletTheme;
@@ -72,7 +74,7 @@ pub use self::lines::{
 pub(crate) use self::lines::{close_merged, keep_merged};
 use self::lines::{remember_place, restore_place};
 pub use self::rewind::{Rewinds, ask as ask_rewind, rewind_to};
-use crate::{PanelSystems, convo};
+use crate::convo;
 
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;
@@ -87,8 +89,9 @@ const FIELD_LEAST: f32 = 150.0;
 const MOST_LINES: usize = 8;
 
 pub fn plugin(app: &mut App) {
-    // A reply its plan refused reads them, filled by `plans::plugin`.
-    app.init_resource::<crate::plans::Plans>()
+    // A reply its plan refused reads them, filled by
+    // `hamlet_core::plans::plugin`.
+    app.init_resource::<hamlet_core::plans::Plans>()
         .init_resource::<Requests>()
         .init_resource::<ChatSettings>()
         .init_resource::<Changes>()
@@ -480,7 +483,10 @@ pub(crate) fn command(world: &mut World, text: String) {
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
         let message = ChiefMessage::words(to, text);
-        crate::toasts::watch(world, message.request.clone());
+        world.trigger(WatchRequest {
+            request: message.request.clone(),
+            head: None,
+        });
         world.trigger(message);
     }
 }
@@ -781,7 +787,7 @@ mod tests {
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy_fynix::views::RichField;
     use hamlet_client::outbox::Outbox;
-    use hamlet_realm::sound::Cue;
+    use hamlet_core::sound::Cue;
 
     use super::*;
     use crate::testing::convo;
@@ -1013,7 +1019,7 @@ mod tests {
         app.update();
         assert_eq!(typed(&app, input), "Digital, please.");
         assert!(
-            crate::testing::words(&mut app)
+            hamlet_core::testing::words(&mut app)
                 .iter()
                 .any(|text| text.starts_with("Replying to "))
         );
@@ -1134,7 +1140,7 @@ mod tests {
             });
             app.update();
             assert!(
-                crate::testing::words(&mut app)
+                hamlet_core::testing::words(&mut app)
                     .iter()
                     .any(|text| text == UNLISTED)
             );
@@ -1655,7 +1661,7 @@ mod tests {
         );
         assert_eq!(header(&mut app), None);
         assert!(
-            crate::testing::words(&mut app)
+            hamlet_core::testing::words(&mut app)
                 .iter()
                 .any(|w| w.starts_with("Worked"))
         );

@@ -7,8 +7,7 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
 /// Where ChatGPT shows a plan's use, and Hamlet's share of it.
-pub(crate) const CHATGPT_USAGE: &str =
-    "https://chatgpt.com/settings/usage";
+pub const CHATGPT_USAGE: &str = "https://chatgpt.com/settings/usage";
 
 /// How far into a window the pace is read from, and how much must be
 /// used: before then a few early calls say little of the rest.
@@ -26,7 +25,7 @@ const SOME: f64 = 25.0;
 /// How a plan, or one of its windows, stands, from least to most in
 /// need of the chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Mood {
+pub enum Mood {
     /// The provider does not say how much is used.
     Unknown,
     /// More than half is left, and it lasts at this pace.
@@ -42,7 +41,7 @@ pub(crate) enum Mood {
 
 /// One window as a row shows it.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Row {
+pub struct Row {
     pub id: String,
     pub name: String,
     /// How much is left, from 0 to 1, where the provider says.
@@ -71,7 +70,7 @@ pub(crate) struct Row {
 
 /// A provider's limits as the chief reads them.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Reading {
+pub struct Reading {
     pub mood: Mood,
     /// What needs the chief, or what stands in for windows the
     /// provider does not tell; empty while every window is fine.
@@ -92,7 +91,7 @@ pub(crate) struct Reading {
 
 /// What `provider`'s `limits` say at `now`, in milliseconds since
 /// the epoch, with times in `zone`.
-pub(crate) fn read(
+pub fn read(
     provider: &str,
     limits: &protocol::ProviderLimits,
     now: i64,
@@ -389,7 +388,7 @@ fn capital(words: &str) -> String {
 
 /// When `at` comes, nearest first: "in 2 h 26 m (16:40)" within a
 /// day, else "Thu 20:00 (in 4 d 7 h)".
-pub(crate) fn until(at: i64, now: i64, zone: &TimeZone) -> String {
+pub fn until(at: i64, now: i64, zone: &TimeZone) -> String {
     let (when, wait) = (clock(at, now, zone), span(at - now));
     if at - now < 86_400_000 {
         format!("in {wait} ({when})")
@@ -400,7 +399,7 @@ pub(crate) fn until(at: i64, now: i64, zone: &TimeZone) -> String {
 
 /// `at` as a clock time in `zone`: "16:40" today, "Fri 09:10" within
 /// the week, "4 Mar 09:10" further.
-pub(crate) fn clock(at: i64, now: i64, zone: &TimeZone) -> String {
+pub fn clock(at: i64, now: i64, zone: &TimeZone) -> String {
     let local = |ms: i64| {
         Timestamp::from_millisecond(ms)
             .unwrap_or_default()
@@ -419,7 +418,7 @@ pub(crate) fn clock(at: i64, now: i64, zone: &TimeZone) -> String {
 
 /// A span of time as a person says it: "2 h 26 m", "2 d 8 h",
 /// "under a minute".
-pub(crate) fn span(ms: i64) -> String {
+pub fn span(ms: i64) -> String {
     let minutes = ms.max(0) / 60_000;
     let (days, hours, minutes) =
         (minutes / 1_440, minutes / 60 % 24, minutes % 60);
@@ -434,7 +433,7 @@ pub(crate) fn span(ms: i64) -> String {
 }
 
 /// How long ago `ms` was: "just now", "2 min ago".
-pub(crate) fn ago(ms: i64) -> String {
+pub fn ago(ms: i64) -> String {
     match ms / 60_000 {
         ..1 => "just now".into(),
         m if m < 60 => format!("{m} min ago"),

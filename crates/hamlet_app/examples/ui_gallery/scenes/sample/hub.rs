@@ -230,7 +230,7 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
 /// The first Hub's chat with most of a 200k context held, and
 /// `compacting` it.
 fn measure(world: &mut World, compacting: bool) {
-    world.resource_mut::<hamlet_app::models::Shelf>().models =
+    world.resource_mut::<hamlet_core::models::Shelf>().models =
         catalogue();
     let agent = agent(world);
     if let Some(mut account) =
@@ -265,7 +265,7 @@ pub(in crate::scenes) fn open_context(
 }
 
 fn offer_models(world: &mut World) {
-    world.resource_mut::<hamlet_app::models::Shelf>().models =
+    world.resource_mut::<hamlet_core::models::Shelf>().models =
         catalogue();
     let agent = agent(world);
     if let Some(mut account) =

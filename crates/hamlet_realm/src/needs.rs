@@ -10,9 +10,10 @@ use bevy::ui::UiSystems;
 use hamlet_assets::tint;
 use hamlet_client::realm::Lead;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
+use hamlet_core::pick::{TagAnswered, TagOpened, Thing};
 
 use super::label::{self, Lens};
-use super::pick::{Footprint, Named, Pressable, Thing};
+use super::pick::{Footprint, Named, Pressable};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<TagSettings>()
@@ -47,21 +48,6 @@ pub struct TagSettings {
     pub width: f32,
     /// Height a tag hangs above the roof, in pixels.
     pub lift: f32,
-}
-
-/// The chief answered a tag with its check or its cross.
-#[derive(EntityEvent, Clone, Copy, Debug)]
-pub struct TagAnswered {
-    #[event_target]
-    pub item: Entity,
-    pub agree: bool,
-}
-
-/// The chief clicked a tag's paper, to read it in full.
-#[derive(EntityEvent, Clone, Copy, Debug)]
-pub struct TagOpened {
-    #[event_target]
-    pub item: Entity,
 }
 
 /// The side of the tail under a tag, before it is turned to a point.

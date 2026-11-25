@@ -17,13 +17,12 @@ use bevy::light::{
 use bevy::pbr::ExtendedMaterial;
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::prelude::*;
+use hamlet_core::pick::Thing;
 use hamlet_realm::keeper::{self, KeeperState, Kit, Who};
 use hamlet_realm::lantern::lantern_glass;
 use hamlet_realm::needs::TagSettings;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{
-    self, Glide, PickSettings, Thing, hit_box, watch,
-};
+use hamlet_realm::pick::{self, Glide, PickSettings, hit_box, watch};
 use hamlet_realm::sky::{self, CameraSettings, Looks, Sun};
 use hamlet_realm::{Clock, Sky, Step, Stock, WorldCamera};
 use hamlet_vfx::inlay::{self, InlayExt, InlayMaterial, InlayState};

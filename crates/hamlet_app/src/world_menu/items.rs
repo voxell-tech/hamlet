@@ -13,10 +13,10 @@ use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left, LivesIn,
 };
+use hamlet_core::orders::{self, CarryHouse, CarryLibrary};
+use hamlet_core::pick::{Also, FocusOn, Selected, Thing, select};
+use hamlet_core::toasts::WatchRequest;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::generator::society::Ground;
-use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
-use hamlet_realm::{moving, orders};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
@@ -174,7 +174,7 @@ fn make_profile(world: &World, agent: Entity) -> Option<AnyView> {
 
 fn focus(thing: Thing) -> AnyView {
     item(Glyph::Aim, Tone::Dim, "Focus", move |w| {
-        focus_on(w, thing, false);
+        w.trigger(FocusOn { thing, stay: false });
     })
 }
 
@@ -224,7 +224,10 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
 fn stop_item(agent: Entity, head: String) -> AnyView {
     item(Glyph::Stop, Tone::Warning, "Stop", move |w| {
         let request = stop(w, agent);
-        crate::toasts::announce(w, request, head.clone());
+        w.trigger(WatchRequest {
+            request,
+            head: Some(head.clone()),
+        });
     })
 }
 
@@ -233,11 +236,10 @@ fn for_lead(world: &World) -> Vec<AnyView> {
         vec![item(Glyph::Stop, Tone::Warning, "Stop", |w| {
             if let Some(lead) = agents::first_lead(w) {
                 let request = stop(w, lead);
-                crate::toasts::announce(
-                    w,
+                w.trigger(WatchRequest {
                     request,
-                    "Stopped the Lead",
-                );
+                    head: Some("Stopped the Lead".into()),
+                });
             }
         })];
     if let Some(lead) = agents::first_lead(world) {
@@ -457,7 +459,10 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
             Tone::Warning,
             "Go to the Hearth",
             move |w| {
-                focus_on(w, home, false);
+                w.trigger(FocusOn {
+                    thing: home,
+                    stay: false,
+                });
             },
         ),
         item(
@@ -473,7 +478,7 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
         item(Glyph::Move, Tone::Dim, "Move", |w| {
-            moving::pick_up(w, Ground::Library);
+            w.trigger(CarryLibrary);
         }),
     ]
 }
@@ -533,7 +538,7 @@ pub(super) fn items(
                     Tone::Dim,
                     "Move",
                     move |w| {
-                        orders::carry_house(w, profile);
+                        w.trigger(CarryHouse(profile));
                     },
                 ));
             }

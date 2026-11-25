@@ -32,7 +32,7 @@ const PAD: f32 = 8.0;
 const GAP: f32 = 8.0;
 
 /// A model as a row shows it.
-pub(crate) struct ModelRow {
+pub struct ModelRow {
     /// Its name in the catalogue, `provider::id`.
     pub name: String,
     /// Checked: the model in use.
@@ -47,7 +47,7 @@ pub(crate) struct ModelRow {
 
 /// What a row shows of where its model comes from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Detail {
+pub enum Detail {
     /// Its provider's mark, and its provider and id under its name,
     /// for a list that mixes providers.
     Source,
@@ -58,7 +58,7 @@ pub(crate) enum Detail {
 
 /// The mark of the provider `id` at `size`, or its first letter in a
 /// small frame for a provider with no mark.
-pub(crate) fn mark(id: &str, size: f32) -> AnyView {
+pub fn mark(id: &str, size: f32) -> AnyView {
     if let Some(image) = provider_mark(id, size) {
         return icon(image).size(size).opacity(1.0).boxed();
     }
@@ -86,7 +86,7 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
 }
 
 /// A quiet word beside a model's name, such as "Default".
-pub(crate) fn tag(text: &'static str) -> AnyView {
+pub fn tag(text: &'static str) -> AnyView {
     chip(
         (label(text).tone(Tone::Dim).wrap(false).rules(small_rules),),
     )
@@ -97,10 +97,7 @@ pub(crate) fn tag(text: &'static str) -> AnyView {
 
 /// `text` muted over rows that show `detail`, in line with their
 /// names.
-pub(crate) fn over_rows(
-    text: &'static str,
-    detail: Detail,
-) -> AnyView {
+pub fn over_rows(text: &'static str, detail: Detail) -> AnyView {
     let lead = match detail {
         Detail::Source => MARK + GAP,
         Detail::Id => GAP,
@@ -112,7 +109,7 @@ pub(crate) fn over_rows(
 
 /// The muted line over rows that show `detail` and says what their
 /// numbers are.
-pub(crate) fn legend(detail: Detail) -> AnyView {
+pub fn legend(detail: Detail) -> AnyView {
     over_rows("In / out per 1M tokens · context", detail)
 }
 
@@ -144,7 +141,7 @@ fn hint(model: &protocol::Listed) -> String {
 /// after it while picked and its tag, and under it as much of where
 /// it comes from as its [`Detail`] says, with its price and context
 /// at the right.
-pub(crate) fn model_row(
+pub fn model_row(
     model: ModelRow,
     pick: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {

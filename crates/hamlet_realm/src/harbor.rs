@@ -8,15 +8,19 @@ mod tests;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use hamlet_core::pick::{CrossHarbor, Following};
 
 use crate::generator::Robot;
 use crate::generator::land::{IslandId, Land};
 use crate::palette::Palette;
-use crate::pick::{Centre, Following, Orbit, glide_to};
+use crate::pick::{Centre, Orbit, glide_to};
 use crate::{RealmSystems, Stock};
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(
+    app.add_observer(|_: On<CrossHarbor>, mut commands: Commands| {
+        commands.queue(glide_to_other_pier);
+    })
+    .add_systems(
         Update,
         (
             raise.in_set(RealmSystems::Act),
@@ -285,9 +289,8 @@ fn raise(
 }
 
 /// Glides the camera to the pier of the island it is not over, and
-/// lets go of any thing it was following. The harbor control calls
-/// it to cross from one island to the other.
-pub fn glide_to_other_pier(world: &mut World) {
+/// lets go of any thing it was following.
+pub(crate) fn glide_to_other_pier(world: &mut World) {
     let centre = world.resource::<Centre>().0;
     let focus = centre + world.resource::<Orbit>().pan;
     let there = world.resource::<Land>().island_at(focus).other();

@@ -26,9 +26,13 @@ use hamlet_client::realm::{
     Activity, Busy, HamletAgent, Kind, Left, LivesIn, Parent,
     Profile, id_of, name_of, shown_of,
 };
+use hamlet_core::pick::Thing;
+use hamlet_core::roll::rolled;
+use hamlet_core::standing::Standing;
+use hamlet_core::welcome::OpenWelcome;
+use hamlet_core::words;
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
@@ -48,11 +52,9 @@ use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
 use crate::menu::rect_of;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
-use crate::roll::rolled;
 use crate::screens::wait;
-use crate::standing::Standing;
 use crate::world_menu::ChipName;
-use crate::{chat, words, world_menu};
+use crate::{chat, world_menu};
 
 /// The tabs between the chat and the details of `hub`'s thread.
 fn sheets_of(
@@ -948,7 +950,7 @@ fn model_or_setup(agent: Entity) -> impl View {
             .tooltip(|| {
                 note("No model is set up yet, so nothing can answer")
             })
-            .on_activate(crate::welcome::again)
+            .on_activate(|world| world.trigger(OpenWelcome::Again))
             .boxed()
         },
     )
@@ -1197,9 +1199,10 @@ pub(super) fn prompt_page(hub: Entity) -> impl View {
 mod tests {
     use bevy::app::App;
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::testing::{press, words};
 
     use super::*;
-    use crate::testing::{panel_app, press, words};
+    use crate::testing::panel_app;
 
     fn hub_app() -> App {
         let mut app = panel_app();
@@ -1214,7 +1217,7 @@ mod tests {
     fn ada_app() -> (App, Entity) {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
-        app.insert_resource(hamlet_realm::pick::Selected(Some(
+        app.insert_resource(hamlet_core::pick::Selected(Some(
             Thing::Agent(ada),
         )));
         let hub = crate::testing::hub(&mut app);

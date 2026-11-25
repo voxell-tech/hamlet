@@ -15,19 +15,19 @@ mod visits;
 
 use std::collections::BTreeSet;
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::{
     resource_changed, resource_exists_and_changed,
 };
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Query, ResMut};
+use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::PointerPress;
 use bevy::ui::{percent, px};
@@ -37,8 +37,12 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
 use bevy_fynix::{ViewExt, derived, every_frame, keyed};
+use hamlet_client::Connection;
 use hamlet_client::realm::{HamletId, Left, Seen};
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
+use hamlet_core::panels::{
+    PanelAppExt, PanelSystems, ShowPanel, highlight_panel, number,
+};
+use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Highlight, Updated};
@@ -53,9 +57,7 @@ pub(crate) use self::rail::under_name;
 pub use self::thread::{Briefing, Sheet, open_context};
 use crate::convo::{Convo, seat};
 use crate::desk::Desks;
-use crate::dock::{
-    HUB, PanelAppExt, highlight_panel, number, show_tab,
-};
+use crate::dock::HUB;
 use crate::overview;
 
 pub fn plugin(app: &mut App) {
@@ -70,8 +72,11 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Active>()
         .init_resource::<PressedIn>()
         .add_observer(pressed)
-        .init_resource::<crate::forms::OpenForm>()
         .add_systems(Update, tabs::mark_on::<Sheet>)
+        .add_systems(
+            PreUpdate,
+            ask_limits.in_set(PanelSystems::Follow),
+        )
         .init_resource::<papers::Requests>()
         .add_observer(papers::response)
         .add_observer(papers::edited)
@@ -118,6 +123,21 @@ pub enum Showing {
     Chief(Entity),
     /// The library's shelves.
     Library,
+}
+
+/// Asks the server for the limits when a Hub's realm page opens, or
+/// the connection comes back while one is open.
+pub fn ask_limits(
+    turned: Query<(), Changed<Showing>>,
+    hubs: Query<&Showing>,
+    connection: Res<Connection>,
+    mut commands: Commands,
+) {
+    let moved = connection.is_changed() || !turned.is_empty();
+    if moved && hubs.iter().any(|showing| *showing == Showing::Realm)
+    {
+        commands.queue(hamlet_core::plans::check);
+    }
 }
 
 /// The panel ids of the Hubs whose rails are collapsed, as the view
@@ -238,9 +258,10 @@ pub(crate) fn holding(world: &World, node: Entity) -> Option<Entity> {
 
 /// The Hub under the mouse's pointer.
 pub(crate) fn under_pointer(world: &World) -> Option<Entity> {
-    let node = crate::trail::under_pointer(world, |node| {
-        world.get::<rail::Frame>(node).is_some()
-    })?;
+    let node =
+        hamlet_ui::widgets::trail::under_pointer(world, |node| {
+            world.get::<rail::Frame>(node).is_some()
+        })?;
     Some(world.get::<rail::Frame>(node)?.0)
 }
 
@@ -250,10 +271,10 @@ pub(crate) fn bring_following(world: &mut World) -> Option<Entity> {
     match following(world) {
         Some(hub) => {
             let id = world.get::<Hub>(hub)?.0.clone();
-            show_tab(world, &id);
+            world.trigger(ShowPanel(id));
         }
         None => {
-            show_tab(world, HUB);
+            world.trigger(ShowPanel(HUB.into()));
             let _ = world.run_system_cached(keep_hubs);
         }
     }
@@ -437,7 +458,7 @@ pub(crate) fn look_at(world: &mut World, hub: Entity, thing: Thing) {
         && world.contains_resource::<Selected>()
     {
         select(world, Some(thing));
-        bring_into_view(world, thing);
+        world.trigger(BringIntoView(thing));
     }
 }
 
@@ -651,5 +672,111 @@ pub(crate) fn tell_page(
         .is_some_and(|was| was.0 == hub && was != now)
     {
         world.write_message(Updated);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy_fynix::mount;
+    use hamlet_client::connection::Contact;
+    use hamlet_client::realm::Providers;
+    use hamlet_core::plans::{part, plugin};
+    use hamlet_core::testing::{all_words, sent, settle};
+    use hamlet_core::toasts::Toast;
+    use hamlet_protocol::client as protocol;
+    use jiff::Timestamp;
+    use serde_json::json;
+
+    use super::*;
+    use crate::testing::panel_app;
+
+    /// The window on the realm's page, connected, with the provider
+    /// `claude` signed in.
+    fn realm_page() -> App {
+        let mut app = panel_app();
+        app.init_resource::<Toasted>()
+            .add_observer(
+                |_: On<Toast>, mut toasted: ResMut<Toasted>| {
+                    toasted.0 += 1;
+                },
+            )
+            .add_plugins(plugin)
+            .add_systems(
+                PreUpdate,
+                ask_limits.in_set(PanelSystems::Follow),
+            );
+        app.world_mut().spawn(Showing::Realm);
+        app.world_mut().resource_mut::<Connection>().state =
+            Contact::Connected;
+        app.world_mut().resource_mut::<Providers>().0 =
+            vec![protocol::ProviderView {
+                configured: true,
+                id: "claude".into(),
+                label: "Sign in to Claude".into(),
+                limits: None,
+                methods: vec![protocol::LoginMethod::Subscription],
+                name: "Claude".into(),
+            }];
+        settle(&mut app);
+        app
+    }
+
+    fn told(app: &mut App, limits: serde_json::Value) {
+        let limits = serde_json::from_value(limits).unwrap();
+        app.world_mut().resource_mut::<Providers>().0[0].limits =
+            Some(limits);
+        settle(app);
+    }
+
+    /// The toasts raised.
+    #[derive(Resource, Default)]
+    struct Toasted(usize);
+
+    fn toasted(app: &App) -> usize {
+        app.world().resource::<Toasted>().0
+    }
+
+    #[test]
+    fn the_realm_page_asks_for_the_limits_and_toasts_a_refusal_once()
+    {
+        let mut app = realm_page();
+        // Mounted before any plan told its limits, as the page opens.
+        mount::<HamletTheme>(app.world_mut(), part());
+        let asked = sent(&mut app)
+            .into_iter()
+            .filter(|m| m["type"] == "check")
+            .collect::<Vec<_>>();
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(asked[0]["what"], "limits");
+
+        let now = Timestamp::now().as_millisecond();
+        let window = |used: f64| {
+            json!({"id": "five_hour", "name": "Session", "length": 300,
+                   "used": used, "resets": now + 3_600_000})
+        };
+        told(
+            &mut app,
+            json!({"checked": now, "plan": "Max", "state": "ok",
+                   "windows": [window(46.0)]}),
+        );
+        let shown = all_words(&mut app);
+        for text in ["Plans", "Claude · Max", "Session", "54% left"]
+        {
+            assert!(shown.contains(text), "{shown}");
+        }
+        assert_eq!(toasted(&app), 0);
+
+        // A refusal is toasted once, however often it is told again.
+        let refused = json!({"checked": now, "plan": "Max",
+            "state": "refused", "windows": [window(100.0)]});
+        told(&mut app, refused.clone());
+        assert_eq!(toasted(&app), 1);
+        told(
+            &mut app,
+            json!({"checked": now + 1, "plan": "Max",
+            "state": "refused", "windows": [window(100.0)]}),
+        );
+        assert_eq!(toasted(&app), 1);
+        assert!(all_words(&mut app).contains("0% left"));
     }
 }

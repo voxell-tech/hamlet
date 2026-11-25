@@ -13,9 +13,10 @@ pub mod voices;
 use bevy::audio::{AddAudioSource, AudioPlugin};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use hamlet_core::sound::{Cue, Family};
 
 pub use self::clip::{Clip, Playing};
-pub use self::kinds::{Family, Sound};
+pub use self::kinds::{Mix, Playback};
 pub use self::mix::Ears;
 pub use self::synth::RATE;
 use crate::{RealmSystems, Step, WorldCamera};
@@ -212,16 +213,6 @@ pub enum Hearing {
     #[default]
     Off,
     On,
-}
-
-/// A sound that has just been made somewhere in the world.
-#[derive(Message, Clone, Copy, Debug)]
-pub struct Cue {
-    pub sound: Sound,
-    pub at: Vec3,
-    /// A number that differs from one cue to the next, to vary the
-    /// pitch.
-    pub turn: u32,
 }
 
 /// The systems that write [`Cue`]s for what is seen. They run only

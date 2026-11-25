@@ -16,11 +16,11 @@ use hamlet_client::realm::{
     Account, Actions, Allowance, Bylaws, Channel, Kind, LivesIn,
     Profile, ToolsOff, channels_of, id_of, name_of, shown_of,
 };
+use hamlet_core::orders;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    Fills, ICON, Looks, Tipped, action, bare, hairline, lettered,
-    note, scroll_area, text_input,
+    Fills, ICON, Looks, Tipped, action, bare, hairline, heading_line,
+    lettered, note, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -32,7 +32,6 @@ use hamlet_ui::{AnyView, View, with_cx};
 use super::memory;
 use super::thread::said;
 use crate::convo::talk_to;
-use crate::overview::heading_line;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
 
 /// How wide the names of the settings are, so their values line up.

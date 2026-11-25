@@ -17,8 +17,8 @@ use bevy::ecs::world::World;
 use hamlet_app::Convo;
 use hamlet_client::chats::{Chat, Status, Usage};
 use hamlet_client::{ViewFolder, realm};
+use hamlet_core::pick::{Also, Selected, Thing};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Also, Selected, Thing};
 pub(super) use welcome::first_run;
 
 use super::Scene;
@@ -122,7 +122,7 @@ pub(super) fn setup(world: &mut World) {
         protocol::ServerMessage::State(state),
     );
     if scene.first_run().is_some() {
-        world.resource_mut::<hamlet_app::models::Shelf>().models =
+        world.resource_mut::<hamlet_core::models::Shelf>().models =
             welcome::catalogue();
     }
     // The key that was not accepted, still in its field.

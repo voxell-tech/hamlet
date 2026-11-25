@@ -3,6 +3,7 @@ use std::time::Duration;
 use bevy::picking::backend::HitData;
 use bevy::picking::pointer::PointerId;
 use bevy::time::TimeUpdateStrategy;
+use hamlet_core::drops::FileDrop;
 
 use super::*;
 use crate::generator::society::AgentId;

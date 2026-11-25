@@ -6,12 +6,13 @@ use bevy::prelude::*;
 use bevy::tasks::futures_lite::future::poll_once;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on};
 use bevy::window::PrimaryWindow;
+use hamlet_core::sound::Cue;
 
 use super::{Composer, Moment, Mood, render};
 use crate::generator::society::Society;
 use crate::keeper::KeeperState;
 use crate::sound::clip::Clip;
-use crate::sound::{Cue, Cues, SoundSettings, is_drawn};
+use crate::sound::{Cues, SoundSettings, is_drawn};
 use crate::{DayPart, WorldCamera};
 
 /// A breath that has been played, and the seconds to the next.

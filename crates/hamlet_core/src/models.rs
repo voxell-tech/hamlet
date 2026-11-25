@@ -1,7 +1,10 @@
 //! The server's catalogue and each hamlet's choices of models.
 
 mod choice;
+mod connection;
 mod home;
+
+pub use self::connection::test_connection;
 mod row;
 
 use std::collections::BTreeMap;
@@ -22,20 +25,20 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Account, Providers};
 use hamlet_protocol::client as protocol;
 
-pub(crate) use self::choice::{efforts, of_hamlet};
-pub(crate) use self::home::narrowed;
-pub use self::home::{endpoints, shelf};
-pub(crate) use self::row::{
+pub use self::choice::{efforts, of_hamlet};
+pub use self::home::{endpoints, narrowed, shelf};
+pub use self::row::{
     Detail, ModelRow, legend, mark, model_row, over_rows, tag,
 };
-use crate::PanelSystems;
-use crate::settings::Pane;
+use crate::panels::PanelSystems;
+use crate::settings::{MODELS, SettingsPane};
 
 /// How many models a page of the catalogue shows.
 const SHOWN: usize = 10;
 
-pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Shelf>()
+pub fn plugin(app: &mut App) {
+    app.add_plugins(connection::plugin)
+        .init_resource::<Shelf>()
         .init_resource::<Draft>()
         .add_observer(answered)
         .add_observer(
@@ -51,7 +54,7 @@ pub(crate) fn plugin(app: &mut App) {
                     resource_changed::<Shelf>
                         .or_eager(resource_changed::<Connection>)
                         .or_eager(
-                            resource_exists_and_changed::<Pane>,
+                            resource_exists_and_changed::<SettingsPane>,
                         ),
                 )
                 .in_set(PanelSystems::Follow),
@@ -87,21 +90,21 @@ pub struct Draft {
 
 /// The provider of the catalogue's model `model`, which names it
 /// `provider::id`.
-pub(crate) fn provider_of(model: &str) -> &str {
+pub fn provider_of(model: &str) -> &str {
     model.split_once("::").map_or("", |(provider, _)| provider)
 }
 
 /// The name `model` is shown by. The catalogue gives a model no name
 /// but `provider::id`, so it is the last part of its id: `large` for
 /// `openrouter::maker/large`.
-pub(crate) fn model_name(model: &str) -> &str {
+pub fn model_name(model: &str) -> &str {
     let id = model.split_once("::").map_or(model, |(_, id)| id);
     id.rsplit('/').next().unwrap_or(id)
 }
 
 /// What `model` is called: what its provider calls it, else its
 /// [`model_name`].
-pub(crate) fn title_of(model: &protocol::Listed) -> String {
+pub fn title_of(model: &protocol::Listed) -> String {
     match model.title.is_empty() {
         true => model_name(&model.name).to_string(),
         false => model.title.clone(),
@@ -110,7 +113,7 @@ pub(crate) fn title_of(model: &protocol::Listed) -> String {
 
 /// What the catalogue's model `name` is called, as [`title_of`]; its
 /// [`model_name`] while the catalogue does not list it.
-pub(crate) fn model_title(world: &World, name: &str) -> String {
+pub fn model_title(world: &World, name: &str) -> String {
     world
         .get_resource::<Shelf>()
         .and_then(|shelf| {
@@ -121,7 +124,7 @@ pub(crate) fn model_title(world: &World, name: &str) -> String {
 
 /// The name of the provider `id`, as the server lists it, else its
 /// id.
-pub(crate) fn provider_name(world: &World, id: &str) -> String {
+pub fn provider_name(world: &World, id: &str) -> String {
     world
         .get_resource::<Providers>()
         .and_then(|providers| {
@@ -135,7 +138,7 @@ pub(crate) fn provider_name(world: &World, id: &str) -> String {
 
 /// Where `model` comes from: its provider's name, and its id where
 /// that says more than its name.
-pub(crate) fn source_of(world: &World, model: &str) -> String {
+pub fn source_of(world: &World, model: &str) -> String {
     let Some((provider, id)) = model.split_once("::") else {
         return String::new();
     };
@@ -156,7 +159,7 @@ fn context_words(context: i64) -> String {
 }
 
 /// An agent's model by its name, and what it spent.
-pub(crate) fn account_words(account: &Account) -> String {
+pub fn account_words(account: &Account) -> String {
     if account.model.is_empty() {
         account.cost.clone()
     } else {
@@ -165,7 +168,9 @@ pub(crate) fn account_words(account: &Account) -> String {
 }
 
 fn follow(world: &mut World) {
-    let showing = world.get_resource::<Pane>() == Some(&Pane::Models);
+    let showing = world
+        .get_resource::<SettingsPane>()
+        .is_some_and(|pane| pane.0 == Some(MODELS));
     let shelf = world.resource::<Shelf>();
     let read =
         !shelf.asking && (!shelf.loaded || showing && !shelf.showing);
@@ -314,8 +319,15 @@ mod tests {
     use super::*;
     use crate::testing::{
         all_words, connect, incoming, press_and_update, sent,
-        welcome_app,
     };
+
+    /// The shared panels with the secret fields, and a browser that
+    /// fails the test if opened.
+    fn welcome_app() -> App {
+        let mut app = crate::testing::app();
+        app.add_plugins(hamlet_ui::widgets::secret::plugin);
+        app
+    }
 
     #[test]
     fn the_models_page_reads_the_catalogue_and_shows_the_servers_prices()

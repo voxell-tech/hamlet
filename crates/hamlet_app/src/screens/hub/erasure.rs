@@ -7,16 +7,15 @@ use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::{DeferredWorld, World};
-use bevy::time::Time;
 use hamlet_client::realm::{
     self as agents, Closed, Identity, Kind, Left, LivesIn, Parent,
 };
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::pick::{Selected, Thing, select};
+use hamlet_core::toasts::Toast;
 use hamlet_ui::theme::StatusKind;
 
 use super::{Showing, show, talk_in};
-use crate::PanelSystems;
-use crate::toasts::Toasts;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Erasures>()
@@ -204,15 +203,11 @@ fn settle(world: &mut World) {
                 select(world, None);
             }
         }
-        let now = world.resource::<Time>().elapsed_secs();
-        if let Some(mut toasts) = world.get_resource_mut::<Toasts>() {
-            toasts.note(
-                StatusKind::Success,
-                format!("{} was erased", erasure.name),
-                String::new(),
-                now,
-            );
-        }
+        world.trigger(Toast {
+            kind: StatusKind::Success,
+            head: format!("{} was erased", erasure.name),
+            line: String::new(),
+        });
     }
     // Gone for another reason, as erased by another client.
     for (hub, shown) in shown_entities(world) {

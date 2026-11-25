@@ -8,17 +8,13 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Has, Or, With};
 use bevy::ecs::system::{Query, Res, SystemParam};
-use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    HamletAgent, Identity, Kind as AgentKind, Lead, LivesIn, Purpose,
-    Roster, Shown,
+    HamletAgent, Kind as AgentKind, Lead, LivesIn, Purpose, Roster,
+    Shown,
 };
+use hamlet_core::paints::Paints;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::chief::{Chief, Look};
-use hamlet_realm::hamlet::Housed;
-use hamlet_realm::keeper;
-use hamlet_realm::palette::Palette;
 use hamlet_ui::theme::Themed;
 
 use super::lines::{Row, rows};
@@ -96,19 +92,16 @@ pub struct People<'w, 's> {
         (
             Entity,
             &'static Name,
-            Option<&'static Identity>,
             Has<Lead>,
             Option<&'static Purpose>,
             Option<&'static LivesIn>,
-            Option<&'static Housed>,
             Option<&'static AgentKind>,
             Option<&'static Shown>,
         ),
     >,
     roster: Roster<'w, 's>,
-    chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
     me: Option<Res<'w, hamlet_client::realm::Chief>>,
-    palette: Option<Res<'w, Palette>>,
+    paints: Option<Res<'w, Paints>>,
     theme: Themed<'w>,
     changed: Query<
         'w,
@@ -120,7 +113,6 @@ pub struct People<'w, 's> {
                 Changed<Name>,
                 Changed<Shown>,
                 Changed<Purpose>,
-                Changed<Housed>,
                 Changed<LivesIn>,
                 Added<Lead>,
             )>,
@@ -134,6 +126,10 @@ impl People<'_, '_> {
     pub(super) fn has_moved(&self) -> bool {
         !self.changed.is_empty()
             || self.me.as_ref().is_some_and(DetectChanges::is_changed)
+            || self
+                .paints
+                .as_ref()
+                .is_some_and(DetectChanges::is_changed)
     }
 
     /// The name this window's chief signs in with.
@@ -141,35 +137,22 @@ impl People<'_, '_> {
         self.me.as_ref().map(|me| me.0.clone()).unwrap_or_default()
     }
 
-    fn shown(colour: Vec3) -> Color {
-        Color::linear_rgb(colour.x, colour.y, colour.z)
+    /// The colour `paint` reads, else the theme's mark.
+    fn painted(
+        &self,
+        paint: impl Fn(&Paints) -> Option<Color>,
+    ) -> Color {
+        self.paints
+            .as_deref()
+            .and_then(paint)
+            .unwrap_or(self.theme.palette.mark)
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, id, lead, purpose, _, housed, kind, shown) =
+        let (_, name, lead, purpose, _, kind, shown) =
             self.agents.get(agent).ok()?;
         let hand = kind
             .is_some_and(|kind| kind.0 == protocol::AgentKind::Hand);
-        // An agent of a hamlet not yet housed is drawn by its id.
-        let unhoused = id.filter(|_| {
-            kind.is_some_and(|kind| {
-                kind.0 == protocol::AgentKind::Hamlet
-            })
-        });
-        let look = match (lead || hand, housed, unhoused) {
-            (true, ..) => keeper::Who::lead(),
-            (_, Some(housed), _) => {
-                keeper::Who::agent(housed.0.0 * 7 + 3)
-            }
-            (_, None, Some(id)) => {
-                keeper::Who::agent(id.0.0 as u32 * 7 + 3)
-            }
-            (_, None, None) => keeper::Who::agent(1),
-        };
-        let paints = match &self.palette {
-            Some(palette) => palette.paints,
-            None => Palette::default().paints,
-        };
         Some(Who {
             // What it is shown by, else its address.
             name: match (hand, shown) {
@@ -189,24 +172,18 @@ impl People<'_, '_> {
                 (_, true) => Kind::Lead,
                 _ => Kind::Agent,
             },
-            paint: Self::shown(paints[look.paint as usize]),
+            paint: self
+                .painted(|paints| paints.agents.get(&agent).copied()),
         })
     }
 
     fn chief(&self, name: &str, me: &str) -> Who {
-        let cloak = self
-            .chiefs
-            .iter()
-            .find(|(chief, _)| chief.name == name)
-            .map(|(_, look)| match &self.palette {
-                Some(palette) => look.cloak.colour(palette),
-                None => look.cloak.colour(&Palette::default()),
-            });
         Who {
             name: titled(name),
             tag: String::new(),
             kind: if name == me { Kind::Me } else { Kind::Chief },
-            paint: cloak.map_or(self.theme.palette.mark, Self::shown),
+            paint: self
+                .painted(|paints| paints.chiefs.get(name).copied()),
         }
     }
 }

@@ -4,13 +4,14 @@
 
 use bevy::prelude::*;
 use hamlet_client::realm::{Busy, Identity, Profile};
+use hamlet_core::pick::Thing;
 
 use super::houses::{self, DOOR_OUT};
 use crate::generator::land::Land;
 use crate::generator::society::AgentId;
 use crate::generator::{Robot, house};
 use crate::keeper::{self, Kit, Who};
-use crate::pick::{self, Named, PickSettings, Thing, hit_box};
+use crate::pick::{self, Named, PickSettings, hit_box};
 
 /// The robot of a profile, standing where its house does.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]

@@ -10,36 +10,60 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{frame, label, text_field};
-use bevy_fynix::{Binding, ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{
+    Binding, Prop, ScopedExt, ViewExt, keyed, resource,
+};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Settings;
+use hamlet_core::confirm::Confirm;
+use hamlet_core::panels::PanelSystems;
+use hamlet_core::settings::{
+    SettingsAppExt, SettingsPage, SettingsPane,
+};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    bad_action, bare, beside, good_action, note, parts,
+    bad_action, bare, beside, good_action, heading, note, parts,
     segmented_words, text_input,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::secret::secret_field;
 use hamlet_ui::{AnyView, View};
 
-use super::{Pane, alone, field};
-use crate::PanelSystems;
-use crate::overview::heading;
-use crate::secret::secret_field;
-use crate::world_menu::{self, Action};
+use super::{alone, field, shown};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
         .add_observer(answered)
+        .add_settings_page(
+            SettingsPage::new(
+                WORKSPACE,
+                "Workspace",
+                Glyph::Shield,
+                50,
+                || page().boxed(),
+            )
+            .now(now),
+        )
         // Before fynix mounts, so the fields start from the draft.
         .add_systems(
             PreUpdate,
             begin
-                .run_if(resource_changed::<Pane>)
+                .run_if(resource_changed::<SettingsPane>)
                 .in_set(PanelSystems::Follow),
         );
+}
+
+/// The id of the Workspace page.
+pub const WORKSPACE: &str = "workspace";
+
+fn now() -> Prop<String> {
+    shown::<Settings>(|s| {
+        let remote = s.0.workspace.url.is_some();
+        CHOICES[usize::from(remote)].to_string()
+    })
 }
 
 pub(super) const CHOICES: [&str; 2] =
@@ -61,11 +85,11 @@ struct Draft {
 
 /// Starts the draft from the chosen workspace as the page opens.
 fn begin(
-    pane: Res<Pane>,
+    pane: Res<SettingsPane>,
     settings: Res<Settings>,
     mut draft: ResMut<Draft>,
 ) {
-    if *pane != Pane::Workspace {
+    if pane.0 != Some(WORKSPACE) {
         return;
     }
     let url = settings.0.workspace.url.clone();
@@ -105,7 +129,7 @@ fn save(world: &mut World) {
 }
 
 /// Asks the server to copy the worktrees to the saved workspace.
-pub(crate) fn move_worktrees(world: &mut World) {
+fn move_worktrees(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveWorktrees(
             protocol::MoveWorktrees { id },
@@ -218,7 +242,15 @@ fn moving() -> AnyView {
         |offered| {
             if *offered {
                 bad_action(Glyph::Send, "Move Worktrees", |world| {
-                    world_menu::ask(world, Action::MoveWorktrees);
+                    world.trigger(Confirm {
+                        question: "Move every worktree?",
+                        outcome: "Each agent's worktree is copied to the \
+                                  saved workspace, and the worktrees \
+                                  already there are replaced. This \
+                                  cannot be undone.",
+                        yes: "Replace Them",
+                        act: move_worktrees,
+                    });
                 })
             } else {
                 frame().boxed()
@@ -322,13 +354,14 @@ mod tests {
         EditableText, FontSize, FontSource, TextEdit, TextFont,
     };
     use hamlet_client::outbox::Outbox;
+    use hamlet_core::settings::SettingsPane;
+    use hamlet_core::testing::{
+        control, press, requests, settle, words_and_spans,
+    };
     use hamlet_protocol::client as protocol;
 
-    use super::super::Pane;
-    use crate::testing::{
-        control, press, requests, settings_page, settle,
-        words_and_spans,
-    };
+    use super::WORKSPACE;
+    use crate::testing::settings_page;
 
     fn received(
         app: &mut App,
@@ -404,9 +437,10 @@ mod tests {
     fn a_remote_workspace_is_saved_with_its_token_out_of_sight_and_applies_after_a_restart()
      {
         let token = "token-0123456789abcdef";
-        let mut app = settings_page(Pane::Front);
+        let mut app = settings_page(None);
         received(&mut app, 2, None, None);
-        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
+        *app.world_mut().resource_mut::<SettingsPane>() =
+            SettingsPane(Some(WORKSPACE));
         settle(&mut app);
         let said = |app: &mut App, text: &str| {
             words_and_spans(app).iter().any(|shown| shown == text)
@@ -510,9 +544,11 @@ mod tests {
         assert!(!said(&mut app, &"*".repeat(token.len())));
         assert!(said(&mut app, "Takes effect when Hamlet restarts."));
 
-        *app.world_mut().resource_mut::<Pane>() = Pane::Front;
+        *app.world_mut().resource_mut::<SettingsPane>() =
+            SettingsPane(None);
         settle(&mut app);
-        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
+        *app.world_mut().resource_mut::<SettingsPane>() =
+            SettingsPane(Some(WORKSPACE));
         settle(&mut app);
         let address =
             control::<EditableText>(&mut app, "Server address");

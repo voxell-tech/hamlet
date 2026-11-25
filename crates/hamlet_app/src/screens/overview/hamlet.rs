@@ -20,29 +20,32 @@ use bevy_fynix::{
     keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
-use hamlet_realm::orders::Decree;
-use hamlet_realm::pick::{Thing, select};
+use hamlet_core::orders::{Carry, Decree};
+use hamlet_core::pick::{Thing, select};
+use hamlet_core::roll::{either, moved};
+use hamlet_core::words;
 use hamlet_ui::styles::{
     Fills, ICON, LINE, action, bare, buttons, crumb, crumb_slash,
-    crumbs, group, more_button, note, note_rules, raised,
+    crumbs, group, heading, more_button, note, note_rules, raised,
     scroll_area, status_icon, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
+use hamlet_ui::widgets::forms::{self, Asking};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::rainbow::rainbow_bar;
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
-use crate::forms::{self, Asking};
 use crate::hub::Showing;
-use crate::roll::{either, moved};
-use crate::{profile_tag, words, world_menu};
+use crate::{profile_tag, world_menu};
+
+/// What the form of a hamlet's worker asks.
+const WORKER: &str = "worker";
 
 /// Gives the chief's command `text` to the hamlet `id`.
 fn decree(world: &mut World, id: &str, text: String) {
@@ -95,7 +98,7 @@ fn size(hamlet: Entity, id: String) -> AnyView {
 /// The form a worker is started in the hamlet `id` with.
 fn worker_form(hamlet: Entity, id: String) -> AnyView {
     forms::form(
-        Asking::Worker(hamlet),
+        Asking::about(WORKER, hamlet),
         "Start a worker on one task in this hamlet. It answers once \
          and ends.",
         &[("Task", "")],
@@ -511,7 +514,10 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 Glyph::Robot,
                 "Start a Worker",
                 move |world| {
-                    forms::toggle(world, Asking::Worker(hamlet));
+                    forms::toggle(
+                        world,
+                        Asking::about(WORKER, hamlet),
+                    );
                 },
             ));
         }
@@ -521,7 +527,7 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 Glyph::Move,
                 "Move It",
                 move |world| {
-                    hamlet_realm::orders::carry(world, hamlet);
+                    world.trigger(Carry(hamlet));
                 },
             ));
         }
@@ -559,8 +565,9 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 .tooltip(|| note("Change the budget"))
                 .on_activate(move |world| {
                     turn_to(world, hub, Page::Limits);
-                    *world.resource_mut::<crate::limits::Part>() =
-                        crate::limits::Part::Budget;
+                    *world
+                        .resource_mut::<hamlet_core::limits::Part>(
+                        ) = hamlet_core::limits::Part::Budget;
                 });
         let mut top = vec![path, spending.boxed()];
         // The forms open only from these buttons.
@@ -591,7 +598,11 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
         }),
         move |page| match page {
             Page::Agents => list_of(hub, hamlet).boxed(),
-            Page::Limits => crate::limits::panel(hamlet),
+            Page::Limits => {
+                hamlet_core::limits::panel(hamlet, |hamlet| {
+                    crate::folder::section(hamlet).boxed()
+                })
+            }
             Page::History => record_of(hamlet).boxed(),
         },
     )

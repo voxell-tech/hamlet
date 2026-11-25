@@ -12,8 +12,8 @@ use hamlet_client::chats::{Chat, Status, Transcript};
 use hamlet_client::realm::{
     self as agents, Chief, Identity, Kind, Left,
 };
+use hamlet_core::pick::{BringIntoView, Selected, Thing, select};
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 
 use crate::hub::{self, Showing};
 
@@ -204,7 +204,7 @@ pub(crate) fn talk_to_hand(world: &mut World) {
         select(world, Some(Thing::Hand));
     }
     hub::show(world, hub, Showing::Thread);
-    bring_into_view(world, Thing::Hand);
+    world.trigger(BringIntoView(Thing::Hand));
 }
 
 /// Points the following Hub's chat at the agent `to`.
@@ -267,9 +267,9 @@ pub(crate) fn reseat(world: &mut World) {
 mod tests {
     use bevy::app::PreUpdate;
     use bevy::ecs::schedule::IntoScheduleConfigs;
+    use hamlet_core::panels::PanelSystems;
 
     use super::*;
-    use crate::PanelSystems;
     use crate::testing::{convo, panel_app};
 
     #[test]

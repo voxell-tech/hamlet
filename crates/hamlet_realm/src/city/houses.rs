@@ -6,6 +6,7 @@
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use hamlet_client::realm::{Identity, Left, Profile};
+use hamlet_core::pick::Thing;
 use hamlet_protocol::client::HouseAt;
 
 use super::{Glass, Level};
@@ -13,7 +14,7 @@ use crate::generator::house::{self, Banner, TownStyle};
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{AgentId, Claim, Ground, Society};
 use crate::lantern::NightLight;
-use crate::pick::{self, Named, PickSettings, Thing, hit_box};
+use crate::pick::{self, Named, PickSettings, hit_box};
 use crate::stock::Stock;
 
 /// The radius of the ground a house keeps level and clear.

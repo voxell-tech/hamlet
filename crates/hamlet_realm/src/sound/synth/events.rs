@@ -4,11 +4,12 @@
 
 use std::f32::consts::TAU;
 
+use hamlet_core::sound::Sound;
+
 use super::{
     Band, DT, Hiss, Low, air, bar, bell, burst, empty, finish, glass,
     glide, hit, hump, knock, pitch, rustle, strike, tine,
 };
-use crate::sound::Sound;
 
 /// A house standing up: timber that creaks as it climbs, and the
 /// air it moves.

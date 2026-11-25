@@ -4,6 +4,7 @@
 use bevy::light::NotShadowCaster;
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
+use hamlet_core::pick::Thing;
 use hamlet_vfx::leaves::Leaves;
 
 use super::dress::lit;
@@ -18,7 +19,7 @@ use crate::generator::{flora, glow};
 use crate::lantern::lantern_glass;
 use crate::library::{self, Library};
 use crate::palette::Palette;
-use crate::pick::{self, Footprint, Named, Thing, hit_box};
+use crate::pick::{self, Footprint, Named, hit_box};
 use crate::{Clock, Stock};
 
 /// Takes the place and the mascot of a chief out of the world, and

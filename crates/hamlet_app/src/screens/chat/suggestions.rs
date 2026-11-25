@@ -30,6 +30,7 @@ use bevy_fynix::views::{
     frame, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::signs::{self, Sign};
 use hamlet_ui::styles::{bare, small_rules};
 use hamlet_ui::theme::HamletTheme;
@@ -37,7 +38,6 @@ use hamlet_ui::{AnyView, Cx, View};
 
 use super::attach::{self, Incoming};
 use super::{ChatField, field};
-use crate::PanelSystems;
 
 /// The most entries listed at once.
 const MOST: usize = 8;

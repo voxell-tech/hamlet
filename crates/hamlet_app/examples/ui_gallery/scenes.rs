@@ -19,10 +19,12 @@ use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{Appearance, Zoom};
-use hamlet_app::{Roll, asking, chrome, menu, select, welcome};
+use hamlet_app::{asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
+use hamlet_core::roll::Roll;
+use hamlet_core::sound::Cue;
 use hamlet_desktop::color_scheme::ColorScheme;
-use hamlet_realm::sound::{Cue, SoundSettings};
+use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::theme::{self, HamletTheme, Measures, Theme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
@@ -61,11 +63,11 @@ impl Plugin for GalleryPlugin {
             })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
-            .init_resource::<hamlet_app::limits::Book>()
-            .init_resource::<hamlet_app::models::Shelf>()
-            .init_resource::<hamlet_app::models::Draft>()
+            .init_resource::<hamlet_core::limits::Book>()
+            .init_resource::<hamlet_core::models::Shelf>()
+            .init_resource::<hamlet_core::models::Draft>()
             .init_resource::<hamlet_app::mcp::McpPage>()
-            .init_resource::<hamlet_app::limits::Part>()
+            .init_resource::<hamlet_core::limits::Part>()
             .init_resource::<menu::OpenMenu>()
             .insert_resource(first_run(self.0))
             .init_resource::<chrome::ChromeSettings>()
@@ -98,16 +100,14 @@ impl Plugin for GalleryPlugin {
                 ),
             )
             // The menus, and what the world asks of them.
-            .init_resource::<hamlet_realm::pick::Asked>()
-            .init_resource::<hamlet_realm::pick::AskedGround>()
+            .init_resource::<hamlet_core::pick::Asked>()
+            .init_resource::<hamlet_core::pick::AskedGround>()
             .init_resource::<welcome::projects::Projects>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
-                hamlet_app::search::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
-                hamlet_app::plans::plugin,
-                hamlet_app::secret::plugin,
+                hamlet_core::plans::plugin,
                 hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,

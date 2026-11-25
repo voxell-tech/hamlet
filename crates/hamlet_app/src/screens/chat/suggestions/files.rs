@@ -11,10 +11,10 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::World;
 use hamlet_client::realm::{LivesIn, Works};
+use hamlet_core::panels::PanelSystems;
 use hamlet_protocol::signs::{self, Sign};
 
 use super::{ChatField, Entry, Pick, Source, field, follow};
-use crate::PanelSystems;
 
 /// The most files and folders read from a hamlet's folder.
 const MOST: usize = 5000;

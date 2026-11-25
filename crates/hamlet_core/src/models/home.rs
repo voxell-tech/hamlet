@@ -30,6 +30,7 @@ use super::{
     provider_name, provider_of, read_models, title_of,
 };
 use crate::roll::{either, moved};
+use crate::welcome::OpenWelcome;
 
 fn remove(world: &mut World, name: &str) {
     let endpoints = world
@@ -224,12 +225,10 @@ pub fn endpoints() -> impl View {
         description("Credentials stay on the server."),
         super::problem(),
         sources,
-        row((good_action(
-            Glyph::Plus,
-            "Add Provider",
-            crate::welcome::add,
-        ),)),
-        crate::root::connection_test(),
+        row((good_action(Glyph::Plus, "Add Provider", |world| {
+            world.trigger(OpenWelcome::AddProvider);
+        }),)),
+        super::connection::connection_test(),
     ))
 }
 
@@ -613,7 +612,7 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
 
 /// Page `page` of the names holding every word of `narrow`, and the
 /// pages.
-pub(crate) fn narrowed<N: AsRef<str>>(
+pub fn narrowed<N: AsRef<str>>(
     names: impl Iterator<Item = N>,
     narrow: &str,
     page: usize,
@@ -726,7 +725,7 @@ pub fn shelf() -> AnyView {
             row((built(|cx| {
                 let narrow =
                     cx.world.resource::<Draft>().narrow.clone();
-                cx.build(crate::search::search(
+                cx.build(hamlet_ui::widgets::search::search(
                     "Search models",
                     narrow,
                     |world, text| {

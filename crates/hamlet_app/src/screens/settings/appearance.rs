@@ -1,5 +1,6 @@
 //! The Appearance page: light or dark, and the theme of the panels.
 
+use bevy::app::App;
 use bevy::color::{Alpha, Color};
 use bevy::ecs::world::World;
 use bevy::ui::{
@@ -12,7 +13,11 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    Prop, ScopedExt, ViewExt, derived, keyed, resource,
+};
+use hamlet_core::roll::{either, moved};
+use hamlet_core::settings::{SettingsAppExt, SettingsPage};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
     ICON, bare, card_choice, card_name, group, note, parts,
@@ -20,13 +25,34 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::lasting::Lasting;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::field;
+use super::{field, shown};
 use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
-use crate::roll::{either, moved};
-use crate::root::Lasting;
+
+pub(super) fn plugin(app: &mut App) {
+    app.add_settings_page(
+        SettingsPage::new(
+            APPEARANCE,
+            "Appearance",
+            Glyph::Eye,
+            100,
+            || page().boxed(),
+        )
+        .now(now),
+    );
+}
+
+/// The id of the Appearance page.
+pub const APPEARANCE: &str = "appearance";
+
+fn now() -> Prop<String> {
+    shown::<Appearance>(|appearance| {
+        appearance.pick().mode.name().to_string()
+    })
+}
 
 /// The width of each variant's painted panel on a theme's tile, and
 /// the gap between the two.
@@ -339,16 +365,16 @@ mod tests {
 
     use bevy::time::{Time, TimeUpdateStrategy, Virtual};
     use hamlet_assets::Tuning;
+    use hamlet_core::testing::press_and_update;
     use hamlet_ui::theme::{HamletTheme, Measures, ThemeId};
 
     use super::*;
-    use crate::screens::settings::Pane;
-    use crate::testing::{keeping, press_and_update, settings_page};
+    use crate::testing::{keeping, settings_page};
 
     #[test]
     fn picking_light_shows_parchment_and_keeps_the_pick() {
         let dir = hamlet_testing::Scratch::new("appearance-light");
-        let mut app = settings_page(Pane::Front);
+        let mut app = settings_page(None);
         app.insert_resource(Themes::shipped())
             .insert_resource(Measures::designed())
             .insert_resource(ColorScheme::Silent)

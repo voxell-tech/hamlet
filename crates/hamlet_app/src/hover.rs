@@ -31,9 +31,12 @@ use hamlet_client::realm::{
     MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
+use hamlet_core::pick::{Following, Hovered, Thing};
+use hamlet_core::roll::Roll;
+use hamlet_core::standing::Standing;
+use hamlet_core::words;
 use hamlet_realm::chief::{Beside, Look};
 use hamlet_realm::hand::Proud;
-use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::{EffectSettings, Tuned};
@@ -41,9 +44,6 @@ use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built, kinds, rules};
 
 use crate::overview::standing;
-use crate::roll::Roll;
-use crate::standing::Standing;
-use crate::words;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
@@ -365,7 +365,7 @@ impl Told<'_, '_> {
                 .map(|p| short(&p.0, PURPOSE_SHOWN))
                 .unwrap_or_default(),
             account: account
-                .map(crate::models::account_words)
+                .map(hamlet_core::models::account_words)
                 .unwrap_or_default(),
             hint: match (gone || ruin, followed) {
                 (true, _) => "Right-click to restore".to_string(),

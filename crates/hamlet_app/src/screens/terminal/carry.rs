@@ -33,11 +33,11 @@ use bevy_fynix::dock::{DockArea, DockTab, DropTarget, Edge, NodeId};
 use bevy_fynix::tokens::{
     SpacingTokens, SurfaceTokens, TextTokens, Tone,
 };
+use hamlet_core::panels::open_numbered;
 use hamlet_ui::theme::HamletTheme;
 
 use super::list::{Entry, Listed};
 use super::{Handing, PANEL, PanelId, Panels, tab_name};
-use crate::dock::open_numbered;
 
 /// How far the pointer moves before a press on a terminal drags it.
 const THRESHOLD: f32 = 5.0;
@@ -456,9 +456,9 @@ fn place(node: &mut Node, rect: Rect) {
 #[cfg(test)]
 mod tests {
     use bevy_fynix::dock::{DockAreaStyle, DockLeaf, DockTree};
+    use hamlet_core::panels::PanelAppExt;
 
     use super::*;
-    use crate::dock::PanelAppExt;
 
     #[test]
     fn a_terminal_dropped_opens_in_a_panel_of_its_own_and_leaves_its_old_one_empty()

@@ -35,6 +35,7 @@ use bevy_fynix::dock::{DockTree, DockWindowKind};
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
 use hamlet_client::realm::Busy;
 use hamlet_client::waits::Waiting;
+use hamlet_core::panels::{PanelAppExt, is_in_front};
 use hamlet_realm::bubble::Bubble;
 use hamlet_realm::hand::Readout;
 use hamlet_realm::needs::NeedTag;
@@ -47,7 +48,6 @@ use hamlet_ui::styles::{Fills, ICON};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
-use crate::dock::PanelAppExt;
 use crate::window::WorldShown;
 
 type WorldCameras<'w, 's> = Query<
@@ -117,7 +117,7 @@ fn watch_panel(
     let seen = !*occluded
         && window.physical_width() > 0
         && window.physical_height() > 0;
-    let want = if seen && crate::dock::is_in_front(&tree, "world") {
+    let want = if seen && is_in_front(&tree, "world") {
         WorldShown::Shown
     } else {
         WorldShown::Hidden

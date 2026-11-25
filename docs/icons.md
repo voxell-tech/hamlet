@@ -25,7 +25,7 @@ on every row of a form, on the answers of a dialog, or in place of a word the
 chief reads; where it does replace a word, it has a tooltip that names it.
 
 An agent's state has one glyph, tone and word wherever it is shown, set in
-`hamlet_app/src/standing.rs`.
+`hamlet_core/src/standing.rs`.
 
 An icon means one thing across the app. Before giving one a new use, search
 for `Glyph::<Name>` and keep to its meaning; draw a new one when none fits.

@@ -17,7 +17,7 @@ use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::input_focus::{FocusCause, InputFocus};
@@ -42,8 +42,10 @@ use bevy_fynix::{
 use hamlet_client::messages::Veto;
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self as agents, Actions};
-use hamlet_realm::orders;
-use hamlet_realm::pick::{Asked, AskedGround, Thing};
+use hamlet_core::confirm::Confirm;
+use hamlet_core::menus::{MenuAppExt, MenuItem};
+use hamlet_core::orders;
+use hamlet_core::pick::{Asked, AskedGround, Thing};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -70,6 +72,23 @@ pub fn plugin(app: &mut App) {
         repeat: false,
     };
     app.add_plugins(model::plugin)
+        .add_observer(|asked: On<Confirm>, mut commands: Commands| {
+            let confirm = asked.event().clone();
+            commands.queue(move |world: &mut World| {
+                ask(world, Action::Confirm(confirm));
+            });
+        })
+        .add_menu_item(
+            MenuItem::new(
+                Glyph::Hamlet,
+                "Create a Hamlet",
+                30,
+                |commands| commands.queue(ask_found),
+            )
+            .shown(|world| {
+                Actions::is_allowed(world, "create-hamlet")
+            }),
+        )
         .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<founding::FolderAsker>()
