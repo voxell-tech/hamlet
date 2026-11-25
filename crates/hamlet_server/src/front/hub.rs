@@ -73,10 +73,10 @@ struct Watch {
     /// The last change its page and the turns after it hold; none
     /// until the page is sent.
     seen: Option<Mark>,
-    /// The last page it was sent, without the request it answered.
-    /// A page's mark counts the agent's changes to all its chats, so
-    /// a page read again after a change to another chat can be this
-    /// page unchanged.
+    /// The last page it was sent, without the request it answered,
+    /// while no turn was sent after it. A page's mark counts the
+    /// agent's changes to all its chats, so a page read again after
+    /// a change to another chat can be this page unchanged.
     page: Option<Transcript>,
 }
 
@@ -662,6 +662,7 @@ impl Shared {
             match frames::turn(event.clone(), &watch.chat) {
                 Ok(Some(turn)) => {
                     watch.seen = Some(mark);
+                    watch.page = None;
                     self.send(
                         watch.client,
                         ServerMessage::Turn(turn),
