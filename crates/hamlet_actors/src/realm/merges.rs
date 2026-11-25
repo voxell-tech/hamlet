@@ -821,7 +821,7 @@ pub(super) async fn run(
         Step::Inbox => inbox(cx, &merge).await.map(|()| Vec::new()),
     };
     // Once the merge's commit is made it is not taken back: the fill
-    // runs until done, and an inbox the kept hire's agent refuses
+    // runs until done, and what of the inbox an agent refuses to move
     // stays with the absorbed hire.
     match step {
         Step::Retire | Step::Merge | Step::Inbox => ran,
@@ -968,9 +968,9 @@ async fn inbox(cx: &Cx<'_>, merge: &Kept) -> Result<()> {
 }
 
 /// Ends the merge `n`, which failed for good. At its inbox, the merge
-/// stands and the inbox stays with the absorbed hire. Before its
-/// commit, it is taken back: the absorbed hire lives again under its
-/// lead, with what the merge moved given back, and the merge is
+/// stands and what was not moved stays with the absorbed hire. Before
+/// its commit, it is taken back: the absorbed hire lives again under
+/// its lead, with what the merge moved given back, and the merge is
 /// marked split. A hire restored or erased meanwhile stays as it is.
 pub(super) async fn failed(
     rows: &Rows<'_>,
@@ -1090,7 +1090,7 @@ async fn told(
 }
 
 /// Whether `agent` was absorbed by a merge that stands and failed at
-/// its inbox, into a hire not erased: that hire never got the inbox.
+/// its inbox, into a hire not erased: that hire never got all of it.
 pub(super) async fn kept_its_inbox(
     rows: &Rows<'_>,
     agent: AgentNumber,

@@ -71,8 +71,9 @@ pub enum MergeRefusal {
         into: AgentName,
     },
     #[error(
-        "`{absorbed}` was merged into `{into}`, but what waited in \
-         its inbox could not be moved, so it stays with `{absorbed}`"
+        "`{absorbed}` was merged into `{into}`, but not all that \
+         waited in its inbox could be moved; what was not stays \
+         with `{absorbed}`"
     )]
     InboxKept {
         absorbed: AgentName,
