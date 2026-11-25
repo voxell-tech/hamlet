@@ -20,7 +20,6 @@ import {
     type ChatEvent,
     type ChatRef,
     type Copies,
-    read,
     readClient,
     type Submit,
 } from "../src/agent/messages/agent.ts";
@@ -210,7 +209,6 @@ const FAILED_WORDS = "the model answered 529";
 
 const STOPPING: Answers = {
     workspace: { cancel: () => answer("workspace/cancel.cancelled") },
-    realm: { lapse: () => answer("realm/lapse") },
 };
 
 const REWINDING: Answers = { ...STOPPING, ...COMMANDED };
@@ -293,6 +291,17 @@ async function stopped(t: TestContext, calls: Calls): Promise<Woken> {
         await agent.actions.stop(agent.by(from.realm), { number: 1 }),
         { turns: 0 },
     );
+    return agent;
+}
+
+/** A chief's line whose turn is still running when the agent stops. */
+async function working(t: TestContext, calls: Calls): Promise<Woken> {
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HAND,
+        responses: [() => new Promise<never>(() => {})],
+    });
+    await agent.actions.submit(agent.by(from.realm), submitted(undefined));
     return agent;
 }
 
@@ -1171,12 +1180,9 @@ const WRITTEN: readonly Written[] = [
         answers: STOPPING,
     },
     {
-        fixture: "realm/lapse.all",
-        drive: stopped,
-        answers: STOPPING,
-        // As today, a stop lapses every wait the agent raised
-        // (`crates/hamlet_server/src/talk/chats.rs:443-447`).
-        constant: { why: "stopped" },
+        fixture: "realm/working",
+        drive: working,
+        answers: { realm: { working: () => answer("realm/working") } },
     },
     {
         fixture: "realm/lapse.resumed",
@@ -1429,6 +1435,7 @@ const TAKERS = {
         by: from.library,
         answer: "library/shelves_changed.answer",
     },
+    stop: { by: from.realm, answer: "agent/stop.answer" },
 } as const;
 
 const TAKEN = [
@@ -1444,6 +1451,8 @@ const TAKEN = [
     "agent/finished.run.ran",
     "agent/place",
     "agent/place.hand",
+    // It names one withdrawn line, so an idle agent counts its chat.
+    "agent/stop",
     "agent/submit.answer",
     "agent/submit.letter",
     "agent/submit.letter.files",
@@ -2281,8 +2290,8 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a client's call of the realm",
     ],
     [
-        /^realm\/working\./,
-        "the agent's report of its open inputs, which it does not send yet",
+        /^realm\/lapse\.all\.args$/,
+        "the lapse of every wait an agent raised, which the realm's stop makes itself",
     ],
     [
         /^realm\/charge\.args$/,
@@ -2357,19 +2366,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 
-test("the realm's stop is read as its fixture holds", () => {
-    const [message] = fixture("agent/stop.args") as unknown[];
-    assert.deepEqual(read.stop(message), {
-        number: 3,
-        withdrawn: [
-            {
-                id: "0b5e7c4a-1d2f-4e3a-8b9c-0d1e2f3a4b01",
-                line: { type: "line", text: "Stop after this", chief: "chief" },
-            },
-        ],
-    });
-});
-
 const CLIENT_CALLS = new RegExp(
     `^agent/(${[...Object.keys(readClient), "copies"].join("|")})(\\..+)?\\.(args|answer)$`,
 );
@@ -2416,6 +2412,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "realm/read_copies",
             "realm/secrets",
             "realm/turn_failed",
+            "realm/working",
             "realm/worker_done",
             "realm/errand_done",
             "workspace/cancel",
@@ -2424,9 +2421,6 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "profile/files",
             "profile/save",
         ].flatMap(answersTo),
-        // `the realm's stop is read as its fixture holds` reads them.
-        "agent/stop.args",
-        "agent/stop.answer",
         "agent/chat.event.answer",
         "agent/chat.event.letters.answer",
         "agent/chat.event.past.answer",

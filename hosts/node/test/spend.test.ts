@@ -67,6 +67,7 @@ test("each provider request is asked for and charged once under its own id", asy
                 (name) =>
                     name !== "read_copies" &&
                     name !== "secrets" &&
+                    name !== "working" &&
                     name !== "read_place",
             ),
         ["may_spend", "charge", "may_spend", "charge"],
@@ -125,6 +126,7 @@ test("a refused model call ends the turn with the realm's words and sends no req
                     name !== "list_tools" &&
                     name !== "read_copies" &&
                     name !== "secrets" &&
+                    name !== "working" &&
                     name !== "shelves" &&
                     name !== "read_place",
             ),
@@ -504,6 +506,7 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
                     name !== "list_tools" &&
                     name !== "read_copies" &&
                     name !== "secrets" &&
+                    name !== "working" &&
                     name !== "shelves" &&
                     name !== "read_place",
             ),

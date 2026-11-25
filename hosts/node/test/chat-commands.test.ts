@@ -210,8 +210,9 @@ test("stop ends the run and drops the queue", async (t) => {
         [{ which: { type: "all" } }],
     );
     assert.deepEqual(
-        named(sent, "lapse").map((call) => call.message),
-        [{ why: "stopped" }],
+        named(sent, "lapse"),
+        [],
+        "the realm's stop lapses the waits itself",
     );
 
     await told(agent, "Now");
@@ -251,33 +252,6 @@ test("stop answers a queued question that its turn was stopped", async (t) => {
         })),
     );
     assert.equal(agent.faux.state.callCount, 1);
-});
-
-test("a repeated stop answers 0", async (t) => {
-    const { calls, sent } = fakes();
-    const slow = held();
-    const agent = await wake(t, calls, [slow.step]);
-    await submitted(agent, line("Take your time"));
-    await slow.asked;
-
-    assert.deepEqual(
-        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
-        {
-            turns: 1,
-        },
-    );
-    assert.deepEqual(
-        await agent.actions.stop(agent.by(from.realm), { number: 1 }),
-        {
-            turns: 0,
-        },
-    );
-    // Sent again, so the repeat of a stop cut off before them sends them.
-    assert.equal(named(sent, "cancel").length, 2);
-    assert.deepEqual(
-        named(sent, "lapse").map((call) => call.message),
-        [{ why: "stopped" }, { why: "stopped" }],
-    );
 });
 
 test("stop ends a turn whose call is out and cancels the call", async (t) => {

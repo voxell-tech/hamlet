@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord/context";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
     type Harness,
+    InboxDoc,
+    type InboxItem,
+    type InboxState,
     type InputSubmissionDraft,
     LiveDoc,
+    type LiveState,
     ProviderDoc,
     type TaskId,
     type ToolExecutionApi,
@@ -77,6 +82,7 @@ const BARE = [
     "keep_credential",
     "turn_failed",
     "lapse",
+    "working",
     "open_task",
     "read_copies",
     "secrets",
@@ -209,7 +215,18 @@ export function draftOf(
     admission: Admission,
     whenBusy?: "steer",
 ): InputSubmissionDraft {
-    const kept: Kept = {
+    return {
+        type: "input",
+        content: admission.content,
+        requestId: admission.id,
+        ...(whenBusy === undefined ? {} : { whenBusy }),
+        entry: { kind: `${KIND}${admission.kind}`, data: keptOf(admission) },
+    };
+}
+
+/** What an input's entry keeps beside its words. */
+export function keptOf(admission: Admission): Kept {
+    return {
         ...(admission.task === undefined ? {} : { task: admission.task }),
         ...("question" in admission && admission.question !== undefined
             ? { question: admission.question }
@@ -224,13 +241,6 @@ export function draftOf(
         ...(admission.files === undefined || admission.files.length === 0
             ? {}
             : { files: [...admission.files] }),
-    };
-    return {
-        type: "input",
-        content: admission.content,
-        requestId: admission.id,
-        ...(whenBusy === undefined ? {} : { whenBusy }),
-        entry: { kind: `${KIND}${admission.kind}`, data: kept },
     };
 }
 
@@ -346,6 +356,84 @@ export async function isBusy(
 ): Promise<boolean> {
     const live = await harness.snapshot(LiveDoc, conversation, context);
     return live?.run !== undefined;
+}
+
+/**
+ * Whether `conversation` has a run or an input queued for one: an open
+ * input, as today's stop counts it.
+ */
+export async function isOpen(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<boolean> {
+    if (await isBusy(harness, conversation, context)) return true;
+    const inbox = await harness.snapshot(InboxDoc, conversation, context);
+    return inbox?.items.some(isQueuedInput) ?? false;
+}
+
+function isQueuedInput(item: InboxItem): boolean {
+    return item.mode !== "write";
+}
+
+/**
+ * A follower of harnesses that tells the realm when the agent's open inputs
+ * go from none to some and back.
+ */
+export function workReporter(peers: Peers): (harness: Harness) => void {
+    const running = new Set<ConversationId>();
+    const queued = new Set<ConversationId>();
+    const followed = new WeakSet<Harness>();
+    let open = false;
+    let told: Promise<void> = Promise.resolve();
+    const mark = (set: Set<ConversationId>, id: ConversationId, on: boolean) =>
+        on ? set.add(id) : set.delete(id);
+    return (harness) => {
+        if (followed.has(harness)) return;
+        followed.add(harness);
+        harness.observeCommits({
+            advance: ({ changes }) => {
+                for (const change of changes) {
+                    if (
+                        change.type !== "document" ||
+                        change.conversationId === undefined
+                    ) {
+                        continue;
+                    }
+                    const id = change.conversationId;
+                    const value =
+                        change.kind === "change" ? change.value : undefined;
+                    if (change.record.kind === LiveDoc.definition.kind) {
+                        const live = value as LiveState | undefined;
+                        mark(running, id, live?.run !== undefined);
+                    } else if (
+                        change.record.kind === InboxDoc.definition.kind
+                    ) {
+                        const inbox = value as InboxState | undefined;
+                        mark(
+                            queued,
+                            id,
+                            inbox?.items.some(isQueuedInput) ?? false,
+                        );
+                    }
+                }
+                const now = running.size + queued.size > 0;
+                if (now === open) return;
+                open = now;
+                told = told
+                    .then(() => peers.reach.working({ open: now }))
+                    .then(
+                        () => undefined,
+                        (error: unknown) =>
+                            peers.report(
+                                "the realm was not told whether the agent works",
+                                error,
+                            ),
+                    );
+            },
+            end: () => {},
+        });
+    };
 }
 
 /**
@@ -686,6 +774,26 @@ export function thrown(code: string, message: string): ToolExecutionResult {
 /** Today's words for a call that may have run (`crates/hamlet_server/src/calls.rs`). */
 export const MAY_HAVE_RUN =
     "interrupted by a restart and may have partially run";
+
+/**
+ * The result of a held call that ended without an answer, as pi-durable's
+ * abort writes it: "Tool <name> was aborted".
+ */
+export function abortedResult(held: ToolResultMessage): ToolResultMessage {
+    return {
+        role: "toolResult",
+        toolCallId: held.toolCallId,
+        toolName: held.toolName,
+        content: [
+            {
+                type: "text",
+                text: `<harness>\n[error] Tool ${held.toolName} was aborted\n</harness>`,
+            },
+        ],
+        isError: true,
+        timestamp: held.timestamp,
+    };
+}
 
 export function interrupted(tool: string): ToolExecutionResult {
     return thrown("tool_interrupted", `Tool ${tool} was ${MAY_HAVE_RUN}`);

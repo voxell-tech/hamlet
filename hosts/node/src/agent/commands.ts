@@ -14,7 +14,7 @@ import {
     type SubmissionDraft,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
-import { type AgentCall, generationOf } from "./actor.ts";
+import { type AgentCall, generationOf, shownWithdrawn } from "./actor.ts";
 import { textOf } from "./chat-items.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
@@ -28,6 +28,7 @@ import type {
     RetryAnswer,
     Rewind,
     RewindAnswer,
+    Stop,
 } from "./messages/agent.ts";
 import type { LapseReason } from "./messages/realm.ts";
 import { type LetterId, u32 } from "./messages/shared.ts";
@@ -39,6 +40,7 @@ import {
 import {
     begin,
     chiefSession,
+    conversationFor,
     created,
     current,
     makeCurrent,
@@ -53,6 +55,7 @@ import {
     conversationsOf,
     draftOf,
     isBusy,
+    isOpen,
     type Kept,
     refOf,
 } from "./turn.ts";
@@ -63,35 +66,57 @@ type Answer<N extends keyof ClientActions> = Promise<
 >;
 
 /**
- * Stops every run of the agent and drops what each had queued, then, as
- * today, cancels every call the agent has out and lapses all it was
- * trusted with. Both go out even when nothing ran, so the repeat of a stop
- * cut off before them sends them. Each question dropped is answered that
- * its turn was stopped, as today's follow answers it
- * (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+ * The realm's stop of the agent, run once per number; a repeat answers the
+ * first count. It counts the conversations it stops and the chats its
+ * withdrawn inputs are shown in.
  */
-export async function stop(
-    c: AgentCall,
-): Promise<ReturnType<AgentActions["stop"]>> {
-    const { options, peers, retrying } = generationOf(c);
+export function stop(c: AgentCall, message: Stop): Promise<Stopped> {
+    const { stops } = generationOf(c);
+    const first = stops.get(message.number);
+    if (first !== undefined) return first;
+    const stopping = stopped(c, message);
+    stops.set(message.number, stopping);
+    stopping.catch(() => stops.delete(message.number));
+    return stopping;
+}
+
+type Stopped = ReturnType<AgentActions["stop"]>;
+
+async function stopped(c: AgentCall, message: Stop): Promise<Stopped> {
+    const generation = generationOf(c);
+    const { options, peers } = generation;
+    const lines = message.withdrawn ?? [];
+    // Marked first, so an admission that begins later shows the line and
+    // never runs it. Not in `inTurn`, which may hold the very run it ends.
+    for (const line of lines) generation.withdrawn.add(line.id);
+    await Promise.allSettled(generation.admitting);
     // Today runs a chief's commands to one agent one after another
     // (`crates/hamlet_server/src/commands.rs`), so a retry under way is
     // stopped too.
-    await retrying;
-    const stopped = await withHarness(c, options, async (harness, context) => {
+    await generation.retrying;
+    const shown = await Promise.all(
+        lines.map(async (line) => ({
+            line,
+            chat: await conversationFor(c, line.line),
+        })),
+    );
+    const ended = await withHarness(c, options, async (harness, context) => {
         const each = await Promise.all(
             (await conversationsOf(harness, context)).map(async (id) => {
-                if (!(await isBusy(harness, id, context))) return [];
+                if (!(await isOpen(harness, id, context))) return [];
                 const dropped = await droppedQuestions(harness, id, context);
                 await (await harness.conversation(id, context))?.abort(context);
-                return [dropped];
+                return [{ id, dropped }];
             }),
         );
+        for (const { line, chat } of shown) {
+            await shownWithdrawn(harness, chat, line.id, line.line, context);
+        }
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
-    await peers.reach.lapse({ why: "stopped" });
-    for (const question of stopped.flat()) {
+    // As today's follow answers them (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+    for (const question of ended.flatMap((one) => one.dropped)) {
         await couldNotAnswer(
             peers,
             question,
@@ -99,7 +124,11 @@ export async function stop(
             undefined,
         );
     }
-    return { turns: stopped.length };
+    const counted = new Set([
+        ...ended.map((one) => one.id),
+        ...shown.map((one) => one.chat),
+    ]);
+    return { turns: counted.size };
 }
 
 /**
