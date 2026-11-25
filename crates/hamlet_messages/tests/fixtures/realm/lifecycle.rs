@@ -100,6 +100,10 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
                 MergeRefusal::OtherHamlet { name: shown(HIRE) },
             ),
             ("the_mayor", MergeRefusal::TheMayor),
+            (
+                "on_chiefs_task",
+                MergeRefusal::OnChiefsTask { name: shown(HIRE) },
+            ),
         ]
     };
     done(fixtures, "realm/chief_merge", merge_refusals());

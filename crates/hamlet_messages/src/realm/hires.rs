@@ -57,6 +57,11 @@ pub enum MergeRefusal {
     OtherHamlet { name: AgentName },
     #[error("a mayor cannot be ended; seat another mayor first")]
     TheMayor,
+    #[error(
+        "`{name}` is on a chief's task; a lead may end or merge it \
+         once it has answered and its protected minutes have passed"
+    )]
+    OnChiefsTask { name: AgentName },
 }
 
 /// Brings an ended hire back: one merged into another is split from

@@ -31,8 +31,8 @@ use super::peer::{self, When};
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::{self, Life, Lineage};
 use super::{
-    chiefs, drop_parts, erase, hire, laid, profiles, record, retire,
-    workers,
+    chiefs, drop_parts, erase, hire, laid, on_task, profiles, record,
+    retire, workers,
 };
 
 /// A chief's reason for a merge when it gives none.
@@ -230,6 +230,14 @@ pub(super) struct Merging {
     address: String,
     /// The agent whose `merge_hires` it is; `None` for a chief.
     by: Option<AgentName>,
+    /// The hires their agents said are on a chief's task.
+    on_task: Vec<AgentNumber>,
+}
+
+impl on_task::Told for Merging {
+    fn on_task(&mut self, on_task: Vec<AgentNumber>) {
+        self.on_task = on_task;
+    }
 }
 
 /// What a merge made.
@@ -278,6 +286,7 @@ async fn load_merge(
         workers,
         address,
         by,
+        on_task: Vec::new(),
     })
 }
 
@@ -326,6 +335,13 @@ fn decide_merge<By: Lead>(
     };
     if absorbed.is_mayor() {
         return Err(By::refused(MergeRefusal::TheMayor));
+    }
+    for hire in [&into, &absorbed] {
+        if merging.on_task.contains(&hire.agent.agent) {
+            return Err(By::refused(MergeRefusal::OnChiefsTask {
+                name: hire.agent.name.clone(),
+            }));
+        }
     }
     let given = merge
         .why

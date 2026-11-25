@@ -16,8 +16,8 @@ use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Erase, Fill, Place, PlaceVersion, Retire, Retired,
-    Submit,
+    AgentInput, Erase, Fill, OnTask, Place, PlaceVersion, Retire,
+    Retired, Submit,
 };
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
@@ -126,6 +126,11 @@ pub(super) struct Seen {
     /// drop once by its agent, as a callee answers a repeat without
     /// doing it again.
     pub(super) kept: Mutex<Kept>,
+    /// Each agent asked whether it is on a chief's task, with the
+    /// question.
+    pub(super) asked_on_task: Mutex<Vec<(AgentNumber, OnTask)>>,
+    /// The agents that answer they are on a chief's task.
+    pub(super) on_task: Mutex<HashSet<AgentNumber>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -304,7 +309,7 @@ impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
     type Actions =
-        (Submit, Place, Fill, Copies, Retire, Erase, Forward);
+        (Submit, Place, Fill, Copies, Retire, Erase, OnTask, Forward);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -400,6 +405,21 @@ impl Handler<Erase> for AgentStandIn {
             self.agent,
         );
         Ok(())
+    }
+}
+
+impl Handler<OnTask> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        asked: OnTask,
+    ) -> anyhow::Result<bool> {
+        self.seen
+            .asked_on_task
+            .lock()
+            .unwrap()
+            .push((self.agent, asked));
+        Ok(self.seen.on_task.lock().unwrap().contains(&self.agent))
     }
 }
 
