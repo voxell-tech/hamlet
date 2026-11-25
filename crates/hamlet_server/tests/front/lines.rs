@@ -10,7 +10,7 @@ use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
     AgentId, ClientMessage, ItemKind, ReplyKind, Stop, Transcript,
 };
-use hamlet_testing::Scratch;
+use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
 use super::{HeldNode, kill_node, said_once_hired, serve, until};
@@ -165,7 +165,7 @@ async fn a_stop_is_answered_within_a_second_with_the_host_frozen() {
         (ReplyKind::Notice, ""),
         "the line is answered while the host is still frozen"
     );
-    drop(frozen);
+    frozen.thaw(&server);
     let back = chief.say(hand, "Hello again.").await;
     assert_eq!(back.kind, ReplyKind::Notice, "{}", back.text);
     let page = chief.open(&chat).await;
@@ -302,7 +302,8 @@ fn answers_in(page: &Transcript) -> Vec<&str> {
         .collect()
 }
 
-/// The server's Node host, stopped by SIGSTOP until dropped.
+/// The server's Node host, stopped by SIGSTOP until thawed or
+/// dropped.
 pub(super) struct Frozen(String);
 
 impl Frozen {
@@ -311,8 +312,20 @@ impl Frozen {
             .unwrap()
             .trim()
             .to_owned();
-        signal("STOP", &pid);
+        assert!(signal("STOP", &pid), "kill -STOP {pid}");
         Self(pid)
+    }
+
+    /// Lets the host run again. Fails with `server`'s log when the
+    /// host has ended meanwhile.
+    pub(super) fn thaw(self, server: &Server) {
+        let frozen = ManuallyDrop::new(self);
+        assert!(
+            signal("CONT", &frozen.0),
+            "the frozen Node host {} has ended: {}",
+            frozen.0,
+            server.log()
+        );
     }
 
     /// Ends the frozen host with SIGKILL, as a crash ends it.
@@ -328,7 +341,8 @@ impl Drop for Frozen {
     }
 }
 
-fn signal(name: &str, pid: &str) {
+/// Whether `kill` sent the signal `name` to `pid`.
+fn signal(name: &str, pid: &str) -> bool {
     #[expect(
         clippy::disallowed_methods,
         reason = "it signals the server's Node host, not an agent's \
@@ -338,5 +352,5 @@ fn signal(name: &str, pid: &str) {
         .args([&format!("-{name}"), pid])
         .status()
         .unwrap();
-    assert!(sent.success(), "kill -{name} {pid}");
+    sent.success()
 }
