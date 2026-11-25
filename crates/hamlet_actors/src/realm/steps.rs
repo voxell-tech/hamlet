@@ -79,6 +79,9 @@ pub(super) enum Change {
     },
     /// The row is driven no further.
     Close { row: StepId },
+    /// A closed row whose step `last` is not done, driven again from
+    /// the step after its last one done.
+    Resume { row: StepId, last: &'static str },
 }
 
 /// An `Advance` that finds the row moved or closed changes nothing
@@ -93,6 +96,9 @@ pub(super) async fn apply(
             advance(writer, row, from, to).await
         }
         Change::Close { row } => close(writer, row).await,
+        Change::Resume { row, last } => {
+            resume(writer, row, last).await
+        }
     }
 }
 
@@ -109,6 +115,27 @@ async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
         .await?;
     Ok(Affected {
         begun: if begun == 0 { Vec::new() } else { vec![row] },
+        ..Affected::default()
+    })
+}
+
+async fn resume(
+    writer: &Writer<'_>,
+    row: StepId,
+    last: &'static str,
+) -> Result<Affected> {
+    let mut params = key(row)?;
+    params.push(BindParam::Integer(writer.at().0));
+    params.push(BindParam::Text(last.to_owned()));
+    let resumed = writer
+        .execute(
+            "UPDATE step SET closed = 0, at = ?3 WHERE kind = ?1 \
+             AND n = ?2 AND closed = 1 AND done IS NOT ?4",
+            params,
+        )
+        .await?;
+    Ok(Affected {
+        begun: if resumed == 0 { Vec::new() } else { vec![row] },
         ..Affected::default()
     })
 }

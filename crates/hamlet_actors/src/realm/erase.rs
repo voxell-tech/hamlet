@@ -127,7 +127,7 @@ pub(super) async fn run(
             let mut first = merges::rows_of(&rows, agent).await?;
             first.push(retire::row(agent));
             steps::after(cx, first).await?;
-            if retire::reached(&rows, agent, hire::Step::Profile)
+            if hire::reached(&rows, agent, hire::Step::Profile)
                 .await?
             {
                 let dropped = DropBranch {
@@ -144,8 +144,7 @@ pub(super) async fn run(
             }
         }
         Step::Agent => {
-            if retire::reached(&rows, agent, hire::Step::Create)
-                .await?
+            if hire::reached(&rows, agent, hire::Step::Create).await?
             {
                 let to = Agent(agent);
                 let erased =

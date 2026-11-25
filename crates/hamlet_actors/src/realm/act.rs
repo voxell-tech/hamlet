@@ -112,6 +112,15 @@ impl<D> Decided<D> {
     }
 
     #[must_use]
+    pub fn changes(
+        mut self,
+        changes: impl IntoIterator<Item = Change>,
+    ) -> Self {
+        self.changes.extend(changes);
+        self
+    }
+
+    #[must_use]
     pub fn record(mut self, entry: record::Entry) -> Self {
         self.entries.push(entry);
         self

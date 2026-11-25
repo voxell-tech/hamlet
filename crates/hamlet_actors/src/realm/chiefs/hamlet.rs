@@ -736,8 +736,7 @@ impl Act<Client> for RestoreHamlet {
             status: Status::Living,
         });
         for agent in restoring.hires {
-            decided = decided
-                .change(tree::Change::Back { agent, lead: None });
+            decided = decided.changes(tree::coming_back(agent, None));
         }
         Decision::Change(decided.record(
             record::Entry::RestoredHamlet {

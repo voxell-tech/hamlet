@@ -612,10 +612,7 @@ impl Act<Client> for Restore {
             None => Restoring::Back,
         };
         let mut decided = Decided::new(done)
-            .change(tree::Change::Back {
-                agent,
-                lead: Some(coming.lead),
-            })
+            .changes(tree::coming_back(agent, Some(coming.lead)))
             .record(record::Entry::Restored {
                 hire: agent,
                 by: by.by(),
@@ -692,7 +689,7 @@ async fn merged(
     merge: &Kept,
 ) -> Result<Vec<change::Change>> {
     let rows = cx.rows()?;
-    if !retire::reached(&rows, merge.absorbed, hire::Step::Branch)
+    if !hire::reached(&rows, merge.absorbed, hire::Step::Branch)
         .await?
     {
         return Ok(Vec::new());
@@ -764,7 +761,7 @@ async fn merged(
 /// branch's tip.
 async fn fill(cx: &Cx<'_>, agent: AgentNumber) -> Result<()> {
     let rows = cx.rows()?;
-    if !retire::reached(&rows, agent, hire::Step::Create).await? {
+    if !hire::reached(&rows, agent, hire::Step::Create).await? {
         return Ok(());
     }
     let fill = Fill {

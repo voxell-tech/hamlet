@@ -61,7 +61,7 @@ pub(super) async fn run(
             // profile and saved nothing; its profile may have no
             // actor.
             let filled =
-                retire::reached(&rows, agent, hire::Step::Profile)
+                hire::reached(&rows, agent, hire::Step::Profile)
                     .await?;
             let profile = rows
                 .value::<u32>(

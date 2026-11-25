@@ -285,7 +285,7 @@ impl Act<Client> for RestoreProfile {
             });
         for (agent, lead) in returning.hires {
             decided = decided
-                .change(tree::Change::Back { agent, lead })
+                .changes(tree::coming_back(agent, lead))
                 .record(record::Entry::Restored {
                     hire: agent,
                     by: record::By::Chief,

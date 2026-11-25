@@ -59,7 +59,7 @@ pub(super) async fn retire(
     if tree::life(&rows, agent).await? == Life::Living {
         return Ok(Vec::new());
     }
-    if reached(&rows, agent, hire::Step::Fill).await? {
+    if hire::reached(&rows, agent, hire::Step::Fill).await? {
         let to = Agent(agent);
         unless_gone(
             cx.peers().call(&to, &Retire, When::AfterAnswer).await,
@@ -82,23 +82,6 @@ pub(super) async fn failed(
     let agent = AgentNumber(u32::try_from(n)?);
     let close = steps::Change::Close { row: row(agent) };
     Ok((vec![close.into(), dropping(agent)], Calls::none()))
-}
-
-/// Whether `agent`'s hire did `step`, or has no row of steps.
-pub(super) async fn reached(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-    step: hire::Step,
-) -> Result<bool> {
-    let Some(row) = steps::row(rows, hire::row(agent)).await? else {
-        return Ok(true);
-    };
-    let at = |name: &str| {
-        <hire::Step as Steps>::ALL
-            .iter()
-            .position(|each| each.name() == name)
-    };
-    Ok(row.done.as_deref().and_then(at) >= at(step.name()))
 }
 
 /// `called`'s answer, or none when its actor is gone: an erased

@@ -922,3 +922,42 @@ async fn placing_a_profile_refuses_in_todays_order() {
     assert_eq!(house, (100.0, 0.0));
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_removed_with_its_hamlet_while_it_was_made_is_made_once_restored()
+ {
+    let (realm, hamlet) = hamlet_with(0).await;
+    realm.seen.hold(Callee::Create);
+    hires(&realm, MAYOR, "h0").await;
+    until("the create waits", || {
+        realm.seen.is_waiting(Callee::Create, THREE)
+    })
+    .await;
+
+    chief(&realm, remove(&hamlet)).await;
+    chief(&realm, restore(&hamlet)).await;
+    realm.seen.release(Callee::Create);
+    closed_until(&realm, "hire", 3).await;
+
+    let (status, done) = realm
+        .stopped_rows(|db| {
+            db.query_row(
+                "SELECT agent.status, step.done FROM agent JOIN \
+                 step ON step.kind = 'hire' AND step.n = agent.id \
+                 WHERE agent.id = 3",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get(1)?)),
+            )
+        })
+        .await;
+    assert_eq!(
+        (status.as_str(), done),
+        ("live", Some("live".to_owned()))
+    );
+    let fills = realm.seen.fills.lock().unwrap().clone();
+    assert_eq!(
+        fills.iter().filter(|(to, _)| *to == THREE).count(),
+        1
+    );
+    realm.host.shutdown().await.unwrap();
+}

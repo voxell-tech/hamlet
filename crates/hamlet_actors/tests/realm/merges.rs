@@ -137,6 +137,23 @@ fn retires(realm: &Realm) -> Vec<AgentNumber> {
     realm.seen.retires.lock().unwrap().clone()
 }
 
+/// The last step `agent`'s hire row did.
+async fn hire_done(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> Option<String> {
+    realm
+        .stopped_rows(move |db| {
+            db.query_row(
+                "SELECT done FROM step WHERE kind = 'hire' AND n = \
+                 ?1",
+                [agent.0],
+                |row| row.get(0),
+            )
+        })
+        .await
+}
+
 fn fills_of(realm: &Realm, agent: AgentNumber) -> usize {
     let fills = realm.seen.fills.lock().unwrap();
     fills.iter().filter(|(to, _)| *to == agent).count()
@@ -447,6 +464,7 @@ async fn an_ended_hire_comes_back_with_its_files() {
         "its agent is not made again"
     );
     assert_eq!(fills_of(&realm, THREE), 1, "nor filled again");
+    assert_eq!(super::closed(&realm, "hire", 3).await, Some(true));
     assert!(realm.seen.erases.lock().unwrap().is_empty());
     assert!(made(&realm, THREE).is_some());
     assert!(
@@ -455,6 +473,31 @@ async fn an_ended_hire_comes_back_with_its_files() {
             .ends_with(&["ended".to_owned(), "restored".to_owned()])
     );
     realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_ended_while_it_was_made_is_made_once_restored() {
+    for held in [Callee::Branch, Callee::Create] {
+        let (realm, _) = super::hamlet_with(0).await;
+        realm.seen.hold(held);
+        realm.tool(MAYOR, &tool("h0", hire(None))).await.unwrap();
+        until("the hire's step waits", || {
+            realm.seen.is_waiting(held, THREE)
+        })
+        .await;
+        end(&realm, THREE).await;
+
+        let restored = chief(&realm, restore(THREE)).await;
+        realm.seen.release(held);
+        closed_until(&realm, "hire", 3).await;
+        let live = hire_done(&realm, THREE).await;
+
+        assert_eq!(restored, Restored::Back, "{held:?}");
+        assert_eq!(live.as_deref(), Some("live"), "{held:?}");
+        assert_eq!(agent(&realm, THREE).await.0, "live", "{held:?}");
+        assert_eq!(fills_of(&realm, THREE), 1, "{held:?}");
+        realm.host.shutdown().await.unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

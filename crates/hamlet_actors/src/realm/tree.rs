@@ -23,7 +23,7 @@ use serde::Deserialize as _;
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::world::Part;
-use super::{chiefs, erase, profiles, record, steps};
+use super::{chiefs, erase, hire, profiles, record, steps};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Status {
@@ -849,17 +849,42 @@ async fn showing(
     places_showing(writer, agent, lead.map(AgentNumber)).await
 }
 
+/// The changes that bring the ended `agent` back under `lead`, its
+/// hire row taken up again where its end cut it off.
+pub(super) fn coming_back(
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> [change::Change; 2] {
+    [
+        Change::Back { agent, lead }.into(),
+        steps::Change::Resume {
+            row: hire::row(agent),
+            last: steps::Steps::name(hire::Step::Live),
+        }
+        .into(),
+    ]
+}
+
+/// Brings the ended `agent` back: live, or hiring when its end cut
+/// its making off, which its hire row then takes up again.
 async fn back(
     writer: &Writer<'_>,
     agent: AgentNumber,
     lead: Option<AgentNumber>,
 ) -> Result<Affected> {
+    let made = hire::reached(&writer.rows(), agent, hire::Step::Live)
+        .await?;
     let back = writer
         .execute(
-            "UPDATE agent SET status = 'live', ended_how = NULL, \
+            "UPDATE agent SET status = ?2, ended_how = NULL, \
              ended_why = NULL WHERE id = ?1 AND status = 'ended' \
              AND erased = 0",
-            vec![number(agent)],
+            vec![
+                number(agent),
+                BindParam::Text(
+                    if made { "live" } else { "hiring" }.to_owned(),
+                ),
+            ],
         )
         .await?;
     if back == 0 {
@@ -867,6 +892,9 @@ async fn back(
     }
     if lead.is_some() {
         lead::set_lead(writer, agent, lead).await?;
+    }
+    if !made {
+        return showing(writer, agent).await;
     }
     let mut places = showing(writer, agent).await?.places;
     places.insert(agent);
