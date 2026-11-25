@@ -338,14 +338,14 @@ impl Actor for Realm {
             .await?;
             parcels::store::sweep(&self, &ctx).await?;
             let rows = change::Rows::outside(&ctx)?;
-            steps::undone(&rows, &self.drives)
-                .await?
-                .start(&self, &ctx);
+            let undone = steps::undone(&rows, &self.drives).await?;
             let reaches = versions::unapplied(&rows)
                 .await?
                 .into_iter()
+                .filter(|&agent| !undone.reaches(agent))
                 .map(calls::Push::Reach)
                 .collect();
+            undone.start(&self, &ctx);
             let (realm, pushing) = (self.clone(), ctx.clone());
             ctx.register_task(async move {
                 calls::push_all(&realm, &pushing, reaches).await;

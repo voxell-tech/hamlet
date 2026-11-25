@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
@@ -44,6 +44,25 @@ pub(super) enum Kind {
 pub(super) struct StepId {
     pub kind: Kind,
     pub n: u64,
+}
+
+impl StepId {
+    /// The agent whose reach a row of this kind wants as it runs.
+    fn reaches(self) -> Option<AgentNumber> {
+        let n = u32::try_from(self.n).ok()?;
+        match self.kind {
+            Kind::Hire | Kind::Worker => Some(AgentNumber(n)),
+            Kind::Errand => {
+                ErrandNumber::new(n).map(ErrandNumber::agent)
+            }
+            Kind::Review
+            | Kind::Parcel
+            | Kind::Dream
+            | Kind::DreamEnd
+            | Kind::Verdict
+            | Kind::DropParts => None,
+        }
+    }
 }
 
 /// One operation's steps, in the order they are done.
@@ -456,6 +475,13 @@ pub(super) struct Reserved {
 }
 
 impl Reserved {
+    /// Whether one of these rows wants `agent`'s reach as it runs.
+    pub fn reaches(&self, agent: AgentNumber) -> bool {
+        self.rows
+            .iter()
+            .any(|(row, _)| row.reaches() == Some(agent))
+    }
+
     /// Drives each row on a task of the realm's.
     pub fn start(mut self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
         for (row, ended) in std::mem::take(&mut self.rows) {
