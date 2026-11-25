@@ -516,3 +516,39 @@ async fn a_branch_dropped_twice_is_gone_once() {
     assert_eq!(names.collect::<Vec<_>>(), ["hires/7", "main"]);
     host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_that_brings_nothing_splits_to_nothing() {
+    let dir = Scratch::new("profile-merge-empty");
+    let host = two_hires(&dir, &[], Arc::default()).await;
+    let drop = DropBranch {
+        name: "hires/8".into(),
+    };
+    call_as(&host, &realm(), &drop).await.unwrap();
+    assert_eq!(
+        bundle(&host, "hires/8").await,
+        [(Vec::new(), Vec::new())]
+    );
+    let saved =
+        save_on(&dir, 1, "hires/7", &[write("memory/a.md", "a")]);
+
+    let empty = part(0, true, (Vec::new(), Vec::new()));
+    for from in [from_branch(), empty] {
+        let asked = merge(&RequestId::new(), from);
+        let MergeAnswer::Merged { tip, set_aside } =
+            call_as(&host, &realm(), &asked).await.unwrap()
+        else {
+            panic!("not merged");
+        };
+        assert!(set_aside.is_empty());
+        assert_ne!(git_commit(tip), saved);
+        let split = unmerge(&RequestId::new(), tip);
+        call_as(&host, &realm(), &split).await.unwrap();
+        let now = hire_tip(&dir, 7);
+        assert_eq!(
+            read(&dir, 1, now, "memory/a.md").as_deref(),
+            Some("a")
+        );
+    }
+    host.shutdown().await.unwrap();
+}

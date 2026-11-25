@@ -147,11 +147,15 @@ fn merge_branch(
     } = unit.message().clone();
     let (writer, learned) = match from {
         Source::Branch { name } => {
-            let theirs = unit
-                .git()?
-                .tip(&name)?
-                .with_context(|| format!("no branch {name}"))?;
-            (unit.write(), Learned::Branch(theirs))
+            let learned = match unit.git()?.tip(&name)? {
+                Some(theirs) => Learned::Branch(theirs),
+                // An erase may drop the branch before its merge ends.
+                None => Learned::Files {
+                    written: Vec::new(),
+                    removed: Vec::new(),
+                },
+            };
+            (unit.write(), learned)
         }
         Source::Part {
             part,
@@ -498,9 +502,16 @@ fn bundle(look: &Look<'_, Profile, Bundle>) -> Result<BundleAnswer> {
             }
             commit
         }
-        None => git
-            .tip(branch)?
-            .with_context(|| format!("no branch {branch}"))?,
+        None => match git.tip(branch)? {
+            Some(tip) => tip,
+            None => {
+                return Ok(BundleAnswer::Part {
+                    files: Vec::new(),
+                    removed: Vec::new(),
+                    next: None,
+                });
+            }
+        },
     };
     let main = git.tip(MAIN)?.context("a profile has a main")?;
     let items = learned(git, git.merge_base(tip, main)?, tip)?;
