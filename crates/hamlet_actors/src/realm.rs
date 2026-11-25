@@ -341,6 +341,15 @@ impl Actor for Realm {
             steps::undone(&rows, &self.drives)
                 .await?
                 .start(&self, &ctx);
+            let reaches = versions::unapplied(&rows)
+                .await?
+                .into_iter()
+                .map(calls::Push::Reach)
+                .collect();
+            let (realm, pushing) = (self.clone(), ctx.clone());
+            ctx.register_task(async move {
+                calls::push_all(&realm, &pushing, reaches).await;
+            });
             Ok(())
         }
         .await

@@ -140,6 +140,23 @@ pub(super) async fn reach(
     }))
 }
 
+/// The agents whose wanted reach the workspace has not answered as in
+/// force: its push failed, or the realm stopped before the answer.
+pub(super) async fn unapplied(
+    rows: &Rows<'_>,
+) -> Result<Vec<AgentNumber>> {
+    Ok(rows
+        .values::<u32>(
+            "SELECT agent FROM reach WHERE applied IS NULL OR \
+             applied < wanted",
+            Vec::new(),
+        )
+        .await?
+        .into_iter()
+        .map(AgentNumber)
+        .collect())
+}
+
 pub(super) async fn place(
     rows: &Rows<'_>,
     agent: AgentNumber,

@@ -124,15 +124,15 @@ async fn the_world_answers_while_a_hire_waits_on_another_actor() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_revision_survives_a_restart() {
-    // hire 3 under mayor 2; open a wait for the mayor; fail the
+    // hire 3 under mayor 2; open a wait for the mayor; hold the
     // SetReach of 3's end, so its reach stays pending; read the
     // world; restart: the world is the same, its revision with it.
     let (realm, _) = hamlet_with(1).await;
     realm.call_as_workspace(&needs(MAYOR, "c1")).await.unwrap();
-    realm.seen.fail_once(Callee::SetReach, THREE);
+    realm.seen.hold(Callee::SetReach);
     end_the_hire(&realm).await;
-    until("the workspace fails the end's SetReach", || {
-        realm.seen.has_failed(Callee::SetReach, THREE)
+    until("the end's SetReach waits", || {
+        realm.seen.is_waiting(Callee::SetReach, THREE)
     })
     .await;
 
@@ -163,6 +163,46 @@ async fn the_revision_survives_a_restart() {
         })
     );
     assert_eq!(after, before);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reach_the_workspace_failed_is_pushed_again_when_the_realm_starts()
+ {
+    // fail the SetReach of hire 3's end: its reach stays pending
+    // while the realm runs; restart: the realm pushes it again, and
+    // the workspace holds the end.
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.fail_once(Callee::SetReach, THREE);
+    end_the_hire(&realm).await;
+    until("the workspace fails the end's SetReach", || {
+        realm.seen.has_failed(Callee::SetReach, THREE)
+    })
+    .await;
+
+    let pending = realm.ask(&ReadWorld).await.unwrap();
+    let realm = realm.restart().await;
+    let applied =
+        seen_until(&realm, "the end's reach applied", |seen| {
+            agent(seen, THREE).is_some_and(|hire| {
+                matches!(hire.reach, ReachSeen::Applied { .. })
+            })
+        })
+        .await;
+
+    assert_eq!(
+        agent(&pending, THREE).map(|hire| &hire.reach),
+        Some(&ReachSeen::Pending {
+            applied: Some(ReachVersion(1)),
+            wanted: ReachVersion(2),
+        })
+    );
+    assert_eq!(
+        agent(&applied, THREE).map(|hire| &hire.reach),
+        Some(&ReachSeen::Applied {
+            version: ReachVersion(2)
+        })
+    );
     realm.host.shutdown().await.unwrap();
 }
 
