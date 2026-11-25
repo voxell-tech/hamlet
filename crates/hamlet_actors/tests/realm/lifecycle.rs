@@ -627,7 +627,6 @@ fn made_profiles(realm: &Realm) -> Vec<(ProfileId, ProfileInput)> {
     realm.seen.profiles.lock().unwrap().clone()
 }
 
-#[ignore = "the profile table keeps no fork's source and commit yet"]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_profile_forked_at_a_version_hires_with_that_versions_files()
  {
@@ -663,7 +662,6 @@ async fn a_profile_forked_at_a_version_hires_with_that_versions_files()
     realm.host.shutdown().await.unwrap();
 }
 
-#[ignore = "the profile table keeps no fork's source and commit yet"]
 #[tokio::test(flavor = "multi_thread")]
 async fn forking_refuses_a_missing_profile_then_a_missing_version_then_a_bad_name()
  {
@@ -704,7 +702,6 @@ async fn forking_refuses_a_missing_profile_then_a_missing_version_then_a_bad_nam
     realm.host.shutdown().await.unwrap();
 }
 
-#[ignore = "the profile table keeps no fork's source and commit yet"]
 #[tokio::test(flavor = "multi_thread")]
 async fn every_fork_step_twice_leaves_one_profile() {
     // fork; set its row back before each step in turn, the profile

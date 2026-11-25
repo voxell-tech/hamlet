@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS profile (
 	arrival TEXT NOT NULL DEFAULT 'housed',
 	house_x REAL,
 	house_z REAL,
-	house_turn REAL) STRICT;
+	house_turn REAL,
+	-- a fork's source profile and the commit it was made at
+	fork_of INTEGER,
+	fork_at TEXT) STRICT;
 
 -- tree.rs
 CREATE TABLE IF NOT EXISTS agent (
