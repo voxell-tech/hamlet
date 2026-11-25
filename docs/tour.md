@@ -646,14 +646,19 @@ reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
 An agent, the actor `agent/<n>` keyed by its `AgentNumber`, runs in the
 Node host, in `hosts/node/src/agent/`. It is pi-durable's actor wrapper,
 ported to `hosts/node/src/pi/`, composed in `actor.ts` with actions of
-its own: the realm's `submit`, `place`, `fill` and `copies`, the
+its own: the realm's `submit`, `stop`, `place`, `fill` and `copies`, the
 workspace's `finished`, the profile's `moved` and `remove_path`, the
 library's `shelves_changed`, and `pi.wake`, the alarm of its timers. Each action checks
 its sender, reads its message with the lenient readers of `messages/`,
 which type every message the agent takes or sends, one file for each
 actor it hears from or calls, and answers `null`,
-but `remove_path`, which answers `removed` or `later`.
-An input is taken once under its id.
+but `remove_path`, which answers `removed` or `later`, and `stop`, which
+answers the turns it stopped.
+An input is taken once under its id. A held call that ends with no
+answer, because a stop lapsed its wait or its command was cancelled,
+is written in place of the call's result as aborted and starts no run.
+The agent tells the realm `working` when its open inputs go from none
+to some and back.
 
 At each wake `actor.ts` builds the agent's parts from its peers: the
 workspace, the realm and its own filesystem. `turn.ts` holds the rules
@@ -705,8 +710,9 @@ the one that is current. `chat.ts` takes a client's chat calls, each from
 a client only through `askedBy`. A sign-in is the Hand's alone, and any
 other agent answers `login` with `not_the_hand`.
 
-- `commands.ts` runs `/new`, `/resume`, `/retry`, `/stop`, a rewind and
-  `/reflect`, with today's notices and refusals.
+- `commands.ts` runs `/new`, `/resume`, `/retry`, a rewind and
+  `/reflect`, with today's notices and refusals, and the realm's stop,
+  once for each of its numbers.
 - `transcript.ts` answers `read_chat` and `read_history` and sends the
   `chat` events a client follows, numbered within each wake.
   `chat-items.ts` folds a session's entries into the items a client
@@ -779,8 +785,8 @@ allowances, waits and objections, the documents and settings, the
 steps of a hire, a worker, an errand, a review and a parcel, and the
 record of what was decided. It also holds `credentials.json` in its
 folder. `realm::factory` registers it, and `realm::Options`, a value
-of `HostOptions`, sets how long a line or a letter to a hire still
-hiring waits for its steps and how long a lead's review may take.
+of `HostOptions`, sets how long a letter or a road request to a hire
+still hiring waits for its steps and how long a lead's review may take.
 
 Each action is an `Act` in the module of what it changes, run by
 `act::exec`. `load` reads rows, `decide` gives a `Decision` from what
@@ -826,8 +832,17 @@ takes them in the order their acts committed. Deliveries to different
 agents go at the same time, except that one delivery reaching several
 agents, such as a task's held letters and answers (`Delivery::Held`),
 holds each of their lanes until it is done. A failed call is logged,
-and `Say` answers whether its line reached the agent; what was
-committed stays.
+and what was committed stays.
+A chief's line and a stop of an agent keep their agent's lane through
+their retries, on 50 ms doubled up to 1 s, until the agent takes them,
+refuses them or has left or the realm stops, and a line also until a
+stop withdraws it. `lines.rs` keeps each chief's line in memory, from
+the commit that answers its `Say` until its agent takes it, and answers
+`ReadLine` with what became of it. `stop.rs` stops agents in one act
+(`StopAgents`): one commit withdraws each agent's lines not yet given,
+lapses its waits and lines up its `Stop` behind the lines already
+given, and the act answers each agent's count, or the realm's own when
+the agent has not answered within 500 ms.
 Some deliveries are owed, because no repeat by their sender carries
 them: a line a review kept (`Delivery::Kept`), a parcel's refusal
 notice (`Delivery::ParcelRefused`), a wait's notice (`Delivery::Notice`,
@@ -970,7 +985,7 @@ are in place.
 
 | Module | Responsibility and interface |
 |---|---|
-| `front.rs`, `front/` | The door to the actors behind `--actors`: `host.rs` opens the folder with the realm, workspace, profile and library actors and the agent in a Node child, and a route table that lets a client reach only the realm and an agent; `front.rs` claims the folder, publishes `server.json` once the realm answers and starts the agents while it serves, checks each connection's token and every message with `clients/check.rs`, applies one connection's requests in the order sent, a stop ending the waits of those sent before it, and an answer naming its wait once the stops sent before it are answered, sends no `State` older than the last a connection was sent, and carries frames through `clients/connection.rs`; `route.rs` turns a client message into what it becomes, `call.rs` (`Calls`) is the one executor of the actors' calls, with their deadlines and error words, `hub.rs` holds an agent's `chat` subscription while a watch, an owed reply or a busy period needs it and settles a line's reply when its input ends, `frames.rs` maps chat events and answers to frames, `commands.rs` and `commands/parse.rs` run the chief's `/` commands from today's table, `words.rs` holds their words, and `view.rs` renders the `State` from the realm's world |
+| `front.rs`, `front/` | The door to the actors behind `--actors`: `host.rs` opens the folder with the realm, workspace, profile and library actors and the agent in a Node child, and a route table that lets a client reach only the realm and an agent; `front.rs` claims the folder, publishes `server.json` once the realm answers and starts the agents while it serves, checks each connection's token and every message with `clients/check.rs`, applies one connection's requests in the order sent, a stop ending the waits of those sent before it, and an answer naming its wait once the stops sent before it are answered, sends no `State` older than the last a connection was sent, and carries frames through `clients/connection.rs`; `route.rs` turns a client message into what it becomes, `call.rs` (`Calls`) is the one executor of the actors' calls, with their deadlines and error words: a chief's line goes to the realm's `say` once, the door reads with `read_line` until its agent takes it or a stop withdraws it, and a stop is one `stop_agents` call; `hub.rs` holds an agent's `chat` subscription while a watch, an owed reply or a busy period needs it, reads each owed line's fate while its connection is open, and settles a line's reply when its input ends, `frames.rs` maps chat events and answers to frames, `commands.rs` and `commands/parse.rs` run the chief's `/` commands from today's table, `words.rs` holds their words, and `view.rs` renders the `State` from the realm's world |
 | `serve.rs`, `realm.rs`, `claim.rs`, `layout.rs` | `serve` from start to stop: probes the sandbox, opens the realm, starts the core and the harness, publishes `server.json`, and closes in order. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
 | `core.rs` | `Core`, the loop that owns the realm's writes: it takes in client requests, runtime messages, finished tool calls and the jobs runner's wake-ups, makes each change in one transaction (`change` and `attempt`, the second rolling back a refusal), then wakes the jobs runner and the runtimes and publishes what was touched |
 | `change.rs`, `jobs.rs` | `Change`, a change in progress: its transaction, its time, its actor and what it touched. `Job` names each effect a change keeps for after its commit |
