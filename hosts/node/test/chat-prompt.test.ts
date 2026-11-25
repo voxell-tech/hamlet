@@ -496,9 +496,7 @@ const NAMED = [
     "read_record",
 ];
 
-const NAMED_NOT_OFFERED = ["merge_hires"];
-
-test("every tool the prompt names is one the agent offers, but merge_hires", async (t) => {
+test("every tool the prompt names is one the agent offers", async (t) => {
     const missing = new Set<string>();
     for (const [input, words] of [
         [undefined, [HAND_WORDS, LEAD_WORDS, OBJECT_WORDS]],
@@ -526,7 +524,7 @@ test("every tool the prompt names is one the agent offers, but merge_hires", asy
             }
         }
     }
-    assert.deepEqual([...missing], NAMED_NOT_OFFERED);
+    assert.deepEqual([...missing], []);
 });
 
 test("a request whose place the realm does not give is not sent, and its turn fails as an unasked spend does", async (t) => {

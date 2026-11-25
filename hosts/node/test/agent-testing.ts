@@ -9,6 +9,7 @@ import {
     type FauxResponseStep,
     fauxAssistantMessage,
     fauxToolCall,
+    type Message,
     type Context as ModelContext,
     type Models,
     type ToolResultMessage,
@@ -240,6 +241,36 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
     };
 }
 
+/** A model step held until `answer`, or until its request is aborted. */
+export function held(): {
+    readonly step: FauxResponseStep;
+    readonly asked: Promise<readonly Message[]>;
+    answer(message: AssistantMessage): void;
+} {
+    const asked = Promise.withResolvers<readonly Message[]>();
+    const answer = Promise.withResolvers<AssistantMessage>();
+    return {
+        step: (request, options) => {
+            asked.resolve(request.messages);
+            const aborted = Promise.withResolvers<AssistantMessage>();
+            options?.signal?.addEventListener(
+                "abort",
+                () =>
+                    aborted.resolve(
+                        fauxAssistantMessage("", {
+                            stopReason: "aborted",
+                            errorMessage: "aborted",
+                        }),
+                    ),
+                { once: true },
+            );
+            return Promise.race([answer.promise, aborted.promise]);
+        },
+        asked: asked.promise,
+        answer: answer.resolve,
+    };
+}
+
 /** Answers `words`, keeping the request it answers in `seen`. */
 export function asked(
     seen: ModelContext[],
@@ -349,6 +380,8 @@ export interface Woken {
     readonly reported: string[];
     /** The events the agent broadcast, in order, as `[name, ...args]`. */
     readonly events: unknown[][];
+    /** How many times the agent asked its host to destroy it. */
+    readonly destroyed: number;
     harness(): Promise<Harness>;
     idle(): Promise<void>;
     entries(): Promise<{ kind: string; text: string; data: unknown }[]>;
@@ -447,6 +480,7 @@ export async function wakeAgent(
         const alarms: number[] = [];
         const reported: string[] = [];
         const events: unknown[][] = [];
+        let destroyed = 0;
         const c = {
             actorId: `agent-${address.key}`,
             address,
@@ -468,6 +502,9 @@ export async function wakeAgent(
                 },
             },
             abortSignal: new AbortController().signal,
+            destroy: () => {
+                destroyed += 1;
+            },
         } as unknown as AgentContext;
         if (first) await definition.onCreate(c, given.input ?? HAND);
         await definition.onWake(c);
@@ -485,6 +522,9 @@ export async function wakeAgent(
             alarms,
             reported,
             events,
+            get destroyed() {
+                return destroyed;
+            },
             harness,
             idle: async () => (await harness()).waitForIdle(context),
             entries: async () => entriesOf(await harness(), context),
