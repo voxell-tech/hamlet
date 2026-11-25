@@ -621,8 +621,8 @@ pub(crate) async fn answer(
     }))
 }
 
-/// Stops each living agent `view` shows in one act, and gives the
-/// turns stopped.
+/// Stops each agent `view` shows that has not ended, a hire still
+/// being hired too, in one act, and gives the turns stopped.
 pub(crate) async fn stop_all(
     calls: &Calls,
     view: &View,
@@ -631,7 +631,7 @@ pub(crate) async fn stop_all(
         .world
         .agents
         .iter()
-        .filter(|seen| matches!(seen.status, Status::Live))
+        .filter(|seen| !matches!(seen.status, Status::Ended { .. }))
         .map(|seen| seen.agent)
         .collect::<Vec<_>>();
     calls.stop(&living).await

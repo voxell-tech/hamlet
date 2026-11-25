@@ -216,6 +216,47 @@ async fn a_stop_from_another_connection_withdraws_the_line() {
 }
 
 /// How many items of `page` show `text`.
+/// With the Node host down, a founded hamlet's mayor stays hired no
+/// further, so a line to it waits in the realm until `/stop all`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_of_all_withdraws_a_line_to_a_hire_being_hired() {
+    let held = HeldNode::new();
+    let (mut server, home, _side) = held.serve(json!([ANSWER])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Are you up?").await;
+    kill_node(&home).await;
+    chief.command(hand, "/create-hamlet Docs").await;
+    let founded = until(&server, "the hamlet", |realm| {
+        !realm.hamlets.is_empty()
+    })
+    .await;
+    let mayor = founded.hamlets[0].mayor;
+    let line = chief.tell(mayor, "Dig the well.").await;
+    let stopped = chief.tell(hand, "/stop all").await;
+    let stopped = chief.reply(&stopped).await;
+    assert_eq!(
+        (stopped.kind, stopped.text.as_str()),
+        (ReplyKind::Notice, "Stopped 1 running turns.")
+    );
+    let reply = chief.reply(&line).await;
+    assert_eq!(
+        (reply.kind, reply.text.as_str()),
+        (ReplyKind::Notice, "")
+    );
+    held.release();
+    said_once_hired(&mut chief, mayor, "Are you hired?").await;
+    let page = chief.open(&chat(mayor)).await;
+    assert_eq!(shown(&page, "Dig the well."), 1, "{page:?}");
+    assert_eq!(
+        answers_in(&page),
+        [ANSWER],
+        "only the line said once it was hired ran: {page:?}"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
 fn shown(page: &Transcript, text: &str) -> usize {
     page.items.iter().filter(|item| item.text == text).count()
 }

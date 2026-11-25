@@ -15,7 +15,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::Client;
-use hamlet_protocol::client::{AgentId, Reply, ReplyKind, State};
+use hamlet_protocol::client::{AgentId, Reply, State};
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
@@ -84,27 +84,14 @@ async fn until(
     }
 }
 
+/// The reply to `text` said to `agent`, which the realm gives it once
+/// it is hired.
 async fn said_once_hired(
     chief: &mut Client,
     agent: AgentId,
     text: &str,
 ) -> Reply {
-    let began = Instant::now();
-    loop {
-        let reply = chief.say(agent, text).await;
-        if reply.kind != ReplyKind::Error
-            || !reply.text.ends_with(
-                "is still being hired; send the line again",
-            )
-        {
-            return reply;
-        }
-        assert!(
-            began.elapsed() < PATIENCE,
-            "{agent:?} was never hired"
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    chief.say(agent, text).await
 }
 
 /// A `node` for the server that, once its first start ended, starts
