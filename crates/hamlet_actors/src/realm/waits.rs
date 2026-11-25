@@ -385,7 +385,7 @@ impl Told {
         }
     }
 
-    fn calls(&self) -> Calls {
+    pub fn calls(&self) -> Calls {
         let answers =
             self.workspace.iter().copied().map(Delivery::ChiefAnswer);
         let notices =
@@ -911,37 +911,7 @@ impl Act<Agent> for Lapse {
         if lapse_of(self.why).is_none() {
             return Ok(Vec::new());
         }
-        let conversation =
-            nullable(self.conversation.clone().map(|c| c.0));
-        let open = rows
-            .rows::<(u64, String, Option<TaskId>, bool)>(
-                "SELECT id, kind, task, call IS NOT NULL FROM wait \
-                 WHERE agent = ?1 AND closed_at IS NULL AND (?2 IS \
-                 NULL OR conversation = ?2) ORDER BY id",
-                vec![number(by.0), conversation],
-            )
-            .await?;
-        let mut lapsing = Vec::new();
-        for (wait, kind, task, holds_a_call) in open {
-            let wait = WaitId(wait);
-            let kind = change::from_case_name(kind)?;
-            let with = match (kind, task) {
-                (Kind::Objection, Some(task)) => {
-                    Some(asking::Change::Unhold { task }.into())
-                }
-                (Kind::Send, _) => {
-                    Some(parcels::lapsed(rows, wait).await?)
-                }
-                _ => None,
-            };
-            lapsing.push(Lapsing {
-                wait,
-                kind,
-                holds_a_call,
-                with,
-            });
-        }
-        Ok(lapsing)
+        lapsing(rows, by.0, self.conversation.clone()).await
     }
 
     fn decide(
@@ -965,30 +935,7 @@ impl Act<Agent> for Lapse {
         if open.is_empty() {
             return Decision::Answer(());
         }
-        let mut decided = Decided::new(Told {
-            workspace: open
-                .iter()
-                .filter(|lapsing| lapsing.kind == Kind::Tool)
-                .map(|lapsing| lapsing.wait)
-                .collect(),
-            notices: open
-                .iter()
-                .filter(|lapsing| lapsing.ends_its_call(lapse))
-                .map(|lapsing| lapsing.wait)
-                .collect(),
-            ..Told::default()
-        });
-        for Lapsing { wait, with, .. } in open {
-            if let Some(with) = with {
-                decided = decided.change(with);
-            }
-            decided = decided.change(Change::Close {
-                wait,
-                choice: Choice::Lapsed(lapse),
-                text: None,
-            });
-        }
-        Decision::Change(decided)
+        Decision::Change(closing(lapse, open))
     }
 
     fn deliveries(&self, _by: &Agent, told: &Told) -> Calls {
@@ -996,4 +943,75 @@ impl Act<Agent> for Lapse {
     }
 
     fn answer(&self, _told: Told, _made: &Made) {}
+}
+
+/// The open waits of `agent`, in `conversation` or in all of its
+/// conversations, as a lapse closes them.
+pub(super) async fn lapsing(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    conversation: Option<ConversationId>,
+) -> Result<Vec<Lapsing>> {
+    let conversation = nullable(conversation.map(|c| c.0));
+    let open = rows
+        .rows::<(u64, String, Option<TaskId>, bool)>(
+            "SELECT id, kind, task, call IS NOT NULL FROM wait \
+             WHERE agent = ?1 AND closed_at IS NULL AND (?2 IS NULL \
+             OR conversation = ?2) ORDER BY id",
+            vec![number(agent), conversation],
+        )
+        .await?;
+    let mut lapsing = Vec::new();
+    for (wait, kind, task, holds_a_call) in open {
+        let wait = WaitId(wait);
+        let kind = change::from_case_name(kind)?;
+        let with = match (kind, task) {
+            (Kind::Objection, Some(task)) => {
+                Some(asking::Change::Unhold { task }.into())
+            }
+            (Kind::Send, _) => {
+                Some(parcels::lapsed(rows, wait).await?)
+            }
+            _ => None,
+        };
+        lapsing.push(Lapsing {
+            wait,
+            kind,
+            holds_a_call,
+            with,
+        });
+    }
+    Ok(lapsing)
+}
+
+/// The changes that close the waits `open` as `lapse`, and whom they
+/// are told to.
+pub(super) fn closing(
+    lapse: workspace::Lapse,
+    open: Vec<Lapsing>,
+) -> Decided<Told> {
+    let mut decided = Decided::new(Told {
+        workspace: open
+            .iter()
+            .filter(|lapsing| lapsing.kind == Kind::Tool)
+            .map(|lapsing| lapsing.wait)
+            .collect(),
+        notices: open
+            .iter()
+            .filter(|lapsing| lapsing.ends_its_call(lapse))
+            .map(|lapsing| lapsing.wait)
+            .collect(),
+        ..Told::default()
+    });
+    for Lapsing { wait, with, .. } in open {
+        if let Some(with) = with {
+            decided = decided.change(with);
+        }
+        decided = decided.change(Change::Close {
+            wait,
+            choice: Choice::Lapsed(lapse),
+            text: None,
+        });
+    }
+    decided
 }

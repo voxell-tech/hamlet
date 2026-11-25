@@ -31,11 +31,9 @@ impl Message for Say {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SayAnswer {
-    /// The agent took the line.
-    Taken { task: RealmTask },
-    /// The agent's answer was cut off. The chief sends the line again
-    /// under the same id; the agent takes it once.
-    NotTaken { task: RealmTask },
+    /// The realm keeps the line until its agent takes it, a stop
+    /// withdraws it, or the agent leaves.
+    Accepted { task: RealmTask },
     #[serde(serialize_with = "worded")]
     Refused { why: SayRefusal },
 }
@@ -60,8 +58,6 @@ impl Refusable for SayAnswer {
 pub enum SayRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("`{agent}` is still being hired; send the line again")]
-    StillHiring { agent: AgentName },
     #[error("`{agent}` has left: {left}")]
     Left { agent: AgentName, left: Left },
 }

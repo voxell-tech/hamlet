@@ -13,7 +13,7 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Rows};
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, hire, reviews};
+use super::{chiefs, reviews};
 
 pub(super) struct Target {
     lineage: Option<Lineage>,
@@ -47,7 +47,12 @@ impl Act<Client> for Say {
         let task = tasks::fresh(rows).await?;
         let chief = chiefs::name(rows).await?;
         let review = match &lineage {
-            Some(lineage) if lineage.agent.status == Status::Live => {
+            Some(lineage)
+                if matches!(
+                    lineage.agent.status,
+                    Status::Hiring | Status::Live
+                ) =>
+            {
                 let line = line(self, task, &chief);
                 reviews::intercept(rows, lineage, task, &line).await?
             }
@@ -81,15 +86,7 @@ impl Act<Client> for Say {
                     left: left.clone(),
                 }),
             ),
-            Status::Hiring => Decision::WaitFor {
-                row: hire::row(agent.agent),
-                refusal: SayAnswer::refused(
-                    SayRefusal::StillHiring {
-                        agent: agent.name.clone(),
-                    },
-                ),
-            },
-            Status::Live => {
+            Status::Hiring | Status::Live => {
                 let said = match target.review {
                     Some(_) => Said::Review(target.task),
                     None => Said::Line {
@@ -121,7 +118,7 @@ impl Act<Client> for Say {
     fn deliveries(&self, _by: &Client, said: &Said) -> Calls {
         match (to(self), said) {
             (Some(to), Said::Line { task, chief }) => {
-                Calls::before_answer(Delivery::Line {
+                Calls::after_answer(Delivery::Line {
                     to,
                     submit: line(self, *task, chief),
                 })
@@ -130,13 +127,12 @@ impl Act<Client> for Say {
         }
     }
 
-    fn answer(&self, said: Said, made: &Made) -> Self::Output {
+    /// The realm keeps the line from here: it is given after the
+    /// answer, or after its review.
+    fn answer(&self, said: Said, _made: &Made) -> Self::Output {
         let (Said::Line { task, .. } | Said::Review(task)) = said;
-        let task = task.on_the_wire();
-        if made.all_taken() {
-            SayAnswer::Taken { task }
-        } else {
-            SayAnswer::NotTaken { task }
+        SayAnswer::Accepted {
+            task: task.on_the_wire(),
         }
     }
 }
@@ -335,7 +331,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_line_the_agent_does_not_take_keeps_its_one_task() {
         // the started realm runs no agent, so every Submit fails: the
-        // line is NotTaken, and a repeat answers the same task.
+        // line is accepted, and a repeat answers the same task.
         let started = Started::new().await;
         started.found(&hamlet(), AgentNumber(2)).await;
         started
@@ -373,8 +369,8 @@ mod tests {
             .unwrap();
 
         assert!(
-            matches!(first, SayAnswer::NotTaken { .. }),
-            "no agent takes the line: {first:?}"
+            matches!(first, SayAnswer::Accepted { .. }),
+            "the realm accepts the line: {first:?}"
         );
         assert_eq!(again, first);
         assert_eq!(

@@ -218,7 +218,7 @@ impl Calls {
             }
             let taken: SayAnswer =
                 ciborium::from_reader(answer.as_slice())?;
-            if !matches!(taken, SayAnswer::NotTaken { .. }) {
+            if !matches!(taken, SayAnswer::Refused { .. }) {
                 return Ok(Given::Taken);
             }
             if Instant::now() >= end {

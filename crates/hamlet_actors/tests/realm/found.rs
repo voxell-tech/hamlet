@@ -190,7 +190,7 @@ async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_names_the_hamlet()
         .await
         .unwrap();
 
-    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert!(matches!(said, SayAnswer::Accepted { .. }), "{said:?}");
     assert_eq!(
         (
             purpose_of(&realm, MAYOR).await,

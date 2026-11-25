@@ -46,7 +46,7 @@ async fn an_unrelated_commit_leaves_the_world_as_it_was() {
         .ask(&say(&RequestId::new(), THREE, "Make the file."))
         .await
         .unwrap();
-    let SayAnswer::Taken { task } = said else {
+    let SayAnswer::Accepted { task } = said else {
         panic!("hire 3 takes the chief's line: {said:?}");
     };
     let asked = tool(

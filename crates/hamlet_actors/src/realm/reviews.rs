@@ -89,7 +89,10 @@ pub(super) async fn apply(
                     ],
                 )
                 .await?;
-            Ok(Affected::default())
+            Ok(Affected {
+                kept: vec![(hire, line)],
+                ..Affected::default()
+            })
         }
         Change::End { task, verdict } => {
             end(writer, task, verdict).await
@@ -545,5 +548,7 @@ async fn give_held(realm: &Arc<Realm>, kept: &Held) -> Result<()> {
     realm
         .peers
         .call(&Agent(kept.hire), &kept.line, When::AfterAnswer)
-        .await
+        .await?;
+    realm.lines.given(&kept.line.id);
+    Ok(())
 }

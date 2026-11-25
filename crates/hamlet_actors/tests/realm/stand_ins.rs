@@ -14,9 +14,10 @@ use hamlet_actor_core::{ActorConfig, ActorFactory, ActorLifecycle};
 use hamlet_actors::realm;
 use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::chat::{Stop, Stopped};
 use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
-    AgentInput, Fill, Place, PlaceVersion, Submit,
+    AgentInput, Fill, InputId, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::library::{
     DropOfferParts, NoOffer, OfferRead, ReadOffer, ReadShelves,
@@ -65,6 +66,8 @@ pub(super) enum Callee {
     Purge,
     Read,
     SetReach,
+    /// An agent's stop, by the agent's number.
+    Stop,
     Submit,
     /// The library's verdict, by the offer's number.
     Verdict,
@@ -74,6 +77,12 @@ pub(super) enum Callee {
 pub(super) struct Seen {
     pub(super) made: Mutex<Vec<(AgentNumber, AgentInput)>>,
     pub(super) submits: Mutex<Vec<(AgentNumber, Submit)>>,
+    /// Each submit and stop an agent took, in the order it took
+    /// them.
+    pub(super) took: Mutex<Vec<(AgentNumber, Took)>>,
+    /// The turns each agent answers a stop with; one not here
+    /// answers none.
+    pub(super) turns: Mutex<HashMap<AgentNumber, u32>>,
     pub(super) places: Mutex<Vec<(AgentNumber, Place)>>,
     pub(super) fills: Mutex<Vec<(AgentNumber, Fill)>>,
     pub(super) copies: Mutex<Vec<(AgentNumber, Copies)>>,
@@ -98,6 +107,8 @@ pub(super) struct Seen {
     /// Each verdict the library was called with, failed calls too.
     pub(super) verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// The agents whose every call fails as an actor not ready.
+    down: Mutex<HashSet<AgentNumber>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
     refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
@@ -117,6 +128,9 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) -> anyhow::Result<()> {
+        if self.down.lock().unwrap().contains(&agent) {
+            return Err(ActorLifecycle::NotReady.build());
+        }
         let mut held = self.held.subscribe();
         let passes = match self.alone.lock().unwrap().get_mut(&callee)
         {
@@ -162,6 +176,16 @@ impl Seen {
         self.refusing.lock().unwrap().insert((callee, agent));
     }
 
+    /// Fails every call of `agent`'s as an actor not ready, until
+    /// [`Seen::up`].
+    pub(super) fn down(&self, agent: AgentNumber) {
+        self.down.lock().unwrap().insert(agent);
+    }
+
+    pub(super) fn up(&self, agent: AgentNumber) {
+        self.down.lock().unwrap().remove(&agent);
+    }
+
     pub(super) fn has_failed(
         &self,
         callee: Callee,
@@ -201,6 +225,13 @@ impl Seen {
             held.remove(&callee);
         });
     }
+}
+
+/// A call an agent took.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Took {
+    Submit(InputId),
+    Stop(Stop),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -258,7 +289,7 @@ pub(super) struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Place, Fill, Copies, Forward);
+    type Actions = (Submit, Stop, Place, Fill, Copies, Forward);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -289,8 +320,32 @@ impl Handler<Submit> for AgentStandIn {
         submit: Submit,
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Submit, self.agent).await?;
+        self.seen
+            .took
+            .lock()
+            .unwrap()
+            .push((self.agent, Took::Submit(submit.id.clone())));
         self.seen.submits.lock().unwrap().push((self.agent, submit));
         Ok(())
+    }
+}
+
+impl Handler<Stop> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        stop: Stop,
+    ) -> anyhow::Result<Stopped> {
+        self.seen.called(Callee::Stop, self.agent).await?;
+        self.seen
+            .took
+            .lock()
+            .unwrap()
+            .push((self.agent, Took::Stop(stop)));
+        let turns = self.seen.turns.lock().unwrap();
+        Ok(Stopped {
+            turns: turns.get(&self.agent).copied().unwrap_or(0),
+        })
     }
 }
 
