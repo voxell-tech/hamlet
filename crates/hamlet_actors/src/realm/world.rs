@@ -161,7 +161,8 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
                  worker.agent = agent.id LEFT JOIN nickname ON \
                  nickname.agent = agent.id LEFT JOIN model_choice \
                  ON model_choice.of = {} LEFT JOIN allowance ON \
-                 allowance.hire = agent.id ORDER BY agent.id",
+                 allowance.hire = agent.id WHERE agent.erased = 0 \
+                 ORDER BY agent.id",
                 choices::agent_key("agent.id")
             ),
             Vec::new(),
@@ -249,7 +250,8 @@ fn reach(wanted: Option<u64>, applied: Option<u64>) -> ReachSeen {
 
 async fn hamlets(rows: &Rows<'_>) -> Result<Vec<HamletSeen>> {
     rows.rows::<(String, String, u32, String)>(
-        "SELECT id, name, mayor, tier FROM hamlet ORDER BY at, id",
+        "SELECT id, name, mayor, tier FROM hamlet WHERE status = \
+         'living' ORDER BY at, id",
         Vec::new(),
     )
     .await?

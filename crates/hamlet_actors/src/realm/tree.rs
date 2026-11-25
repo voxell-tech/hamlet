@@ -589,19 +589,11 @@ pub(super) enum Change {
     WorkerEnded { agent: AgentNumber, how: HowEnded },
     /// An ended hire, not erased, lives again, under `lead` when one
     /// is given.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no built act makes it yet")
-    )]
     Back {
         agent: AgentNumber,
         lead: Option<AgentNumber>,
     },
     /// An ended hire is erased: it stays ended for good.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no built act makes it yet")
-    )]
     Erased { agent: AgentNumber },
 }
 
