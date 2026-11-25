@@ -137,7 +137,6 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
                 },
             ),
             ("not_left", EndedRefusal::NotLeft { hire: shown(HIRE) }),
-            ("erased", EndedRefusal::Erased { hire: shown(HIRE) }),
             (
                 "hamlet_removed",
                 EndedRefusal::HamletRemoved { hamlet: hamlet() },

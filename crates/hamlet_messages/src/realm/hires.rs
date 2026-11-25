@@ -111,8 +111,6 @@ pub enum EndedRefusal {
     NotAHire { name: String },
     #[error("`{hire}` has not left")]
     NotLeft { hire: AgentName },
-    #[error("`{hire}` was erased")]
-    Erased { hire: AgentName },
     #[error("the hamlet `{}` was removed; restore it first", hamlet.0)]
     HamletRemoved { hamlet: HamletId },
     /// `label` is `scholar#<id> (<name>)`.
