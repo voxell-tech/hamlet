@@ -91,23 +91,33 @@ impl std::fmt::Display for Refused {
 }
 
 /// Marks `error` as the callee's own unless it says the callee was
-/// not reached: an actor starting or stopping, a call past its
-/// deadline, a link that is down or a database that is closed.
+/// not reached, or is the realm's own.
 fn marked(error: anyhow::Error) -> anyhow::Error {
-    let answer = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<ActorError>());
-    match answer {
-        Some(answer)
-            if !matches!(
-                answer.group(),
-                "actor" | "link" | "sqlite"
-            ) =>
-        {
+    match callees(&error) {
+        Some(answer) if !NOT_REACHED.contains(&answer.group()) => {
             error.context(Refused { worded: false })
         }
         _ => error,
     }
+}
+
+/// The groups of the errors that say a callee was not reached: an
+/// actor starting or stopping, a call past its deadline, a link that
+/// is down or a database that is closed.
+const NOT_REACHED: [&str; 3] = ["actor", "link", "sqlite"];
+
+/// The error a callee or the way to it answered a call with.
+fn callees(error: &anyhow::Error) -> Option<&ActorError> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>())
+}
+
+/// Whether `error` says the callee of a call of the realm's was not
+/// reached.
+pub(super) fn unreached(error: &anyhow::Error) -> bool {
+    callees(error)
+        .is_some_and(|answer| NOT_REACHED.contains(&answer.group()))
 }
 
 /// The refusal `why` a callee answered, as an error of its own.
@@ -156,5 +166,17 @@ mod tests {
         assert!(refused(&own));
         assert!(!refused(&starting));
         assert!(!refused(&realms));
+    }
+
+    #[test]
+    fn only_a_callee_that_was_not_reached_is_unreached() {
+        let own = marked(wrong_caller("submit", None));
+        let starting = marked(ActorLifecycle::NotReady.build());
+        let realms =
+            marked(anyhow::anyhow!("a query of the realm's"));
+
+        assert!(!unreached(&own));
+        assert!(unreached(&starting));
+        assert!(!unreached(&realms));
     }
 }

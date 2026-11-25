@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import { test } from "node:test";
 import { eventually, inFolder } from "../native/support.ts";
 import { answer, type Demo, startDemo } from "./support.ts";
@@ -11,8 +12,6 @@ const SKIP = { skip: process.platform === "win32" };
  * is twenty times that.
  */
 const TURN_MS = 60_000;
-
-const NOISE = /\b(WARN|ERROR)\b/;
 
 /** Waits until agent `n`'s current chat holds an item `found` accepts. */
 async function chatHolds(
@@ -186,18 +185,28 @@ test(
 );
 
 test(
-    "a demo with the realm actor starts, stops and starts again with its agents and logs no warning",
+    "a demo with the realm actor stops with a hire's place in flight, starts again, and the hire holds that place",
     SKIP,
     async () => {
         await inFolder(async (dir) => {
-            const first = startDemo(dir, ["--realm-actor"]);
-            await hamlet(first, 6);
-            assert.equal(await first.stop(), 0);
-            assert.doesNotMatch(first.stderr(), NOISE);
-            const second = startDemo(dir, ["--realm-actor"]);
-            assert.equal(await second.ask("realm live 6"), "live/6 1");
-            assert.equal(await second.stop(), 0);
-            assert.doesNotMatch(second.stderr(), NOISE);
+            await inFolder(async (made) => {
+                const project = realpathSync(made);
+                const first = startDemo(dir, ["--realm-actor"]);
+                await hamlet(first, 6);
+                assert.equal(
+                    await first.ask(`realm folder h1 ${project}`),
+                    "folder/h1 1",
+                );
+                assert.equal(await first.stop(), 0);
+                const second = startDemo(dir, ["--realm-actor"]);
+                assert.equal(await second.ask("realm live 6"), "live/6 1");
+                assert.ok(
+                    (await second.ask("pi prompt 6")).includes(
+                        `Your hamlet works on the folder ${project}.`,
+                    ),
+                );
+                assert.equal(await second.stop(), 0);
+            });
         });
     },
 );

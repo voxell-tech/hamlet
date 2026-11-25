@@ -513,8 +513,21 @@ pub(super) async fn push_all(
     let mut failed = Vec::new();
     for made in pushes {
         let shown = format!("{made:?}");
+        let read_at_wake =
+            matches!(made, Push::Place(_) | Push::Copies(_));
         if let Err(error) = push(realm, ctx, made).await {
-            tracing::warn!(push = shown, "a push failed: {error:#}");
+            if read_at_wake && peer::unreached(&error) {
+                tracing::info!(
+                    push = shown,
+                    "a push did not reach its agent, which reads it \
+                     again when it wakes: {error:#}"
+                );
+            } else {
+                tracing::warn!(
+                    push = shown,
+                    "a push failed: {error:#}"
+                );
+            }
             failed.push(error);
         }
     }

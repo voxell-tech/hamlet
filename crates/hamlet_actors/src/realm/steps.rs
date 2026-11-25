@@ -440,10 +440,7 @@ async fn walk<S: Steps>(
         if next + 1 == S::ALL.len() {
             changes.push(Change::Close { row: id }.into());
         }
-        let failed = cx.commit(changes).await?;
-        if !failed.is_empty() {
-            bail!("{} of the commit's pushes failed", failed.len());
-        }
+        cx.commit(changes).await?;
     }
 }
 
