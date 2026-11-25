@@ -397,14 +397,41 @@ impl ChiefRequest for TurnAway {
     type Answer = Lifecycle;
 }
 
-/// Sets a profile's house down at `spot`. Without one, as for numbers
-/// a chief wrote that do not read, the realm looks the profile up and
-/// refuses `NoSpot`: today names a missing profile before them.
+/// Sets a profile's house down at `site`. The realm looks the profile
+/// up before it refuses a site that is not a spot: today names a
+/// missing profile before them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MoveHouse {
     pub profile: ProfileId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spot: Option<Spot>,
+    pub site: Site,
+}
+
+/// Where a chief asked a house to stand.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Site {
+    /// Finite numbers, made by [`Site::of`].
+    Spot(Spot),
+    /// Numbers a chief wrote that do not read.
+    Unread,
+    /// Numbers that are not all finite, as `x, z`.
+    NotFinite { site: String },
+}
+
+impl Site {
+    pub fn of(spot: Spot) -> Self {
+        let Spot { x, z, degrees } = spot;
+        if x.is_finite()
+            && z.is_finite()
+            && degrees.is_none_or(f64::is_finite)
+        {
+            Self::Spot(spot)
+        } else {
+            Self::NotFinite {
+                site: format!("{x}, {z}"),
+            }
+        }
+    }
 }
 
 /// A spot from the city's middle, in metres, turned `degrees`, or

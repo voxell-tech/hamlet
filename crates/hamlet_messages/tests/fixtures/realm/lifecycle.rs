@@ -15,7 +15,7 @@ use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
     ForkProfile, ForkRefusal, Forked, LifeRefusal, Lifecycle,
     LifecycleRefusal, MoveHouse, ProfileRefusal, RestoreProfile,
-    Spot, TurnAway, Welcome,
+    Site, Spot, TurnAway, Welcome,
 };
 use hamlet_messages::realm::{
     AgentRefusal, HamletRefusal, Named, ProfileId,
@@ -36,6 +36,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<EndedRefusal>(),
         tagged::<Restored>(),
         tagged::<LifeRefusal>(),
+        tagged::<Site>(),
         tagged::<Forked>(),
         tagged::<ForkFailure>(),
     ]
@@ -382,10 +383,28 @@ fn the_profiles_lives(fixtures: &mut Fixtures) {
         "realm/chief_move_house",
         &asked(MoveHouse {
             profile: PROFILE,
-            spot: Some(Spot {
+            site: Site::Spot(Spot {
                 x: 12.5,
                 z: -4.0,
                 degrees: Some(90.0),
+            }),
+        }),
+    );
+    fixtures.args(
+        "realm/chief_move_house.unread",
+        &asked(MoveHouse {
+            profile: PROFILE,
+            site: Site::Unread,
+        }),
+    );
+    fixtures.args(
+        "realm/chief_move_house.not_finite",
+        &asked(MoveHouse {
+            profile: PROFILE,
+            site: Site::of(Spot {
+                x: f64::INFINITY,
+                z: 5.0,
+                degrees: None,
             }),
         }),
     );

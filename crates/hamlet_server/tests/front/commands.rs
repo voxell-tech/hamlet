@@ -502,3 +502,50 @@ async fn a_move_house_names_a_missing_profile_before_numbers_it_cannot_read()
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_the_harbor()
+ {
+    let (mut server, _home, _side) = serve(json!([
+        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        "Ada is made.",
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = hamlet_acceptance::chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Make ada.").await;
+    chief.shows(&chat, "Ada is made.").await;
+    let at_harbor = "the scholar `scholar#2 (ada)` waits at the \
+                     harbor; welcome it into the city first";
+
+    let mut read = Vec::new();
+    for line in [
+        "/move-house scholar#2 1e999 5",
+        "/move-house scholar#2 5 -inf",
+        "/move-house scholar#2 NaN 5",
+        "/move-house scholar#2 1 2 inf",
+        "/move-house scholar#99 inf 5",
+    ] {
+        read.push(chief.refused(hand, line).await);
+    }
+    chief.command(hand, "/turn-away scholar#2").await;
+    read.push(
+        chief.refused(hand, "/move-house scholar#2 inf 5").await,
+    );
+
+    assert_eq!(
+        read,
+        [
+            "`inf, 5` is not an address",
+            "`5, -inf` is not an address",
+            "`NaN, 5` is not an address",
+            "`1, 2` is not an address",
+            "no scholar has the address `scholar#99`",
+            at_harbor,
+        ]
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}

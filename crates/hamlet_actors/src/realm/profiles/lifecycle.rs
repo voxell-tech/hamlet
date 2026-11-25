@@ -14,7 +14,7 @@ use hamlet_messages::profile::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
     ForkProfile, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    MoveHouse, ProfileRefusal, RestoreProfile, Spot, TurnAway,
+    MoveHouse, ProfileRefusal, RestoreProfile, Site, Spot, TurnAway,
     Welcome,
 };
 use hamlet_messages::realm::{
@@ -559,31 +559,30 @@ impl Act<Client> for MoveHouse {
             Ok(found) => found,
             Err(answer) => return Decision::Answer(answer),
         };
-        let Some(Spot { x, z, degrees }) = self.spot else {
-            return Decision::Answer(refused(LifeRefusal::NoSpot {
+        let spot = match &self.site {
+            Site::Spot(spot) => Ok(*spot),
+            Site::NotFinite { site } => {
+                Err(LifeRefusal::BadSite { site: site.clone() })
+            }
+            Site::Unread => {
+                return Decision::Answer(refused(
+                    LifeRefusal::NoSpot { label: found.label },
+                ));
+            }
+        };
+        if found.row.arrival != Arrival::Housed {
+            return Decision::Answer(refused(
+                LifeRefusal::AtHarbor { label: found.label },
+            ));
+        }
+        let Spot { x, z, degrees } = match spot {
+            Ok(spot) => spot,
+            Err(why) => return Decision::Answer(refused(why)),
+        };
+        if !HouseAt::is_clear(placing.taken, x, z) {
+            return Decision::Answer(refused(LifeRefusal::Crowded {
                 label: found.label,
             }));
-        };
-        let refusal = if found.row.arrival != Arrival::Housed {
-            Some(LifeRefusal::AtHarbor {
-                label: found.label.clone(),
-            })
-        } else if !(x.is_finite()
-            && z.is_finite()
-            && degrees.is_none_or(f64::is_finite))
-        {
-            Some(LifeRefusal::BadSite {
-                site: format!("{x}, {z}"),
-            })
-        } else if !HouseAt::is_clear(placing.taken, x, z) {
-            Some(LifeRefusal::Crowded {
-                label: found.label.clone(),
-            })
-        } else {
-            None
-        };
-        if let Some(why) = refusal {
-            return Decision::Answer(refused(why));
         }
         let turn = degrees.map(f64::to_radians);
         placed(

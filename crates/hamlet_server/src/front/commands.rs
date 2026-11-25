@@ -28,7 +28,7 @@ use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
 };
 use hamlet_messages::realm::profiles::{
-    Forked, Lifecycle, LifecycleRefusal, MoveHouse,
+    Forked, Lifecycle, LifecycleRefusal, MoveHouse, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -673,7 +673,7 @@ async fn perform(
         } => {
             let act = MoveHouse {
                 profile,
-                spot: Some(spot),
+                site: Site::of(spot),
             };
             lived(ask(calls, id, act).await?, |label| {
                 words::house_moved(label, spot.x, spot.z)
@@ -685,7 +685,7 @@ async fn perform(
         } => {
             let act = MoveHouse {
                 profile,
-                spot: None,
+                site: Site::Unread,
             };
             match ask(calls, id, act).await? {
                 Lifecycle::Refused {
