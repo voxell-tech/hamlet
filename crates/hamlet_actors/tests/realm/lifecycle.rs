@@ -544,6 +544,47 @@ async fn an_erased_profile_answers_no_call() {
     realm.host.shutdown().await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_is_erased_only_after_its_hires_branches_are_dropped()
+ {
+    let (realm, _) = masons_hamlet(2).await;
+    chief(&realm, archive(MASON)).await;
+    realm.seen.hold(Callee::DropBranch);
+
+    let erasing = chief(&realm, EraseProfile { profile: MASON });
+    let held = async {
+        until("both hires' branch drops wait", || {
+            realm.seen.is_waiting(Callee::DropBranch, THREE)
+                && realm.seen.is_waiting(Callee::DropBranch, FOUR)
+        })
+        .await;
+        let early = realm.seen.profile_erases.lock().unwrap().clone();
+        realm.seen.release(Callee::DropBranch);
+        early
+    };
+    let (erased, early) = tokio::join!(erasing, held);
+    until("the profile is erased", || {
+        !realm.seen.profile_erases.lock().unwrap().is_empty()
+    })
+    .await;
+
+    assert_eq!(erased, done(mason()));
+    assert_eq!(early, []);
+    let dropped = realm
+        .seen
+        .branch_drops
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(profile, drop)| (*profile, drop.name.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(dropped.len(), 2);
+    for hire in ["hires/3", "hires/4"] {
+        assert!(dropped.contains(&(MASON, hire.into())), "{hire}");
+    }
+    realm.host.shutdown().await.unwrap();
+}
+
 /// How many calls of each kind Mason's profile took.
 fn profile_calls(realm: &Realm) -> [usize; 3] {
     fn count<T>(calls: &[(ProfileId, T)]) -> usize {
