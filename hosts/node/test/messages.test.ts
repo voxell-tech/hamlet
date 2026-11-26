@@ -1821,7 +1821,12 @@ for (const action of ANSWERED_BY_TOOLS) {
             if (plainly !== undefined) {
                 assert.deepEqual(told, [plainly, false], name);
             } else if (given.type === "refused") {
-                assert.deepEqual(told, [given.words, true], name);
+                // Today's gate blocks a letter whose files it may not send.
+                const words =
+                    given.why?.type === "files"
+                        ? `Tool call blocked: ${given.words}`
+                        : given.words;
+                assert.deepEqual(told, [words, true], name);
             } else {
                 const shown = [result.output]
                     .concat(result.diagnostics.map(({ message }) => message))

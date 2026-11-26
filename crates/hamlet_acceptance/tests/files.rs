@@ -145,9 +145,20 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
         .items(&now)
         .into_iter()
         .filter_map(|item| item.tool)
-        .map(|tool| tool.failure.is_some())
+        .map(|tool| tool.failure)
         .collect::<Vec<_>>();
-    assert_eq!(tools, [false, false, true]);
+    let secret = secret.display();
+    assert_eq!(
+        tools,
+        [
+            None,
+            None,
+            Some(format!(
+                "Tool call blocked: `{secret}` cannot be read: \
+                 {secret} is out of this agent's reach to read"
+            )),
+        ]
+    );
     assert!(!inbox.join("secret").exists());
 }
 
