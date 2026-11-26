@@ -205,13 +205,12 @@ impl Activity {
         self.thought = true;
     }
 
-    /// The agent writes `text`, a thought or not.
+    /// The agent writes `text`.
     pub fn said(&mut self, text: &str, thought: bool) {
         self.think();
         self.speak(text, thought);
     }
 
-    /// A tool call ended, `failed` or not.
     pub fn ended(&mut self, failed: bool) {
         if failed {
             self.failures += 1;

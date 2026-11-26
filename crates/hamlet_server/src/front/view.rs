@@ -222,7 +222,6 @@ pub(crate) struct Shows {
     jobs: mpsc::UnboundedSender<Job>,
 }
 
-/// The jobs [`Shows`] gives [`serve`].
 pub(crate) type Jobs = mpsc::UnboundedReceiver<Job>;
 
 pub(crate) enum Job {

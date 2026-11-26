@@ -206,7 +206,6 @@ fn shown(client: &Client, id: AgentId) -> Option<Agent> {
         .find(|agent| agent.id == id)
 }
 
-/// Whether `client` was sent a `Change` frame.
 fn changed(client: &Client) -> bool {
     client
         .messages()
