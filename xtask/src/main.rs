@@ -465,10 +465,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "tests/oversight.rs:400",
     ),
     (
-        "a_letter_copies_the_files_it_names_into_the_receivers_inbox",
-        "tests/files.rs:86",
-    ),
-    (
         "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
         "tests/oauth.rs:185",
     ),
