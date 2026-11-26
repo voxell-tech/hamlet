@@ -347,13 +347,13 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
         .command(hand, &format!("/reply #{} yes, plant", sure.id))
         .await;
     s.chief.shows(&now, "Planted.").await;
-    let answers = s
-        .chief
-        .items(&now)
-        .into_iter()
-        .filter(|i| i.kind == ItemKind::Answered)
-        .count();
-    assert!(answers >= 1);
+    // A question does not hold the turn under --actors, so the
+    // answers may show after the words that follow them.
+    s.chief
+        .until("an answer in the chat", |c| {
+            c.items(&now).iter().any(|i| i.kind == ItemKind::Answered)
+        })
+        .await;
     assert!(s.chief.waits().is_empty());
 }
 
