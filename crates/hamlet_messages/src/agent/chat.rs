@@ -584,8 +584,9 @@ pub struct ProviderList {
     pub providers: Vec<hamlet_protocol::client::ProviderView>,
 }
 
-/// Answers once each login the agent's host began rotating is handed
-/// to the realm, so a closing server keeps the rotated one.
+/// Ends the sign-ins the agent's host has open, and answers once
+/// their flows have ended and each login the host began rotating is
+/// handed to the realm, so a closing server keeps the rotated one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settle;
 from_client!(Settle, "settle", ());

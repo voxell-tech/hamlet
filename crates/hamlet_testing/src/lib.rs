@@ -53,6 +53,7 @@ pub const OVERRIDES: &[&str] = &[
     "HAMLET_FAULT_SPLIT_MARKER",
     "HAMLET_HARNESS_FAULT",
     "HAMLET_UNSAFE_TOOLS",
+    "HAMLET_NODE_HOST",
 ];
 
 /// The messages the server sent in a recorded session, one frame to
