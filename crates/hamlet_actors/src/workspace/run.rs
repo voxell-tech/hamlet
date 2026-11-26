@@ -103,17 +103,20 @@ pub(super) fn row_of(call: Call) -> Result<Row> {
     Ok(Row { command, state })
 }
 
-/// Records `agent`'s call `call` as a running command, in `tx`.
+/// Records `agent`'s call `call` under `task` as a running command,
+/// in `tx`.
 pub(super) async fn open(
     tx: &SqliteTransaction,
     agent: AgentNumber,
     call: &CallId,
+    task: Option<&RealmTask>,
     request_hash: Vec<u8>,
 ) -> Result<CommandId> {
     let id = calls::insert(
         tx,
         agent,
         call,
+        task,
         OP,
         request_hash,
         "running",
@@ -165,6 +168,7 @@ pub(super) async fn hears_later(
 pub(super) struct UntoldCutOff {
     pub agent: AgentNumber,
     pub call: CallId,
+    pub task: Option<RealmTask>,
     pub command: CommandId,
 }
 
@@ -173,7 +177,7 @@ pub(super) async fn untold_cut_offs(
 ) -> Result<Vec<UntoldCutOff>> {
     let read = tx
         .execute(
-            "SELECT agent, call, id FROM calls WHERE state = \
+            "SELECT agent, call, id, task FROM calls WHERE state = \
              'cut_off_later' ORDER BY id",
             None,
         )
@@ -185,9 +189,11 @@ pub(super) async fn untold_cut_offs(
                 ColumnValue::Integer(agent),
                 ColumnValue::Text(call),
                 ColumnValue::Integer(id),
+                task,
             ] => Ok(UntoldCutOff {
                 agent: AgentNumber(u32::try_from(*agent)?),
                 call: CallId(call.clone()),
+                task: calls::task_of(task)?,
                 command: command_id(*id)?,
             }),
             row => bail!(

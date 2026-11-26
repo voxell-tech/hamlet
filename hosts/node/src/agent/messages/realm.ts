@@ -118,6 +118,7 @@ export type Payer =
 export interface Spend {
     readonly payer: Payer;
     readonly spent_micros: number;
+    readonly spent_tokens: number;
     readonly budget_micros?: number;
     readonly spent_ms: number;
     readonly budget_ms?: number;

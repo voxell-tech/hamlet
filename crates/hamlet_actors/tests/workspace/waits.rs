@@ -397,7 +397,6 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
     );
     let diff = asked[0].change.as_ref().expect("an edit's change");
     assert!(diff.patch.contains("-two\n+2"), "{}", diff.patch);
-    // A write shows its change too, as today's gate does.
     let made_diff =
         asked[1].change.as_ref().expect("a write's change");
     assert!(

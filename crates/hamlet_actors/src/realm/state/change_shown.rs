@@ -1,7 +1,6 @@
-//! An edit's change as a chief is shown it while it waits, as
-//! today's gate shows it (`crates/hamlet_server/src/work/cut.rs`):
-//! the lines from a few before the first that differs to a few after
-//! the last, each cut to a width.
+//! An edit's change as a chief is shown it while it waits: the lines
+//! from a few before the first that differs to a few after the last,
+//! each cut to a width.
 
 use hamlet_messages::workspace::files::EditDiff;
 use hamlet_protocol::client::{Change, ChangeLines, ChangeLinesMark};

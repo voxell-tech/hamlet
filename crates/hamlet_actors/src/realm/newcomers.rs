@@ -18,7 +18,7 @@ use super::workers::errands::{self, ErrandInput, Purpose};
 use super::{documents, record, tasks};
 use crate::cbor;
 
-/// The Hand's part before every verdict, in today's words.
+/// The Hand's part before every verdict.
 const ROLE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
      into the city. The city is where the realm's scholars live \
@@ -275,7 +275,7 @@ pub(super) fn ended(
     ]
 }
 
-/// A verdict's first line, as today reads it.
+/// A verdict's first line.
 enum Verdict {
     Accept,
     TurnAway,

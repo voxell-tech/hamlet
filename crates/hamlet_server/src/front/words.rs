@@ -275,8 +275,7 @@ pub(crate) fn holds_no_grant(name: &str, word: &str) -> String {
     format!("{name} holds no grant of {word}.")
 }
 
-/// The living hamlets, each as its name and id, by name and then id
-/// as today.
+/// The living hamlets, each as its name and id, by name and then id.
 pub(crate) fn hamlets<'a>(
     living: impl Iterator<Item = (&'a str, &'a str)>,
 ) -> String {

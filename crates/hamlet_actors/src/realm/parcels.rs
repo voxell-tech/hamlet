@@ -480,9 +480,9 @@ impl Sent {
 }
 
 /// A tell or an ask whose files the workspace measures under the
-/// sender's reach once nothing else refuses it and before it runs,
-/// so that files it may not send refuse the call, as today's tool
-/// fails. A repeat answers as the first call did.
+/// sender's reach once nothing else refuses it and before it runs, so
+/// that files it may not send refuse the call. A repeat answers as
+/// the first call did.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(super) struct Measuring<M>(pub M);

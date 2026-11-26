@@ -14,16 +14,25 @@ fn bash(command: &str) -> hamlet_testing::Step {
 
 #[tokio::test]
 async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
-    let mut s = Session::start(Faux::new().responses([
+    let mut script = vec![
         bash("echo curl one > one"),
         bash("echo curl two > two"),
         bash("echo curl three > three"),
         words("Done."),
+    ];
+    if !home::calls_hold_the_turn() {
+        script.extend([
+            words("Noted."),
+            words("Noted."),
+            words("Noted."),
+        ]);
+    }
+    script.extend([
         bash("echo curl four > four"),
         bash("echo curl five > five"),
         words("Done again."),
-    ]))
-    .await;
+    ]);
+    let mut s = Session::start(Faux::new().responses(script)).await;
     let hand = s.hand();
     let lodge = s.home.agent_files(1, "hand");
     let now = chat(hand);
@@ -64,6 +73,18 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         !lodge.join("two").exists() && !lodge.join("three").exists()
     );
     assert!(s.chief.waits().is_empty());
+    if !home::calls_hold_the_turn() {
+        s.chief
+            .until("the three ends heard", |c| {
+                !c.is_working(&now)
+                    && c.texts(&now)
+                        .iter()
+                        .filter(|t| *t == "Noted.")
+                        .count()
+                        == 3
+            })
+            .await;
+    }
 
     // Allowed for good: no later command asks.
     s.chief.tell(hand, "Once more.").await;
@@ -73,9 +94,7 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .await;
     s.chief.choose(&fourth.id, Choice::Always, None).await;
     s.chief.shows(&now, "Done again.").await;
-    if home::serves_actors() {
-        // An approval does not hold the turn under --actors, so the
-        // commands may end after the words that follow them.
+    if !home::calls_hold_the_turn() {
         s.chief
             .until("four and five", |_| {
                 lodge.join("four").exists()
@@ -326,9 +345,7 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
             .await;
         assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     }
-    if home::serves_actors() {
-        // Under --actors the second question may already wait beside
-        // it.
+    if !home::calls_hold_the_turn() {
         assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
     } else {
         assert_eq!(s.chief.waits().len(), 1);
@@ -361,9 +378,7 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
         .command(hand, &format!("/reply #{} yes, plant", sure.id))
         .await;
     s.chief.shows(&now, "Planted.").await;
-    if home::serves_actors() {
-        // A question does not hold the turn under --actors, so the
-        // answers may show after the words that follow them.
+    if !home::calls_hold_the_turn() {
         s.chief
             .until("an answer in the chat", |c| {
                 c.items(&now)
@@ -392,7 +407,7 @@ async fn the_turn_after_an_approved_command_asks_its_chief() {
         "ask_chief",
         json!({"questions": [{"question": "Next?"}]}),
     );
-    let script = if home::serves_actors() {
+    let script = if !home::calls_hold_the_turn() {
         vec![
             bash("echo curl one > one"),
             words("Waiting."),
@@ -411,7 +426,7 @@ async fn the_turn_after_an_approved_command_asks_its_chief() {
         .chief
         .wait_for("the approval", |w| w.subject.contains("one"))
         .await;
-    if home::serves_actors() {
+    if !home::calls_hold_the_turn() {
         s.chief.shows(&now, "Waiting.").await;
     }
 
@@ -453,9 +468,7 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
     assert_eq!(objection.answers, [Choice::Go, Choice::Withdraw]);
     assert!(objection.about.contains("better left alone"));
     s.chief.settle(Duration::from_millis(500)).await;
-    // An objection does not hold the turn's other calls under
-    // --actors.
-    if !home::serves_actors() {
+    if home::calls_hold_the_turn() {
         assert!(
             !s.home.agent_files(1, "hand").join("ruled").exists(),
             "the other call is held"
@@ -493,9 +506,7 @@ async fn withdrawing_an_objection_stops_the_turns_calls() {
         .until("the turn over", |c| !c.is_working(&now))
         .await;
     s.chief.settle(Duration::from_millis(500)).await;
-    // The turn's other call ran while the objection waited under
-    // --actors.
-    if !home::serves_actors() {
+    if home::calls_hold_the_turn() {
         assert!(
             !s.home.agent_files(1, "hand").join("ruled").exists()
         );

@@ -528,8 +528,6 @@ test("the model list says what images a model takes, with the limits its listing
         ),
     );
 
-    // As `listed_images` in `crates/hamlet_server/src/providers.rs` reads a
-    // listing.
     assert.deepEqual(
         modelList(listed).map(({ name, images }) => ({ name, images })),
         [

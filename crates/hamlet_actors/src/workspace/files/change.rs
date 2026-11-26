@@ -28,6 +28,7 @@ use hamlet_messages::workspace::refusal::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, ConversationId, ReachVersion,
+    RealmTask,
 };
 use hamlet_os::fs::path::{self, is_absolute, normalize, text};
 use hamlet_sandbox::scrub::scrub_text;
@@ -164,6 +165,7 @@ impl Refusal for ChangeRefusal {}
 /// A change as the handler weighs it.
 struct Request<'a> {
     call: &'a CallId,
+    task: Option<&'a RealmTask>,
     conversation: &'a ConversationId,
     path: &'a Path,
     asked: Asked<'a>,
@@ -176,6 +178,7 @@ impl<'a> Request<'a> {
         Ok(match pending {
             Pending::Write(asked) => Self {
                 call: &asked.call,
+                task: asked.realm_task.as_ref(),
                 conversation: &asked.conversation,
                 path: &asked.path,
                 asked: Asked::Write(&asked.content),
@@ -183,6 +186,7 @@ impl<'a> Request<'a> {
             },
             Pending::Edit(asked) => Self {
                 call: &asked.call,
+                task: asked.realm_task.as_ref(),
                 conversation: &asked.conversation,
                 path: &asked.path,
                 asked: Asked::Edit(&asked.edits),
@@ -781,8 +785,6 @@ fn plan(
                 env.read_for_change(path, &mut |part| {
                     if let Some((replaced, kept)) = &mut replaced {
                         replaced.push(part);
-                        // A file too large to show whole shows no
-                        // change.
                         if let Some(bytes) = kept {
                             if bytes.len() + part.len() > SHOWN_MOST {
                                 *kept = None;
@@ -795,7 +797,6 @@ fn plan(
             });
             let current = still(current, planning)?
                 .map_err(|error| Unplanned::Failed(error.message))?;
-            // A chief is shown a text write's change, as an edit's.
             let diff = replaced.as_ref().and_then(|(_, old)| {
                 let old = std::str::from_utf8(old.as_ref()?).ok()?;
                 let new = std::str::from_utf8(&content)
@@ -926,6 +927,7 @@ async fn open<R>(
         tx,
         agent,
         request.call,
+        request.task,
         request.asked.op(),
         request.request_hash.clone(),
         "changing",
@@ -1061,6 +1063,7 @@ mod tests {
         let conversation = ConversationId("c1".into());
         let request = Request {
             call: &call,
+            task: None,
             conversation: &conversation,
             path: Path::new("/p/a.md"),
             asked: Asked::Write("new"),

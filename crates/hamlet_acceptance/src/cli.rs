@@ -77,8 +77,6 @@ impl Cli {
     ) -> Ended {
         let mut cli = Self::start(home, args, env);
         if serves_actors() {
-            // Under --actors a command refused at its start may end
-            // before it reads.
             match cli.written(input).await {
                 Err(error)
                     if error.kind() == io::ErrorKind::BrokenPipe => {}

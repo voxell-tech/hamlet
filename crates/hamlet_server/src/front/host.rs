@@ -166,8 +166,8 @@ async fn hand_live(host: &Host) -> Result<bool> {
     }
 }
 
-/// What each kind may reach: a client the realm, the agents, and the
-/// profiles and the library to read them.
+/// The parties each kind may reach: a client the realm, the agents,
+/// and the profiles and the library to read them.
 fn routes() -> Routes {
     let kind = |party: &str| CallerKind::Actor(party.to_owned());
     let peers = [address::Realm::KIND, address::Agent::KIND];

@@ -33,8 +33,8 @@ const CODES: Record<string, FileErrorCode> = {
 };
 
 /**
- * A native refusal as a `FileError`. Given the system call that `opened`
- * the file at that absolute path, its words are Node's own, as today's.
+ * A native refusal as a `FileError`. Given the system call that `opened` the
+ * file at that absolute path, its words are Node's own.
  */
 function fileError(
     error: unknown,

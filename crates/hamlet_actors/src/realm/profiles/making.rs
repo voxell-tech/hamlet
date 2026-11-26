@@ -74,9 +74,9 @@ impl Making {
     }
 }
 
-/// A profile an agent other than the Hand makes waits at the harbor,
-/// as today, for a chief or the Hand to let it in, unless the realm
-/// lets newcomers in.
+/// A profile an agent other than the Hand makes waits at the harbor
+/// for a chief or the Hand to let it in, unless the realm lets
+/// newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
     type Loaded = (Making, Asking);

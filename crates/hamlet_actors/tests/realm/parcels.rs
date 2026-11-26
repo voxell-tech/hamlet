@@ -335,8 +335,8 @@ async fn a_send_wait_closes_when_its_receiver_ends() {
     assert_eq!(state, "refused");
 }
 
-/// A tell or an ask naming a path out of the sender's reach answers
-/// as today's tool fails: no letter, no parcel and no notice.
+/// A tell or an ask naming a path out of the sender's reach makes no
+/// letter, no parcel and no notice.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_path_outside_the_reach_refuses_the_tell_and_the_ask() {
     let (realm, _) =
@@ -369,7 +369,7 @@ async fn a_path_outside_the_reach_refuses_the_tell_and_the_ask() {
 }
 
 /// A tell or an ask with no road answers the road's refusal before
-/// its files are measured, as today's tool does.
+/// its files are measured.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_letter_with_no_road_is_refused_for_the_road_before_its_files()
  {

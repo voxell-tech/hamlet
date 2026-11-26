@@ -57,8 +57,6 @@ export function gated(
                 peers.reach.may_spend({ task }),
             );
             if (may.type === "refused") {
-                // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`:
-                // a withdrawn instruction's turn stops as today's does.
                 const held =
                     may.why.type === "objection" ||
                     may.why.type === "withdrawn";
@@ -212,7 +210,7 @@ function heldOf(model: Model<Api>, words: string): AssistantMessage {
     };
 }
 
-/** Whether the realm held `message`'s request, which today's chat shows nothing of. */
+/** Whether the realm held `message`'s request. */
 export function isHeld(message: AssistantMessage): boolean {
     return message.stopReason === "aborted" && message.rawStopReason === HELD;
 }

@@ -18,7 +18,7 @@ use super::calls::Made;
 use super::change::{Affected, Rows, Writer, number};
 use super::chiefs::limits;
 use super::tree::{self, Lineage, Status};
-use super::{laid, record, roads};
+use super::{budget, laid, record, roads};
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -215,6 +215,11 @@ impl Act<Agent> for AgreeRoad {
             by: by.by(),
             why: self.why.clone(),
         };
+        let charged = |hamlet: &HamletId| budget::Change::Road {
+            a,
+            b,
+            hamlet: hamlet.clone(),
+        };
         Decision::Change(
             Decided::new(Outcome::Laid { mine, theirs })
                 .change(laid::Change::Agreed {
@@ -223,6 +228,8 @@ impl Act<Agent> for AgreeRoad {
                     hamlet: own.clone(),
                 })
                 .change(Change::Spent { a, b })
+                .change(charged(hamlets[0]))
+                .change(charged(hamlets[1]))
                 .record(agreed(hamlets[0]))
                 .record(agreed(hamlets[1])),
         )

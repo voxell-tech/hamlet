@@ -43,8 +43,7 @@ export type Keep = BareRealm["keep_credential"];
 export interface SignIns {
     step(login: Login, keep: Keep): Promise<LoginAnswer>;
     /**
-     * Cancels every open sign-in, as today's close does, and resolves once
-     * their flows end.
+     * Cancels every open sign-in, and resolves once their flows end.
      */
     close(): Promise<void>;
 }
@@ -60,9 +59,9 @@ export interface SignInOptions {
 }
 
 /**
- * The installation's id, which today's server gives a subscription's
- * sign-in (`crates/hamlet_server/src/providers.rs:341`), from the realm
- * folder's `credentials.json`; the server writes it before the host starts.
+ * The installation's id, which a subscription's sign-in is given, from the
+ * realm folder's `credentials.json`; the server writes it before the host
+ * starts.
  */
 export function installationOf(home: string): SignInOptions {
     let stored: unknown;

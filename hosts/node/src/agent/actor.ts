@@ -656,8 +656,6 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         registry,
         models: answeringAs(
             numberOf(c),
-            // A faux script names a dream's steps as today's
-            // conversations name its kind.
             row.brief?.dream === true ? "dream" : row.kind,
             gated(agentModels(config.models, copies, peers), peers, placing),
         ),
@@ -999,7 +997,6 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
             );
             return;
         }
-        // Kept before the admission, so its end always finds it.
         if (message.task !== undefined) {
             await given(c, conversation.id, message.call, message.task);
         }

@@ -292,7 +292,9 @@ impl Act<Client> for Dream {
 
 /// `chief_dream`, which answers once the dream's folders are checked
 /// out: `Nothing` when its profile had nothing to dream about, which
-/// ends the dream with no errand and no failed step.
+/// ends the dream with no errand and no failed step. A dream that
+/// ended before its errand is answered once that end is kept, so the
+/// next dream may begin.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(super) struct ChiefDream(pub Asked<Dream>);
@@ -313,7 +315,7 @@ impl Handler<ChiefDream> for Realm {
         ctx: Ctx<Self>,
         ChiefDream(asked): ChiefDream,
     ) -> Result<Dreamt> {
-        let answer = self.handle(ctx.clone(), asked).await?;
+        let answer = self.clone().handle(ctx.clone(), asked).await?;
         let Dreamt::Began { dream } = answer else {
             return Ok(answer);
         };
@@ -326,11 +328,14 @@ impl Handler<ChiefDream> for Realm {
             )
             .await?
             .unwrap_or(false);
-        let nothing = ended_unprepared
-            && steps::first_failed(&rows, &[row(dream)])
-                .await?
-                .is_none();
-        Ok(if nothing { Dreamt::Nothing } else { answer })
+        if !ended_unprepared {
+            return Ok(answer);
+        }
+        self.drives.ended(end_row(dream), self.answer_within).await;
+        let failed = steps::first_failed(&rows, &[row(dream)])
+            .await?
+            .is_some();
+        Ok(if failed { answer } else { Dreamt::Nothing })
     }
 }
 

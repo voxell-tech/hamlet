@@ -267,9 +267,7 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
 
 /// The model `agent` runs, with its card's price and images: each
 /// part its own choice's, else a worker's starter's, else its
-/// hamlet's, else the realm's
-/// (`crates/hamlet_server/src/talk/models.rs:96-109`). A worker's
-/// fast mode is its own alone (`talk/models.rs:39`).
+/// hamlet's, else the realm's. A worker's fast mode is its own alone.
 pub(super) async fn model(
     rows: &Rows<'_>,
     agent: AgentNumber,

@@ -1192,6 +1192,7 @@ test("each society tool's result names the agents it acted on, in today's words"
                     spend: {
                         payer: { type: "realm" },
                         spent_micros: 100_000,
+                        spent_tokens: 0,
                         budget_micros: 10_000_000,
                         spent_ms: 1_800_000,
                         budget_ms: 3_600_000,
@@ -1332,6 +1333,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
                 spend: {
                     payer: { type: "realm" },
                     spent_micros: 0,
+                    spent_tokens: 0,
                     spent_ms: 0,
                 },
                 period: "day",

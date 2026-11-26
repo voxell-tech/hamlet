@@ -63,6 +63,49 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     assert!(chief.waits().is_empty());
 }
 
+/// A chief's approved command cut off by a restart ends into a turn
+/// that chief still oversees.
+#[tokio::test]
+async fn the_turn_after_a_command_cut_off_by_a_restart_asks_its_chief()
+ {
+    let mut home = Home::new();
+    let mut before = vec![call(
+        "bash",
+        json!({"command": "echo curl > one; sleep 60"}),
+    )];
+    if !home::calls_hold_the_turn() {
+        before.push(words("Waiting."));
+    }
+    let mut server =
+        home.serve(&Faux::new().responses(before), QUIET).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let now = chat(hand);
+    chief.open(&now).await;
+    chief.tell(hand, "Fetch it.").await;
+    let approval = chief.wait_for("the approval", |_| true).await;
+    chief.choose(&approval.id, Choice::Allow, None).await;
+    let started = home.agent_files(1, "hand").join("one");
+    chief.until("the command", |_| started.exists()).await;
+    assert_eq!(server.stop().await, Some(0));
+
+    let asks = call(
+        "ask_chief",
+        json!({"questions": [{"question": "Next?"}]}),
+    );
+    let server = home
+        .serve(&Faux::new().responses([asks, words("Done.")]), QUIET)
+        .await;
+    let mut chief = Client::join(&server).await;
+    let asked = chief
+        .wait_for("the question", |w| {
+            matches!(w.detail, WaitDetail::Question { .. })
+        })
+        .await;
+
+    assert_eq!(asked.agent, Some(hand));
+}
+
 /// A stop while the model is still answering ends the server within
 /// a stop's time.
 #[tokio::test]

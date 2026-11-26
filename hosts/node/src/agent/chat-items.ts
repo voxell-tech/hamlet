@@ -279,7 +279,7 @@ const SUMMARY_NOTICE =
 
 /**
  * The entry's id as its items' ids show it, `<agent>.<entry>`, so that no two
- * agents' items share one, as no two of today's pi entries do.
+ * agents' items share one.
  */
 export function entryIdOf(
     agent: number,
@@ -471,7 +471,7 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
     };
 }
 
-/** A held call's item as its end closes it: a blocked call changed nothing, so it shows no change, as today's. */
+/** A held call's item as its end closes it: a blocked call changed nothing, so it shows no change. */
 function shownAt(item: ChatItem, end: CallEnd): ChatItem {
     if (end.type !== "blocked" || item.tool?.change === undefined) return item;
     const { change: _, ...tool } = item.tool;

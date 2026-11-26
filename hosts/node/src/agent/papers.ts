@@ -1,6 +1,6 @@
 /**
- * What a client reads of the agent's knowledge, and its edit of the agent's
- * memory, as today's documents are read and edited for an agent.
+ * A client's read of the agent's knowledge, and its edit of the agent's
+ * memory.
  */
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type AgentCall, generationOf } from "./actor.ts";

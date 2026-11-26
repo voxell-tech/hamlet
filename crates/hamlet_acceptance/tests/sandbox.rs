@@ -175,9 +175,7 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
             json!({"command": "sh fetch.sh", "network": true}),
         ),
     ];
-    // Under --actors the call does not hold the turn: the turn ends
-    // on these words, and the call's end starts the next one.
-    if home::serves_actors() {
+    if !home::calls_hold_the_turn() {
         script.push(words("Asked."));
     }
     script.extend([
