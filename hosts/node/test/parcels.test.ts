@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import type { Context } from "@earendil-works/pi-ai";
+import { ActorError } from "../src/actor/actor/mod.ts";
 import type { ParcelFile, Submit } from "../src/agent/messages/agent.ts";
 import type { FetchPart, Part } from "../src/agent/messages/realm.ts";
 import {
@@ -343,5 +344,51 @@ test("a line with an image shows it to the model", async (t) => {
         ],
     );
     assert.ok(await itemOfLine(agent, "Look at this."));
+    await agent.stop();
+});
+
+test("an image the workspace does not fit is left out, and the line is still told", async (t) => {
+    const seen: Context[] = [];
+    const { calls } = fakeCalls({
+        realm: { fetch_part: serving(["GIF89a"], 64) },
+        workspace: {
+            fit_image: () => {
+                throw new ActorError("actor", "timed_out", "no answer");
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({}),
+        responses: [asked(seen, "Seen.")],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: {
+            type: "line",
+            text: "Look.",
+            images: [
+                {
+                    image: { id: IMAGE },
+                    file: {
+                        parcel: 7,
+                        file: 0,
+                        path: `images/${IMAGE}.gif`,
+                        size: 6,
+                    },
+                },
+            ],
+        },
+    });
+    await agent.idle();
+
+    assert.deepEqual(
+        seen.map((request) => userWords(request).at(-1)),
+        [
+            `Look.\n\n[Image 1 of this message, saved at ${FAKE_ROOT}/inbox/images/${IMAGE}.gif]`,
+        ],
+    );
+    assert.equal(agent.reported.length, 1);
+    assert.match(agent.reported[0] ?? "", /^an image was left out/);
     await agent.stop();
 });

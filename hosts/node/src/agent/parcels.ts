@@ -91,16 +91,21 @@ export async function attached(
             words: `[Image ${index + 1} of this message, saved at ${peers.files.root}/${path}]`,
         });
         if (taken === undefined || index >= taken.perLine) continue;
-        const fitted = await peers.fitImage({
-            image: bytes.toString("base64"),
-            limits: {
-                width: u32(taken.width),
-                height: u32(taken.height),
-                bytes: u32(taken.bytes),
-            },
-        });
-        if (fitted.type === "unusable") {
-            peers.report("an image was left out", fitted.words);
+        const fitted = await peers
+            .fitImage({
+                image: bytes.toString("base64"),
+                limits: {
+                    width: u32(taken.width),
+                    height: u32(taken.height),
+                    bytes: u32(taken.bytes),
+                },
+            })
+            .catch((error: unknown) => ({ type: "failed" as const, error }));
+        if (fitted.type !== "image") {
+            peers.report(
+                "an image was left out",
+                fitted.type === "unusable" ? fitted.words : fitted.error,
+            );
             continue;
         }
         images.push({
