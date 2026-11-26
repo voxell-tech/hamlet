@@ -11,14 +11,17 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::library;
-use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
+use hamlet_host::{
+    Address, Caller, Host, HostOptions, HostRef, Item,
+};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::library::{
     BadOffer, BadSkill, DropCopy, DropOfferParts, NoOffer, NoSkill,
     Offer, OfferAnswer, OfferId, OfferRead, OfferRefusal,
-    OnTheShelves, ReadOffer, ReadShelves, ShelfList, Shelves,
-    ShelvesChanged, Skill, Unshelve, Verdict, VerdictRefusal,
+    OnTheShelves, ReadOffer, ReadShelves, ShelfList, Shelved,
+    Shelves, ShelvesChanged, Skill, Unshelve, Verdict,
+    VerdictRefusal,
 };
 use hamlet_messages::profile::{By, Piece, TooLarge};
 use hamlet_messages::realm::Done;
@@ -572,6 +575,53 @@ async fn an_unshelved_skill_leaves_library_and_the_list() {
             "no longer needed".to_owned()
         )]
     );
+}
+
+/// What a client of the program reads of the shelves.
+async fn read_as_client(host: &Host) -> ShelfList {
+    let answer = host
+        .call_for_client(
+            &library_at(),
+            ReadShelves::NAME,
+            hamlet_actor::action::encode_positional(&ReadShelves)
+                .unwrap(),
+            Duration::from_secs(20),
+        )
+        .await
+        .unwrap();
+    ciborium::from_reader(answer.as_slice()).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_reads_the_shelves_and_hears_each_change() {
+    let dir = Scratch::new("library-client");
+    let host = open(&dir, Arc::default()).await;
+    let mut events = host
+        .subscribe_for_client(&library_at(), "shelved")
+        .await
+        .unwrap();
+    let before = read_as_client(&host).await;
+
+    let done = call_as(&host, &realm(), &unshelve("weather"))
+        .await
+        .unwrap();
+    let item =
+        tokio::time::timeout(Duration::from_secs(5), events.next())
+            .await
+            .expect("an event within 5s")
+            .unwrap();
+    let Item::Event(bytes) = item else {
+        panic!("an event: {item:?}");
+    };
+    let (shelved,): (Shelved,) =
+        ciborium::from_reader(bytes.as_slice()).unwrap();
+    let after = read_as_client(&host).await;
+
+    assert_eq!(done, Done::Done);
+    assert_eq!((before.version, after.version), (1, 2));
+    assert_eq!(shelved, Shelved { version: 2 });
+    assert!(!names(&after).contains(&"weather"));
+    host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
