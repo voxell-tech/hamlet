@@ -686,7 +686,7 @@ function imagesOf(listed: ListedImages | undefined): ImagesTaken | undefined {
 
 /**
  * The images the model the agent runs takes: as its catalogue card says,
- * else as its listing does, and a faux model's as its listing does
+ * else as its listing does, and any faux model's with no limit named
  * (`crates/hamlet_server/src/providers.rs`, `Providers::images`).
  * `undefined` when it takes none.
  */
@@ -697,12 +697,10 @@ export async function runningImages(
 ): Promise<ImagesTaken | undefined> {
     const { model: choice } = await copies();
     const { provider, modelId } = await runningRef(copies, host);
+    if (provider === FAUX) return imagesOf({});
     const model = listed.getModel(provider, modelId);
     if (model === undefined) return undefined;
-    const card =
-        model.provider !== FAUX && choice?.model === nameOf(model)
-            ? choice.images
-            : undefined;
+    const card = choice?.model === nameOf(model) ? choice.images : undefined;
     return imagesOf(card ?? listedImages(model));
 }
 
