@@ -12,8 +12,13 @@ use hamlet_messages::realm::parcels::{
     PartRefusal,
 };
 use hamlet_messages::realm::world::WaitKind;
-use hamlet_messages::realm::{Done, DoneTo, Enclosed, End};
-use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_messages::realm::{
+    AgentRefusal, Ask, Done, DoneTo, Enclosed, End, LetterRefusal,
+    Sent, Waiting,
+};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::client::Choice;
 
 use super::asking::{held_rows, objection, on, shared_task};
@@ -22,8 +27,8 @@ use super::parcel_files::{
 };
 use super::stand_ins::Callee;
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, answer, sent, submits_to, tell,
-    to, tool, until,
+    DEADLINE, FOUR, MAYOR, Realm, THREE, answer, hires, sent, shown,
+    submits_to, tell, to, tool, until,
 };
 
 /// Mayor 2 tells 3 `text` with the files under `paths`.
@@ -330,21 +335,67 @@ async fn a_send_wait_closes_when_its_receiver_ends() {
     assert_eq!(state, "refused");
 }
 
+/// A tell or an ask naming a path out of the sender's reach answers
+/// as today's tool fails: no letter, no parcel and no notice.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
+async fn a_path_outside_the_reach_refuses_the_tell_and_the_ask() {
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"a")])).await;
+    let outside = vec![Enclosed {
+        path: "/outside/secret".into(),
+    }];
+    let mut told = tell(to(THREE), "Here.");
+    told.paths = outside.clone();
+    let ask = Ask {
+        to: to(THREE),
+        text: "Here?".to_owned(),
+        conversation: ConversationId("c1".to_owned()),
+        paths: outside,
+    };
 
-    sends(&realm, "t1", "Here.", &["/outside/secret"]).await;
-    let told = notice_to_mayor(&realm).await;
+    let told = realm.tool(MAYOR, &tool("t1", told)).await.unwrap();
+    let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
 
-    assert_eq!(
-        told,
-        "`/outside/secret` cannot be read: /outside/secret is out \
-         of this agent's reach to read"
-    );
-    assert!(letters_to_three(&realm).is_empty());
+    let why = AgentRefusal::Act(LetterRefusal::Files {
+        words: "`/outside/secret` cannot be read: /outside/secret \
+                is out of this agent's reach to read"
+            .to_owned(),
+    });
+    assert_eq!(told, Sent::Refused { why: why.clone() });
+    assert_eq!(asked, Waiting::Refused { why });
+    assert!(parcel_states(&realm).await.is_empty());
     assert!(submits_to(&realm, THREE).is_empty());
+    assert!(notices_to_mayor(&realm).is_empty());
+}
+
+/// A tell or an ask with no road answers the road's refusal before
+/// its files are measured, as today's tool does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_with_no_road_is_refused_for_the_road_before_its_files()
+ {
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    hires(&realm, THREE, "h1").await;
+    realm.live(FOUR).await;
+    let outside = vec![Enclosed {
+        path: "/outside/secret".into(),
+    }];
+    let mut told = tell(to(FOUR), "Here.");
+    told.paths = outside.clone();
+    let ask = Ask {
+        to: to(FOUR),
+        text: "Here?".to_owned(),
+        conversation: ConversationId("c1".to_owned()),
+        paths: outside,
+    };
+
+    let told = realm.tool(MAYOR, &tool("t1", told)).await.unwrap();
+    let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
+
+    let why =
+        AgentRefusal::Act(LetterRefusal::NoRoad { to: shown(FOUR) });
+    assert_eq!(told, Sent::Refused { why: why.clone() });
+    assert_eq!(asked, Waiting::Refused { why });
 }
 
 /// The first notice to the mayor fails as an agent not ready; the
@@ -354,17 +405,14 @@ async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
 async fn a_refusal_whose_notice_fails_once_is_told_after_the_retry() {
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"a")])).await;
+    realm.seen.fail_for_good(Callee::Parcel, MAYOR);
     realm.seen.fail_once(Callee::Submit, MAYOR);
 
-    sends(&realm, "t1", "Here.", &["/outside/secret"]).await;
+    sends(&realm, "t1", "Here.", &["/project/a"]).await;
     let told = notice_to_mayor(&realm).await;
 
     assert!(realm.seen.has_failed(Callee::Submit, MAYOR));
-    assert_eq!(
-        told,
-        "`/outside/secret` cannot be read: /outside/secret is out \
-         of this agent's reach to read"
-    );
+    assert_eq!(told, "The files could not be sent.");
 }
 
 #[tokio::test(flavor = "multi_thread")]

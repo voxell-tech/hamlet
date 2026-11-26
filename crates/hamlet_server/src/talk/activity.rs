@@ -205,7 +205,8 @@ impl Activity {
         self.thought = true;
     }
 
-    /// The agent writes `text`.
+    /// The agent writes `text`, as the door folds it.
+    #[cfg(unix)]
     pub fn said(&mut self, text: &str, thought: bool) {
         self.think();
         self.speak(text, thought);
