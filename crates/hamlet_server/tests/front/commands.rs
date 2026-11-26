@@ -255,16 +255,22 @@ async fn an_answer_names_the_wait_it_answered() {
     .unwrap();
     let commanded =
         chief.command(hand, &format!("/deny #{second}")).await;
-    let mut said = [answered.text, commanded];
-    said.sort();
+    // The two calls run at once, so either page's wait may come
+    // first.
+    let page = |said: &str, how: &str| {
+        said.strip_prefix(&format!(
+            "Answered /{how}: hand wants network access to run \
+             `curl "
+        ))
+        .unwrap_or_else(|| panic!("{said}"))
+        .to_owned()
+    };
+    let mut pages =
+        [page(&answered.text, "allow"), page(&commanded, "deny")];
+    pages.sort();
     assert_eq!(
-        said,
-        [
-            "Answered /allow: hand wants network access to run `curl \
-             https://one.example`",
-            "Answered /deny: hand wants network access to run `curl \
-             https://two.example`",
-        ]
+        pages,
+        ["https://one.example`", "https://two.example`"]
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
