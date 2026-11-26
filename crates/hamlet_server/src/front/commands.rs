@@ -31,6 +31,7 @@ use hamlet_messages::realm::oversight::{
 use hamlet_messages::realm::profiles::{
     Dream, Dreamer, Dreamt as Dreaming, Forked, Lifecycle,
     LifecycleRefusal, Made, MoveHouse, PinHire, RevertProfile, Site,
+    TagProfile,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -722,15 +723,29 @@ async fn perform(
                 Err(refusal) => Err(refusal),
             }
         }
-        Act::Tag(act) => match label(calls, act.profile).await? {
-            Ok(label) => match ask(calls, id, act).await? {
-                TagAnswer::Tagged { version, .. } => {
-                    Ok(words::tagged(&label, &version.0))
+        Act::Tag { mut tag, at } => {
+            match label(calls, tag.profile).await? {
+                Ok(label) => {
+                    match tagged_at(calls, &tag, at).await? {
+                        Ok(at) => {
+                            tag.at = at;
+                            match ask(calls, id, tag).await? {
+                                TagAnswer::Tagged {
+                                    version, ..
+                                } => Ok(words::tagged(
+                                    &label, &version.0,
+                                )),
+                                TagAnswer::Refused { why } => {
+                                    Err(refused(why))
+                                }
+                            }
+                        }
+                        Err(refusal) => Err(refusal),
+                    }
                 }
-                TagAnswer::Refused { why } => Err(refused(why)),
-            },
-            Err(refusal) => Err(refusal),
-        },
+                Err(refusal) => Err(refusal),
+            }
+        }
         Act::Revert {
             profile,
             which,
@@ -859,31 +874,31 @@ async fn label(
         .map(|(_, label)| label))
 }
 
-/// The commit `which` names among a profile's versions and `main`,
-/// as the profile takes it and as a chief reads it: `main`, a
-/// version, a commit's whole id, or a branch by its name.
+/// The commit `which` names among a profile's versions and `main`:
+/// `main`, a version, or a commit's whole id.
+fn commit_of(
+    list: &hamlet_messages::profile::VersionList,
+    which: &str,
+) -> Option<CommitId> {
+    if which == hamlet_git::MAIN {
+        return list.commits.first().map(|tip| tip.commit);
+    }
+    list.versions
+        .iter()
+        .find(|seen| seen.version.0 == which)
+        .map(|seen| seen.commit)
+        .or_else(|| Sha1::from_hex(which).map(CommitId))
+}
+
+/// The commit `/revert` undoes as the profile takes it and as a chief
+/// reads it; a name of no version is given to the profile as a
+/// branch's.
 fn revision(
     list: &hamlet_messages::profile::VersionList,
     which: &str,
 ) -> (Revision, String) {
-    if which == hamlet_git::MAIN {
-        let tip =
-            list.commits.first().map(|tip| words::short(&tip.commit));
-        return (Revision::Main, tip.unwrap_or_else(|| which.into()));
-    }
-    if let Some(seen) =
-        list.versions.iter().find(|seen| seen.version.0 == which)
-    {
-        return (
-            Revision::Version {
-                version: seen.version.clone(),
-            },
-            words::short(&seen.commit),
-        );
-    }
-    match Sha1::from_hex(which) {
-        Some(sha) => {
-            let commit = CommitId(sha);
+    match commit_of(list, which) {
+        Some(commit) => {
             let short = words::short(&commit);
             (Revision::Commit { commit }, short)
         }
@@ -894,6 +909,25 @@ fn revision(
             which.into(),
         ),
     }
+}
+
+/// The commit `/tag` names after its `@`, `main`'s tip when it names
+/// none.
+async fn tagged_at(
+    calls: &Calls,
+    tag: &TagProfile,
+    at: Option<String>,
+) -> Result<Result<Option<CommitId>, Refusal>> {
+    let Some(which) = at else {
+        return Ok(Ok(None));
+    };
+    let list = calls.call(&Profile(tag.profile), &Versions).await?;
+    Ok(commit_of(&list, &which).map(Some).ok_or_else(|| {
+        Refusal::NoVersion {
+            name: format!("scholar#{}", tag.profile.0),
+            version: which,
+        }
+    }))
 }
 
 /// Stops the running turns of the agent a client names by `agent`,

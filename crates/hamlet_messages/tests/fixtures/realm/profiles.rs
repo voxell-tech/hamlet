@@ -299,9 +299,17 @@ fn the_changes(fixtures: &mut Fixtures) {
     let tag = TagProfile {
         profile: PROFILE,
         version: version(),
+        at: None,
         note: "Before the refactor".into(),
     };
     fixtures.args("realm/tag", &tool(tag.clone()));
+    fixtures.args(
+        "realm/chief_tag_profile.at",
+        &asked(TagProfile {
+            at: Some(commit()),
+            ..tag.clone()
+        }),
+    );
     fixtures.args("realm/chief_tag_profile", &asked(tag));
     let mut tags = named::<TagProfileRefusal>();
     tags.extend([

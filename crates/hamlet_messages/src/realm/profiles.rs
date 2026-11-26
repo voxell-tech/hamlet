@@ -13,10 +13,10 @@ use super::{
 };
 use crate::library::{NoSkill, OfferId};
 use crate::profile::{
-    BadCommit, BadPath, DreamId, DreamOpen, EditRefusal, Missing,
-    PinAnswer, Protected, PurgeAnswer, PurgeRefusal, ReadAnswer,
-    ReadFileRefusal, RevertAnswer, RevertRefusal, Revision,
-    TagAnswer, TagRefusal, TooLong, VersionName,
+    BadCommit, BadPath, CommitId, DreamId, DreamOpen, EditRefusal,
+    Missing, PinAnswer, Protected, PurgeAnswer, PurgeRefusal,
+    ReadAnswer, ReadFileRefusal, RevertAnswer, RevertRefusal,
+    Revision, TagAnswer, TagRefusal, TooLong, VersionName,
 };
 use crate::worded;
 use crate::workspace::AgentNumber;
@@ -154,12 +154,15 @@ impl ToolCall for EditProfile {
     type Answer = Done<AgentRefusal<EditProfileRefusal>>;
 }
 
-/// Names a profile's `main` as the version `version`. An agent's
-/// waits for a chief to allow it.
+/// Names a commit of a profile as the version `version`: `at`, or
+/// `main`'s tip when absent. An agent's waits for a chief to allow
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TagProfile {
     pub profile: ProfileId,
     pub version: VersionName,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<CommitId>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
 }
