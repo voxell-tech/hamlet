@@ -465,18 +465,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "tests/oversight.rs:400",
     ),
     (
-        "a_hire_dreams_what_it_learned_onto_its_scholars_main",
-        "tests/dreams.rs:14",
-    ),
-    (
-        "a_scholars_dream_tidies_its_main_from_its_checkout",
-        "tests/dreams.rs:109",
-    ),
-    (
-        "confines_reads_writes_and_the_lodge_with_and_without_a_folder",
-        "tests/sandbox.rs:16",
-    ),
-    (
         "a_letter_copies_the_files_it_names_into_the_receivers_inbox",
         "tests/files.rs:86",
     ),
