@@ -67,7 +67,6 @@ async fn an_uploaded_image_goes_with_a_line_and_is_read_back_by_id() {
 async fn a_model_the_chief_says_takes_images_is_given_them() {
     let mut endpoint = openai::Endpoint::start().await;
     let mut s = Session::with_endpoint(&endpoint).await;
-    // A model is carded once the server has its listing.
     let set = EditCatalogueSet {
         images: Some(Some(ImageInput {
             per_line: Some(2),

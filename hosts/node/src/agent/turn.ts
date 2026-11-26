@@ -154,7 +154,6 @@ export type CallEnd =
           readonly created?: boolean;
       }
     | { readonly type: "blocked"; readonly why: string }
-    // The chief's withdrawal shows its notice, as today's transcript does.
     | { readonly type: "aborted"; readonly withdrawn?: true };
 
 export type Ended = { readonly call: string; readonly end: CallEnd };
@@ -285,11 +284,6 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         withHarness(async (harness, context) => {
             const live = await harness.snapshot(LiveDoc, conversation, context);
             const handle = await harness.conversation(conversation, context);
-            // pi names a run by its first input (`#input` in
-            // `harnesses/pi/src/runtime.ts`), whose task today's server
-            // reads; today a call's end is told to its call within the turn
-            // and is never an input. So a run's task is its first input's
-            // other than an end, and an end's only in a run of ends.
             let first: { kind: InputKind; kept: Kept } | undefined;
             const turnOf = (task: RealmTask | undefined): TurnInput =>
                 first === undefined

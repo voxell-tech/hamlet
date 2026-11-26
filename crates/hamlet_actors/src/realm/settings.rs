@@ -227,8 +227,8 @@ pub(super) async fn apply(
     })
 }
 
-/// What the process puts over the kept settings, read once from
-/// `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
+/// The overrides the process puts over the kept settings, read once
+/// from `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
 /// `HAMLET_NET`. It is never kept.
 #[derive(Debug, Default)]
 struct Overrides {

@@ -157,8 +157,8 @@ async fn a_hire_goes_live_through_its_steps() {
     realm.host.shutdown().await.unwrap();
 }
 
-/// As today's founding, it answers once its mayor is live, with the
-/// mayor's filesystem filled.
+/// It answers once its mayor is live, with the mayor's filesystem
+/// filled.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_founding_answers_once_its_mayor_is_live() {
     let realm = Realm::start().await;

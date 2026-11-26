@@ -1,4 +1,4 @@
-//! What an agent does and says in one chat, folded from the chat's
+//! An agent's activity and words in one chat, folded from the chat's
 //! changes.
 
 use std::collections::HashMap;
@@ -9,7 +9,7 @@ use hamlet_protocol::client::ItemKind;
 use super::Mark;
 use crate::talk::activity::Activity;
 
-/// What an agent does in one chat, folded from the chat's changes.
+/// An agent's activity in one chat, folded from the chat's changes.
 pub(super) struct Folded {
     pub(super) activity: Activity,
     /// The text of each item written so far, and whether it is a

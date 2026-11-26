@@ -432,9 +432,8 @@ fn address(kind: protocol::AgentKind, number: AgentNumber) -> String {
     .to_string()
 }
 
-/// Who shelved a skill, as today names them: an agent by its address
-/// among `agents`, a chief by `chief`'s name, and none as the
-/// starters.
+/// Who shelved a skill: an agent by its address among `agents`, a
+/// chief by `chief`'s name, and none as the starters.
 fn shelver(
     by: Option<&By>,
     agents: &[protocol::Agent],
@@ -455,9 +454,9 @@ fn shelver(
     }
 }
 
-/// What [`serve`] keeps: the realm as read last, the door's own parts
-/// of it, and the `State` the clients were sent with the changes
-/// since.
+/// The state [`serve`] keeps: the realm as read last, the door's own
+/// parts of it, and the `State` the clients were sent with the
+/// changes since.
 struct Shown {
     shows: Shows,
     calls: Calls,

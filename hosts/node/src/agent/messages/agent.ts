@@ -630,7 +630,7 @@ export interface ProviderList {
     readonly providers: readonly ProviderView[];
 }
 
-/** What the agent knows, as a client reads it. */
+/** The agent's knowledge, as a client reads it. */
 export interface Papers {
     readonly character: string;
     readonly learned: readonly string[];

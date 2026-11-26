@@ -305,8 +305,7 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "cy said blue.").await;
     let questions = lane(ada, ChatRefKind::Questions, cy);
-    if home::serves_actors() {
-        // Under --actors the asker does not wait for the answer.
+    if !home::calls_hold_the_turn() {
         s.chief.open(&questions).await;
         s.chief.shows(&questions, "Blue.").await;
     }
@@ -315,9 +314,7 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     let back = failures(&s.chief, &questions);
     assert_eq!(back.len(), 1);
     assert_eq!(back[0].0, "ask");
-    if home::serves_actors() {
-        // ada does not wait on cy, so cy's question back is asked,
-        // and ada's answer to it comes after cy's.
+    if !home::calls_hold_the_turn() {
         assert!(
             page.items.iter().any(|i| i.text == "Blue."),
             "{page:?}"
@@ -371,7 +368,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.open(&now).await;
     s.chief.tell(ada, "Count.").await;
     s.chief.shows(&now, "The worker said 42.").await;
-    if home::serves_actors() {
+    if !home::calls_hold_the_turn() {
         left(&mut s.chief, "worker#3").await;
     }
     let worker = s.chief.agent("worker#3").unwrap();
@@ -384,7 +381,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.shows(&now, "Started another.").await;
     s.chief.shows(&now, "worker#4 answers: 43").await;
     s.chief.shows(&now, "The second answer came.").await;
-    if home::serves_actors() {
+    if !home::calls_hold_the_turn() {
         left(&mut s.chief, "worker#4").await;
     }
     assert_eq!(
@@ -393,8 +390,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     );
 }
 
-/// Waits for the worker `name` to have left: under --actors a worker
-/// started with `wait` does not hold its starter's turn.
+/// Waits for the worker `name` to have left.
 async fn left(chief: &mut Client, name: &str) {
     chief
         .until(&format!("{name} left"), |c| {

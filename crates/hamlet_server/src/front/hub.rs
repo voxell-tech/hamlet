@@ -58,7 +58,8 @@ struct Shared {
     /// The clients whose connection is open.
     clients: Mutex<BTreeSet<u64>>,
     followed: Mutex<BTreeMap<AgentNumber, Followed>>,
-    /// What each agent followed at work did in each of its chats.
+    /// The activity of each agent followed at work, in each of its
+    /// chats.
     activities: Mutex<BTreeMap<AgentNumber, BTreeMap<Lane, Folded>>>,
 }
 
@@ -96,7 +97,7 @@ struct Watch {
     /// agent's changes to all its chats, so a page read again after
     /// a change to another chat can be this page unchanged.
     page: Option<Transcript>,
-    /// What its chat showed the agent did last.
+    /// The agent's last activity its chat showed.
     last: Option<LastActivity>,
 }
 

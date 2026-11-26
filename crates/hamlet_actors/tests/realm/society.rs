@@ -1,7 +1,10 @@
 use hamlet_messages::agent::Input;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::choices::SetNickname;
-use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::client::ReadState;
+use hamlet_messages::realm::hamlets::{
+    ReadRecord, Record, RemoveHamlet,
+};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed, Done,
@@ -11,8 +14,10 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_protocol::client as protocol;
 
 use super::chiefs::chief;
+use super::laid::ROAD_PRICE;
 use super::{
     FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires, named_as,
     seen_submits, shown, submits_to, tell, to, tool, until, world,
@@ -189,7 +194,7 @@ async fn a_road_is_laid_when_both_mayors_agree() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agreed_road_is_not_charged() {
+async fn an_agreed_road_is_charged_to_each_hamlet() {
     let (realm, mill, kiln) = two_hamlets().await;
 
     agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
@@ -203,7 +208,7 @@ async fn an_agreed_road_is_not_charged() {
             .iter()
             .find(|spend| spend.payer == pays)
             .map_or(0, |spend| spend.spent_micros);
-        assert_eq!(spent, 0, "{pays:?}");
+        assert_eq!(spent, ROAD_PRICE, "{pays:?}");
     }
     realm.host.shutdown().await.unwrap();
 }
@@ -492,5 +497,30 @@ async fn an_agreed_road_is_hidden_while_roads_between_are_off() {
         place_has_road(&realm, FIVE, THREE)
     })
     .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hamlet_shows_no_road_to_a_hire_that_ended() {
+    let (realm, _, kiln) = two_hamlets().await;
+    agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
+    agreed_by(&realm, OTHER_MAYOR, "a1", agree(FIVE, THREE)).await;
+    roads_seen(&realm, &[(3, 5)]).await;
+
+    let removed = RemoveHamlet {
+        hamlet: kiln,
+        why: None,
+    };
+    assert_eq!(chief(&realm, removed).await, Done::Done);
+    roads_seen(&realm, &[]).await;
+    let state: protocol::State = realm.ask(&ReadState).await.unwrap();
+
+    let to_five = state
+        .hamlets
+        .iter()
+        .flat_map(|hamlet| &hamlet.roads)
+        .filter(|road| road.a.0 == 5 || road.b.0 == 5)
+        .count();
+    assert_eq!(to_five, 0);
     realm.host.shutdown().await.unwrap();
 }

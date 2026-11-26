@@ -35,9 +35,9 @@ mod hamlets;
 
 use hamlets::{Period, Place, Spending, place};
 
-/// What the realm shows a client beside the world, read at each
-/// commit. What moves with the clock alone, a budget's period and a
-/// road's wear, is reckoned as a client reads it.
+/// The parts of the realm a client is shown beside the world, read at
+/// each commit. The parts that move with the clock alone, a budget's
+/// period and a road's wear, are reckoned as a client reads them.
 #[derive(Clone, Default)]
 pub(super) struct Shown {
     agents: Vec<protocol::Agent>,
@@ -188,7 +188,7 @@ pub(super) async fn read(
             .map(|spend| Spending {
                 micros: spend.spent_micros,
                 ms: spend.spent_ms,
-                tokens: 0,
+                tokens: spend.spent_tokens,
                 cap_micros: spend.budget_micros,
                 cap_ms: spend.budget_ms,
                 period,
@@ -551,8 +551,7 @@ async fn scholars(
 }
 
 /// The conversations other agents keep with `agent`, by sender and
-/// kind: the letters and questions sent it, as today's
-/// (`crates/hamlet_server/src/clients/state.rs`, `peers`).
+/// kind: the letters and questions sent it.
 async fn peers(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -742,7 +741,6 @@ fn wait_shown(
         about: wait.subject.clone(),
         agent: Some(wire(wait.agent)),
         answers,
-        // Each raise opens its own wait, so each is asked once.
         asked: 1,
         by: by.to_owned(),
         change: match &wait.kind {

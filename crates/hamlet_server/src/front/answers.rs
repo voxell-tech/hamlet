@@ -138,7 +138,8 @@ pub(crate) async fn profile(
         .ok_or_else(missing))
 }
 
-/// What `of` knows: a profile's `main`, or an agent's own files.
+/// The knowledge of `of`: a profile's `main`, or an agent's own
+/// files.
 async fn papers(
     calls: &Calls,
     of: Keeper,

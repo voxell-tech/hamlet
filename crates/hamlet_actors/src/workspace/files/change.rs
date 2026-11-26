@@ -785,8 +785,6 @@ fn plan(
                 env.read_for_change(path, &mut |part| {
                     if let Some((replaced, kept)) = &mut replaced {
                         replaced.push(part);
-                        // A file too large to show whole shows no
-                        // change.
                         if let Some(bytes) = kept {
                             if bytes.len() + part.len() > SHOWN_MOST {
                                 *kept = None;
@@ -799,7 +797,6 @@ fn plan(
             });
             let current = still(current, planning)?
                 .map_err(|error| Unplanned::Failed(error.message))?;
-            // A chief is shown a text write's change, as an edit's.
             let diff = replaced.as_ref().and_then(|(_, old)| {
                 let old = std::str::from_utf8(old.as_ref()?).ok()?;
                 let new = std::str::from_utf8(&content)

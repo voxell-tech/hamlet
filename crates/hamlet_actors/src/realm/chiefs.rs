@@ -449,7 +449,7 @@ impl<By: RealmWide> Act<By> for Pinned<Found> {
         )
     }
 
-    /// As today's, once its mayor is live.
+    /// Once its mayor is live.
     fn answers_after(
         &self,
         &(_, mayor): &Self::Done,

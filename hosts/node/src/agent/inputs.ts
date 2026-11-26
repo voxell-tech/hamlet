@@ -125,9 +125,8 @@ function heldEnd(end: HeldCall["end"], why: string): CallEnd {
 }
 
 /**
- * `text` with `captions` placed as `Attached::place` in
- * `crates/hamlet_server/src/attached.rs` places them: each at its byte
- * offset, set apart by a space, and those with none after it.
+ * `text` with `captions` placed each at its byte offset, set apart by a space,
+ * and those with none after it.
  */
 function placed(text: string, captions: readonly Caption[]): string {
     const bytes = Buffer.from(text);

@@ -227,6 +227,8 @@ pub enum GrantSource {
 pub struct Spend {
     pub payer: Payer,
     pub spent_micros: u64,
+    /// The tokens of the model calls charged to it.
+    pub spent_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_micros: Option<u64>,
     pub spent_ms: u64,

@@ -315,9 +315,6 @@ test("a line with an image shows it to the model", async (t) => {
     const line = seen[0]?.messages.findLast(
         (message) => message.role === "user",
     );
-    // As `crates/hamlet_server/src/images.rs` `attach_images` and
-    // `crates/hamlet_server/src/inbox.rs` `placed_captions` word them,
-    // placed as `crates/hamlet_server/src/attached.rs` places them.
     assert.deepEqual(line?.content, [
         {
             type: "text",
@@ -333,7 +330,6 @@ test("a line with an image shows it to the model", async (t) => {
         [`inbox/images/${IMAGE}.gif`]: "GIF89a",
         "inbox/plan.md": "# Plan\n",
     });
-    // The faux model takes images at `ImageInput`'s defaults, as today's.
     assert.deepEqual(
         named(sent, "fit_image").map(({ message }) => message),
         [

@@ -16,6 +16,7 @@ use hamlet_protocol::client as protocol;
 use super::{count, wire};
 use crate::realm::change::{Rows, number};
 use crate::realm::chiefs::{self, limits};
+use crate::realm::laid;
 
 /// A living hamlet, its budget's spending and its roads with when
 /// each last carried a letter.
@@ -26,7 +27,7 @@ pub(super) struct Place {
     roads: Vec<(protocol::Road, Option<i64>)>,
 }
 
-/// What was spent in a period, until its end.
+/// The spending of a period, until its end.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Spending {
     pub micros: u64,
@@ -186,11 +187,9 @@ fn level(
 }
 
 /// The roads of the hires of `hamlet` that have not ended, those
-/// still being hired too, as today's hires live from their hiring,
-/// each pair once: a
-/// hire's to its lead or a mayor's to the Hand, a mayor's to each
-/// other mayor, and those laid or agreed, with the letters along
-/// each.
+/// still being hired too, each pair once: a hire's to its lead or a
+/// mayor's to the Hand, a mayor's to each other mayor, and those laid
+/// or agreed, with the letters along each.
 async fn roads(
     rows: &Rows<'_>,
     seen: &Seen,
@@ -201,13 +200,7 @@ async fn roads(
         .iter()
         .map(|place| place.mayor)
         .collect::<BTreeSet<_>>();
-    let laid = rows
-        .rows::<(u32, u32, String)>(
-            "SELECT a, b, kind FROM road WHERE up_at IS NULL ORDER \
-             BY a, b",
-            Vec::new(),
-        )
-        .await?;
+    let laid = laid::shown(rows).await?;
     let mut ways = Vec::new();
     for hire in seen.agents.iter().filter(|agent| {
         !matches!(agent.status, Status::Ended { .. })
@@ -339,7 +332,7 @@ fn report(spending: Spending, now: i64) -> protocol::Report {
 }
 
 impl Spending {
-    /// What was spent as of `now`: nothing once its period ended.
+    /// The spending as of `now`: nothing once its period ended.
     pub(super) fn at(self, now: i64) -> Self {
         match self.period {
             Some(period) if now >= period.ends => Self {

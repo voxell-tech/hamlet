@@ -25,9 +25,6 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
         "models": {"openai":{"type":"api_key","key":"test-openai-separate-key"},
             "other":{"type":"api_key","key":"test-other-provider-secret"}}
     }).to_string()).unwrap();
-    // The same offline providers, served by pi or by the actors' Node
-    // host, which inherits only the variables named
-    // `HAMLET_ACTOR_...` of these.
     let (seam, folder, fixture_entry) = if serves_actors() {
         (
             "HAMLET_NODE_HOST",
@@ -60,8 +57,6 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
             .as_array()
             .is_some_and(|p| p.iter().any(|p| p["id"] == "chatgpt"))
         {
-            // Today's providers list `chatgpt` too, and would sign in
-            // over the network.
             assert!(
                 !serves_actors() || fixture.join("started").exists(),
                 "the Node host's OAuth fixture is not the one \
@@ -326,8 +321,6 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
     file(&fixture.join("refresh-started")).await;
     server.terminate();
     stopped_listening(&server).await;
-    // Past the second the connections are given to close, so the
-    // rotation outlasts them.
     tokio::time::sleep(Duration::from_secs(2)).await;
     assert!(
         server.is_running(),
@@ -367,9 +360,6 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
         .await;
     file(&fixture.join("refresh-started")).await;
     let check = send(&mut second, json!({"type":"check","what":"model","model":"chatgpt::offline"})).await;
-    // The second check waits on the rotation the first started: pi
-    // queues for the store's lease (its third), and the Node host
-    // reads the subscription just before it joins the rotation.
     let (waited, lines) = if serves_actors() {
         ("read-while-refreshing", 1)
     } else {

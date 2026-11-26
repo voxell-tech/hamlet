@@ -103,8 +103,6 @@ export function agentModels(
                 await previous?.(event, called);
             },
         };
-        // As today's harness gives the model the images its card says it
-        // takes (`harnesses/pi/src/models.ts`, `selectedModel`).
         const carded =
             chosen &&
             choice.images !== undefined &&
@@ -300,7 +298,7 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 }
 
-/** What an endpoint says it billed a call, which stands over pi-ai's own price, as today's harness takes it. */
+/** The cost an endpoint says it billed a call, which stands over pi-ai's own price. */
 interface Bill {
     billed?: number;
 }
@@ -311,7 +309,7 @@ function billedIn(message: AssistantMessage, bill: Bill): AssistantMessage {
     return message;
 }
 
-/** The cost a provider's raw event reports in its usage, as OpenRouter-style endpoints bill (`harnesses/pi/src/models.ts`). */
+/** The cost a provider's raw event reports in its usage, as OpenRouter-style endpoints bill. */
 function billedCost(event: unknown): number | undefined {
     if (typeof event !== "object" || event === null || !("usage" in event))
         return undefined;
@@ -421,9 +419,8 @@ function fastened(
 }
 
 /**
- * The models of `providers`, or of every provider when it is absent, each
- * with what today's catalogue learns of its listing (`providers.rs`,
- * `Card::learn`).
+ * The models of `providers`, or of every provider when it is absent, each with
+ * what the catalogue learns of its listing.
  */
 export function modelList(
     listed: Models,
@@ -472,8 +469,8 @@ function effortsOf(model: Model<Api>): Effort[] {
 }
 
 /**
- * The providers whose models a chief can choose, as today's catalogue
- * shows them: those the realm holds a sign-in for, and the endpoints.
+ * The providers whose models a chief can choose: those the realm holds a
+ * sign-in for, and the endpoints.
  */
 export async function reached(
     listed: Models,
@@ -549,8 +546,7 @@ export async function checkModel(
 
 /**
  * Asks the provider of the model `name` for its list again, and answers with
- * the count of the models it lists, as today's connection check does. Its
- * login is rotated first when due, as today's refresh resolves it first.
+ * the count of the models it lists. Its login is rotated first when due.
  */
 export async function checkConnection(
     listed: Models,
@@ -586,7 +582,7 @@ export async function checkConnection(
     };
 }
 
-/** The provider and model `name` names, or its refusal, as today's `named_model`. */
+/** The provider and model `name` names, or its refusal. */
 function named(listed: Models, name: string): ModelRef | Checked {
     const ref = refOf(name);
     if (ref === undefined) {
@@ -646,10 +642,8 @@ export interface ImagesTaken extends ImageLimits {
 }
 
 /**
- * The images `model` takes, as `listed_images` in
- * `crates/hamlet_server/src/providers.rs` reads its listing; a faux model
- * takes them with no limit named, as `Providers::images` there gives.
- * `undefined` when it takes none.
+ * The images `model` takes, as its listing says; a faux model takes them with
+ * no limit named. `undefined` when it takes none.
  */
 function listedImages(model: Model<Api>): ListedImages | undefined {
     if (model.provider !== FAUX && !model.input.includes("image")) {
@@ -669,10 +663,9 @@ function listedImages(model: Model<Api>): ListedImages | undefined {
 }
 
 /**
- * The images a model whose card or listing says `listed` takes, as
- * `Limits::of` in `crates/hamlet_server/src/images.rs` fills in what it
- * leaves out and caps the most of them in one line. `undefined` when it
- * takes none.
+ * The images a model whose card or listing says `listed` takes, with what it
+ * leaves out filled in and the most of them in one line capped. `undefined`
+ * when it takes none.
  */
 function imagesOf(listed: ListedImages | undefined): ImagesTaken | undefined {
     if (listed === undefined) return undefined;
@@ -685,10 +678,9 @@ function imagesOf(listed: ListedImages | undefined): ImagesTaken | undefined {
 }
 
 /**
- * The images the model the agent runs takes: as its catalogue card says,
- * else as its listing does, and any faux model's with no limit named
- * (`crates/hamlet_server/src/providers.rs`, `Providers::images`).
- * `undefined` when it takes none.
+ * The images the model the agent runs takes: as its catalogue card says, else
+ * as its listing does, and any faux model's with no limit named. `undefined`
+ * when it takes none.
  */
 export async function runningImages(
     listed: Models,
@@ -704,7 +696,7 @@ export async function runningImages(
     return imagesOf(card ?? listedImages(model));
 }
 
-/** The providers a subscription signs in to, as today's (ADR 0006). */
+/** The providers a subscription signs in to (ADR 0006). */
 const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
 
 /** The words of a provider's sign-in button where they are not its name. */
@@ -715,9 +707,7 @@ const LABELS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The providers a chief may sign in to, and whether each is, in today's
- * order and words (`crates/hamlet_server/src/providers.rs`,
- * `provider_views`).
+ * The providers a chief may sign in to, and whether each is.
  */
 export async function providerViews(
     listed: Models,
@@ -748,7 +738,7 @@ export async function providerViews(
     );
 }
 
-/** A failed hello or list in words a chief can act on, as today's `plainly` gives them. */
+/** A failed hello or list in words a chief can act on. */
 function plainly(error: string, hello: boolean): string {
     const lower = error.toLowerCase();
     const says = (...words: string[]) =>

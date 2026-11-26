@@ -126,6 +126,13 @@ pub fn serves_actors() -> bool {
     })
 }
 
+/// Whether a call that waits for a chief, a question or a worker
+/// holds its turn. On `hamlet_server --actors` it does not: the turn
+/// goes on, and the call's end comes to the agent as a new input.
+pub fn calls_hold_the_turn() -> bool {
+    !serves_actors()
+}
+
 /// The command that starts a server, before `--port 0` and
 /// `--faux <file>`: [`SERVER_VAR`], else the `hamlet` CLI's
 /// `server`.
