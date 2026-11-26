@@ -8,8 +8,8 @@ use hamlet_host::Address;
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    self, NewSession, ReadHistory, ReadModels, ReadPrompt, Resume,
-    Retry, Rewind,
+    self, CheckConnection, NewSession, ReadHistory, ReadModels,
+    ReadPrompt, Resume, Retry, Rewind,
 };
 use hamlet_messages::realm::documents::ReadCharter;
 use hamlet_messages::workspace::AgentNumber;
@@ -18,6 +18,7 @@ use hamlet_protocol::client::{
     ServerMessage,
 };
 
+use super::answers::Reading;
 use super::call::Stopping;
 use super::host::HAND;
 use super::view::Own;
@@ -44,6 +45,27 @@ pub(crate) enum Route {
     Line(protocol::Say, AgentNumber),
     Call(Call),
     SignIn(protocol::Login),
+    Read(Reading),
+    Upload(Upload),
+}
+
+/// A chief's upload: its start or one of its parts.
+pub(crate) enum Upload {
+    Image(protocol::PutImage),
+    ImagePart(protocol::PutImagePart),
+    File(protocol::PutFile),
+    FilePart(protocol::PutFilePart),
+}
+
+impl Upload {
+    pub(crate) fn id(&self) -> &RequestId {
+        match self {
+            Self::Image(put) => &put.id,
+            Self::ImagePart(part) => &part.id,
+            Self::File(put) => &put.id,
+            Self::FilePart(part) => &part.id,
+        }
+    }
 }
 
 /// A chief's command, edit, answer to a wait or stop, answered by
@@ -55,6 +77,7 @@ pub(crate) enum Asked {
     /// A stop of one agent.
     Stop(RequestId, AgentId),
     StopAll(RequestId),
+    MoveLodges(RequestId),
 }
 
 impl Asked {
@@ -63,7 +86,8 @@ impl Asked {
             Self::Command(say) => &say.id,
             Self::Edit(id, _)
             | Self::Stop(id, _)
-            | Self::StopAll(id) => id,
+            | Self::StopAll(id)
+            | Self::MoveLodges(id) => id,
             Self::Answer(answer) => &answer.id,
         }
     }
@@ -191,6 +215,13 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             frames::checked,
             After::Nothing,
         )?,
+        ClientMessage::Check(Check::Connection { id }) => call(
+            &address::Agent(HAND),
+            &id,
+            &CheckConnection,
+            frames::checked,
+            After::Nothing,
+        )?,
         ClientMessage::Check(Check::Model { id, model: None }) => {
             Route::Now(Box::new(reply(
                 &id,
@@ -229,7 +260,31 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             frames::charter,
             After::Nothing,
         )?,
-        message => Route::Now(Box::new(unsupported(&message)?)),
+        ClientMessage::Read(Read::Papers { of, id, .. }) => {
+            Route::Read(Reading::Papers { id, of })
+        }
+        ClientMessage::Read(Read::Image { id, image, size }) => {
+            Route::Read(Reading::Image {
+                id,
+                image,
+                size: size.unwrap_or_default(),
+            })
+        }
+        ClientMessage::PutImage(put) => {
+            Route::Upload(Upload::Image(put))
+        }
+        ClientMessage::PutImagePart(part) => {
+            Route::Upload(Upload::ImagePart(part))
+        }
+        ClientMessage::PutFile(put) => {
+            Route::Upload(Upload::File(put))
+        }
+        ClientMessage::PutFilePart(part) => {
+            Route::Upload(Upload::FilePart(part))
+        }
+        ClientMessage::MoveLodges(asked) => {
+            Route::Command(Asked::MoveLodges(asked.id))
+        }
     };
     Ok(route)
 }
@@ -286,26 +341,9 @@ fn call<M: Message>(
     }))
 }
 
-/// The answer to `message`, which this server does not serve.
-fn unsupported(message: &ClientMessage) -> Result<ServerMessage> {
-    let what = serde_json::to_value(message)?["type"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let refusal = Refusal::Unsupported {
-        what: format!("`{what}`"),
-    };
-    Ok(match message.id() {
-        Some(id) => reply(id, Err(refusal)),
-        None => fault(None, refusal.to_string()),
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::client::{
-        Keeper, MoveLodges, ReplyKind, Say, ScholarId,
-    };
+    use hamlet_protocol::client::{ReplyKind, Say};
 
     use super::*;
 
@@ -407,35 +445,5 @@ mod tests {
         };
         assert_eq!(charter.to.to_string(), "realm/local");
         assert_eq!(charter.action, "read_charter");
-    }
-
-    #[test]
-    fn what_no_actor_serves_yet_is_answered_at_once() {
-        for message in [
-            ClientMessage::Check(Check::Connection {
-                id: RequestId::new(),
-            }),
-            ClientMessage::Read(Read::Papers {
-                of: Keeper::Scholar(ScholarId(1)),
-                full: None,
-                id: RequestId::new(),
-            }),
-            ClientMessage::MoveLodges(MoveLodges {
-                id: RequestId::new(),
-            }),
-        ] {
-            let Route::Now(answer) = route(message).unwrap() else {
-                panic!("answered at once");
-            };
-            let ServerMessage::Reply(answer) = *answer else {
-                panic!("a reply");
-            };
-            assert_eq!(answer.kind, ReplyKind::Error);
-            assert!(
-                answer.text.contains("does not do that yet"),
-                "{}",
-                answer.text
-            );
-        }
     }
 }

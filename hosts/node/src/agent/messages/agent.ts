@@ -631,6 +631,7 @@ export interface ClientActions {
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
     read_models(): ModelList;
+    images_taken(): { readonly per_line?: number };
     check(message: Check): Checked;
     check_connection(): Checked;
     read_providers(): ProviderList;
@@ -973,6 +974,7 @@ export const readClient: {
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
     read_models: () => [],
+    images_taken: () => [],
     check: first(obj({ model: str() }, OPEN), ({ model }) => ({ model })),
     check_connection: () => [],
     read_providers: () => [],

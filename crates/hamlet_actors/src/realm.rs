@@ -288,6 +288,7 @@ impl Actor for Realm {
         KeepCredential,
         FetchPart,
         profiles::Create,
+        profiles::ChiefCreate,
         Relays<ByHand<Tool<ReadProfile>>>,
         ByHand<Tool<EditProfile>>,
         ByHand<Tool<TagProfile>>,

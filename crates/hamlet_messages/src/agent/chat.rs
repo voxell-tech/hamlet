@@ -498,6 +498,18 @@ pub struct ListedModel {
     pub images: Option<u32>,
 }
 
+/// Reads how many images one line may give the model the agent runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImagesTaken;
+from_client!(ImagesTaken, "images_taken", TakenImages);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakenImages {
+    /// Absent when the model takes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_line: Option<u32>,
+}
+
 /// Asks `model` for a hello. It is neither admitted to a conversation
 /// nor charged, and a repeat asks again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

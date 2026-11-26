@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 
+use hamlet_messages::profile::{CommitId, Path, VersionList};
 use hamlet_protocol::client::{self as protocol, Choice, WaitDetail};
 
 use crate::oversight::{self, Ruling};
@@ -41,10 +42,36 @@ pub(crate) const CHARTER_SAVED: &str = "The charter is saved.";
 
 pub(crate) const CATALOGUE_SAVED: &str = "Saved.";
 
+pub(crate) const CHARACTER_SAVED: &str = "The character is saved.";
+
+pub(crate) const MEMORY_SAVED: &str = "The memory is saved.";
+
+pub(crate) const SETTINGS_SAVED: &str = "The settings are saved.";
+
+pub(crate) const REFLECT_EVERY: &str =
+    "Reflect after zero or more turns.";
+
+pub(crate) const REALM_LIMITS_SAVED: &str =
+    "The realm's limits are saved.";
+
+pub(crate) const LIMITS_UNFIT: &str =
+    "Those limits do not fit their form.";
+
+pub(crate) const NO_WORKSPACE: &str =
+    "Choose a remote workspace in the settings first.";
+
 pub(crate) const FAUX_MODELS: &str =
     "Every agent runs the faux model here.";
 
 /// The reason of a `/merge` said without one.
+pub(crate) const NO_SCHOLAR_YET: &str =
+    "The city has no scholar yet.";
+
+pub(crate) const DREAM_USAGE: &str =
+    "Use /dream <scholar#id|address>";
+
+pub(crate) const DREAM_BEGAN: &str = "The dream began.";
+
 pub(crate) const MERGED_BY_THE_CHIEF: &str = "merged by the chief";
 
 /// The reason of a `/remove-hamlet` said without one.
@@ -93,6 +120,10 @@ pub(crate) fn budget(
 }
 
 /// The answer to a command no row of the table names.
+pub(crate) fn limits_saved(hamlet: &str) -> String {
+    format!("The limits of `{hamlet}` are saved.")
+}
+
 pub(crate) fn no_command(name: &str) -> String {
     format!(
         "There is no command /{name}; the client lists the commands."
@@ -401,4 +432,108 @@ pub(crate) fn works_on(hamlet: &str, folder: Option<&str>) -> String {
 
 pub(crate) fn mode(hamlet: &str, mode: &str) -> String {
     format!("`{hamlet}` is in {mode} mode.")
+}
+
+pub(crate) fn tools_off(hire: &str, off: &[String]) -> String {
+    if off.is_empty() {
+        format!("`{hire}` has every tool.")
+    } else {
+        format!("`{hire}` has these off: {}", off.join(", "))
+    }
+}
+
+pub(crate) fn scholars<'a>(
+    shown: impl Iterator<Item = (String, bool)> + 'a,
+) -> String {
+    let list = shown
+        .map(|(label, living)| {
+            format!(
+                "- {label}{}",
+                if living { "" } else { " (archived)" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if list.is_empty() {
+        NO_SCHOLAR_YET.into()
+    } else {
+        list
+    }
+}
+
+pub(crate) fn short(commit: &CommitId) -> String {
+    commit.0.to_string().chars().take(8).collect()
+}
+
+/// A profile's versions and the latest commits of its `main`.
+pub(crate) fn versions(list: &VersionList) -> String {
+    let mut lines = Vec::new();
+    if list.versions.is_empty() {
+        lines.push("No versions yet; /tag names one.".to_owned());
+    } else {
+        lines.push("Versions:".into());
+        for version in &list.versions {
+            let note = if version.note.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", version.note)
+            };
+            lines.push(format!(
+                "- {} ({}){note}",
+                version.version.0,
+                short(&version.commit)
+            ));
+        }
+    }
+    if !list.commits.is_empty() {
+        lines.push("Latest commits of main:".into());
+        for commit in &list.commits {
+            lines.push(format!(
+                "- {} {} by {}",
+                short(&commit.commit),
+                commit.message,
+                commit.by
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+pub(crate) fn profile_made(profile: &str) -> String {
+    format!("The scholar `{profile}` lives in the city.")
+}
+
+pub(crate) fn tagged(profile: &str, version: &str) -> String {
+    format!("Tagged {profile} as {version}.")
+}
+
+pub(crate) fn reverted(
+    commit: &str,
+    profile: &str,
+    clashes: &[Path],
+) -> String {
+    if clashes.is_empty() {
+        format!("Reverted {commit} on {profile}'s main.")
+    } else {
+        let clashes = clashes
+            .iter()
+            .map(|clash| clash.path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "Reverted {commit} on {profile}'s main; these changed \
+             again since and kept their later lines: {clashes}"
+        )
+    }
+}
+
+pub(crate) fn purged(
+    path: &str,
+    profile: &str,
+    branches: u32,
+) -> String {
+    format!(
+        "Purged {path} from {profile}: {branches} branches \
+         rewritten."
+    )
 }

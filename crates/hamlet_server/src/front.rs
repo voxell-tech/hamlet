@@ -44,6 +44,7 @@ use self::commands::Outcome;
 use self::host::HAND;
 use self::hub::{Hub, ended_line};
 use self::route::{After, Asked, Call, Route};
+use self::uploads::Uploads;
 use self::view::Shows;
 use crate::claim::Claim;
 use crate::clients::check::{Protocol, reply};
@@ -119,6 +120,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
             &confinement,
         )?);
         announce(&root, &url);
+        let uploads = Uploads::at(&root)?;
         let own = view::Own {
             chief: chief_name(),
             confinement: confinement.clone(),
@@ -130,6 +132,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
             host.clone(),
             credentials,
             own,
+            uploads,
             listener,
             &mut signals,
             host::start_agents(&host, &supervisor),
@@ -162,6 +165,7 @@ struct Door {
     protocol: Protocol,
     credentials: Keys,
     own: Arc<view::Own>,
+    uploads: Arc<Uploads>,
     clients: BTreeMap<u64, Client>,
     queues: HashMap<u64, Queue>,
     next: u64,
@@ -189,6 +193,7 @@ impl Door {
         host: Host,
         credentials: Keys,
         own: view::Own,
+        uploads: Uploads,
         listener: TcpListener,
         signals: &mut Signals,
         agents: impl Future<Output = Result<()>>,
@@ -221,6 +226,7 @@ impl Door {
             protocol: Protocol::new()?,
             credentials,
             own,
+            uploads: Arc::new(uploads),
             clients: BTreeMap::new(),
             queues: HashMap::new(),
             next: 0,
@@ -304,6 +310,7 @@ impl Door {
                 self.queues.remove(&client);
                 self.shows.gone(client);
                 self.hub.forget(client);
+                self.uploads.disconnect(client);
                 for login in self.sign_ins.forget(client) {
                     let calls = self.calls.clone();
                     self.work.spawn(async move {
@@ -425,6 +432,24 @@ impl Door {
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),
             Route::SignIn(login) => self.sign_in(client, login),
+            Route::Read(reading) => {
+                let asker = self.ask_in_turn(client);
+                self.in_turn(client, async move {
+                    asker.read(reading).await;
+                });
+            }
+            Route::Upload(upload) => {
+                let (uploads, frames) =
+                    (self.uploads.clone(), self.frames.clone());
+                self.in_turn(client, async move {
+                    let id = upload.id().clone();
+                    let message =
+                        uploads.take(client, upload).unwrap_or_else(
+                            |error| server_failed(Some(&id), &error),
+                        );
+                    let _ = frames.send((client, message));
+                });
+            }
         }
     }
 
@@ -471,6 +496,7 @@ impl Door {
             hub: self.hub.clone(),
             shows: self.shows.clone(),
             own: self.own.clone(),
+            uploads: self.uploads.clone(),
             frames: self.frames.clone(),
         }
     }
@@ -680,6 +706,7 @@ struct Asker {
     hub: Hub,
     shows: Shows,
     own: Arc<view::Own>,
+    uploads: Arc<Uploads>,
     frames: Frames,
 }
 
@@ -711,7 +738,7 @@ impl Asker {
                     commands::run(&self.calls, &view, say).await
                 }
                 Asked::Edit(_, edit) => {
-                    commands::edit(&self.calls, edit).await
+                    answers::edit(&self.calls, edit).await
                 }
                 Asked::Answer(answer) => commands::answer(
                     &self.calls,
@@ -724,6 +751,9 @@ impl Asker {
                     commands::stop_one(&self.calls, &view, *agent)
                         .await
                         .map(Outcome::said)
+                }
+                Asked::MoveLodges(_) => {
+                    answers::move_lodges(&self.calls).await
                 }
                 Asked::StopAll(_) => {
                     commands::stop_all(&self.calls, &view).await.map(
@@ -763,13 +793,37 @@ impl Asker {
         }
     }
 
+    async fn read(&self, reading: answers::Reading) {
+        let id = reading.id().clone();
+        let message =
+            answers::read(&self.calls, &self.uploads, reading)
+                .await
+                .unwrap_or_else(|error| {
+                    server_failed(Some(&id), &error)
+                });
+        self.send(message);
+    }
+
     /// Gives the realm a chief's line to `agent`, and reads what
     /// became of it outside the connection's turn while its reply is
     /// owed.
     async fn line(&self, say: protocol::Say, agent: AgentNumber) {
         let id = say.id.clone();
         let owed = self.hub.owe(self.client, agent, &id);
-        let said = self.calls.say(say).await;
+        let said = match uploads::refusal(
+            &self.calls,
+            &self.own,
+            &say,
+            agent,
+        )
+        .await
+        {
+            Ok(Some(refusal)) => {
+                Ok(Said::Refused(refusal.to_string()))
+            }
+            Ok(None) => self.calls.say(say).await,
+            Err(error) => Err(error),
+        };
         let Some(held) = owed else {
             return;
         };

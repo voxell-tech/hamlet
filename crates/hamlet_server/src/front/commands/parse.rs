@@ -10,8 +10,9 @@ use hamlet_messages::realm::hamlets::{
     SetFolder, SetMode,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, EraseProfile, ForkProfile, RestoreProfile, Spot,
-    TurnAway, Welcome,
+    ArchiveProfile, CreateProfile, EraseProfile, ForkProfile,
+    PurgeProfile, RestoreProfile, Spot, TagProfile, TurnAway,
+    Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -159,8 +160,29 @@ pub(super) enum Act {
     },
     Budget(Option<HamletId>),
     ResetBudget(Payer),
+    History(HamletId),
+    Scholars,
+    CreateProfile(CreateProfile),
+    ToolsOff(Target),
+    Versions(ProfileId),
+    Tag(TagProfile),
+    Revert {
+        profile: ProfileId,
+        which: String,
+        reason: Option<String>,
+    },
+    Purge(PurgeProfile),
+    Dream(Dreamt),
     /// A command of the table this server does not do.
     Unsupported(String),
+}
+
+/// Whose learning `/dream` goes over: a profile's, or a hire's as
+/// the chief named it.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Dreamt {
+    Profile(ProfileId),
+    Hire(Target),
 }
 
 /// The commands that answer a wait.
@@ -447,9 +469,7 @@ pub(super) fn parse(
             };
             let (off, on) = (marked('-'), marked('+'));
             if off.is_empty() && on.is_empty() {
-                return Ok(Act::Unsupported(format!(
-                    "`/{name}` with no change"
-                )));
+                return Ok(Act::ToolsOff(hire));
             }
             Act::Tools { hire, off, on }
         }
@@ -509,6 +529,81 @@ pub(super) fn parse(
             }
         }
         "budget" => Act::Budget(hamlet_here().ok()),
+        "history" => Act::History(hamlet_here()?),
+        "scholars" => Act::Scholars,
+        "scholar" => {
+            let Some(&"new") = words.first() else {
+                return Err(usage(name));
+            };
+            let rest = tail(1);
+            let (profile, character) =
+                rest.split_once(':').unwrap_or((rest.as_str(), ""));
+            let character = character.trim();
+            Act::CreateProfile(CreateProfile {
+                name: profile.to_owned(),
+                character: (!character.is_empty())
+                    .then(|| character.to_owned()),
+            })
+        }
+        "versions" => match words.as_slice() {
+            [scholar] => Act::Versions(profile_of(scholar)?),
+            _ => return Err(usage(name)),
+        },
+        "tag" => {
+            let [scholar, version, note @ ..] = words.as_slice()
+            else {
+                return Err(usage(name));
+            };
+            if scholar.contains('@') {
+                return Err(Refusal::Unsupported {
+                    what: "`/tag` at a version or a commit".into(),
+                });
+            }
+            Act::Tag(TagProfile {
+                profile: profile_of(scholar)?,
+                version: VersionName((*version).to_owned()),
+                note: note.join(" "),
+            })
+        }
+        "revert" => {
+            let [scholar, which, ..] = words.as_slice() else {
+                return Err(usage(name));
+            };
+            Act::Revert {
+                profile: profile_of(scholar)?,
+                which: (*which).to_owned(),
+                reason: why(2),
+            }
+        }
+        "purge" => {
+            let [scholar, path] = words.as_slice() else {
+                return Err(usage(name));
+            };
+            let path = path.trim_matches('/');
+            if path.is_empty()
+                || path
+                    .split('/')
+                    .any(|part| part == ".." || part == ".")
+            {
+                return Err(Refusal::NoFile { path: path.into() });
+            }
+            Act::Purge(PurgeProfile {
+                profile: profile_of(scholar)?,
+                path: path.to_owned(),
+            })
+        }
+        "dream" => {
+            let [target] = words.as_slice() else {
+                return Err(Refusal::Usage {
+                    words: words::DREAM_USAGE.into(),
+                });
+            };
+            Act::Dream(if target.starts_with("scholar#") {
+                Dreamt::Profile(profile_of(target)?)
+            } else {
+                Dreamt::Hire(at(target)?)
+            })
+        }
         "reset-budget" => Act::ResetBudget(match hamlet_here() {
             Ok(hamlet) => Payer::Hamlet { hamlet },
             Err(_) => Payer::Realm,
@@ -555,12 +650,12 @@ fn answer(name: &str, rest: &str) -> Act {
 /// not given is a blank agent, and one given no purpose is there to
 /// run the hamlet.
 fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
-    let (mayor, from) = match words.first() {
-        Some(&BLANK) => (None, 1),
+    let ((mayor, version), from) = match words.first() {
+        Some(&BLANK) => ((None, None), 1),
         Some(first) if first.starts_with("scholar#") => {
-            (Some(profile(first)?), 1)
+            (versioned(first)?, 1)
         }
-        _ => (None, 0),
+        _ => ((None, None), 0),
     };
     let rest = words.get(from..).unwrap_or_default().join(" ");
     let (shown, purpose) = rest
@@ -579,7 +674,7 @@ fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     Ok(Act::Found(Found {
         name: shown.to_owned(),
         mayor,
-        version: None,
+        version,
         tier: Tier::Fifty,
         purpose: Some(purpose),
     }))
@@ -595,13 +690,7 @@ fn hire(
     };
     let (profile, version) = match *first {
         BLANK => (None, None),
-        given => match given.split_once('@') {
-            Some((address, version)) => (
-                Some(profile(address)?),
-                Some(VersionName(version.to_owned())),
-            ),
-            None => (Some(profile(given)?), None),
-        },
+        given => versioned(given)?,
     };
     let mut rest = &words[1..];
     let mut hamlet = here;
@@ -628,14 +717,17 @@ fn hire(
     }))
 }
 
-/// The profile a scholar's address names, refusing a version.
-fn profile(text: &str) -> Result<ProfileId, Refusal> {
-    if text.contains('@') {
-        return Err(Refusal::Unsupported {
-            what: "a scholar's `@<version>`".into(),
-        });
-    }
-    profile_of(text)
+/// The profile `scholar#<id>[@<version>]` names, and the version.
+fn versioned(
+    text: &str,
+) -> Result<(Option<ProfileId>, Option<VersionName>), Refusal> {
+    Ok(match text.split_once('@') {
+        Some((address, version)) => (
+            Some(profile_of(address)?),
+            Some(VersionName(version.to_owned())),
+        ),
+        None => (Some(profile_of(text)?), None),
+    })
 }
 
 /// The profile a scholar's address names.

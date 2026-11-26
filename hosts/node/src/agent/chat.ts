@@ -21,6 +21,7 @@ import {
     checkModel,
     modelList,
     providerViews,
+    runningImages,
     runningModel,
     secretsLoaded,
     signedInTo,
@@ -94,6 +95,14 @@ export function chatActions(config: AgentConfig): ChatHandlers {
         read_models: askedBy("read_models", async () => ({
             models: config.faux ? [] : modelList(config.models),
         })),
+        images_taken: askedBy("images_taken", async (c) => {
+            const taken = await runningImages(
+                config.models,
+                generationOf(c).copies,
+                config.model,
+            );
+            return taken === undefined ? {} : { per_line: taken.perLine };
+        }),
         check: askedBy("check", async (c, { model }) =>
             config.faux && !signedInTo(config.models, model)
                 ? FAUX_CHECKED
