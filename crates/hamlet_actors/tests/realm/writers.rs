@@ -32,6 +32,7 @@ const WRITERS: &[(&str, &[&str])] = &[
     ("parcels.rs", &["parcel", "parcel_file"]),
     ("dreams.rs", &["dream"]),
     ("librarian.rs", &["librarian"]),
+    ("newcomers.rs", &["newcomer"]),
     ("merges.rs", &["merge"]),
 ];
 

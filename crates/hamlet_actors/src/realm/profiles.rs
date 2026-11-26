@@ -14,7 +14,6 @@ use hamlet_messages::profile::{
     ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer, Revert,
     RevertAnswer, Sha1, Tag, TagAnswer,
 };
-use hamlet_messages::realm::documents::Newcomers;
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
     Made, PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
@@ -36,12 +35,11 @@ use super::act::{Act, Carried, Decided, Decision};
 use super::callers::{self, ByHand, Relay};
 use super::change::{self, Affected, Column as _, Rows, Writer};
 use super::chiefs::hamlet;
+use super::newcomers::Asking;
 use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
-use super::{
-    Realm, calls, dreams, hire, record, settings, tree, waits,
-};
+use super::{Realm, calls, dreams, hire, record, settings, tree};
 
 pub(super) mod lifecycle;
 
@@ -526,47 +524,49 @@ impl Making {
 }
 
 /// A profile an agent other than the Hand makes waits at the harbor,
-/// as today, unless the realm lets newcomers in.
+/// as today, for a chief or the Hand to let it in, unless the realm
+/// lets newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = (Making, Newcomers, waits::Newcomer);
+    type Loaded = (Making, Asking);
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
-        _by: &Agent,
+        by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
         let making = Making::read(rows).await?;
-        let newcomer =
-            waits::Newcomer::read(rows, making.profile).await?;
-        Ok((making, settings::read(rows).await?.newcomers, newcomer))
+        let settings = settings::read(rows).await?;
+        let character = given(self.character.as_deref())
+            .unwrap_or(&settings.character);
+        let asking = Asking::read(
+            rows,
+            by.0,
+            settings.newcomers,
+            making.profile,
+            character,
+        )
+        .await?;
+        Ok((making, asking))
     }
 
-    /// Under a chief's newcomers, a profile at the harbor waits for
-    /// a chief to let it in.
     fn decide(
         &self,
         by: &Agent,
-        (making, newcomers, newcomer): Self::Loaded,
+        (making, asking): Self::Loaded,
     ) -> Decision<Self::Done, Self::Output> {
-        let arrival =
-            if by.0 == Hand::NUMBER || newcomers == Newcomers::Open {
-                Arrival::Housed
-            } else {
-                Arrival::Harbor
-            };
+        let arrival = asking.arrival();
         match made(self, making, arrival, record::By::Agent(by.0)) {
-            Ok(decided)
-                if arrival == Arrival::Harbor
-                    && newcomers == Newcomers::Chief =>
-            {
+            Ok(decided) => {
                 let (profile, name) = &decided.done;
-                let wait =
-                    newcomer.raise(by.0, label(*profile, name));
-                Decision::Change(decided.change(wait))
+                let asked = asking.changes(
+                    by.0,
+                    *profile,
+                    label(*profile, name),
+                );
+                Decision::Change(decided.changes(asked))
             }
-            Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(
                 AgentRefusal::Act(why),
             )),

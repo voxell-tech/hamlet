@@ -19,6 +19,7 @@ mod librarian;
 mod lines;
 mod marker;
 mod merges;
+mod newcomers;
 mod on_task;
 mod oversight;
 mod parcels;

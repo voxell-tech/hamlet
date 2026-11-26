@@ -38,7 +38,7 @@ use super::super::steps::{self, Cx, StepId, Steps};
 use super::super::tree::{self, Life};
 use super::super::waits::answer::Ruling;
 use super::super::waits::{self};
-use super::super::{Realm, erase, marker, record, retire};
+use super::super::{Realm, erase, marker, newcomers, record, retire};
 use super::{Arrival, Kind, Status};
 
 /// A profile of the city, not the Hand's and made, with its label.
@@ -412,7 +412,7 @@ async fn placing(
     Ok(Placing {
         found: living(rows, profile).await?,
         taken: super::houses(rows, Some(profile)).await?,
-        waits: waits::newcomer_waits(rows, profile).await?,
+        waits: newcomers::waits_about(rows, profile).await?,
     })
 }
 
@@ -435,7 +435,7 @@ pub(in crate::realm) async fn newcomer_ruling(
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
     let welcome = Welcome {
-        profile: waits::newcomer_of(&detail)?,
+        profile: newcomers::of(&detail)?,
         why: answer
             .0
             .text

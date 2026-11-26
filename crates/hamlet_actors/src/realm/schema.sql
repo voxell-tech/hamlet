@@ -332,6 +332,11 @@ CREATE TABLE IF NOT EXISTS dream (
 	done INTEGER,
 	summary TEXT) STRICT;
 
+-- newcomers.rs: the profile each of the Hand's errands judges
+CREATE TABLE IF NOT EXISTS newcomer (
+	errand INTEGER PRIMARY KEY,
+	profile INTEGER NOT NULL) STRICT;
+
 -- librarian.rs
 CREATE TABLE IF NOT EXISTS librarian (
 	errand INTEGER PRIMARY KEY,

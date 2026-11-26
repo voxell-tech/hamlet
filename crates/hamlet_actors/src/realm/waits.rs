@@ -12,8 +12,8 @@ use hamlet_messages::agent::{
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
-use hamlet_messages::realm::world::{WaitId, WaitKind};
-use hamlet_messages::realm::{Gate, NeedsChief, ProfileId};
+use hamlet_messages::realm::world::WaitId;
+use hamlet_messages::realm::{Gate, NeedsChief};
 use hamlet_messages::workspace::reach::{Need, SecretsVersion};
 use hamlet_messages::workspace::refusal::WaitEnd;
 use hamlet_messages::workspace::{
@@ -379,74 +379,6 @@ async fn lapsed(
             ],
         )
         .await
-}
-
-/// The open newcomer waits about `profile`.
-pub(super) async fn newcomer_waits(
-    rows: &Rows<'_>,
-    profile: ProfileId,
-) -> Result<Vec<WaitId>> {
-    let mut waits = Vec::new();
-    for (wait, detail) in rows
-        .rows::<(u64, Vec<u8>)>(
-            "SELECT id, detail FROM wait WHERE kind = 'newcomer' \
-             AND closed_at IS NULL ORDER BY id",
-            Vec::new(),
-        )
-        .await?
-    {
-        if newcomer_of(&detail)? == profile {
-            waits.push(WaitId(wait));
-        }
-    }
-    Ok(waits)
-}
-
-/// The profile a newcomer wait's `detail` is about.
-pub(super) fn newcomer_of(detail: &[u8]) -> Result<ProfileId> {
-    match ciborium::from_reader(detail)? {
-        WaitKind::Newcomer { profile } => Ok(profile),
-        other => bail!("a newcomer wait keeps {other:?}"),
-    }
-}
-
-/// The wait a profile made at the harbor raises, for a chief to let
-/// it in.
-pub(super) struct Newcomer {
-    wait: WaitId,
-    detail: Vec<u8>,
-}
-
-impl Newcomer {
-    pub(super) async fn read(
-        rows: &Rows<'_>,
-        profile: ProfileId,
-    ) -> Result<Self> {
-        Ok(Self {
-            wait: next(rows).await?,
-            detail: cbor(&WaitKind::Newcomer { profile })?,
-        })
-    }
-
-    /// The wait raised for the profile `label`, which `by` made.
-    pub(super) fn raise(
-        self,
-        by: AgentNumber,
-        label: String,
-    ) -> Change {
-        Change::Raise {
-            wait: self.wait,
-            raised: Raised {
-                agent: by,
-                kind: Kind::Newcomer,
-                task: None,
-                conversation: None,
-                call: None,
-                subject: label,
-                detail: self.detail,
-            },
-        }
-    }
 }
 
 /// The id the next wait opened in this transaction takes.
