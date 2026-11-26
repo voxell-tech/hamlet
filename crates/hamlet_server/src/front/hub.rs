@@ -764,6 +764,12 @@ impl Shared {
         open: Open,
     ) {
         let read = self.read(agent, &open).await;
+        let refusal = match &read {
+            Err(error) => {
+                Some(self.refused(agent, &open, error).await)
+            }
+            Ok(_) => None,
+        };
         let mut followed = self.followed();
         let Some(found) = followed.get_mut(&agent) else {
             return;
@@ -800,7 +806,9 @@ impl Shared {
                 if found.watches[at].seen.is_none() {
                     found.watches.remove(at);
                 }
-                self.send(client, refused(&open, &error));
+                let answer = refusal
+                    .unwrap_or_else(|| failed(&open.id, &error));
+                self.send(client, answer);
             }
         }
     }
@@ -1054,21 +1062,34 @@ impl Shared {
             .await?;
         Ok(ciborium::from_reader(answer.as_slice())?)
     }
+
+    /// The answer to `open`, whose page of `agent`'s chat was refused
+    /// with `error`: a fault for a page before an item the chat
+    /// lacks, else the refusal's error reply.
+    async fn refused(
+        &self,
+        agent: AgentNumber,
+        open: &Open,
+        error: &anyhow::Error,
+    ) -> ServerMessage {
+        if let (Some(words), Some(_)) =
+            (refused_words(error), &open.before)
+        {
+            let whole = Open {
+                before: None,
+                ..open.clone()
+            };
+            if self.read(agent, &whole).await.is_ok() {
+                return fault(Some(&open.id), words);
+            }
+        }
+        failed(&open.id, error)
+    }
 }
 
 /// The reply of line `id`, whose work ended: the empty notice.
 pub(crate) fn ended_line(id: &RequestId) -> ServerMessage {
     reply(id, Ok(String::new()))
-}
-
-/// The answer to `open`, whose page was refused with `error`: an
-/// error reply for a chat that is not there, a fault for a page
-/// before an item it lacks.
-fn refused(open: &Open, error: &anyhow::Error) -> ServerMessage {
-    match (refused_words(error), &open.before) {
-        (Some(words), Some(_)) => fault(Some(&open.id), words),
-        _ => failed(&open.id, error),
-    }
 }
 
 /// The chief's current chat with `agent`.

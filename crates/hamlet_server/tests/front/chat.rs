@@ -448,6 +448,28 @@ async fn an_open_after_its_follow_ended_follows_again() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_of_a_past_session_that_is_not_there_is_refused() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let missing = ChatRef {
+        past: Some(99),
+        ..chat(hand)
+    };
+    let past = chief.page(&missing, "an-item").await;
+
+    let ServerMessage::Reply(past) = past else {
+        panic!("a session that is not there is refused: {past:?}");
+    };
+    assert_eq!(
+        (past.kind, past.text.as_str()),
+        (ReplyKind::Error, "there is no past session 99 here")
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
 /// Each request the door answers from the actors.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_request_is_answered_in_todays_words() {
