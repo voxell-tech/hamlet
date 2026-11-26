@@ -473,8 +473,15 @@ pub enum LoginAnswer {
 }
 
 /// Reads the models the agent's listing holds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReadModels;
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct ReadModels {
+    /// Asks each endpoint for its list again before the listing is
+    /// read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub refresh: bool,
+}
 from_client!(ReadModels, "read_models", ModelList);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

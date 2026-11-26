@@ -353,7 +353,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     ] {
         fixtures.answer(&format!("agent/login.{arm}"), &answer);
     }
-    fixtures.args("agent/read_models", &ReadModels);
+    fixtures.args("agent/read_models", &ReadModels { refresh: true });
     fixtures.answer(
         "agent/read_models",
         &ModelList {

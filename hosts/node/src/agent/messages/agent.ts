@@ -603,6 +603,11 @@ export interface ModelList {
     readonly models: readonly ListedModel[];
 }
 
+export interface ReadModels {
+    /** Asks each endpoint for its list again before the listing is read. */
+    readonly refresh?: boolean;
+}
+
 export interface Check {
     /** The model the agent runs when absent. */
     readonly model?: string;
@@ -660,7 +665,7 @@ export interface ClientActions {
     read_prompt(): { readonly sections: readonly PromptSection[] };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
-    read_models(): ModelList;
+    read_models(message: ReadModels): ModelList;
     images_taken(): { readonly per_line?: number };
     check(message: Check): Checked;
     check_connection(): Checked;
@@ -1012,7 +1017,9 @@ export const readClient: {
     read_prompt: () => [],
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
-    read_models: () => [],
+    read_models: first(obj({ refresh: opt(bool()) }, OPEN), ({ refresh }) =>
+        refresh === true ? { refresh } : {},
+    ),
     images_taken: () => [],
     check: first(obj({ model: opt(str()) }, OPEN), ({ model }) =>
         model === undefined ? {} : { model },

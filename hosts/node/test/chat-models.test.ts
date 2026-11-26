@@ -406,7 +406,7 @@ test("a client reads the listing's models and checks one with the realm's key", 
     const agent = await wakeAgent(t, { calls, models: second.add });
     const client = agent.by(from.client);
 
-    const { models } = await agent.actions.read_models(client);
+    const { models } = await agent.actions.read_models(client, {});
     const checked = await agent.actions.check(client, {
         model: "loopback::large",
     });
@@ -1300,9 +1300,10 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
     });
     const client = agent.by(from.client);
     const [check] = fixture("agent/check.args") as [{ model: string }];
+    const [read] = fixture("agent/read_models.args") as [{ refresh: boolean }];
 
     assert.deepStrictEqual(
-        await agent.actions.read_models(client),
+        await agent.actions.read_models(client, read),
         fixture("agent/read_models.answer"),
     );
     assert.deepStrictEqual(

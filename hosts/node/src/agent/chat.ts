@@ -29,6 +29,7 @@ import {
 } from "./models.ts";
 import { editMemory, readPapers } from "./papers.ts";
 import { promptSections } from "./prompt.ts";
+import { isEndpoint } from "./providers.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
 declare const asked: unique symbol;
@@ -93,14 +94,23 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 generationOf(c).peers.reach.keep_credential,
             );
         }),
-        read_models: askedBy("read_models", async (c) => ({
-            models: config.faux
-                ? modelList(config.models)
-                : modelList(
-                      config.models,
-                      await reached(config.models, generationOf(c).peers.reach),
-                  ),
-        })),
+        read_models: askedBy("read_models", async (c, { refresh }) => {
+            if (config.faux) return { models: modelList(config.models) };
+            if (refresh === true)
+                await config.models.refresh({
+                    providers: config.models
+                        .getProviders()
+                        .filter(isEndpoint)
+                        .map((provider) => provider.id),
+                    force: true,
+                });
+            return {
+                models: modelList(
+                    config.models,
+                    await reached(config.models, generationOf(c).peers.reach),
+                ),
+            };
+        }),
         images_taken: askedBy("images_taken", async (c) => {
             const taken = await runningImages(
                 config.models,

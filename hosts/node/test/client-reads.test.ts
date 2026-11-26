@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createModels } from "@earendil-works/pi-ai";
 import { fauxModels } from "../src/agent/faux.ts";
 import { modelList } from "../src/agent/models.ts";
-import { fakeCalls, fakeFiles, from, wakeAgent } from "./agent-testing.ts";
+import { servingEndpoints } from "../src/agent/providers.ts";
+import {
+    fakeCalls,
+    fakeFiles,
+    from,
+    until,
+    wakeAgent,
+} from "./agent-testing.ts";
 import {
     A,
     B,
@@ -118,7 +128,7 @@ test("on a faux script every check answers that the faux model runs, and the fau
         type: "answered",
         words: FAUX_WORDS,
     });
-    const { models } = await agent.actions.read_models(client);
+    const { models } = await agent.actions.read_models(client, {});
     assert.deepEqual(
         models.map((model) => model.name),
         ["faux::faux-1"],
@@ -239,4 +249,47 @@ test("a faux answer books as input every prompt token the cache did not read", a
         alone,
     );
     assert.ok(again.cacheRead > 0);
+});
+
+test("a read of the models with refresh asks each endpoint for its list again first", async (t) => {
+    let listed = ["org/small"];
+    const server = createServer((_request, response) => {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ data: listed.map((id) => ({ id })) }));
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    t.after(() => server.close());
+    const base_url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    const models = createModels();
+    servingEndpoints(models)({
+        settings: {
+            reflect_every: 0,
+            allow_net: false,
+            endpoints: [{ name: "local", base_url }],
+        },
+    });
+    await until(() => models.getModel("local", "org/small") !== undefined);
+    const { calls } = fakeCalls({
+        realm: {
+            credential: ({ provider }) => ({
+                type: "refused",
+                why: { type: "not_signed_in", provider },
+                words: `nothing is signed in to ${provider}`,
+            }),
+        },
+    });
+    const agent = await wakeAgent(t, { calls, models: () => models });
+    const client = agent.by(from.client);
+    const names = async (refresh?: boolean) =>
+        (
+            await agent.actions.read_models(
+                client,
+                refresh === undefined ? {} : { refresh },
+            )
+        ).models.map(({ name }) => name);
+
+    listed = ["org/large"];
+    assert.deepEqual(await names(), ["local::org/small"]);
+    assert.deepEqual(await names(true), ["local::org/large"]);
+    await agent.stop();
 });
