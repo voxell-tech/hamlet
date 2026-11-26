@@ -367,12 +367,20 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
         .await;
     file(&fixture.join("refresh-started")).await;
     let check = send(&mut second, json!({"type":"check","what":"model","model":"chatgpt::offline"})).await;
+    // The second check waits on the rotation the first started: pi
+    // queues for the store's lease (its third), and the Node host
+    // reads the subscription just before it joins the rotation.
+    let (waited, lines) = if serves_actors() {
+        ("read-while-refreshing", 1)
+    } else {
+        ("acquires", 3)
+    };
     tokio::time::timeout(Duration::from_secs(10), async {
-        while std::fs::read_to_string(fixture.join("acquires"))
-            .unwrap()
+        while std::fs::read_to_string(fixture.join(waited))
+            .unwrap_or_default()
             .lines()
             .count()
-            < 3
+            < lines
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
