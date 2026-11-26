@@ -658,6 +658,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             peers.report(`pi-durable reported ${report.kind}`, report.error),
         settings: {
             ...config.settings,
+            // An answer's calls run one at a time, in call order (C16).
+            toolExecution: "sequential",
             // One follow-up starts each run; a chief's line may join it
             // as a steer.
             followUpMode: "one-at-a-time",

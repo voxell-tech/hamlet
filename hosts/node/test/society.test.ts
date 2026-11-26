@@ -667,12 +667,12 @@ test("tell carries t<task id>, the turn's task and its conversation, and a refus
 
 /**
  * How long the first `tell` waits for the second to reach the realm before
- * the test reads them as run in turn. A passing run waits on the second
- * itself, about 70 ms.
+ * the test reads them as run in turn. Run at once, the second reaches it in
+ * about 70 ms.
  */
-const OVERLAP_MS = 5_000;
+const OVERLAP_MS = 500;
 
-test("two society tools in one answer run at once, each answered under its own call id, and the next request holds both results", async (t) => {
+test("two society tools in one answer run one after the other, in call order (C16), each answered under its own call id, and the next request holds both results", async (t) => {
     const second = Promise.withResolvers<void>();
     let met: string | undefined;
     const { calls, sent } = fakeCalls({
@@ -727,7 +727,7 @@ test("two society tools in one answer run at once, each answered under its own c
     await agent.idle();
     await agent.stop();
 
-    assert.equal(met, "met");
+    assert.equal(met, "alone");
     const tells = named(sent, "tell").map(
         (call) =>
             call.message as {
@@ -738,14 +738,10 @@ test("two society tools in one answer run at once, each answered under its own c
             },
     );
     assert.deepEqual(
-        tells
-            .map(({ task, act }) => ({ task, to: act.to }))
-            .sort((a, b) =>
-                JSON.stringify(a.to).localeCompare(JSON.stringify(b.to)),
-            ),
+        tells.map(({ task, act }) => ({ task, to: act.to })),
         [
-            { task: "task-1", to: { type: "agent", agent: 12 } },
             { task: "task-1", to: { type: "mayor" } },
+            { task: "task-1", to: { type: "agent", agent: 12 } },
         ],
     );
     const [first, other] = tells;
