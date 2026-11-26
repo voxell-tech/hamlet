@@ -391,6 +391,7 @@ async fn a_merge_refuses_in_todays_order() {
         Found {
             name: "Weir".to_owned(),
             mayor: None,
+            version: None,
             tier: Tier::Fifty,
             purpose: None,
         },

@@ -698,12 +698,14 @@ mod tests {
                         cache_read: 0.1,
                         cache_write: 1.25,
                     }),
+                    images: None,
                 },
                 ListedModel {
                     name: "faux::b".to_owned(),
                     title: "B".to_owned(),
                     context: 8_000,
                     price: None,
+                    images: None,
                 },
             ],
         };

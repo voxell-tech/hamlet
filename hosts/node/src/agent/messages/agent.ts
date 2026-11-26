@@ -60,19 +60,29 @@ export interface ParcelFile {
     readonly size: number | bigint;
 }
 
-export interface Attached {
-    readonly id: string;
-    readonly at?: number;
-    readonly name?: string;
-    readonly size?: number;
+/** An image of a chief's line, kept under `inbox/images/` and given to the model. */
+export interface LineImage {
+    readonly image: { readonly id: string; readonly at?: number };
+    readonly file: ParcelFile;
+}
+
+/** A file of a chief's line, kept under `inbox/`. */
+export interface LineFile {
+    readonly attached: {
+        readonly id: string;
+        readonly at?: number;
+        readonly name: string;
+        readonly size: number;
+    };
+    readonly file: ParcelFile;
 }
 
 export type Input =
     | {
           readonly type: "line";
           readonly text: string;
-          readonly images?: readonly Attached[];
-          readonly files?: readonly Attached[];
+          readonly images?: readonly LineImage[];
+          readonly files?: readonly LineFile[];
           /** The note of the lead who reviewed the line. */
           readonly note?: string;
           /** The name of the chief who said it. */
@@ -558,6 +568,8 @@ export interface ListedModel {
     readonly title: string;
     readonly context: number;
     readonly price?: Price;
+    /** The most images one line may give it; absent when it takes none. */
+    readonly images?: number;
 }
 
 export interface ModelList {
@@ -569,6 +581,39 @@ export interface Check {
 }
 
 /** The model's hello, its failure, or a refusal of its name. */
+export interface ProviderView {
+    readonly configured: boolean;
+    readonly id: string;
+    readonly label: string;
+    readonly methods: readonly ("key" | "subscription")[];
+    readonly name: string;
+}
+
+export interface ProviderList {
+    readonly providers: readonly ProviderView[];
+}
+
+/** What the agent knows, as a client reads it. */
+export interface Papers {
+    readonly character: string;
+    readonly learned: readonly string[];
+    readonly memory: readonly {
+        readonly description: string;
+        readonly path: string;
+        readonly text: string;
+    }[];
+    readonly skills: readonly {
+        readonly description: string;
+        readonly name: string;
+    }[];
+}
+
+export interface EditMemory {
+    /** A path under `memory/`, starting with it. */
+    readonly path: string;
+    readonly text: string;
+}
+
 export interface Checked {
     readonly type: "answered" | "failed" | "refused";
     readonly words: string;
@@ -587,6 +632,10 @@ export interface ClientActions {
     login(message: Login): LoginAnswer;
     read_models(): ModelList;
     check(message: Check): Checked;
+    check_connection(): Checked;
+    read_providers(): ProviderList;
+    read_papers(): Papers;
+    edit_memory(message: EditMemory): null;
 }
 
 const AUTHOR = obj({ agent: U32, name: opt(str()) }, OPEN);
@@ -672,8 +721,36 @@ const INPUT = union([
         {
             type: lit("line"),
             text: str(),
-            images: opt(arr(unknown())),
-            files: opt(arr(unknown())),
+            images: opt(
+                arr(
+                    obj(
+                        {
+                            image: obj({ id: str(), at: opt(int()) }, OPEN),
+                            file: PARCEL_FILE,
+                        },
+                        OPEN,
+                    ),
+                ),
+            ),
+            files: opt(
+                arr(
+                    obj(
+                        {
+                            attached: obj(
+                                {
+                                    id: str(),
+                                    at: opt(int()),
+                                    name: str(),
+                                    size: int(),
+                                },
+                                OPEN,
+                            ),
+                            file: PARCEL_FILE,
+                        },
+                        OPEN,
+                    ),
+                ),
+            ),
             note: opt(str()),
             chief: opt(str()),
         },
@@ -897,6 +974,13 @@ export const readClient: {
     login: first(LOGIN, (login) => login as Login),
     read_models: () => [],
     check: first(obj({ model: str() }, OPEN), ({ model }) => ({ model })),
+    check_connection: () => [],
+    read_providers: () => [],
+    read_papers: () => [],
+    edit_memory: first(
+        obj({ path: str(), text: str() }, OPEN),
+        ({ path, text }) => ({ path, text }),
+    ),
 };
 
 function first<S extends Schema, T>(

@@ -393,6 +393,7 @@ mod tests {
         Found {
             name: name.to_owned(),
             mayor,
+            version: None,
             tier: Tier::Fifty,
             purpose: None,
         }

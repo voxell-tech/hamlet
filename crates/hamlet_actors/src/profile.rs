@@ -25,6 +25,7 @@ use hamlet_messages::profile::{
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
+use hamlet_messages::sender::Reader;
 
 use crate::repo::git::{By, Git};
 use crate::repo::store::Store;
@@ -187,6 +188,14 @@ impl Admits<Realm> for Profile {
     type Known = ();
 
     fn known(_: &Store<'_>, _: &Realm) -> Result<Option<()>> {
+        Ok(Some(()))
+    }
+}
+
+impl Admits<Reader> for Profile {
+    type Known = ();
+
+    fn known(_: &Store<'_>, _: &Reader) -> Result<Option<()>> {
         Ok(Some(()))
     }
 }

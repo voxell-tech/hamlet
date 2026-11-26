@@ -80,6 +80,21 @@ impl Sender for Scrubber {
     }
 }
 
+/// The realm or a client: a caller of the reads a chief also makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reader {
+    Realm,
+    Client,
+}
+
+impl Sender for Reader {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        Realm::of(caller)
+            .map(|_| Self::Realm)
+            .or_else(|| Client::of(caller).map(|_| Self::Client))
+    }
+}
+
 /// The Hand: the agent that founds hamlets and seats mayors (H6,
 /// H18).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

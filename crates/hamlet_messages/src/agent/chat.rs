@@ -492,6 +492,10 @@ pub struct ListedModel {
     pub context: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price: Option<Price>,
+    /// The most images one line may give it; absent when it takes
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<u32>,
 }
 
 /// Asks `model` for a hello. It is neither admitted to a conversation
@@ -510,3 +514,39 @@ pub enum Checked {
     Failed { words: String },
     Refused { words: String },
 }
+
+/// Asks the Hand to reach the model service the realm's settings
+/// name, as a connection check does. A repeat asks again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckConnection;
+from_client!(CheckConnection, "check_connection", Checked);
+
+/// Reads the providers the Hand can sign in to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadProviders;
+from_client!(ReadProviders, "read_providers", ProviderList);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProviderList {
+    pub providers: Vec<hamlet_protocol::client::ProviderView>,
+}
+
+/// Reads what the agent knows: the character and the papers of its
+/// own filesystem, and the paths it changed against its profile.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadPapers;
+from_client!(
+    ReadPapers,
+    "read_papers",
+    hamlet_protocol::client::Papers
+);
+
+/// Writes `text` to the file `path` under `memory/` in the agent's
+/// filesystem, or removes it when `text` is empty, and saves it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditMemory {
+    /// A path under `memory/`, starting with it.
+    pub path: String,
+    pub text: String,
+}
+from_client!(EditMemory, "edit_memory", ());

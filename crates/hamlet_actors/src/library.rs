@@ -22,9 +22,11 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Agent, Party, Realm};
 use hamlet_messages::library::{
     DropOfferParts, NoSkill, Offer, ReadOffer, ReadShelves,
-    ShelfList, Shelves, ShelvesChanged, Skill, Unshelve, Verdict,
+    ShelfList, Shelved, Shelves, ShelvesChanged, Skill, Unshelve,
+    Verdict,
 };
 use hamlet_messages::realm::Done;
+use hamlet_messages::sender::Reader;
 use hamlet_messages::workspace::AgentNumber;
 
 use crate::repo::git::{By, Git, Held, Reads};
@@ -115,7 +117,7 @@ impl Actor for Library {
         Unshelve,
         DropOfferParts,
     );
-    type Events = ();
+    type Events = (Shelved,);
     type ConnParams = Option<Caller>;
     type Action = ();
 
@@ -180,6 +182,14 @@ impl Admits<Realm> for Library {
     type Known = ();
 
     fn known(_: &Store<'_>, _: &Realm) -> Result<Option<()>> {
+        Ok(Some(()))
+    }
+}
+
+impl Admits<Reader> for Library {
+    type Known = ();
+
+    fn known(_: &Store<'_>, _: &Reader) -> Result<Option<()>> {
         Ok(Some(()))
     }
 }

@@ -37,6 +37,7 @@ fn view() -> View {
         effort: None,
         fast: None,
         allowance_micros: None,
+        tools_off: Vec::new(),
     };
     let ended = Status::Ended {
         left: Left {

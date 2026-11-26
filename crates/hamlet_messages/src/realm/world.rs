@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::budget::Payer;
 use super::oversight::{Permission, Question};
 use super::parcels::Measure;
-use super::{HamletId, Left, Tier};
+use super::{HamletId, Left, Tier, ToolName};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::Need;
 use crate::workspace::{AgentNumber, CallId, ReachVersion};
@@ -72,6 +72,9 @@ pub struct AgentSeen {
     /// What a hire may spend in its hamlet's budget period.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowance_micros: Option<u64>,
+    /// The tools a chief turned off for it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools_off: Vec<ToolName>,
 }
 
 /// Who started a worker.

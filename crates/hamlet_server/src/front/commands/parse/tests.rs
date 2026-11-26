@@ -128,6 +128,7 @@ fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_profile_is_named()
         Ok(Act::Found(Found {
             name: "Docs".into(),
             mayor: None,
+            version: None,
             tier: Tier::Fifty,
             purpose: Some("Mayor of Docs.".into()),
         }))
@@ -137,6 +138,7 @@ fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_profile_is_named()
         Ok(Act::Found(Found {
             name: "Docs".into(),
             mayor: Some(ProfileId(3)),
+            version: None,
             tier: Tier::Fifty,
             purpose: Some("Keep the docs.".into()),
         }))

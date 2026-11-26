@@ -6,7 +6,7 @@ use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
 use serde::{Deserialize, Serialize};
 
-use super::world::Seen;
+use super::world::{Revision, Seen};
 use super::{AgentName, Done, Left, Refusable};
 use crate::address::Realm;
 use crate::sender::Client;
@@ -117,4 +117,34 @@ impl Action for ReadWorld {
 impl Message for ReadWorld {
     type To = Realm;
     type From = Client;
+}
+
+/// Reads the world as the client protocol shows it: every part of the
+/// `State` the realm holds, in the words a chief reads. The parts the
+/// realm does not hold are empty: the server's own fields, the
+/// library, the providers, and what an agent is doing and saying.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadState;
+
+impl Action for ReadState {
+    type Output = protocol::State;
+    const NAME: &'static str = "read_state";
+}
+
+impl Message for ReadState {
+    type To = Realm;
+    type From = Client;
+}
+
+/// The realm's event, after each commit and each change of whether an
+/// agent is working.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct World {
+    pub revision: Revision,
+}
+
+impl hamlet_actor::Event for World {
+    const NAME: &'static str = "world";
 }

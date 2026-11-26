@@ -13,6 +13,7 @@ use crate::address::{Agent, Library, Realm};
 use crate::bytes::Sha256;
 use crate::profile::{By, Piece, TooLarge};
 use crate::realm::Done;
+use crate::sender::Reader;
 use crate::workspace::{AgentNumber, CallId};
 
 /// The library's id of an offer.
@@ -49,10 +50,23 @@ message!(Shelves, "shelves", Agent => Library, ShelfList, |_| {
     Repeat::Finds
 });
 
-/// Reads the shelves, for a librarian's instructions.
+/// Reads the shelves, for a librarian's instructions or a client.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadShelves;
-message!(ReadShelves, "read_shelves", Realm => Library, ShelfList);
+message!(ReadShelves, "read_shelves", Reader => Library, ShelfList);
+
+/// The library's event, after each change of its shelves.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct Shelved {
+    /// The shelves' version after the change.
+    pub version: u32,
+}
+
+impl hamlet_actor::Event for Shelved {
+    const NAME: &'static str = "shelved";
+}
 
 /// One part of the files of `skills/<skill>/` in the caller's
 /// filesystem, offered to the library. The parts of one offer share

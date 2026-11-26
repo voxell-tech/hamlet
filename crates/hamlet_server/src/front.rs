@@ -4,12 +4,14 @@
 //! messages become calls of the realm and the agents, and an agent's
 //! chat events become the frames of the clients that watch it.
 
+mod answers;
 mod call;
 mod commands;
 mod frames;
 mod host;
 mod hub;
 mod route;
+mod uploads;
 mod view;
 mod words;
 

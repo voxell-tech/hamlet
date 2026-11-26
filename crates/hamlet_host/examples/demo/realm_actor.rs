@@ -262,6 +262,7 @@ async fn as_chief(
             let found = Found {
                 name: name.clone(),
                 mayor: None,
+                version: None,
                 tier: Tier::Fifty,
                 purpose: None,
             };

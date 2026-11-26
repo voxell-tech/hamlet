@@ -2229,6 +2229,12 @@ test("the agent's chat events equal their fixtures, and its items, status, usage
         await agent.actions.submit(agent.by(from.realm), { id, input });
         await agent.idle();
     };
+    const parcel = (file: number, size: number) => ({
+        parcel: 1,
+        file,
+        path: `kept-${file}`,
+        size,
+    });
     await send("input-1", { type: "letter", from: { agent: 3 }, text: "Hi." });
     await send("input-2", { type: "line", text: "Go." });
     await agent.actions.new_session(agent.by(from.client), {
@@ -2239,10 +2245,24 @@ test("the agent's chat events equal their fixtures, and its items, status, usage
         type: "line",
         text: "Again.",
         chief: "ada",
-        images: [{ id: "ab".repeat(32), at: 6 }, { id: "cd".repeat(32) }],
+        images: [
+            { image: { id: "ab".repeat(32), at: 6 }, file: parcel(0, 64) },
+            { image: { id: "cd".repeat(32) }, file: parcel(1, 64) },
+        ],
         files: [
-            { id: "12".repeat(32), at: 0, name: "notes/plan.md", size: 2048 },
-            { id: "34".repeat(32), name: "log.txt", size: 0 },
+            {
+                attached: {
+                    id: "12".repeat(32),
+                    at: 0,
+                    name: "notes/plan.md",
+                    size: 2048,
+                },
+                file: parcel(2, 2048),
+            },
+            {
+                attached: { id: "34".repeat(32), name: "log.txt", size: 0 },
+                file: parcel(3, 0),
+            },
         ],
     });
     await send("input-5", {
@@ -2359,6 +2379,10 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the realm keeps an agent's edit, tag, revert and hamlet removal for a chief: the tool's answer is always a refusal, and what the chief rules arrives as a notice",
     ],
     [/^realm\/chief_/, "a chief's act, sent by a client"],
+    [
+        /^(realm\/(read_state\.(args|answer)|world\.answer)|library\/shelved\.answer)$/,
+        "the client's read of the world, and the realm's and the library's events",
+    ],
     [
         /^realm\/(say|answer|read_world|read_charter|read_line|stop_agents)\./,
         "a client's call of the realm",

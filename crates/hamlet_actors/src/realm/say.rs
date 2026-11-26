@@ -147,8 +147,8 @@ fn line(say: &Say, task: TaskId, chief: &str) -> Submit {
         task: Some(task.on_the_wire()),
         input: Input::Line {
             text: say.0.text.clone(),
-            images: say.0.images.clone(),
-            files: say.0.files.clone(),
+            images: Vec::new(),
+            files: Vec::new(),
             note: None,
             chief: Some(chief.to_owned()),
         },

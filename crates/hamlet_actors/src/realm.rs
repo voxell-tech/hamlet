@@ -35,6 +35,7 @@ mod say;
 mod secrets;
 mod settings;
 mod society;
+mod state;
 mod steps;
 mod stop;
 mod tasks;
@@ -59,7 +60,9 @@ use hamlet_messages::realm::budget::{
     Charge, MaySpend, OpenTask, ReadBudget, ResetBudget,
 };
 use hamlet_messages::realm::choices::{SetModel, SetNickname};
-use hamlet_messages::realm::client::{Answer, ReadWorld, Say};
+use hamlet_messages::realm::client::{
+    Answer, ReadState, ReadWorld, Say, World,
+};
 use hamlet_messages::realm::documents::{
     EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
 };
@@ -240,6 +243,7 @@ impl Actor for Realm {
         Answer,
         Secrets,
         Looks<ReadWorld>,
+        Looks<ReadState>,
         Asked<LayRoad>,
         Tool<LayRoad>,
         Asked<TakeUpRoad>,
@@ -311,7 +315,7 @@ impl Actor for Realm {
         Asked<TurnAway>,
         Asked<MoveHouse>,
     );
-    type Events = ();
+    type Events = (World,);
     type ConnParams = Option<Caller>;
     type Action = ();
 

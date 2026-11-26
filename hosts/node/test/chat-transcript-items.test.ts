@@ -92,8 +92,23 @@ test("a line's images and files show on its item, in its events and in its rewin
     await send(agent, {
         type: "line",
         text: "Look at these.",
-        images: [{ id: IMAGE, at: 4 }],
-        files: [{ id: FILE, name: "notes/plan.md", size: 2048 }],
+        images: [
+            {
+                image: { id: IMAGE, at: 4 },
+                file: {
+                    parcel: 1,
+                    file: 0,
+                    path: `images/${IMAGE}.png`,
+                    size: 64,
+                },
+            },
+        ],
+        files: [
+            {
+                attached: { id: FILE, name: "notes/plan.md", size: 2048 },
+                file: { parcel: 1, file: 1, path: "notes/plan.md", size: 2048 },
+            },
+        ],
     });
     const images = [{ id: IMAGE, at: 4 }];
     const files = [{ id: FILE, name: "notes/plan.md", size: 2048 }];

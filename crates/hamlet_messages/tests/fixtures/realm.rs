@@ -367,6 +367,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         &asked(Found {
             name: "Riverside".into(),
             mayor: Some(ProfileId(2)),
+            version: Some(VersionName("v2".into())),
             tier: Tier::Fifty,
             purpose: Some("Keep the docs in order".into()),
         }),
@@ -376,6 +377,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         &asked(Found {
             name: "Riverside".into(),
             mayor: None,
+            version: None,
             tier: Tier::Hundred,
             purpose: None,
         }),
@@ -385,6 +387,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         &tool(Found {
             name: "Harbor".into(),
             mayor: None,
+            version: None,
             tier: Tier::FiveHundred,
             purpose: Some("Run the release".into()),
         }),
@@ -1350,6 +1353,7 @@ fn seen() -> Seen {
         effort: None,
         fast: None,
         allowance_micros: None,
+        tools_off: Vec::new(),
     };
     Seen {
         revision: Revision(42),
@@ -1376,6 +1380,9 @@ fn seen() -> Seen {
             ),
             AgentSeen {
                 nickname: Some("ada".into()),
+                tools_off: vec![ToolName {
+                    name: "web_fetch".into(),
+                }],
                 runs: Some("anthropic::claude-opus".into()),
                 model: Some("anthropic::claude-opus".into()),
                 effort: Some(Effort::High),
@@ -1736,8 +1743,8 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
             task(),
             Input::Line {
                 text: "Look at this plan".into(),
-                images: vec![image()],
-                files: vec![file()],
+                images: vec![super::parity::line_image()],
+                files: vec![super::parity::line_file()],
                 note: None,
                 chief: None,
             },

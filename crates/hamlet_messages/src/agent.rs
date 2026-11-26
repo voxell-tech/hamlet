@@ -103,6 +103,21 @@ pub struct BuiltIn {
 )]
 pub struct InputId(pub String);
 
+/// An image of a chief's line, kept under the agent's `inbox/images/`
+/// and given to its model.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LineImage {
+    pub image: AttachedImage,
+    pub file: ParcelFile,
+}
+
+/// A file of a chief's line, kept under the agent's `inbox/`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LineFile {
+    pub attached: AttachedFile,
+    pub file: ParcelFile,
+}
+
 /// Gives the agent an input to work on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Submit {
@@ -127,13 +142,14 @@ impl Message for Submit {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Input {
-    /// A chief's line, with the attachments as the client sent them.
+    /// A chief's line, with its attachments as the client sent them,
+    /// each in a parcel for the agent to fetch.
     Line {
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        images: Vec<AttachedImage>,
+        images: Vec<LineImage>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        files: Vec<AttachedFile>,
+        files: Vec<LineFile>,
         /// The note of the lead who reviewed the line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,

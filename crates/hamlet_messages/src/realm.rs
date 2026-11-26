@@ -593,6 +593,9 @@ pub struct Found {
     /// The mayor's profile. Absent makes a blank one for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mayor: Option<ProfileId>,
+    /// The mayor's version of its profile; absent, `main`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<VersionName>,
     pub tier: Tier,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,

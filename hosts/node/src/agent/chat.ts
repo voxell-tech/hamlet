@@ -87,5 +87,13 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 model,
             ),
         ),
+        check_connection: askedBy("check_connection", unbuilt),
+        read_providers: askedBy("read_providers", unbuilt),
+        read_papers: askedBy("read_papers", unbuilt),
+        edit_memory: askedBy("edit_memory", unbuilt),
     };
+}
+
+async function unbuilt(): Promise<never> {
+    throw new Error("this agent does not answer that yet");
 }

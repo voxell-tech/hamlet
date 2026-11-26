@@ -100,6 +100,7 @@ fn enums() -> Vec<Cases> {
     .chain(profile::enums())
     .chain(library::enums())
     .chain(lines::enums())
+    .chain(parity::enums())
     .collect()
 }
 
@@ -120,6 +121,7 @@ macro_rules! union {
 // After `union!`, which they use.
 mod library;
 mod lines;
+mod parity;
 mod profile;
 mod realm;
 
@@ -398,6 +400,24 @@ impl Fixtures {
             reads: reads_answer::<T>,
             writer,
         });
+    }
+
+    /// Checks an answer of the client protocol's own type, whose
+    /// cases and absent fields that protocol's schema checks.
+    fn protocol_answer<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let json = serde_json::to_value(value).unwrap();
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&json, &mut bytes).unwrap();
+        let name = format!("{name}.answer");
+        self.check(&name, &bytes);
+        self.read_back(
+            &name,
+            value,
+            ciborium::from_reader::<T, _>(bytes.as_slice()),
+        );
     }
 
     /// Checks the input an actor is created with.
@@ -684,6 +704,7 @@ fn every_fixture(fixtures: &mut Fixtures) {
     profile::the_profiles_messages(fixtures);
     library::the_librarys_messages(fixtures);
     lines::the_lines_and_the_stop(fixtures);
+    parity::what_a_client_reads(fixtures);
 }
 
 #[test]

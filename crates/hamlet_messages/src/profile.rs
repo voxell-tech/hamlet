@@ -15,6 +15,7 @@ use crate::address::{Agent, Profile, Realm};
 use crate::bytes::Base64;
 pub use crate::bytes::Sha1;
 use crate::realm::{Done, ProfileId};
+use crate::sender::Reader;
 use crate::workspace::{AgentNumber, CallId};
 
 /// A commit of a profile's repository.
@@ -401,7 +402,7 @@ pub struct VersionSeen {
     /// The record's name of who made it: `chief:<n>`, `agent:<n>`.
     pub by: String,
 }
-message!(Versions, "versions", Realm => Profile, VersionList);
+message!(Versions, "versions", Reader => Profile, VersionList);
 
 /// Reads the profile's papers at `main`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,7 +420,7 @@ pub struct Paper {
     pub path: String,
     pub description: String,
 }
-message!(Papers, "papers", Realm => Profile, PaperList);
+message!(Papers, "papers", Reader => Profile, PaperList);
 
 /// Lists the files of `main`, or of the commit `at` names, or reads
 /// the file `path` there.
@@ -445,7 +446,7 @@ answer!(ReadAnswer<W = ReadFileRefusal> {
     /// The file's text, cut after [`MOST_READ`] bytes when `cut`.
     Text { text: String, cut: bool },
 });
-message!(Read, "read", Realm => Profile, ReadAnswer);
+message!(Read, "read", Reader => Profile, ReadAnswer);
 
 /// Removes the repository. The actor ends after it answers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

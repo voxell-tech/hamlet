@@ -579,6 +579,7 @@ fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     Ok(Act::Found(Found {
         name: shown.to_owned(),
         mayor,
+        version: None,
         tier: Tier::Fifty,
         purpose: Some(purpose),
     }))

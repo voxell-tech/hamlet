@@ -228,6 +228,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
                 .transpose()?,
             fast: Option::of(fast)?,
             allowance_micros: Option::of(allowance)?,
+            tools_off: Vec::new(),
         });
     }
     Ok(agents)

@@ -11,8 +11,10 @@ mod ended;
 mod host;
 mod lines;
 mod place;
+mod reads;
 mod resend;
 mod secrets;
+mod uploads;
 mod view;
 
 use std::fs::Permissions;

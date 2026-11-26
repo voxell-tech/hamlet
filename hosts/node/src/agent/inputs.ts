@@ -119,14 +119,16 @@ function attachedOf(
     line: Extract<Input, { type: "line" }>,
 ): Pick<Admission, "images" | "files"> {
     return {
-        images: (line.images ?? []).map(({ id, at }) =>
+        images: (line.images ?? []).map(({ image: { id, at } }) =>
             at === undefined ? { id } : { id, at },
         ),
-        files: (line.files ?? []).map(({ id, at, name, size }) => ({
-            id,
-            ...(at === undefined ? {} : { at }),
-            name: name ?? "",
-            size: size ?? 0,
-        })),
+        files: (line.files ?? []).map(
+            ({ attached: { id, at, name, size } }) => ({
+                id,
+                ...(at === undefined ? {} : { at }),
+                name,
+                size,
+            }),
+        ),
     };
 }

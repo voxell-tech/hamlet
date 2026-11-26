@@ -127,6 +127,8 @@ mod settings;
 mod society;
 #[path = "realm/stand_ins.rs"]
 mod stand_ins;
+#[path = "realm/state.rs"]
+mod state;
 #[path = "realm/steps.rs"]
 mod steps;
 #[path = "realm/tasks.rs"]
@@ -384,6 +386,7 @@ fn found(name: &str) -> Found {
     Found {
         name: name.to_owned(),
         mayor: None,
+        version: None,
         tier: Tier::Fifty,
         purpose: None,
     }

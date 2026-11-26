@@ -160,12 +160,21 @@ async fn hand_live(host: &Host) -> Result<bool> {
     }
 }
 
-/// What each kind may reach: a client the realm and the agents only.
+/// What each kind may reach: a client the realm, the agents, and the
+/// profiles and the library to read them.
 fn routes() -> Routes {
     let kind = |party: &str| CallerKind::Actor(party.to_owned());
     let peers = [address::Realm::KIND, address::Agent::KIND];
     Routes::only(&[
-        (CallerKind::Client, &peers),
+        (
+            CallerKind::Client,
+            &[
+                address::Realm::KIND,
+                address::Agent::KIND,
+                address::Profile::KIND,
+                address::Library::KIND,
+            ],
+        ),
         (
             kind(address::Realm::KIND),
             &[
