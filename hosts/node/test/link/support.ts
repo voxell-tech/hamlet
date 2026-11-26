@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -44,17 +44,21 @@ export interface Demo {
 
 /**
  * Starts `demo <flags> serve` on the realm folder `dir`, with the Node that
- * runs this test as its Node host's program.
+ * runs this test as its Node host's program, its agents on the faux model:
+ * an empty script, so each answers as `faux.ts`'s default does.
  */
 export function startDemo(
     dir: string,
     flags: readonly string[] = ["--link"],
 ): Demo {
+    const faux = join(dir, "faux.json");
+    writeFileSync(faux, "{}");
     const child = spawn(example("demo"), [...flags, "serve"], {
         env: {
             PATH: process.env.PATH,
             HAMLET_HOME: dir,
             HAMLET_NODE: process.execPath,
+            HAMLET_DEMO_FAUX: faux,
         },
         stdio: ["pipe", "pipe", "pipe"],
         signal: AbortSignal.timeout(120_000),
