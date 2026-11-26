@@ -9,14 +9,14 @@ use hamlet_messages::agent::chat::{
     ModelList, NewSession, Prompt, PromptSection, ReadChat,
     ReadHistory, ReadModels, ReadPrompt, Reflect, Reflecting, Resume,
     ResumeAnswer, ResumeRefusal, Retry, RetryRefusal, Rewind,
-    RewindAnswer, RewindRefusal, Session, ToolChange, Usage,
+    RewindAnswer, RewindRefusal, Session, Settle, ToolChange, Usage,
 };
 use hamlet_messages::agent::copies::{
     AgentSettings, Copies, CopyVersion, ModelChoice, Price, Versioned,
 };
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::Done;
-use hamlet_messages::realm::documents::Endpoint;
+use hamlet_messages::realm::documents::{Endpoint, ImageLimits};
 use hamlet_messages::realm::models::{
     Cause, Credential, CredentialAnswer, CredentialRefusal,
     KeepCredential, Kept, OauthLogin, Settings, TurnFailed,
@@ -353,7 +353,8 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     ] {
         fixtures.answer(&format!("agent/login.{arm}"), &answer);
     }
-    fixtures.args("agent/read_models", &ReadModels);
+    fixtures.args("agent/settle", &Settle);
+    fixtures.args("agent/read_models", &ReadModels { refresh: true });
     fixtures.answer(
         "agent/read_models",
         &ModelList {
@@ -551,6 +552,12 @@ pub(super) fn copies() -> Copies {
                     cache_read: 1.5,
                     cache_write: 18.75,
                 }),
+                images: Some(ImageLimits {
+                    max_bytes: Some(5_242_880),
+                    max_height: None,
+                    max_width: Some(1568),
+                    per_line: Some(2),
+                }),
             },
         }),
         settings: Some(Versioned {
@@ -582,6 +589,7 @@ fn the_copies(fixtures: &mut Fixtures) {
                         effort: Some(effort),
                         fast: false,
                         price: None,
+                        images: None,
                     },
                 }),
                 ..Copies::default()

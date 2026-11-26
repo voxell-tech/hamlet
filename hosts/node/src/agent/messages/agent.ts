@@ -221,6 +221,8 @@ export interface ModelChoice {
     readonly effort?: Effort;
     readonly fast?: boolean;
     readonly price?: Price;
+    /** The images the catalogue card says the model takes, over its listing. */
+    readonly images?: ListedImages;
 }
 
 /** A model server the realm's settings name, serving `name::model`. */
@@ -603,6 +605,11 @@ export interface ModelList {
     readonly models: readonly ListedModel[];
 }
 
+export interface ReadModels {
+    /** Asks each endpoint for its list again before the listing is read. */
+    readonly refresh?: boolean;
+}
+
 export interface Check {
     /** The model the agent runs when absent. */
     readonly model?: string;
@@ -660,7 +667,8 @@ export interface ClientActions {
     read_prompt(): { readonly sections: readonly PromptSection[] };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
-    read_models(): ModelList;
+    settle(): null;
+    read_models(message: ReadModels): ModelList;
     images_taken(): { readonly per_line?: number };
     check(message: Check): Checked;
     check_connection(): Checked;
@@ -712,6 +720,17 @@ const MODEL = obj(
                     output: num(),
                     cache_read: num(),
                     cache_write: num(),
+                },
+                OPEN,
+            ),
+        ),
+        images: opt(
+            obj(
+                {
+                    max_bytes: opt(U64),
+                    max_height: opt(U32),
+                    max_width: opt(U32),
+                    per_line: opt(U32),
                 },
                 OPEN,
             ),
@@ -1012,7 +1031,10 @@ export const readClient: {
     read_prompt: () => [],
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
-    read_models: () => [],
+    settle: () => [],
+    read_models: first(obj({ refresh: opt(bool()) }, OPEN), ({ refresh }) =>
+        refresh === true ? { refresh } : {},
+    ),
     images_taken: () => [],
     check: first(obj({ model: opt(str()) }, OPEN), ({ model }) =>
         model === undefined ? {} : { model },
@@ -1052,6 +1074,22 @@ function chatRefOf({
     };
 }
 
+/** A card's images as a listing's, a byte limit past 2^53 to the nearest number. */
+function listedOf(images: {
+    readonly max_bytes?: number | bigint;
+    readonly max_height?: number;
+    readonly max_width?: number;
+    readonly per_line?: number;
+}): ListedImages {
+    const { max_bytes, max_height, max_width, per_line } = images;
+    return {
+        ...(max_bytes === undefined ? {} : { max_bytes: Number(max_bytes) }),
+        ...(max_height === undefined ? {} : { max_height }),
+        ...(max_width === undefined ? {} : { max_width }),
+        ...(per_line === undefined ? {} : { per_line }),
+    };
+}
+
 /** Each part as the agent keeps it, without the fields a newer realm adds. */
 function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
     const part = <T, V>(
@@ -1061,7 +1099,7 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
         given === undefined
             ? undefined
             : { version: given.version, value: value(given.value) };
-    const model = part(raw.model, ({ model, effort, fast, price }) => ({
+    const model = part(raw.model, ({ model, effort, fast, price, images }) => ({
         model,
         ...(effort === undefined ? {} : { effort }),
         ...(fast === undefined ? {} : { fast }),
@@ -1075,6 +1113,7 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
                       cache_write: price.cache_write,
                   },
               }),
+        ...(images === undefined ? {} : { images: listedOf(images) }),
     }));
     const settings = part(
         raw.settings,

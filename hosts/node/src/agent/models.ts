@@ -98,9 +98,18 @@ export function agentModels(
                 await previous?.(event, called);
             },
         };
+        // As today's harness gives the model the images its card says it
+        // takes (`harnesses/pi/src/models.ts`, `selectedModel`).
+        const carded =
+            chosen &&
+            choice.images !== undefined &&
+            !model.input.includes("image");
         return [
             {
                 ...model,
+                ...(carded
+                    ? { input: [...model.input, "image" as const] }
+                    : {}),
                 cost: costOf(model, chosen ? choice.price : undefined),
             },
             chosen && choice.fast === true ? fastened(made, model.api) : made,
@@ -647,12 +656,12 @@ function listedImages(model: Model<Api>): ListedImages | undefined {
 }
 
 /**
- * The images `model` takes, as `Limits::of` in
- * `crates/hamlet_server/src/images.rs` fills in what its listing leaves
- * out and caps the most of them in one line. `undefined` when it takes none.
+ * The images a model whose card or listing says `listed` takes, as
+ * `Limits::of` in `crates/hamlet_server/src/images.rs` fills in what it
+ * leaves out and caps the most of them in one line. `undefined` when it
+ * takes none.
  */
-function imagesOf(model: Model<Api>): ImagesTaken | undefined {
-    const listed = listedImages(model);
+function imagesOf(listed: ListedImages | undefined): ImagesTaken | undefined {
     if (listed === undefined) return undefined;
     return {
         width: listed.max_width ?? IMAGE_WIDTH,
@@ -662,15 +671,26 @@ function imagesOf(model: Model<Api>): ImagesTaken | undefined {
     };
 }
 
-/** The images the model the agent runs takes; `undefined` when it takes none. */
+/**
+ * The images the model the agent runs takes: as its catalogue card says,
+ * else as its listing does, and a faux model's as its listing does
+ * (`crates/hamlet_server/src/providers.rs`, `Providers::images`).
+ * `undefined` when it takes none.
+ */
 export async function runningImages(
     listed: Models,
     copies: ReadCopies,
     host: string,
 ): Promise<ImagesTaken | undefined> {
+    const { model: choice } = await copies();
     const { provider, modelId } = await runningRef(copies, host);
     const model = listed.getModel(provider, modelId);
-    return model === undefined ? undefined : imagesOf(model);
+    if (model === undefined) return undefined;
+    const card =
+        model.provider !== FAUX && choice?.model === nameOf(model)
+            ? choice.images
+            : undefined;
+    return imagesOf(card ?? listedImages(model));
 }
 
 /** The providers a subscription signs in to, as today's (ADR 0006). */

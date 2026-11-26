@@ -24,7 +24,7 @@ use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard};
 use anyhow::{Context, Result};
 use hamlet_host::Host;
 use hamlet_messages::address;
-use hamlet_messages::agent::chat::Login;
+use hamlet_messages::agent::chat::{Login, Settle};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, ClientMessage, Confinement, Link, LinkState,
@@ -51,7 +51,9 @@ use crate::clients::check::{Protocol, reply};
 use crate::clients::connection::{self, Client, Event, GRACE};
 use crate::credentials::Credentials;
 use crate::layout::Layout;
-use crate::serve::{Options, Signals, announce, chief_name, publish};
+use crate::serve::{
+    Options, ROTATING, Signals, announce, chief_name, publish,
+};
 use crate::society::refusal::Refusal;
 
 /// A frame for a connection, from a task of the server.
@@ -270,6 +272,9 @@ impl Door {
                 break Err(error);
             }
         };
+        // New connections are refused from here, as today's close
+        // drops its listener first.
+        drop(listener);
         shutdown.send_replace(true);
         door.work.abort_all();
         door.hub.close_all();
@@ -279,6 +284,14 @@ impl Door {
         };
         let _ = tokio::time::timeout(GRACE, drained).await;
         door.connections.abort_all();
+        // The agents' host stops after this, so a rotated login has
+        // to reach the realm first, as today's close waits for it. No
+        // rotation began where the agents never started.
+        if !starting && result.is_ok() {
+            let settled =
+                door.calls.call(&address::Agent(HAND), &Settle);
+            let _ = tokio::time::timeout(ROTATING, settled).await;
+        }
         result
     }
 
