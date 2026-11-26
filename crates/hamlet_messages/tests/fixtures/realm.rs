@@ -1685,6 +1685,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                     name: "read".into(),
                 }],
                 model: None,
+                dream: false,
             },
         ),
         (
@@ -1695,6 +1696,18 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 text: "Write the tests".into(),
                 tools: Vec::new(),
                 model: Some("faux::faux-1".into()),
+                dream: false,
+            },
+        ),
+        (
+            "dream",
+            AgentKind::Errand,
+            Brief {
+                instructions: Some("You are dreaming.".into()),
+                text: "Dream now.".into(),
+                tools: Vec::new(),
+                model: Some("faux::faux-1".into()),
+                dream: true,
             },
         ),
     ] {

@@ -185,6 +185,8 @@ export interface Brief {
     /** Absent is every built-in for a worker, and none for an errand. */
     readonly tools?: readonly { readonly name: string }[];
     readonly model?: string;
+    /** The errand is a dream, which asks its model as a dream does. */
+    readonly dream?: boolean;
 }
 
 export interface Versioned<T> {
@@ -714,6 +716,7 @@ const BRIEF = obj(
         text: str(),
         tools: opt(arr(obj({ name: str() }, OPEN))),
         model: opt(str()),
+        dream: opt(bool()),
     },
     OPEN,
 );
@@ -1116,6 +1119,7 @@ function briefOf({
     text,
     tools,
     model,
+    dream,
 }: Static<typeof BRIEF>): Brief {
     return {
         ...(instructions === undefined ? {} : { instructions }),
@@ -1124,5 +1128,6 @@ function briefOf({
             ? {}
             : { tools: tools.map(({ name }) => ({ name })) }),
         ...(model === undefined ? {} : { model }),
+        ...(dream === true ? { dream } : {}),
     };
 }

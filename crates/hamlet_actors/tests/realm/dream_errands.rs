@@ -122,6 +122,7 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
     );
     assert_eq!(brief.text, "Dream now.");
     assert_eq!(brief.tools, built_ins());
+    assert!(brief.dream);
     assert!(
         matches!(
             set_before_made.as_slice(),

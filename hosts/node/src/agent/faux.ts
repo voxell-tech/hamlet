@@ -36,10 +36,10 @@
  * script's folder, its answer waits for until stopped; its `fill` a JSON file
  * of words, from the script's folder, for each `{{name}}` in its calls'
  * arguments. The agent numbered `<n>` takes its answers from `agents`, else
- * an agent of a kind such as `worker` or `errand` from `kinds`, and either
- * takes from `responses` only when it has no list of its own. Each answer is
- * priced from its model's rates, as a real provider's is. A restarted host
- * begins the script again.
+ * an agent of a kind such as `worker`, `errand` or `dream` (a dream's
+ * errand) from `kinds`, and either takes from `responses` only when it has
+ * no list of its own. Each answer is priced from its model's rates, as a
+ * real provider's is. A restarted host begins the script again.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync } from "node:fs";

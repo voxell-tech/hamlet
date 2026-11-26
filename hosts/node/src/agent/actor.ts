@@ -648,7 +648,9 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         registry,
         models: answeringAs(
             numberOf(c),
-            row.kind,
+            // A faux script names a dream's steps as today's
+            // conversations name its kind.
+            row.brief?.dream === true ? "dream" : row.kind,
             gated(agentModels(config.models, copies, peers), peers, placing),
         ),
         model: config.model,

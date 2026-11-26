@@ -1544,6 +1544,7 @@ const REPORTED: Partial<Record<(typeof TAKEN)[number], RegExp>> = {
 };
 
 const CREATED = [
+    "agent/dream",
     "agent/errand",
     "agent/hand",
     "agent/hire",

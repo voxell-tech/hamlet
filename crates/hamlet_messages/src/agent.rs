@@ -88,6 +88,10 @@ pub struct Brief {
     pub tools: Vec<BuiltIn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The errand is a dream, which asks its model as a dream's
+    /// conversation does, not as another errand's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dream: bool,
 }
 
 /// One of an agent's built-in tools, by name.

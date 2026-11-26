@@ -351,6 +351,7 @@ async fn brief(rows: &Rows<'_>, n: ErrandNumber) -> Result<Brief> {
         text,
         tools: Vec::new(),
         model,
+        dream: false,
     })
 }
 
@@ -395,6 +396,7 @@ pub(in crate::realm) async fn run(
                     );
                 }
                 Purpose::Dream => {
+                    brief.dream = true;
                     brief.tools = dreams::tools(&rows, n).await?;
                     place.folder =
                         dreams::folder(&rows, n, &cx.realm.folder)
@@ -502,6 +504,7 @@ mod tests {
                 text: "a line".to_owned(),
                 tools: Vec::new(),
                 model: Some("local::small".to_owned()),
+                dream: false,
             }
         );
         assert_eq!(
