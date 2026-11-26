@@ -3,14 +3,18 @@
 
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
-    Check, ClientMessage, Edit, EditSettingsSet, Keeper, MoveLodges,
-    ReplyKind, ScholarId,
+    AgentId, Check, ClientMessage, Edit, EditSettingsSet,
+    EditSettingsSetWorkspace, Keeper, MoveLodges, ReplyKind,
+    RequestId, ScholarId, SettingsViewWorkspaceMoveState,
 };
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
 
 use super::commands::found;
+use super::worker::{TOKEN, Worker};
 use super::{SERVER, look, serve};
+
+const TEA: &str = "---\ndescription: Tea\n---\nEarl grey.\n";
 
 const NO_SETTING: EditSettingsSet = EditSettingsSet {
     allow_net: None,
@@ -301,6 +305,110 @@ async fn a_connection_check_and_a_move_with_nothing_to_move_are_answered()
             ReplyKind::Error,
             "Choose a remote workspace in the settings first."
         )
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// The edit that keeps `tea.md` in the memory of `agent`.
+fn keeping_tea(id: RequestId, agent: AgentId) -> ClientMessage {
+    ClientMessage::Edit(Edit::Memory {
+        id,
+        of: Keeper::Agent(agent),
+        path: "tea.md".into(),
+        text: TEA.into(),
+    })
+}
+
+/// The settings' edit that chooses the remote workspace at `url`.
+fn choosing(id: RequestId, url: String) -> ClientMessage {
+    ClientMessage::Edit(Edit::Settings {
+        id,
+        set: EditSettingsSet {
+            workspace: Some(Some(EditSettingsSetWorkspace {
+                token: TOKEN.into(),
+                url,
+            })),
+            ..NO_SETTING
+        },
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_copies_each_agents_files_to_the_chosen_workspace() {
+    let worker = Worker::start();
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let kept = chief.request(|id| keeping_tea(id, hand)).await;
+    let chosen =
+        chief.request(|id| choosing(id, worker.url.clone())).await;
+    let moved = chief
+        .request(|id| ClientMessage::MoveLodges(MoveLodges { id }))
+        .await;
+    let shown = chief.realm().settings.workspace.moving;
+
+    assert_eq!(kept.kind, ReplyKind::Notice, "{}", kept.text);
+    assert_eq!(chosen.kind, ReplyKind::Notice, "{}", chosen.text);
+    assert_eq!(
+        (moved.kind, moved.text.as_str()),
+        (
+            ReplyKind::Notice,
+            "Every lodge is in the chosen workspace; the realm \
+             works there from its next start."
+        )
+    );
+    let tea = worker
+        .files
+        .join(format!("realm/lodges/{}/memory/tea.md", hand.0));
+    assert_eq!(std::fs::read_to_string(tea).unwrap(), TEA);
+    let requests = worker.requests();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request["workspace"] == "realm"),
+        "{requests:#?}"
+    );
+    let shown = shown.expect("the move is shown in the settings");
+    assert_eq!(
+        (shown.state, shown.done, shown.of, shown.text),
+        (SettingsViewWorkspaceMoveState::Moved, 1, 1, moved.text)
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_move_to_a_workspace_that_does_not_answer_fails() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let kept = chief.request(|id| keeping_tea(id, hand)).await;
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    let chosen = chief.request(|id| choosing(id, url)).await;
+    let moved = chief
+        .request(|id| ClientMessage::MoveLodges(MoveLodges { id }))
+        .await;
+    let shown = chief.realm().settings.workspace.moving;
+
+    assert_eq!(kept.kind, ReplyKind::Notice, "{}", kept.text);
+    assert_eq!(chosen.kind, ReplyKind::Notice, "{}", chosen.text);
+    assert_eq!(moved.kind, ReplyKind::Error);
+    assert!(
+        moved.text.starts_with(
+            "Moving the lodges failed: The workspace result is \
+             unknown. Inspect its files before repeating the \
+             operation. Request: "
+        ),
+        "{}",
+        moved.text
+    );
+    let shown = shown.expect("the move is shown in the settings");
+    assert_eq!(
+        (shown.state, shown.done, shown.of, shown.text),
+        (SettingsViewWorkspaceMoveState::Failed, 1, 1, moved.text)
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

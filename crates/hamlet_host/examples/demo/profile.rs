@@ -126,6 +126,7 @@ async fn on(
             let tag = TagProfile {
                 profile,
                 version: VersionName(version.clone()),
+                at: None,
                 note: note.join(" "),
             };
             as_chief(host, verb, tag).await

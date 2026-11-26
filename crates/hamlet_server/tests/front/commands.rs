@@ -630,6 +630,42 @@ async fn tag_names_a_version_and_versions_lists_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn tag_names_the_commit_after_the_at() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    note(&mut chief, "Metric.").await;
+    chief.command(hand, "/tag scholar#2 v1").await;
+    note(&mut chief, "Imperial.").await;
+    let old = chief.command(hand, "/tag scholar#2@v1 old").await;
+    let now = chief.command(hand, "/tag scholar#2@main v0").await;
+    let missing = chief.refused(hand, "/tag scholar#2@nope v2").await;
+    let listed = chief.command(hand, "/versions scholar#2").await;
+
+    let commit = |version: &str| {
+        listed
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix(&format!("- {version} ("))
+            })
+            .map(|rest| rest[..8].to_owned())
+            .unwrap_or_else(|| panic!("{version} in {listed}"))
+    };
+    let tip = listed
+        .split("Latest commits of main:\n- ")
+        .nth(1)
+        .map(|rest| rest[..8].to_owned())
+        .unwrap_or_else(|| panic!("{listed}"));
+    assert_eq!(old, "Tagged scholar#2 (ada) as old.");
+    assert_eq!(now, "Tagged scholar#2 (ada) as v0.");
+    assert_eq!(missing, "`scholar#2` has no version `nope`");
+    assert_eq!(commit("old"), commit("v1"));
+    assert_eq!(commit("v0"), tip);
+    assert_ne!(commit("v0"), commit("v1"));
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn revert_undoes_a_commit_of_a_profiles_main() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();

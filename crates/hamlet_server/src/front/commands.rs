@@ -2,20 +2,17 @@
 //! door's own words.
 
 pub(super) mod parse;
+mod versions;
 
 use std::fmt::Display;
 
 use anyhow::Result;
-use hamlet_messages::address::{Agent, Profile, Realm};
+use hamlet_messages::address::{Agent, Realm};
 use hamlet_messages::agent::chat::{
     Count, NewSession, ReadHistory, Reflect, Reflecting, Resume,
     ResumeAnswer, Retry,
 };
-use hamlet_messages::bytes::Sha1;
-use hamlet_messages::profile::{
-    CommitId, Missing, PinAnswer, PinRefusal, PurgeAnswer,
-    RevertAnswer, Revision, TagAnswer, VersionName, Versions,
-};
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
@@ -30,7 +27,7 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::profiles::{
     Dream, Dreamer, Dreamt as Dreaming, Forked, Lifecycle,
-    LifecycleRefusal, Made, MoveHouse, PinHire, RevertProfile, Site,
+    LifecycleRefusal, Made, MoveHouse, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -40,14 +37,14 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, AgentKind, Choice, RequestId, ScholarId,
+    self as protocol, AgentKind, Choice, RequestId,
 };
 
 use self::parse::{Act, Dreamt, Part, Target, parse};
 use super::call::{Calls, Said};
 use super::host::HAND;
 use super::view::{self, View};
-use super::{answers, words};
+use super::words;
 use crate::oversight::gate;
 use crate::society::addresses::Reach;
 use crate::society::agents::Effort as Level;
@@ -715,62 +712,20 @@ async fn perform(
                 words::tools_off(&hire.text, &off)
             }),
         Act::Versions(profile) => {
-            match label(calls, profile).await? {
-                Ok(_) => Ok(words::versions(
-                    &calls.call(&Profile(profile), &Versions).await?,
-                )),
-                Err(refusal) => Err(refusal),
-            }
+            versions::list(calls, profile).await?
         }
-        Act::Tag(act) => match label(calls, act.profile).await? {
-            Ok(label) => match ask(calls, id, act).await? {
-                TagAnswer::Tagged { version, .. } => {
-                    Ok(words::tagged(&label, &version.0))
-                }
-                TagAnswer::Refused { why } => Err(refused(why)),
-            },
-            Err(refusal) => Err(refusal),
-        },
+        Act::Tag { tag, at } => {
+            versions::tag(calls, id, tag, at).await?
+        }
         Act::Revert {
             profile,
             which,
             reason,
-        } => match label(calls, profile).await? {
-            Ok(label) => {
-                let list =
-                    calls.call(&Profile(profile), &Versions).await?;
-                let (what, undone) = revision(&list, &which);
-                let act = RevertProfile {
-                    profile,
-                    what,
-                    reason,
-                };
-                match ask(calls, id, act).await? {
-                    RevertAnswer::Reverted { clashes, .. } => {
-                        Ok(words::reverted(&undone, &label, &clashes))
-                    }
-                    RevertAnswer::Unchanged => {
-                        Ok(words::reverted(&undone, &label, &[]))
-                    }
-                    RevertAnswer::Refused { why } => {
-                        Err(refused(why))
-                    }
-                }
-            }
-            Err(refusal) => Err(refusal),
-        },
-        Act::Purge(act) => match label(calls, act.profile).await? {
-            Ok(label) => {
-                let path = act.path.clone();
-                match ask(calls, id, act).await? {
-                    PurgeAnswer::Purged { branches, .. } => {
-                        Ok(words::purged(&path, &label, branches))
-                    }
-                    PurgeAnswer::Refused { why } => Err(refused(why)),
-                }
-            }
-            Err(refusal) => Err(refusal),
-        },
+        } => {
+            versions::revert(calls, id, profile, &which, reason)
+                .await?
+        }
+        Act::Purge(act) => versions::purge(calls, id, act).await?,
         Act::Dream(dreamt) => {
             let of = match dreamt {
                 Dreamt::Profile(profile) => {
@@ -795,7 +750,8 @@ async fn perform(
         Act::Pin { hire, to, reason } => {
             match number(view, &hire, Reach::Living) {
                 Ok(agent) => {
-                    pin(calls, view, id, agent, to, reason).await?
+                    versions::pin(calls, view, id, agent, to, reason)
+                        .await?
                 }
                 Err(refusal) => Err(refusal),
             }
@@ -812,88 +768,6 @@ async fn perform(
         },
     };
     Ok(Outcome::said(reply))
-}
-
-/// Holds `hire` at its profile's version `to`, or lets it follow
-/// `main` again.
-async fn pin(
-    calls: &Calls,
-    view: &View,
-    id: &RequestId,
-    hire: AgentNumber,
-    to: Option<VersionName>,
-    reason: Option<String>,
-) -> Result<Result<String, Refusal>> {
-    let name = view.name(hire);
-    let act = PinHire { hire, to, reason };
-    Ok(match ask(calls, id, act).await? {
-        PinAnswer::Pinned { version, .. } => {
-            Ok(words::pinned(&name, &version.0))
-        }
-        PinAnswer::FollowsMain => Ok(words::follows_main(&name)),
-        PinAnswer::Refused {
-            why:
-                PinRefusal::Missing(Missing::NoVersion {
-                    profile,
-                    version,
-                }),
-        } => match label(calls, profile).await? {
-            Ok(label) => Err(Refusal::NoVersion {
-                name: label,
-                version: version.0,
-            }),
-            Err(refusal) => Err(refusal),
-        },
-        PinAnswer::Refused { why } => Err(refused(why)),
-    })
-}
-
-/// The label of `profile`, refused when the realm keeps none.
-async fn label(
-    calls: &Calls,
-    profile: hamlet_messages::realm::ProfileId,
-) -> Result<Result<String, Refusal>> {
-    let scholar = ScholarId(u64::from(profile.0));
-    Ok(answers::profile(calls, scholar)
-        .await?
-        .map(|(_, label)| label))
-}
-
-/// The commit `which` names among a profile's versions and `main`,
-/// as the profile takes it and as a chief reads it: `main`, a
-/// version, a commit's whole id, or a branch by its name.
-fn revision(
-    list: &hamlet_messages::profile::VersionList,
-    which: &str,
-) -> (Revision, String) {
-    if which == hamlet_git::MAIN {
-        let tip =
-            list.commits.first().map(|tip| words::short(&tip.commit));
-        return (Revision::Main, tip.unwrap_or_else(|| which.into()));
-    }
-    if let Some(seen) =
-        list.versions.iter().find(|seen| seen.version.0 == which)
-    {
-        return (
-            Revision::Version {
-                version: seen.version.clone(),
-            },
-            words::short(&seen.commit),
-        );
-    }
-    match Sha1::from_hex(which) {
-        Some(sha) => {
-            let commit = CommitId(sha);
-            let short = words::short(&commit);
-            (Revision::Commit { commit }, short)
-        }
-        None => (
-            Revision::Version {
-                version: VersionName(which.into()),
-            },
-            which.into(),
-        ),
-    }
 }
 
 /// Stops the running turns of the agent a client names by `agent`,

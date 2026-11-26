@@ -13,8 +13,8 @@ use hamlet_messages::agent::chat::{
 use hamlet_messages::realm::documents::{CardRead, CharterRead};
 use hamlet_protocol::client::{
     self as protocol, AgentId, AttachedFile, AttachedImage,
-    ImageInput, ItemKind, LastActivity, Link, LinkState, Listed,
-    ListedPriced, ReadResult, RequestId, ServerMessage, Transcript,
+    ImageInput, ItemKind, LastActivity, Listed, ListedPriced,
+    ReadResult, RequestId, ServerMessage, Transcript,
     TranscriptOperation, Turn,
 };
 use serde::Deserialize;
@@ -192,30 +192,17 @@ pub(crate) fn rewound(
 }
 
 /// A check of a model: its hello is the reply's words, and its
-/// failure or refusal the error's. A hello or a failure is the
-/// realm's model link from then on.
+/// failure or refusal the error's.
 pub(crate) fn checked(
     id: &RequestId,
     answer: &[u8],
     own: &Own,
 ) -> Result<ServerMessage> {
-    let link = |state, models: Option<u32>, words: &str| {
-        own.link.send_replace(Link {
-            models: models.map(i64::from),
-            state,
-            words: Some(words.to_owned()),
-        });
-    };
-    Ok(match ciborium::from_reader(answer)? {
-        Checked::Answered { words, models } => {
-            link(LinkState::Connected, models, &words);
-            notice(id, words)
-        }
-        Checked::Failed { words } => {
-            link(LinkState::Failed, None, &words);
-            reply(id, Err(Refusal::Usage { words }))
-        }
-        Checked::Refused { words } => {
+    let checked = ciborium::from_reader(answer)?;
+    own.show_check(&checked);
+    Ok(match checked {
+        Checked::Answered { words, .. } => notice(id, words),
+        Checked::Failed { words } | Checked::Refused { words } => {
             reply(id, Err(Refusal::Usage { words }))
         }
     })
@@ -527,11 +514,12 @@ mod tests {
             confinement: Confinement::Sandbox {
                 name: "bubblewrap".to_owned(),
             },
-            realm: "/realm".to_owned(),
+            root: "/realm".into(),
             epoch: 0,
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            moving: tokio::sync::watch::Sender::new(None),
             faux: false,
         }
     }

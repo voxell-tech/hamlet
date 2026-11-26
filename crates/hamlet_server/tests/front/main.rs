@@ -16,6 +16,8 @@ mod resend;
 mod secrets;
 mod uploads;
 mod view;
+#[path = "../worker/mod.rs"]
+mod worker;
 
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;

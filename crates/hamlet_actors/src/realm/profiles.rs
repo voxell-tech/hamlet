@@ -1009,7 +1009,7 @@ impl ProfileChange for TagProfile {
         Tag {
             id,
             version: self.version.clone(),
-            at: None,
+            at: self.at,
             note: self.note.clone(),
             by,
         }
