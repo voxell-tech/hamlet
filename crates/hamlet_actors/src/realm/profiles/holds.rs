@@ -1,5 +1,5 @@
-//! What a profile's repository holds that the State shows, kept on
-//! the profile's row: its row is read where the State is made, and a
+//! The parts of a profile's repository the State shows, kept on the
+//! profile's row: its row is read where the State is made, and a
 //! profile is asked only after a call that can change it.
 
 use std::sync::Arc;
@@ -59,7 +59,8 @@ impl Holds {
         }
     }
 
-    /// What the row of `profile` holds, none before its first read.
+    /// Reads the row of `profile`, which holds none before its first
+    /// read.
     pub(in crate::realm) async fn read(
         rows: &Rows<'_>,
         profile: ProfileId,

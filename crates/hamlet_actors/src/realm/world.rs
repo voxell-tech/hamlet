@@ -34,7 +34,7 @@ pub(super) enum Part {
     Waits,
     Spend,
     Reaches,
-    /// What only a client's whole state shows: the profiles, the
+    /// The parts only a client's whole state shows: the profiles, the
     /// settings and the limits, an agent's consulting, and the
     /// letters along the roads.
     State,

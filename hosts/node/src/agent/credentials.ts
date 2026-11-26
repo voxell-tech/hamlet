@@ -21,10 +21,8 @@ export const FAUX = "faux";
 
 /**
  * Every key, token and typed sign-in answer this host was given, and every
- * value of the realm's secret list, retired ones included, as today's server
- * keeps them for its scrub
- * (`crates/hamlet_server/src/credentials.rs`, `remember`). They live only
- * here, for the host's life.
+ * value of the realm's secret list, retired ones included. They live only here,
+ * for the host's life.
  */
 const SECRETS = new Set<string>();
 
@@ -62,16 +60,15 @@ export async function secretsRefreshed(
     if (first !== undefined) remember(...(await realm.secrets()).values);
 }
 
-/** Remembers the secrets of `kept`, as today's `remember_model` does. */
+/** Remembers the secrets of `kept`. */
 export function rememberKept(kept: Kept): void {
     if (kept.type === "key") remember(kept.key);
     else remember(kept.login.access, kept.login.refresh);
 }
 
 /**
- * `value` with every secret the host holds, and each of `also`, replaced
- * from the left: at each place the longest secret that begins there, as
- * `crates/hamlet_sandbox/src/scrub.rs` replaces them.
+ * `value` with every secret the host holds, and each of `also`, replaced from
+ * the left: at each place the longest secret that begins there.
  */
 export function scrub<T>(value: T, also: readonly string[] = []): T {
     const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
@@ -148,9 +145,9 @@ export interface Given {
 }
 
 /**
- * What an OAuth sign-in needs to serve requests: the listing's sign-in for
- * its provider, and the realm's keep for a rotated login. Without it, only
- * keys are used.
+ * The parts an OAuth sign-in needs to serve requests: the listing's sign-in
+ * for its provider, and the realm's keep for a rotated login. Without it,
+ * only keys are used.
  */
 export interface Subscriptions {
     readonly listed: Pick<Models, "getProvider">;
@@ -222,7 +219,6 @@ export function keysOf(
         if (asking === undefined) {
             asking = ask(provider);
             asked.set(provider, asking);
-            // A refusal or a failed call is asked again at the next request.
             const forget = () => asked.delete(provider);
             asking.then((answer) => {
                 if (answer.type === "refused") forget();
@@ -240,7 +236,6 @@ export function keysOf(
             if (provider === FAUX) return {};
             const kept = await keptFor(provider);
             if (kept.type === "refused") {
-                // An endpoint no one signed in to is called without a key, as today's.
                 const listed = subscriptions?.listed.getProvider(provider);
                 if (listed !== undefined && isEndpoint(listed)) return {};
                 throw new Error(kept.words);
@@ -258,10 +253,12 @@ export function keysOf(
  */
 const ROTATIONS = new Map<string, Promise<OauthLogin>>();
 
+/** A rotation's signal: one begun runs to its end, whoever asked for it. */
+const NEVER_ABORTED = new AbortController().signal;
+
 /**
- * `login` refreshed, once in the host, and handed to the realm before it
- * is used, as today's server saves a rotation before acknowledging it
- * (`docs/realm.md`).
+ * `login` refreshed, once in the host, and handed to the realm before it is
+ * used.
  */
 function rotated(
     provider: string,
@@ -273,19 +270,14 @@ function rotated(
     let rotation = ROTATIONS.get(retired);
     if (rotation === undefined) {
         rotation = (async () => {
-            // Not the request's signal: a rotation started is finished.
             const fresh = loginOf(
-                await oauth.refresh(
-                    credentialOf(login),
-                    new AbortController().signal,
-                ),
+                await oauth.refresh(credentialOf(login), NEVER_ABORTED),
             );
             const value: Kept = { type: "oauth", login: fresh };
             rememberKept(value);
             try {
                 await to.keep({ provider, value });
             } catch (error) {
-                // This host keeps using it; the realm still holds the old one.
                 to.report(
                     `the rotated login for ${provider} was not kept`,
                     scrubbedError(error),

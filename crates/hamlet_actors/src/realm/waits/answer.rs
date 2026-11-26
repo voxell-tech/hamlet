@@ -74,7 +74,7 @@ pub(in crate::realm) struct Waiting {
 }
 
 /// Another open tool wait of the agent's, which a ruling may settle
-/// with it, as today's turn would not have asked it.
+/// with it.
 struct Other {
     wait: WaitId,
     task: Option<TaskId>,

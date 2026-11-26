@@ -172,8 +172,6 @@ test("the host's providers are today's, by today's names", async () => {
             words: `nothing is signed in to ${provider}`,
         }),
     });
-    // The realm's endpoint and the Claude program's provider are not the
-    // host's built-in ones.
     const shown = (providers: readonly ProviderView[]) =>
         providers
             .filter(({ id }) => id !== "local" && id !== "claude")

@@ -768,7 +768,7 @@ fn versioned(
 }
 
 /// The profile a scholar's address names; a number past the realm's
-/// is no scholar, as today.
+/// is no scholar.
 fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
     let id = addresses::parse_scholar(text)?;
     u32::try_from(id.0).map(ProfileId).map_err(|_| {
@@ -779,7 +779,7 @@ fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
 }
 
 /// The agent `text` addresses, said in `here`: `mayor` is the
-/// office of `here`. A number past the realm's is no one, as today.
+/// office of `here`. A number past the realm's is no one.
 pub(super) fn target(
     text: &str,
     here: Option<&HamletId>,

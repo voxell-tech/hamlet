@@ -160,7 +160,7 @@ export function ownFiles(peers: Peers, folder: Folder): Extension {
 /** The scholar's character at the root, which only a chief changes. */
 const CHARACTER = "CHARACTER.md";
 
-/** Today's refusal of its write or edit (`calls.rs`, `character_refusal`). */
+/** The refusal of its write or edit. */
 const CHARACTER_KEPT = `${CHARACTER} is your scholar's character, which only a chief changes. Keep what you learn in memory/ instead.`;
 
 const EDIT_BEGAN = "hamlet.own-edit.began";

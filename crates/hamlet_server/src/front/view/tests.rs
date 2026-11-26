@@ -24,7 +24,7 @@ struct HeldRealm {
     revision: AtomicU64,
 }
 
-/// What the test holds a read with: told when the read began, and
+/// The pair the test holds a read with: told when the read began, and
 /// released when the test sends.
 type Hold = (oneshot::Sender<()>, oneshot::Receiver<()>);
 

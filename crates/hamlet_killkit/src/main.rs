@@ -328,8 +328,6 @@ fn run_once(
         Kill::Fault(point) => Some((point, faults.as_path())),
         Kill::After { .. } | Kill::NodeHost => None,
     };
-    // A Node host with no faux script serves today's providers, which
-    // a demo's agents have none of.
     let faux = match scenario.demo {
         Demo::RealmActor { faux } => {
             let path = dir.join("faux.json");

@@ -1,7 +1,6 @@
 /**
- * The providers a host of real models serves, as today's harness lists them
- * (`harnesses/pi/src/provider-set.ts`), and the realm's endpoints, each an
- * OpenAI-compatible server (`harnesses/pi/src/providers.ts`, `compatible`).
+ * The providers a host of real models serves, and the realm's endpoints, each
+ * an OpenAI-compatible server.
  */
 import {
     type Api,
@@ -151,7 +150,7 @@ function alias(source: ReturnType<Provider["stream"]>) {
     return out;
 }
 
-/** The longest answer an endpoint's model gives, as today's (`harnesses/pi/src/models.ts`). */
+/** The longest answer an endpoint's model gives. */
 const MOST_ANSWER = 8192;
 
 /**

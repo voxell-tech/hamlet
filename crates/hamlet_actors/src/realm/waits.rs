@@ -55,8 +55,8 @@ pub(super) enum Kind {
 }
 
 impl Kind {
-    /// The answers a chief may give a wait of this kind, in today's
-    /// order: an always only where allowing always keeps something.
+    /// The answers a chief may give a wait of this kind: an always
+    /// only where allowing always keeps something.
     pub(super) fn answers(
         self,
         keeps: bool,
@@ -830,7 +830,6 @@ impl Act<Workspace> for NeedsChief {
         if known {
             return Ok(Asker::Known);
         }
-        // The secrets play no part in what a reach allows.
         let reach =
             reach::standing(rows, self.agent, SecretsVersion(0))
                 .await?;

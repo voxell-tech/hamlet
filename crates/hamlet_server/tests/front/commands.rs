@@ -120,7 +120,6 @@ async fn the_oldest_wait_is_answered_when_none_is_named() {
             .await,
     )
     .unwrap();
-    // Allowed once, so the ruling covers no other wait.
     let allowed = chief.command(mayor, "/allow").await;
     assert!(
         allowed.starts_with("Answered /allow: hand "),
@@ -243,7 +242,6 @@ async fn an_answer_names_the_wait_it_answered() {
             .await,
     )
     .unwrap();
-    // Allowed once, so the ruling covers no other wait.
     let answered = chief.choose(&first, Choice::Allow, None).await;
     let second = oldest(
         &until(&server, "the next wait", |realm| {
@@ -255,8 +253,6 @@ async fn an_answer_names_the_wait_it_answered() {
     .unwrap();
     let commanded =
         chief.command(hand, &format!("/deny #{second}")).await;
-    // The two calls run at once, so either page's wait may come
-    // first.
     let page = |said: &str, how: &str| {
         said.strip_prefix(&format!(
             "Answered /{how}: hand wants network access to run \

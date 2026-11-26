@@ -224,9 +224,9 @@ pub(super) async fn run_called<A: Act<Agent> + Serialize>(
     .await
 }
 
-/// What `by` meets before `act`, which a call of the society tool
-/// `tool` carried in `called`, is loaded: its standing, then a
-/// chief's reserve.
+/// Loads the bar `by` meets before `act`, which a call of the society
+/// tool `tool` carried in `called`: its standing, then a chief's
+/// reserve.
 async fn barred(
     rows: &Rows<'_>,
     by: &Agent,

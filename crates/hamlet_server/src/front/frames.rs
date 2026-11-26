@@ -89,8 +89,8 @@ pub(crate) fn turn(
     }))
 }
 
-/// What `item` shows the agent did, as a chat's status tells it: a
-/// tool it called, a reply or an error.
+/// The agent's last activity `item` shows, as a chat's status tells
+/// it: a tool it called, a reply or an error.
 fn last_of(item: &protocol::Item) -> Option<LastActivity> {
     let what = match (&item.tool, &item.kind) {
         (Some(tool), _) => format!("tool {}", tool.name),
@@ -255,10 +255,9 @@ pub(crate) fn history(
     })
 }
 
-/// The models the Hand lists, each with what the chief says of it, as
-/// today's catalogue shows them: the chief's price and images over
-/// the listed ones, and the effort it thinks at unless asked
-/// otherwise.
+/// The models the Hand lists, each with what the chief says of it:
+/// the chief's price and images over the listed ones, and the effort
+/// it thinks at unless asked otherwise.
 pub(crate) fn models(
     id: &RequestId,
     list: ModelList,

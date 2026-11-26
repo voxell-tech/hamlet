@@ -122,7 +122,7 @@ pub(super) struct Wait {
 }
 
 impl Wait {
-    /// What its agent is told when it ended as `outcome`.
+    /// The end its agent is told when it ended as `outcome`.
     pub(super) fn ended(&self, outcome: Outcome) -> Finished {
         Finished {
             call: self.call.clone(),

@@ -1,7 +1,6 @@
 /**
  * A letter's or a question's parcel, and a chief's line's images and files,
- * saved in the agent's `inbox/` as `crates/hamlet_server/src/inbox.rs` and
- * `crates/hamlet_server/src/images.rs` save files sent to an agent.
+ * saved in the agent's `inbox/`.
  */
 import type { Context } from "@earendil-works/chord/context";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -24,7 +23,7 @@ export interface Caption {
     readonly words: string;
 }
 
-/** What an input was given besides its words. */
+/** The content an input was given besides its words. */
 export interface Received {
     readonly captions: readonly Caption[];
     /** As the model is given them. */
@@ -65,11 +64,9 @@ export async function received(
 
 /**
  * Saves each image of `line` at `inbox/images/<name>` and each file under
- * `inbox/`, in the order of their places, as `attach` in
- * `crates/hamlet_server/src/images.rs` does. The images are given to the
- * model when it takes them, at most as many as it takes in a line, fitted
- * as `pictures` in `crates/hamlet_server/src/talk/sync.rs` fits them; one
- * that cannot be is left out and reported.
+ * `inbox/`, in the order of their places. The images are given to the model
+ * when it takes them, at most as many as it takes in a line, fitted; one that
+ * cannot be is left out and reported.
  */
 export async function attached(
     peers: Peers,
@@ -126,7 +123,7 @@ export async function attached(
     return { captions, images };
 }
 
-/** A place to sort by: one with none comes last, as today's. */
+/** A place to sort by: one with none comes last. */
 function placeOf(at: number | undefined): number {
     return at ?? Number.POSITIVE_INFINITY;
 }

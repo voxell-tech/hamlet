@@ -545,7 +545,6 @@ test("an own write or edit of the root's CHARACTER.md is refused in today's word
     await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
     await agent.idle();
 
-    // Today's `character_refusal` (`crates/hamlet_server/src/calls.rs`).
     const refusal = {
         output: "CHARACTER.md is your scholar's character, which only a chief changes. Keep what you learn in memory/ instead.",
         isError: true,

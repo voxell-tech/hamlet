@@ -4,8 +4,7 @@
  * lines below (`run:`, `tell`, `read` and the others), and the line `tools`
  * with the tools it is offered, one `<name>: <description>` a line.
  *
- * A script is JSON, in today's server's `--faux` format
- * (`harnesses/pi/src/faux.ts`):
+ * A script is JSON, in the server's `--faux` format:
  *
  * ```json
  * {
@@ -73,7 +72,7 @@ import {
     type ToolCall,
 } from "@earendil-works/pi-ai";
 
-/** The model a script that names none runs, as today's does. */
+/** The model a script that names none runs. */
 const FAUX_MODEL = "faux-1";
 
 /** The paths whose next edit is the last thing this process does. */
@@ -393,8 +392,6 @@ function measured(
                     used.cacheWrite = 0;
                     used.totalTokens = usage.input + usage.output;
                 } else {
-                    // A prompt token the cache did not read is input, written
-                    // to the cache or not.
                     used.input += used.cacheWrite;
                     used.totalTokens += used.cacheWrite;
                 }
@@ -506,8 +503,6 @@ export function fauxModels(
             ? {}
             : { tokensPerSecond: script.tokensPerSecond }),
     });
-    // Each request takes its step as it is made, so the answer and its usage
-    // stay together when requests overlap.
     const stream: StreamFunction<string, SimpleStreamOptions> = (
         model,
         context,

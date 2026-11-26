@@ -42,7 +42,7 @@ pub struct ImageLimits {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FitAnswer {
     Image(Image),
-    /// The image cannot be given to the model, in today's words.
+    /// The image cannot be given to the model.
     Unusable {
         words: String,
     },

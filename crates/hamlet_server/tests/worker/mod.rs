@@ -51,8 +51,6 @@ impl Worker {
                     thread::sleep(Duration::from_millis(2));
                     continue;
                 };
-                // A server stopped mid-request leaves a connection
-                // with no request on it.
                 let Some(message) = read(&mut stream) else {
                     continue;
                 };
