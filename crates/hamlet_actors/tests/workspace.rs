@@ -84,6 +84,8 @@ struct Peers {
     refused_tells: AtomicUsize,
     /// Tells answered as if the link to the agent's host were down.
     unlinked_tells: AtomicUsize,
+    /// Tells answered as if the link went down while they were told.
+    lost_tells: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
     asked: Mutex<Vec<NeedsChief>>,
 }
@@ -170,6 +172,9 @@ impl Handler<Finished> for Peer {
         if taken(&self.peers.unlinked_tells) {
             return Err(LinkDown.build());
         }
+        if taken(&self.peers.lost_tells) {
+            return Err(LinkLost.build());
+        }
         self.peers
             .told
             .lock()
@@ -190,6 +195,14 @@ fn taken(left: &AtomicUsize) -> bool {
 #[derive(ActorError)]
 #[error("link", "down", "The link to the other host is not up.")]
 struct LinkDown;
+
+#[derive(ActorError)]
+#[error(
+    "link",
+    "lost",
+    "The link to the other host went down before the answer came."
+)]
+struct LinkLost;
 
 impl Handler<NeedsChief> for Peer {
     async fn handle(
@@ -965,12 +978,13 @@ fn told_ends(peers: &Peers) -> Vec<(String, CommandEnd)> {
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_commands_end_is_told_again_while_its_agents_link_is_down()
-{
+async fn a_commands_end_is_told_again_while_its_agents_link_is_down_or_lost()
+ {
     let dir = Scratch::new("workspace-unlinked");
     filesystem(&dir);
     let peers = answering_within(200);
     peers.unlinked_tells.store(2, Ordering::SeqCst);
+    peers.lost_tells.store(1, Ordering::SeqCst);
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, reach(None)).await;
     running(
@@ -980,6 +994,7 @@ async fn a_commands_end_is_told_again_while_its_agents_link_is_down()
     host.shutdown().await.unwrap();
 
     assert_eq!(peers.unlinked_tells.load(Ordering::SeqCst), 0);
+    assert_eq!(peers.lost_tells.load(Ordering::SeqCst), 0);
     let told = told_ends(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
     assert_eq!(told[0].1.output, "late\n");

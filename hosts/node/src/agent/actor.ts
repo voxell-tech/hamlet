@@ -338,13 +338,21 @@ function agentActions(config: AgentConfig): AgentHandlers {
     };
 }
 
+/**
+ * How long a stopping agent has to end its run and close, which only a stop
+ * of its host asks while a run is busy: within the Rust host's wait for this
+ * host to exit, so it closes rather than being killed, and the next wake
+ * resumes the run.
+ */
+const STOP_GRACE_MS = 5_000;
+
 export function agentActor(config: AgentConfig): AgentDefinition {
     // Built from the wrapper's untyped parts, so `actor()` cannot check
     // it: the declared return type is the contract.
     const definition: unknown = actor({
         ...sharedActorConfig(
             "agent",
-            {},
+            { options: { sleepGracePeriod: STOP_GRACE_MS } },
             { slot: PI_RUNTIME, create: createPiRuntime },
             closeHarness,
             { onSleep: undefined, onDestroy: undefined },
@@ -981,14 +989,21 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
             kind: "finished",
             id: message.call,
             content: words,
+            ...(message.task === undefined ? {} : { task: message.task }),
             ended: { call: message.call, end: endOf(message.outcome) },
         };
-        await conversation.submit(
-            admission.ended?.end.type === "aborted"
-                ? await endedWithoutRun(harness, admission, words, context)
-                : draftOf(admission),
-            context,
-        );
+        if (admission.ended?.end.type === "aborted") {
+            await conversation.submit(
+                await endedWithoutRun(harness, admission, words, context),
+                context,
+            );
+            return;
+        }
+        // Kept before the admission, so its end always finds it.
+        if (message.task !== undefined) {
+            await given(c, conversation.id, message.call, message.task);
+        }
+        await conversation.submit(draftOf(admission), context);
     });
 }
 

@@ -11,6 +11,7 @@ use hamlet_actor::{Ctx, Handler};
 use hamlet_messages::agent::chat::Withdrawn;
 use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::lines::{LineIs, ReadLine, Working};
+use hamlet_messages::realm::parcels::ParcelId;
 use hamlet_messages::sender::{Client, sender};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
@@ -19,7 +20,7 @@ use tokio::sync::futures::Notified;
 
 use super::act::Look;
 use super::calls::{Calls, Delivery};
-use super::{Realm, world};
+use super::{Realm, parcels, world};
 
 /// How long the realm keeps what became of a line no one read.
 const KEPT: Duration = Duration::from_secs(600);
@@ -201,6 +202,21 @@ impl Lines {
         }
     }
 
+    /// The parcels of the lines not yet given nor withdrawn.
+    pub fn waiting_parcels(&self) -> HashSet<ParcelId> {
+        self.held()
+            .lines
+            .values()
+            .filter(|line| {
+                matches!(
+                    line.is,
+                    Is::Reviewed | Is::Waiting | Is::Trying
+                )
+            })
+            .flat_map(|line| parcels::of_line(&line.input))
+            .collect()
+    }
+
     fn set(&self, id: &InputId, is: Is) {
         if let Some(line) = self.held().lines.get_mut(id) {
             line.is = is;
@@ -376,5 +392,59 @@ impl Handler<Working> for Realm {
             world::moved(&self, &ctx).await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_messages::agent::LineFile;
+    use hamlet_messages::realm::parcels::ParcelFile;
+    use hamlet_protocol::client::AttachedFile;
+
+    use super::*;
+
+    fn line(id: &str, parcel: u32) -> Submit {
+        Submit {
+            id: InputId(id.to_owned()),
+            task: None,
+            input: Input::Line {
+                text: "see this".to_owned(),
+                images: Vec::new(),
+                files: vec![LineFile {
+                    attached: AttachedFile {
+                        at: None,
+                        id: "0".repeat(64).parse().unwrap(),
+                        name: "a.txt".to_owned(),
+                        size: 1,
+                    },
+                    file: ParcelFile {
+                        parcel: ParcelId(parcel),
+                        file: 0,
+                        path: "a.txt".into(),
+                        size: 1,
+                    },
+                }],
+                note: None,
+                chief: None,
+            },
+        }
+    }
+
+    #[test]
+    fn a_lines_parcel_waits_until_the_line_is_given_or_withdrawn() {
+        let lines = Lines::default();
+        let (given, lost, trying, waiting) =
+            (line("a", 1), line("b", 2), line("c", 3), line("d", 4));
+        for submit in [&given, &lost, &trying, &waiting] {
+            lines.carry(AgentNumber(3), submit);
+        }
+        lines.given(&given.id);
+        lines.lost(&lost.id);
+        lines.attempt(&trying.id);
+
+        assert_eq!(
+            lines.waiting_parcels(),
+            HashSet::from([ParcelId(3), ParcelId(4)])
+        );
     }
 }

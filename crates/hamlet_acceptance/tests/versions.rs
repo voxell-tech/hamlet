@@ -55,6 +55,21 @@ async fn names_pins_reverts_and_forks_versions() {
             .await,
         "Tagged scholar#2 (ada) as v1."
     );
+    s.chief
+        .until("the scholar shows its version", |c| {
+            c.scholar("ada")
+                .is_some_and(|ada| !ada.versions.is_empty())
+        })
+        .await;
+    let shown = s.chief.scholar("ada").unwrap().versions;
+    assert_eq!(
+        shown
+            .iter()
+            .map(|v| (v.name.as_str(), v.note.as_str()))
+            .collect::<Vec<_>>(),
+        [("v1", "The first draft")]
+    );
+    assert!(shown[0].at > 0, "a version shows when it was made");
     let listed =
         s.chief.command(hand, &format!("/versions {at}")).await;
     assert!(listed.contains("Versions:"), "{listed}");

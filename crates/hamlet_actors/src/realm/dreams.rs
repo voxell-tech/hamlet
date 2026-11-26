@@ -660,8 +660,12 @@ pub(super) async fn end(
         summary,
         hire_name,
     };
+    let profile = ProfileId(profile);
     cx.peers()
-        .call(&Profile(ProfileId(profile)), &end, When::AfterAnswer)
+        .call(&Profile(profile), &end, When::AfterAnswer)
         .await?;
-    Ok(Vec::new())
+    Ok(profiles::holds::reread(cx.peers(), &rows, profile)
+        .await
+        .into_iter()
+        .collect())
 }

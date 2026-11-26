@@ -42,13 +42,14 @@ use super::steps::{self, Cx, StepId, Steps};
 use super::tasks::TaskId;
 use super::waits::answer::Ruling;
 use super::waits::{self, Raised};
-use super::{Realm, callers, marker, record, tree};
+use super::{Realm, callers, marker, record, reviews, tree};
 
 pub(super) mod store;
 
-/// How long a delivered parcel keeps its files: its `at` is when it
-/// was sent until it is ready, then when it became ready, or when a
-/// chief let its held letter go.
+/// How long a delivered parcel keeps its files once no held letter
+/// or waiting line names it: its `at` is when it was sent until it
+/// is ready, then when it became ready, or when its held letter or
+/// the line a review kept was let go.
 const KEPT_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// The bit of a step row's number that marks the steps a chief's
@@ -110,8 +111,8 @@ pub(super) enum Change {
     Swept {
         parcels: Vec<ParcelId>,
     },
-    /// The letters held on `task` are given now, so the day their
-    /// parcels keep their files begins.
+    /// The letters held on `task`, and the line its review kept, are
+    /// given now, so the day their parcels keep their files begins.
     Released {
         task: TaskId,
     },
@@ -237,6 +238,23 @@ pub(super) async fn apply(
                     ],
                 )
                 .await?;
+            let kept =
+                reviews::kept_line(&writer.rows(), task).await?;
+            for parcel in
+                kept.iter().flat_map(|line| of_line(&line.input))
+            {
+                writer
+                    .execute(
+                        "UPDATE parcel SET at = ?1 WHERE id = ?2 \
+                         AND state = ?3",
+                        vec![
+                            BindParam::Integer(writer.at().0),
+                            id(parcel),
+                            state(State::Ready)?,
+                        ],
+                    )
+                    .await?;
+            }
         }
         Change::Swept { parcels } => {
             for parcel in parcels {
@@ -919,6 +937,23 @@ impl Handler<FetchPart> for Realm {
             last,
         })
     }
+}
+
+/// The parcels the images and files of `input`, a chief's line,
+/// name.
+pub(super) fn of_line(
+    input: &Input,
+) -> impl Iterator<Item = ParcelId> {
+    let (images, files) = match input {
+        Input::Line { images, files, .. } => {
+            (images.as_slice(), files.as_slice())
+        }
+        _ => (&[][..], &[][..]),
+    };
+    images
+        .iter()
+        .map(|image| image.file.parcel)
+        .chain(files.iter().map(|file| file.file.parcel))
 }
 
 /// Whether `letter`, a parcel's, is held while its task is.

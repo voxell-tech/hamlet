@@ -1850,6 +1850,7 @@ fn the_realms_and_the_agents(fixtures: &mut Fixtures) {
             &format!("agent/finished.{name}"),
             &Finished {
                 call: call(id),
+                task: if name == "run.ran" { task() } else { None },
                 outcome,
             },
         );

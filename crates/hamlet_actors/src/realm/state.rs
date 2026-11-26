@@ -13,7 +13,7 @@ use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::world::{
     AgentSeen, Lasting, Seen, Starter, Status, WaitKind, WaitSeen,
 };
-use hamlet_messages::realm::{AgentName, HowEnded, Left};
+use hamlet_messages::realm::{AgentName, HowEnded, Left, ProfileId};
 use hamlet_messages::sender::{Client, Hand};
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
@@ -440,15 +440,28 @@ async fn scholars(
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
-             house_z, house_turn, since, arrival_by FROM profile \
-             WHERE kind != 'hand' AND status IN ('living', \
-             'archived') ORDER BY id",
+             house_z, house_turn, since, arrival_by, left_at, \
+             left_by, left_reason FROM profile WHERE kind != 'hand' \
+             AND status IN ('living', 'archived') ORDER BY id",
             Vec::new(),
         )
         .await?
     {
-        let [id, kind, name, status, arrival, x, z, turn, since, by] =
-            &row[..]
+        let [
+            id,
+            kind,
+            name,
+            status,
+            arrival,
+            x,
+            z,
+            turn,
+            since,
+            by,
+            left_at,
+            left_by,
+            left_reason,
+        ] = &row[..]
         else {
             bail!("a profile's row of another form: {row:?}");
         };
@@ -467,6 +480,8 @@ async fn scholars(
                 vec![BindParam::Integer(id.into())],
             )
             .await?;
+        let holds =
+            profiles::holds::Holds::read(rows, ProfileId(id)).await?;
         scholars.push(protocol::Scholar {
             arrival: match (kind, arrival) {
                 (
@@ -500,17 +515,36 @@ async fn scholars(
                 _ => None,
             },
             id: protocol::ScholarId(id.into()),
-            left: (status == profiles::Status::Archived).then(|| {
-                protocol::ScholarLeft {
-                    at: 0,
-                    by: chief.to_owned(),
-                    reason: String::new(),
+            left: match status {
+                profiles::Status::Archived => {
+                    Some(protocol::ScholarLeft {
+                        at: time(
+                            Option::<i64>::of(left_at)?
+                                .unwrap_or_default(),
+                        ),
+                        by: shown_by(
+                            &Option::<String>::of(left_by)?
+                                .unwrap_or_default(),
+                            chief,
+                        ),
+                        reason: Option::<String>::of(left_reason)?
+                            .unwrap_or_default(),
+                    })
                 }
-            }),
+                _ => None,
+            },
             name: String::of(name)?,
             since: time(i64::of(since)?),
-            skills: Vec::new(),
-            versions: Vec::new(),
+            skills: holds.skills,
+            versions: holds
+                .versions
+                .into_iter()
+                .map(|version| protocol::VersionView {
+                    at: time(version.at),
+                    name: version.name,
+                    note: version.note,
+                })
+                .collect(),
         });
     }
     Ok(scholars)
@@ -708,7 +742,8 @@ fn wait_shown(
         about: wait.subject.clone(),
         agent: Some(wire(wait.agent)),
         answers,
-        asked: at,
+        // Each raise opens its own wait, so each is asked once.
+        asked: 1,
         by: by.to_owned(),
         change: match &wait.kind {
             WaitKind::Tool {
@@ -732,13 +767,7 @@ fn wait_shown(
 async fn settings_shown(
     rows: &Rows<'_>,
 ) -> Result<protocol::SettingsView> {
-    let chosen = rows
-        .value::<i64>(
-            "SELECT 1 FROM settings WHERE id = 1",
-            Vec::new(),
-        )
-        .await?
-        .is_some();
+    let picked = settings::kept(rows).await?.model.is_some();
     let kept = settings::read(rows).await?;
     Ok(protocol::SettingsView {
         allow_net: kept.allow_net,
@@ -760,7 +789,7 @@ async fn settings_shown(
             Newcomers::Hand => protocol::Newcomers::Hand,
         },
         reflect_every: kept.reflect_every.into(),
-        unset: !chosen,
+        unset: !picked,
         ..unset()
     })
 }

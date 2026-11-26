@@ -27,7 +27,7 @@ use super::change::Rows;
 use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
-use super::{Realm, marker, record, say};
+use super::{Realm, marker, profiles, record, say};
 
 /// A sender the realm takes calls from.
 pub(super) trait Witness:
@@ -377,6 +377,9 @@ pub(super) trait Relay<By>:
     type Call: Message<To = Profile>;
     type Output: Send + 'static;
 
+    /// Whether the call can change the profile's `main` or versions.
+    const CHANGES: bool = true;
+
     /// The profile and what it is asked, or the answer when the realm
     /// refuses.
     fn ask(
@@ -704,9 +707,10 @@ where
 }
 
 /// Answers `relayed`, asked by `by`, from the answer of the profile
-/// it names.
+/// it names, then keeps what the profile's repository holds when the
+/// call can change it.
 pub(super) async fn relay<By, M: Relay<By>>(
-    realm: &Realm,
+    realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: &By,
     relayed: &M,
@@ -719,6 +723,9 @@ pub(super) async fn relay<By, M: Relay<By>>(
         };
     let answered =
         realm.peers.call(&Profile(profile), &call, when).await?;
+    if M::CHANGES {
+        profiles::holds::refresh(realm, ctx, profile).await;
+    }
     Ok(M::answer(answered))
 }
 

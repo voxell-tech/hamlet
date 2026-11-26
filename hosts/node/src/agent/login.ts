@@ -3,6 +3,8 @@
  * step, and the end hands the credential to the realm. What a sign-in holds
  * is in memory only, so a kill drops it and the client starts again.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type {
     AuthEvent,
@@ -55,6 +57,24 @@ export interface SignInOptions {
      * once the call has its answer.
      */
     readonly waited?: (stop: AbortSignal) => Promise<void>;
+}
+
+/**
+ * The installation's id, which today's server gives a subscription's
+ * sign-in (`crates/hamlet_server/src/providers.rs:341`), from the realm
+ * folder's `credentials.json`; the server writes it before the host starts.
+ */
+export function installationOf(home: string): SignInOptions {
+    let stored: unknown;
+    try {
+        stored = JSON.parse(
+            readFileSync(join(home, "credentials.json"), "utf8"),
+        );
+    } catch {
+        return {};
+    }
+    const id = (stored as { installationId?: unknown } | null)?.installationId;
+    return typeof id === "string" && id !== "" ? { deviceId: id } : {};
 }
 
 type Flow = (interaction: ProviderAuthInteraction) => Promise<Credential>;

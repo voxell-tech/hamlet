@@ -37,7 +37,9 @@ use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
 use super::{Realm, dreams, hire, record, settings, tree};
+use crate::cbor;
 
+pub(super) mod holds;
 pub(super) mod lifecycle;
 mod making;
 
@@ -275,6 +277,12 @@ pub(super) enum Change {
     },
     /// The profile is named `name`.
     Named { profile: ProfileId, name: String },
+    /// `by` archived the profile now, for `why`.
+    Left {
+        profile: ProfileId,
+        by: record::By,
+        why: Option<String>,
+    },
     /// `by` places the profile as `arrival`, its house at `house` or
     /// none.
     Placed {
@@ -282,6 +290,11 @@ pub(super) enum Change {
         arrival: Arrival,
         house: Option<HouseAt>,
         by: record::By,
+    },
+    /// The profile's repository holds `holds`.
+    Holds {
+        profile: ProfileId,
+        holds: holds::Holds,
     },
 }
 
@@ -358,12 +371,34 @@ pub(super) async fn apply(
                 )
                 .await?;
         }
+        Change::Left { profile, by, why } => {
+            writer
+                .execute(
+                    "UPDATE profile SET left_at = ?2, left_by = ?3, \
+                     left_reason = ?4 WHERE id = ?1",
+                    vec![
+                        id(profile),
+                        BindParam::Integer(writer.at().0),
+                        BindParam::Text(by.name()),
+                        why.map_or(BindParam::Null, BindParam::Text),
+                    ],
+                )
+                .await?;
+        }
         Change::Placed {
             profile,
             arrival,
             house,
             by,
         } => place(writer, profile, arrival, house, &by).await?,
+        Change::Holds { profile, holds } => {
+            writer
+                .execute(
+                    "UPDATE profile SET holds = ?2 WHERE id = ?1",
+                    vec![id(profile), BindParam::Blob(cbor(&holds)?)],
+                )
+                .await?;
+        }
     }
     Ok(Affected::seen([Part::State]))
 }
@@ -479,6 +514,8 @@ pub(super) fn free_spot(taken: &[(f64, f64)]) -> Result<HouseAt> {
 impl Relay<Hand> for ByHand<Tool<ReadProfile>> {
     type Call = Read;
     type Output = ReadAnswer<AgentRefusal<ReadProfileRefusal>>;
+
+    const CHANGES: bool = false;
 
     async fn ask(
         &self,
@@ -770,7 +807,7 @@ impl<T: ProfileChange> Relay<Agent> for Carried<T> {
 /// Asks the profile for the change `by`'s call `asking` names, which
 /// a chief allowed, and gives the words `by` is told of it.
 pub(super) async fn carry_out<T: ProfileChange>(
-    realm: &Realm,
+    realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: Agent,
     asking: Carried<T>,

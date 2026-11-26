@@ -63,6 +63,24 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     assert!(chief.waits().is_empty());
 }
 
+/// A stop while the model is still answering ends the server within
+/// a stop's time.
+#[tokio::test]
+async fn a_stop_with_a_model_call_held_ends_in_time() {
+    let mut s = Session::start(
+        Faux::new().responses([words("Late.").held_until("never")]),
+    )
+    .await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "Hi.").await;
+    s.chief.until("the turn", |c| c.is_working(&now)).await;
+    s.chief.settle(std::time::Duration::from_millis(500)).await;
+
+    assert_eq!(s.server.stop().await, Some(0));
+}
+
 #[tokio::test]
 async fn the_realm_comes_back_as_it_was_after_a_stop() {
     let mut s = Session::start(Faux::new().responses([

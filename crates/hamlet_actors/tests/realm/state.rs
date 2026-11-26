@@ -5,22 +5,29 @@ use std::time::Instant;
 use hamlet_actors::realm;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Party as _};
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::client::{
     ReadState, ReadWorld, RememberSecret, World,
 };
+use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::lines::Working;
 use hamlet_messages::realm::models::{
     KeepCredential, Kept, Settings,
 };
-use hamlet_messages::realm::profiles::CreateProfile;
+use hamlet_messages::realm::profiles::{
+    ArchiveProfile, CreateProfile, TagProfile,
+};
 use hamlet_messages::realm::world::Revision;
-use hamlet_messages::realm::{HamletId, NeedsChief};
+use hamlet_messages::realm::{
+    Asked, Done, HamletId, NeedsChief, ProfileId,
+};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::chiefs::chief;
+use super::profile_stand_in::{HELD_AT, HELD_SKILL, HELD_VERSION};
 use super::profiles::create;
 use super::stand_ins::{Callee, Seen};
 use super::world::seen_until;
@@ -330,6 +337,22 @@ async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_wait_shows_it_was_asked_once() {
+    let (realm, _) = hamlet_with(1).await;
+    asks(&realm, "c1", "echo hi").await;
+
+    let asked = state(&realm)
+        .await
+        .waits
+        .into_iter()
+        .map(|wait| wait.asked)
+        .collect::<Vec<_>>();
+
+    assert_eq!(asked, [1]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
     let (realm, _) = hamlet_with(1).await;
     keep(&realm, "t").await;
@@ -339,6 +362,36 @@ async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
 
     assert!(state.is_err(), "the state is withheld: {state:?}");
     assert!(world.is_err(), "the world is withheld: {world:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_settings_are_unset_until_a_model_is_picked() {
+    let (realm, _) = hamlet_with(0).await;
+    let edit = async |set: Setting| {
+        let edited = realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act: EditSettings { set: vec![set] },
+            })
+            .await
+            .unwrap();
+        assert_eq!(edited, Done::Done);
+        state(&realm).await.settings.unset
+    };
+
+    let before = state(&realm).await.settings.unset;
+    let after_a_setting =
+        edit(Setting::AllowNet { allow: true }).await;
+    let after_a_model = edit(Setting::Model {
+        model: "anthropic::claude-opus-5-5".to_owned(),
+    })
+    .await;
+
+    assert_eq!(
+        (before, after_a_setting, after_a_model),
+        (true, true, false)
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -355,6 +408,38 @@ async fn each_agent_of_a_faux_realm_runs_the_faux_model() {
     let state = state(&realm).await;
 
     assert_eq!(agent(&state, Hand::NUMBER).model, "faux::faux-1");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_archived_profile_shows_when_who_and_why_it_left() {
+    let (realm, _) = hamlet_with(0).await;
+    let made = CreateProfile {
+        name: "Newbie".to_owned(),
+        character: None,
+    };
+    chief(&realm, made).await;
+    let newbie = |state: protocol::State| {
+        state
+            .scholars
+            .into_iter()
+            .find(|scholar| scholar.name == "Newbie")
+            .expect("the profile is shown")
+    };
+    let id = newbie(state(&realm).await).id;
+    let archived = ArchiveProfile {
+        profile: ProfileId(u32::try_from(id.0).unwrap()),
+        why: Some("not needed".to_owned()),
+    };
+
+    chief(&realm, archived).await;
+    let left = newbie(state(&realm).await).left.expect("it left");
+
+    assert!(left.at > 0);
+    assert_eq!(
+        (left.by.as_str(), left.reason.as_str()),
+        ("chief", "not needed")
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -387,5 +472,41 @@ async fn a_profile_shows_its_house_who_brought_it_and_since() {
     assert_eq!(newbie.arrival_by.as_deref(), Some("chief"));
     assert_eq!(helper.arrival_by.as_deref(), Some("hand"));
     assert!(newbie.since > 0 && helper.since >= newbie.since);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_shows_the_skills_and_versions_its_repository_holds()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let mason = |state: protocol::State| {
+        state
+            .scholars
+            .into_iter()
+            .find(|scholar| scholar.name == "Mason")
+            .expect("the profile is shown")
+    };
+    let made = mason(state(&realm).await);
+    let tag = TagProfile {
+        profile: ProfileId(u32::try_from(made.id.0).unwrap()),
+        version: VersionName("v2".to_owned()),
+        at: None,
+        note: String::new(),
+    };
+
+    chief(&realm, tag).await;
+    let tagged = mason(state(&realm).await);
+
+    assert!(made.skills.is_empty() && made.versions.is_empty());
+    assert_eq!(tagged.skills, [HELD_SKILL]);
+    assert_eq!(
+        tagged.versions,
+        [protocol::VersionView {
+            at: HELD_AT.unsigned_abs(),
+            name: HELD_VERSION.to_owned(),
+            note: String::new(),
+        }]
+    );
     realm.host.shutdown().await.unwrap();
 }

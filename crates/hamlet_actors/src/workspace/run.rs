@@ -14,7 +14,7 @@ use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::refusal::RunNotRun;
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, ConversationId, Exit,
-    RunAnswer, RunEnd, Which,
+    RealmTask, Run, RunAnswer, RunEnd, Which,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -253,6 +253,8 @@ pub(super) struct Running {
     pub agent: AgentNumber,
     pub call: CallId,
     pub conversation: ConversationId,
+    /// The realm's task the call was made under.
+    pub task: Option<RealmTask>,
     pub waiters: Arc<Waiters>,
     pub ends_by: i64,
     /// Fired to end it as cancelled.
@@ -262,21 +264,21 @@ pub(super) struct Running {
 }
 
 impl Running {
-    /// `agent`'s command `command`, started by its call `call` in
-    /// `conversation`, whose end `waiters` hear.
+    /// `agent`'s command `command`, started by `run`, whose end
+    /// `waiters` hear.
     pub(super) fn new(
         command: CommandId,
         agent: AgentNumber,
-        call: CallId,
-        conversation: ConversationId,
+        run: &Run,
         ends_by: i64,
         waiters: Arc<Waiters>,
     ) -> Self {
         Self {
             command,
             agent,
-            call,
-            conversation,
+            call: run.call.clone(),
+            conversation: run.conversation.clone(),
+            task: run.realm_task.clone(),
             waiters,
             ends_by,
             cancel: CancellationToken::new(),

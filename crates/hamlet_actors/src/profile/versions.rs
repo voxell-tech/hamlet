@@ -163,6 +163,7 @@ fn versions(
                 commit: commit_id(v.commit)?,
                 note: v.note,
                 by: v.by,
+                at: v.at,
             })
         })
         .collect::<Result<_>>()?;
@@ -642,11 +643,13 @@ mod tests {
         let listed = profile
             .read::<Profile, Versions, _>(realm, Versions, versions)
             .unwrap();
+        let made = listed.versions.first().map_or(0, |seen| seen.at);
         let seen = VersionSeen {
             version,
             commit: at,
             note: "the first".into(),
             by: "chief:3".into(),
+            at: made,
         };
         assert_eq!(listed.versions, [seen]);
     }

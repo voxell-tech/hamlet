@@ -28,6 +28,10 @@ use crate::workspace::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finished {
     pub call: CallId,
+    /// The realm's task the call was made under, which the turn its
+    /// end starts is charged to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<RealmTask>,
     pub outcome: Outcome,
 }
 

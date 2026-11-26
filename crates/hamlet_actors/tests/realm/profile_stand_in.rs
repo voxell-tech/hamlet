@@ -9,11 +9,12 @@ use hamlet_host::Caller;
 use hamlet_messages::profile::{
     BadPath, Branch, Bundle, BundleAnswer, CommitId, DreamEnd,
     DreamOf, DreamOpen, DropBranch, DropSaveParts, Edit, EditRefusal,
-    EndDream, Erase, MergeAnswer, MergeBranch, Missing,
-    Path as FilePath, PrepareDream, Prepared, ProfileInput, Purge,
-    PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Revision,
-    Sha1, Source, Tag, TagAnswer, TagRefusal, Unmerge, UnmergeAnswer,
-    VersionList, VersionName, VersionSeen, Versions,
+    EndDream, Erase, MergeAnswer, MergeBranch, Missing, Paper,
+    PaperList, Papers, Path as FilePath, PrepareDream, Prepared,
+    ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer, Revert,
+    RevertAnswer, Revision, Sha1, Source, Tag, TagAnswer, TagRefusal,
+    Unmerge, UnmergeAnswer, VersionList, VersionName, VersionSeen,
+    Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
@@ -32,6 +33,7 @@ impl Actor for ProfileStandIn {
     type Actions = (
         Branch,
         Versions,
+        Papers,
         Read,
         Edit,
         Tag,
@@ -77,7 +79,7 @@ impl Actor for ProfileStandIn {
     }
 }
 
-const HELD_VERSION: &str = "v1";
+pub(super) const HELD_VERSION: &str = "v1";
 
 impl ProfileStandIn {
     /// Whether `name` is its version or a branch it made.
@@ -135,8 +137,32 @@ impl Handler<Versions> for ProfileStandIn {
                 commit: COMMIT,
                 note: String::new(),
                 by: "chief:1".to_owned(),
+                at: HELD_AT,
             }],
             commits: Vec::new(),
+        })
+    }
+}
+
+/// When the version every stand-in holds was made.
+pub(super) const HELD_AT: i64 = 5_000;
+
+/// The skill every stand-in holds at `main`.
+pub(super) const HELD_SKILL: &str = "greet";
+
+impl Handler<Papers> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Papers,
+    ) -> anyhow::Result<PaperList> {
+        Ok(PaperList {
+            character: String::new(),
+            memory: Vec::new(),
+            skills: vec![Paper {
+                path: format!("skills/{HELD_SKILL}/SKILL.md"),
+                description: String::new(),
+            }],
         })
     }
 }
