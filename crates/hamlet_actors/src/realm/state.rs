@@ -26,7 +26,9 @@ use super::change::{self, Column as _, Rows, number};
 use super::chiefs::limits;
 use super::tree::HAND_PROFILE;
 use super::waits::Kind;
-use super::{Realm, budget, chiefs, profiles, record, settings};
+use super::{
+    Realm, budget, chiefs, letters, profiles, record, settings,
+};
 
 mod hamlets;
 
@@ -295,7 +297,7 @@ async fn agent_shown(
         allowance: agent.allowance_micros.map(limits::dollars),
         busy: false,
         consulting: left.is_none() && consulting,
-        conversations: Vec::new(),
+        conversations: peers(rows, n).await?,
         effort: agent.effort,
         faulted: false,
         fast: agent.fast.unwrap_or(false),
@@ -507,6 +509,38 @@ async fn scholars(
         });
     }
     Ok(scholars)
+}
+
+/// The conversations other agents keep with `agent`, by sender and
+/// kind: the letters and questions sent it, as today's
+/// (`crates/hamlet_server/src/clients/state.rs`, `peers`).
+async fn peers(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<protocol::ConversationView>> {
+    rows.rows::<(u32, String, i64, Option<i64>)>(
+        "SELECT sender, kind, COUNT(*), MAX(at) FROM letter WHERE \
+         receiver = ?1 GROUP BY sender, kind ORDER BY MIN(id)",
+        vec![number(agent)],
+    )
+    .await?
+    .into_iter()
+    .map(|(sender, kind, count, last)| {
+        Ok(protocol::ConversationView {
+            count,
+            kind: match change::from_case_name(kind)? {
+                letters::Kind::Letter => {
+                    protocol::ConversationViewKind::Letters
+                }
+                letters::Kind::Question => {
+                    protocol::ConversationViewKind::Questions
+                }
+            },
+            last,
+            with: wire(AgentNumber(sender)),
+        })
+    })
+    .collect()
 }
 
 async fn grants(

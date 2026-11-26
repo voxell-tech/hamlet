@@ -21,8 +21,8 @@ use hamlet_protocol::client::{self as protocol, RequestId};
 use super::chiefs::chief;
 use super::world::seen_until;
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, hamlet_with, needs, say, tell, to,
-    tool,
+    DEADLINE, MAYOR, Realm, THREE, hamlet_with, needs, say,
+    seen_submits, tell, to, tool,
 };
 
 const KEY: &str = "sk-made-up-0461";
@@ -180,5 +180,41 @@ async fn the_world_shows_a_busy_agent_until_its_turn_ends() {
     assert!(agent(&busy, THREE).busy);
     assert!(!agent(&busy, MAYOR).busy);
     assert!(!agent(&idle, THREE).busy);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_shows_the_letters_sent_it_by_sender_and_kind() {
+    let (realm, _) = hamlet_with(1).await;
+    realm
+        .tool(MAYOR, &tool("t1", tell(to(THREE), "dig the well")))
+        .await
+        .unwrap();
+    seen_submits(&realm, THREE, 1).await;
+
+    let kept = |shown: &protocol::State| {
+        agent(shown, THREE)
+            .conversations
+            .iter()
+            .map(|c| {
+                (c.with, c.kind.clone(), c.count, c.last.is_some())
+            })
+            .collect::<Vec<_>>()
+    };
+    let given = [(
+        protocol::AgentId(u64::from(MAYOR.0)),
+        protocol::ConversationViewKind::Letters,
+        1,
+        true,
+    )];
+    let began = Instant::now();
+    let mut shown = state(&realm).await;
+    while kept(&shown) != given && began.elapsed() < DEADLINE {
+        tokio::time::sleep(std::time::Duration::from_millis(20))
+            .await;
+        shown = state(&realm).await;
+    }
+    assert_eq!(kept(&shown), given);
+    assert!(agent(&shown, MAYOR).conversations.is_empty());
     realm.host.shutdown().await.unwrap();
 }
