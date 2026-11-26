@@ -8,7 +8,9 @@ import {
     createModels,
     createProvider,
 } from "@earendil-works/pi-ai";
+import { keysOf } from "../src/agent/credentials.ts";
 import type { ProviderView } from "../src/agent/messages/agent.ts";
+import type { CredentialAnswer, Kept } from "../src/agent/messages/realm.ts";
 import {
     checkConnection,
     providerViews,
@@ -16,6 +18,27 @@ import {
 } from "../src/agent/models.ts";
 import { hostProviders, servingEndpoints } from "../src/agent/providers.ts";
 import { until } from "./agent-testing.ts";
+
+/** The agent's keys on a realm holding `held`, keeping each rotation in `kept`. */
+function keysHolding(
+    held: CredentialAnswer,
+    kept: Kept[] = [],
+    listed = createModels(),
+) {
+    return keysOf({ credential: async () => held }, () => {}, {
+        listed,
+        keep: async ({ value }) => {
+            kept.push(value);
+            return null;
+        },
+    });
+}
+
+const NOT_SIGNED_IN: CredentialAnswer = {
+    type: "refused",
+    why: { type: "not_signed_in", provider: "local" },
+    words: "No one signed in to local.",
+};
 
 /** A loopback server listing `org/large` with a context of 32000 tokens, as the acceptance suite's. */
 async function listing(t: { after: (f: () => void) => void }): Promise<string> {
@@ -52,11 +75,18 @@ test("an endpoint the settings name is served with the copy's model, its list is
     await until(
         () => models.getModel("local", "org/large")?.contextWindow === 32000,
     );
-    assert.deepEqual(await checkConnection(models, "local::org/large"), {
-        type: "answered",
-        words: "Connected, 2 model(s)",
-        models: 2,
-    });
+    assert.deepEqual(
+        await checkConnection(
+            models,
+            keysHolding(NOT_SIGNED_IN),
+            "local::org/large",
+        ),
+        {
+            type: "answered",
+            words: "Connected, 2 model(s)",
+            models: 2,
+        },
+    );
     const login = models.getProvider("local")?.auth.apiKey?.login;
     assert.ok(login, "a key sign-in");
     let asked: unknown;
@@ -155,4 +185,79 @@ test("the host's providers are today's, by today's names", async () => {
             }));
 
     assert.deepEqual(shown(views), shown(todaysProviders()));
+});
+
+/** A model list with `chatgpt`, signed in to by OAuth, whose auth adds a header. */
+function subscribed() {
+    const core = createFauxCore({
+        provider: "chatgpt",
+        models: [{ id: "offline" }],
+    });
+    const models = createModels();
+    models.setProvider(
+        createProvider({
+            id: "chatgpt",
+            models: core.models,
+            api: { stream: core.stream, streamSimple: core.streamSimple },
+            auth: {
+                oauth: {
+                    name: "loopback subscription",
+                    login: async () => {
+                        throw new Error("no sign-in here");
+                    },
+                    refresh: async (credential) => ({
+                        ...credential,
+                        access: "made-up-access-after",
+                        refresh: "made-up-refresh-after",
+                        expires: Date.now() + 3_600_000,
+                    }),
+                    toAuth: async (credential) => ({
+                        apiKey: credential.access,
+                        headers: { "x-made-up-control": credential.refresh },
+                    }),
+                },
+            },
+        }),
+    );
+    return models;
+}
+
+/** A login long past, so the first use rotates it. */
+const DUE: CredentialAnswer = {
+    type: "oauth",
+    login: {
+        access: "made-up-access-before",
+        refresh: "made-up-refresh-before",
+        expires: 1,
+    },
+};
+
+test("a connection check rotates a subscription's login that is due, and the realm keeps the new one", async () => {
+    const models = subscribed();
+    const kept: Kept[] = [];
+
+    const checked = await checkConnection(
+        models,
+        keysHolding(DUE, kept, models),
+        "chatgpt::offline",
+    );
+
+    assert.equal(checked.type, "answered");
+    assert.deepEqual(
+        kept.map((value) =>
+            value.type === "oauth" ? value.login.refresh : value.type,
+        ),
+        ["made-up-refresh-after"],
+    );
+});
+
+test("a request with a subscription's login carries the headers its auth adds", async () => {
+    const models = subscribed();
+
+    const given = await keysHolding(DUE, [], models).of("chatgpt");
+
+    assert.deepEqual(given, {
+        apiKey: "made-up-access-after",
+        headers: { "x-made-up-control": "made-up-refresh-after" },
+    });
 });

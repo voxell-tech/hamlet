@@ -137,14 +137,16 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                       name,
                   );
         }),
-        check_connection: askedBy("check_connection", async (c) =>
-            config.faux
+        check_connection: askedBy("check_connection", async (c) => {
+            const { peers, copies } = generationOf(c);
+            return config.faux
                 ? FAUX_CHECKED
                 : checkConnection(
                       config.models,
-                      await runningModel(generationOf(c).copies, config.model),
-                  ),
-        ),
+                      agentKeys(config.models, peers),
+                      await runningModel(copies, config.model),
+                  );
+        }),
         read_providers: askedBy("read_providers", async (c) => ({
             providers: await providerViews(
                 config.models,

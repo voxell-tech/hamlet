@@ -89,9 +89,14 @@ export function agentModels(
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
         const previous = options?.onProviderStreamEvent;
+        // The caller's headers win over the login's, as pi-ai's `applyAuth`.
+        const { headers, ...key } = given;
         const made: ModelsSimpleStreamOptions = {
             ...options,
-            ...given,
+            ...key,
+            ...(headers === undefined
+                ? {}
+                : { headers: { ...headers, ...options?.headers } }),
             onProviderStreamEvent: async (event, called) => {
                 const billed = billedCost(event);
                 if (billed !== undefined) bill.billed = billed;
@@ -544,21 +549,29 @@ export async function checkModel(
 
 /**
  * Asks the provider of the model `name` for its list again, and answers with
- * the count of the models it lists, as today's connection check does.
+ * the count of the models it lists, as today's connection check does. Its
+ * login is rotated first when due, as today's refresh resolves it first.
  */
 export async function checkConnection(
     listed: Models,
+    keys: Keys,
     name: string,
 ): Promise<Checked> {
     const ref = named(listed, name);
     if ("type" in ref) return ref;
     const { provider } = ref;
-    const { errors } = await listed.refresh({
-        providers: [provider],
-        force: true,
-        signal: AbortSignal.timeout(90_000),
-    });
-    const error = errors.get(provider);
+    let error: unknown;
+    try {
+        await keys.fresh(provider);
+        const { errors } = await listed.refresh({
+            providers: [provider],
+            force: true,
+            signal: AbortSignal.timeout(90_000),
+        });
+        error = errors.get(provider);
+    } catch (failed) {
+        error = failed;
+    }
     if (error !== undefined) {
         return {
             type: "failed",
