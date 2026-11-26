@@ -461,10 +461,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "tests/cli.rs:149",
     ),
     (
-        "withdrawing_an_objection_stops_the_turns_calls",
-        "tests/oversight.rs:400",
-    ),
-    (
         "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
         "tests/oauth.rs:185",
     ),
