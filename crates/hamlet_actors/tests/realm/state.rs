@@ -19,10 +19,11 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::chiefs::chief;
+use super::stand_ins::Callee;
 use super::world::seen_until;
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, hamlet_with, needs, say,
-    seen_submits, tell, to, tool,
+    DEADLINE, MAYOR, Realm, THREE, founded, hamlet_with, hires,
+    needs, say, seen_submits, tell, to, tool,
 };
 
 const KEY: &str = "sk-made-up-0461";
@@ -216,5 +217,33 @@ async fn an_agent_shows_the_letters_sent_it_by_sender_and_kind() {
     }
     assert_eq!(kept(&shown), given);
     assert!(agent(&shown, MAYOR).conversations.is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_still_being_hired_shows_its_road_to_its_lead() {
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    let hamlet = founded(&realm).await;
+    realm.live(MAYOR).await;
+    realm.seen.hold(Callee::Fill);
+    hires(&realm, MAYOR, "h1").await;
+
+    let shown = state(&realm).await;
+    let roads = &shown
+        .hamlets
+        .iter()
+        .find(|place| place.id == hamlet.0)
+        .expect("the hamlet is shown")
+        .roads;
+    realm.seen.release(Callee::Fill);
+    assert!(
+        roads.iter().any(|road| {
+            road.kind == protocol::RoadKind::Tree
+                && (road.a.0, road.b.0)
+                    == (u64::from(MAYOR.0), u64::from(THREE.0))
+        }),
+        "{roads:?}"
+    );
     realm.host.shutdown().await.unwrap();
 }
