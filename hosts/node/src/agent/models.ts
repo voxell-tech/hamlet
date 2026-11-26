@@ -33,9 +33,16 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { Checked, Effort, ListedModel, Price } from "./messages/agent.ts";
+import type {
+    Checked,
+    Effort,
+    ListedModel,
+    Price,
+    ProviderView,
+} from "./messages/agent.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
+import type { ImageLimits } from "./messages/workspace.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
@@ -643,10 +650,12 @@ function fastened(
 export function modelList(listed: Models): ListedModel[] {
     return listed.getModels().map((model) => {
         const cost = listedCost(model);
+        const images = imagesOf(model);
         return {
             name: nameOf(model),
             title: model.name,
             context: model.contextWindow,
+            ...(images === undefined ? {} : { images: images.perLine }),
             ...(cost === undefined
                 ? {}
                 : {
@@ -726,6 +735,141 @@ export async function checkModel(
         // Scrubbed before `plainly` cuts it, so no part of a key is left.
         return { type: "failed", words: plainly(scrub(String(error))) };
     }
+}
+
+/**
+ * Asks the model `name` for a hello, and answers with the count of the
+ * models its provider lists, as today's connection check does.
+ */
+export async function checkConnection(
+    listed: Models,
+    keys: Keys,
+    name: string,
+): Promise<Checked> {
+    const checked = await checkModel(listed, keys, name);
+    if (checked.type !== "answered") return checked;
+    const count = listed.getModels(refOf(name)?.provider).length;
+    return { type: "answered", words: `Connected, ${count} model(s)` };
+}
+
+/** Whether the model `name` is served by a provider a chief signs in to. */
+export function signedInTo(listed: Models, name: string): boolean {
+    const auth = listed.getProvider(refOf(name)?.provider ?? "")?.auth;
+    return auth?.apiKey?.login !== undefined || auth?.oauth !== undefined;
+}
+
+async function runningRef(copies: ReadCopies, host: string): Promise<ModelRef> {
+    return (await copiedAgent(copies))?.model ?? hostRef(host);
+}
+
+function hostRef(host: string): ModelRef {
+    const at = host.indexOf("/");
+    return { provider: host.slice(0, at), modelId: host.slice(at + 1) };
+}
+
+/** The model the agent runs, as `provider::model`. */
+export async function runningModel(
+    copies: ReadCopies,
+    host: string,
+): Promise<string> {
+    const { provider, modelId } = await runningRef(copies, host);
+    return nameOf({ provider, id: modelId });
+}
+
+/** `host`, given as `provider/model`, as `provider::model`. */
+export function hostModel(host: string): string {
+    const { provider, modelId } = hostRef(host);
+    return nameOf({ provider, id: modelId });
+}
+
+/** As `ImageInput`'s defaults in `crates/hamlet_protocol/src/client/images.rs`. */
+const IMAGE_WIDTH = 2000;
+const IMAGE_HEIGHT = 2000;
+const IMAGE_BYTES = 4_718_592;
+const IMAGES_PER_LINE = 20;
+
+/** The images a model takes, and the most of them one line gives it. */
+export interface ImagesTaken extends ImageLimits {
+    readonly perLine: number;
+}
+
+/**
+ * The images `model` takes, as `listed_images` in
+ * `crates/hamlet_server/src/providers.rs` reads its listing and `Limits::of`
+ * fills in what it leaves out; a faux model takes them at the defaults.
+ * `undefined` when it takes none.
+ */
+function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+    if (model.provider !== FAUX && !model.input.includes("image")) {
+        return undefined;
+    }
+    const images = model.inputLimits?.images;
+    const size = (value: number | undefined, otherwise: number) =>
+        value !== undefined && value > 0 ? value : otherwise;
+    return {
+        width: size(images?.resize?.maxWidth, IMAGE_WIDTH),
+        height: size(images?.resize?.maxHeight, IMAGE_HEIGHT),
+        bytes: size(images?.resize?.maxBytes, IMAGE_BYTES),
+        perLine: Math.min(
+            size(images?.maxPerMessage, IMAGES_PER_LINE),
+            IMAGES_PER_LINE,
+        ),
+    };
+}
+
+/** The images the model the agent runs takes; `undefined` when it takes none. */
+export async function runningImages(
+    listed: Models,
+    copies: ReadCopies,
+    host: string,
+): Promise<ImagesTaken | undefined> {
+    const { provider, modelId } = await runningRef(copies, host);
+    const model = listed.getModel(provider, modelId);
+    return model === undefined ? undefined : imagesOf(model);
+}
+
+/** The providers a subscription signs in to, as today's (ADR 0006). */
+const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
+
+/** The words of a provider's sign-in button where they are not its name. */
+const LABELS: Readonly<Record<string, string>> = {
+    chatgpt: "Continue with ChatGPT",
+    openrouter: "Sign in with OpenRouter",
+    claude: "Sign in to Claude",
+};
+
+/**
+ * The providers a chief may sign in to, and whether each is, in today's
+ * order and words (`crates/hamlet_server/src/providers.rs`,
+ * `provider_views`).
+ */
+export async function providerViews(
+    listed: Models,
+    realm: Pick<BareRealm, "credential">,
+): Promise<ProviderView[]> {
+    const providers = [...listed.getProviders()].sort((a, b) =>
+        a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    return Promise.all(
+        providers.map(async (provider): Promise<ProviderView> => {
+            const kept = await realm.credential({ provider: provider.id });
+            return {
+                configured: kept.type !== "refused",
+                id: provider.id,
+                label: LABELS[provider.id] ?? provider.name,
+                methods: [
+                    ...(provider.auth.apiKey?.login === undefined
+                        ? []
+                        : ["key" as const]),
+                    ...(SUBSCRIPTIONS.includes(provider.id) &&
+                    provider.auth.oauth !== undefined
+                        ? ["subscription" as const]
+                        : []),
+                ],
+                name: provider.name,
+            };
+        }),
+    );
 }
 
 /** A failed hello in words a chief can act on, as today's `plainly` gives them. */

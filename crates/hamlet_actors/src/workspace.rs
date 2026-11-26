@@ -4,6 +4,7 @@
 
 pub(crate) mod calls;
 mod files;
+pub mod image;
 mod parcel;
 mod pending;
 mod reach;
@@ -32,6 +33,7 @@ use hamlet_messages::sender::{id_reused, sender};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
+use hamlet_messages::workspace::images::FitImage;
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::refusal::{
     CallRefusal, InvalidProgram, RunRefusal, StatusRefusal, WaitEnd,
@@ -133,6 +135,7 @@ impl Actor for Workspace {
         ChiefAnswer,
         Parcel,
         ParcelPart,
+        FitImage,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -1121,6 +1124,8 @@ mod tests {
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
     use hamlet_messages::Message;
+    use hamlet_messages::bytes::Base64;
+    use hamlet_messages::workspace::images::ImageLimits;
     use hamlet_messages::workspace::reach::Reach;
     use hamlet_messages::workspace::{
         Answer, CallId, ConversationId, ReachVersion,
@@ -1205,6 +1210,14 @@ mod tests {
                 agent: AgentNumber(7),
                 path: "/a".into(),
                 part: 0,
+            }),
+            row(&FitImage {
+                image: Base64(Vec::new()),
+                limits: ImageLimits {
+                    width: 1,
+                    height: 1,
+                    bytes: 1,
+                },
             }),
         ]
     }

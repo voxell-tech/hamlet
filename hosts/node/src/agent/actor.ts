@@ -89,9 +89,20 @@ import { readShelves } from "./messages/library.ts";
 import { OWN_PROFILE, profileAt } from "./messages/profile.ts";
 import type { SocietyTool, ToolName } from "./messages/realm.ts";
 import type { ProfileId, RealmTask } from "./messages/shared.ts";
-import { agentModels, configured, secretsRefreshed } from "./models.ts";
+import {
+    agentModels,
+    configured,
+    type ImagesTaken,
+    runningImages,
+    secretsRefreshed,
+} from "./models.ts";
 import { type Folder, ownFiles } from "./own-files.ts";
-import { received } from "./parcels.ts";
+import {
+    attached,
+    NOTHING_RECEIVED,
+    type Received,
+    received,
+} from "./parcels.ts";
 import {
     type PromptSources,
     placingOf,
@@ -147,6 +158,11 @@ export interface AgentConfig {
     readonly listed?: () => readonly Model<Api>[];
     /** Answers the Hand's `login`; a host without it signs no one in. */
     readonly signIns?: SignIns;
+    /**
+     * Every agent runs the faux model, as on a server started with a faux
+     * script.
+     */
+    readonly faux?: boolean;
 }
 
 export type AgentContext = PiContext;
@@ -528,10 +544,12 @@ export interface Generation {
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
     /**
-     * Admits letters and questions with files one after another, so two
-     * never take one name and a repeat finds the first admitted.
+     * Admits lines, letters and questions with files one after another, so
+     * two never take one name and a repeat finds the first admitted.
      */
     readonly receiving: <T>(work: () => Promise<T>) => Promise<T>;
+    /** The images the model the agent runs takes; `undefined` when it takes none. */
+    readonly images: () => Promise<ImagesTaken | undefined>;
     /**
      * Settles once the last retry sent, queued or under way, is admitted
      * or has failed. A stop waits for it, so it stops the retry's turn too.
@@ -586,7 +604,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const placing = placingOf(c, peers);
     const tools = toolLister(peers);
     const prompt: PromptSources = {
-        ...promptSources(c, copies, peers, placing, tools),
+        ...promptSources(c, copies, peers, placing, tools, config.model),
         ...(config.library === undefined ? {} : { library: config.library }),
         ...(errand === undefined ? {} : { errand }),
     };
@@ -657,6 +675,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         following: follow,
         inTurn: oneAfterAnother(),
         receiving: oneAfterAnother(),
+        images: () => runningImages(config.models, copies, config.model),
         retrying: undefined,
         withdrawn: new Set(),
         admitting: new Set(),
@@ -774,7 +793,7 @@ const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
     const generation = generationOf(c);
-    const { options, inTurn, receiving, peers, admitting } = generation;
+    const { options, inTurn, receiving, admitting } = generation;
     const admission = async () => {
         const id = await conversationFor(c, message.input);
         await withHarness(c, options, async (harness, context) => {
@@ -785,8 +804,8 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                 throw new Error(`the agent has no conversation ${id}`);
             }
             const { input } = message;
-            const admitted = async (captions: string) => {
-                const admission = admissionOf(message, captions);
+            const admitted = async (saved: Received) => {
+                const admission = admissionOf(message, saved);
                 if (admission.ended?.end.type === "aborted") {
                     return conversation.submit(
                         await endedWithoutRun(
@@ -810,11 +829,8 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                     context,
                 );
             };
-            const files =
-                input.type === "letter" || input.type === "question"
-                    ? (input.files ?? [])
-                    : [];
-            if (files.length === 0) return admitted("");
+            const receive = receiverOf(input, generation, context);
+            if (receive === undefined) return admitted(NOTHING_RECEIVED);
             await receiving(async () => {
                 // A repeat of a submit it took saves nothing again.
                 const again =
@@ -822,9 +838,7 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                         (tx) => tx.submissionByRequest(id, message.id),
                         context,
                     )) !== undefined;
-                await admitted(
-                    again ? "" : await received(peers, files, context),
-                );
+                await admitted(again ? NOTHING_RECEIVED : await receive());
             });
         });
     };
@@ -844,6 +858,29 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
         return under.finally(() => admitting.delete(under));
     };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
+}
+
+function receiverOf(
+    input: Input,
+    { peers, images }: Generation,
+    context: Context,
+): (() => Promise<Received>) | undefined {
+    switch (input.type) {
+        case "letter":
+        case "question": {
+            const files = input.files ?? [];
+            return files.length === 0
+                ? undefined
+                : () => received(peers, files, context);
+        }
+        case "line":
+            return (input.images ?? []).length === 0 &&
+                (input.files ?? []).length === 0
+                ? undefined
+                : async () => attached(peers, input, await images(), context);
+        default:
+            return undefined;
+    }
 }
 
 /** Shows the withdrawn input `id` in `chat`, unless it was admitted there first. */

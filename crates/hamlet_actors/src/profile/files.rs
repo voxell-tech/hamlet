@@ -8,9 +8,11 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
+use hamlet_git::MAIN;
 use hamlet_messages::profile::{
     BadPath, Cursor, DropSaveParts, FileChange, Files, FilesAnswer,
-    Gone, Path, Protected, Save, SaveAnswer, SaveRefusal, TooLarge,
+    Gone, Learned, LearnedList, Path, Protected, Save, SaveAnswer,
+    SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_messages::{MOST_PART, Message, PIECE_FRAME};
@@ -110,6 +112,34 @@ fn files(look: &Look<'_, Profile, Files>) -> Result<FilesAnswer> {
             .collect(),
         next,
         character,
+    })
+}
+
+impl Takes<Learned> for Profile {
+    async fn take(
+        call: Call<Self, Learned>,
+    ) -> Result<Reply<Learned>> {
+        call.read(learned).await
+    }
+}
+
+fn learned(look: &Look<'_, Profile, Learned>) -> Result<LearnedList> {
+    let hire = look.from();
+    let git = look.git()?;
+    let main = git.tip(MAIN)?.context("a profile has a main")?;
+    let tip =
+        git.tip(&hire.branch)?.context("a hire has a branch")?;
+    let mut paths = items(git, Some(main), tip)?
+        .into_iter()
+        .map(|item| match item {
+            Item::Remove { path, .. } => Path { path },
+            Item::Write(entry) => Path { path: entry.path },
+        })
+        .collect::<Vec<_>>();
+    paths.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(LearnedList {
+        character: hires::character(git, hire, main)?.text,
+        paths,
     })
 }
 

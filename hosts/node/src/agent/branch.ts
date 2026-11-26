@@ -23,6 +23,7 @@ import {
     type CommitId,
     type FileChange,
     type FileCursor,
+    type LearnedList,
     readFiles,
 } from "./messages/profile.ts";
 import type { CallId, ProfileId } from "./messages/shared.ts";
@@ -60,6 +61,11 @@ export interface Branch {
      * then holds; absent before a fill.
      */
     save(): Promise<CommitId | undefined>;
+    /**
+     * Saves now, then reads the character at the profile's `main` and the
+     * paths the branch differs from it in; absent before a fill.
+     */
+    learned(): Promise<LearnedList | undefined>;
     /** Removes the filesystem whole; no work of the branch runs after. */
     erase(): Promise<void>;
 }
@@ -466,6 +472,12 @@ export function branchOf(
         save: async () => {
             await settle();
             return (await held())?.filled ?? undefined;
+        },
+        learned: async () => {
+            await settle();
+            const row = await held();
+            if (row?.profile == null || row.filled === null) return undefined;
+            return profileCalls(peers, row.profile).learned();
         },
         erase: () =>
             oneAtATime(async () => {

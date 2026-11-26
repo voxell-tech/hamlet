@@ -211,6 +211,7 @@ test("the prompt cuts each part at its limit", async (t) => {
     const cutByTheWorkspace = joined(
         await promptSections({
             copies: async () => ({}),
+            model: "faux/faux-1",
             files: listedFiles({}),
             where: async () => ({ kind: "hire", place: HIRE.place }),
             tools: async () => ({
@@ -376,6 +377,7 @@ test("an errand's prompt is its own instructions only", async () => {
     const text = joined(
         await promptSections({
             copies: refused,
+            model: "faux/faux-1",
             files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
             where: refused,
             readFile: refused,
@@ -605,7 +607,7 @@ test("the environment names the sandbox and the tools that failed to load, as to
         const environment = prompt.slice(prompt.indexOf("# Environment"));
         assert.ok(
             environment.startsWith(
-                `# Environment\nSandbox: ${sandbox}. Network for tools: off unless a chief allows it; a command that needs it waits until the chief answers, so set \`network\` to true on it and carry on.\nTools that failed to load:\n/realm/tools/lint: it has no manifest.json\n/realm/tools/fmt: \`fmt\` is taken\nSystem: `,
+                `# Environment\nSandbox: ${sandbox}. Network for tools: off unless a chief allows it; a command that needs it waits until the chief answers, so set \`network\` to true on it and carry on. Model: faux::faux-1.\nTools that failed to load:\n/realm/tools/lint: it has no manifest.json\n/realm/tools/fmt: \`fmt\` is taken\nSystem: `,
             ),
             environment,
         );
@@ -643,4 +645,13 @@ test("the project says it is a git repository, and that a chief approves each ch
     assert.ok(worktree.includes(git) && !worktree.includes(manual));
     const plain = await projectOf({}, false);
     assert.ok(!plain.includes(git) && !plain.includes(manual));
+});
+
+test("the machine section names the model the agent runs where the realm chose none, as today", async (t) => {
+    const agent = await wakeAgent(t, { calls: fakeCalls({}).calls });
+    const prompt = await readPrompt(agent);
+    await agent.stop();
+
+    const environment = prompt.slice(prompt.indexOf("# Environment"));
+    assert.match(environment.split("\n")[1] ?? "", / Model: faux::faux-1\.$/);
 });

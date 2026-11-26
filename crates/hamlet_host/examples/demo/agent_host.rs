@@ -64,10 +64,10 @@
 //! demo/watch.rs says.
 //!
 //! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
-//! model answers from it, as hosts/node/src/agent/demo-host.ts says.
+//! model answers from it, as hosts/node/src/agent/faux.ts says.
 //! The demo hands it the script's path. With `HAMLET_DEMO_SIGN_IN`
 //! set to `1`, it also lists two providers to sign in to, on
-//! loopback, as demo-host.ts says.
+//! loopback, as faux.ts says.
 
 #[path = "pid.rs"]
 mod pid;

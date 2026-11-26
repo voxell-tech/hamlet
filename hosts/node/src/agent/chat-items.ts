@@ -184,7 +184,7 @@ export class Fold {
             heldUntilAnswered && ended.end.type === "ran"
                 ? { ...ended.end, ms: timeOf(entry) - held.began }
                 : ended.end;
-        const ops = [closed(held.item, endingOf(held, end))];
+        const ops = [closed(shownAt(held.item, end), endingOf(held, end))];
         const said =
             name === "ask_chief" ? chiefSaid(textOf(entry)) : undefined;
         if (said !== undefined) {
@@ -442,6 +442,13 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
     };
 }
 
+/** A held call's item as its end closes it: a blocked call changed nothing, so it shows no change, as today's. */
+function shownAt(item: ChatItem, end: CallEnd): ChatItem {
+    if (end.type !== "blocked" || item.tool?.change === undefined) return item;
+    const { change: _, ...tool } = item.tool;
+    return { ...item, tool };
+}
+
 /** pi-durable's words before the reason a call was not run. */
 const BLOCKED = "Tool call blocked: ";
 
@@ -533,13 +540,14 @@ export function money(micros: number): string {
 }
 
 /**
- * An entry's words, kept in its data when the model never reads it; a
- * reviewed line's are the chief's own, without the lead's note.
+ * An entry's words, kept in its data when the model never reads it or a
+ * line's content holds captions besides; a reviewed line's are the chief's
+ * own, without the lead's note.
  */
 export function textOf(entry: EntryRecord): string {
     const kept = (entry.data as { text?: unknown } | undefined)?.text;
     const text =
-        entry.model === undefined && typeof kept === "string"
+        typeof kept === "string"
             ? kept
             : (entry.model ?? [])
                   .flatMap((message) =>

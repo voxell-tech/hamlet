@@ -794,6 +794,38 @@ const WRITTEN: readonly Written[] = [
         },
     },
     {
+        fixture: "profile/learned",
+        drive: async (t, calls) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+            await agent.actions.read_papers(agent.by(from.client));
+            return agent;
+        },
+        answers: {
+            profile: {
+                files: () => answer("profile/files.part.last"),
+                learned: () => answer("profile/learned"),
+            },
+        },
+    },
+    {
+        fixture: "workspace/fit_image",
+        drive: async (t, calls) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            const [line] = fixture("agent/submit.line.attached.args") as [
+                Submit,
+            ];
+            await agent.actions.submit(agent.by(from.realm), line);
+            return agent;
+        },
+        answers: {
+            realm: { fetch_part: () => answer("realm/fetch_part.bytes.last") },
+            workspace: {
+                fit_image: () => answer("workspace/fit_image.image"),
+            },
+        },
+    },
+    {
         fixture: "profile/files.since",
         drive: async (t, calls, sent) => {
             const agent = await wakeAgent(t, { calls, input: HAND });
@@ -1526,6 +1558,7 @@ for (const call of TAKEN) {
                 reply: () => answer("realm/reply.done"),
                 fetch_part: () => answer("realm/fetch_part.bytes.last"),
             },
+            workspace: { fit_image: () => answer("workspace/fit_image.image") },
             profile: {
                 // A retire answers the tip the agent was filled at.
                 files: () =>
@@ -2527,6 +2560,8 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "library/offer",
             "profile/files",
             "profile/save",
+            "profile/learned",
+            "workspace/fit_image",
         ].flatMap(answersTo),
         "agent/chat.event.answer",
         "agent/chat.event.letters.answer",

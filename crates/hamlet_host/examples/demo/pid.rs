@@ -1,5 +1,5 @@
 //! The process id of the demo's Node host, which
-//! hosts/node/src/agent/demo-host.ts writes in the realm folder as
+//! hosts/node/src/agent/host.ts writes in the realm folder as
 //! its digits and a newline.
 
 use std::path::Path;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use tokio::time::Instant;
 
-/// The same file as `PID_FILE` of hosts/node/src/agent/demo-host.ts.
+/// The same file as `PID_FILE` of hosts/node/src/agent/host.ts.
 pub const PID_FILE: &str = "demo-node.pid";
 
 const POLL: Duration = Duration::from_millis(25);

@@ -6,10 +6,14 @@ use std::sync::atomic::Ordering;
 
 use hamlet_actor::Action;
 use hamlet_host::{Address, Host};
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::files::{
     CutBy, Find, ReadAnswer, ReadFile, Search, SearchAnswer,
     Severity, Text, Truncation,
+};
+use hamlet_messages::workspace::images::{
+    FitAnswer, FitImage, ImageLimits,
 };
 use hamlet_messages::workspace::refusal::{
     PathRefusal, ReachRefusal, ReadRefusal, ToRead,
@@ -445,4 +449,58 @@ async fn a_read_reaches_the_realms_shared_folders() {
 
     assert_eq!(text(read_book).text, "a book\n");
     assert_eq!(text(read_spill).text, "all it printed\n");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_image_is_made_to_fit_its_model() {
+    let dir = Scratch::new("workspace-fit-image");
+    let host = host_with(&dir, Arc::default()).await;
+    let me = agent(AGENT);
+    let mut png = Vec::new();
+    let pixels = image::RgbImage::from_pixel(
+        400,
+        200,
+        image::Rgb([9, 90, 200]),
+    );
+    image::DynamicImage::from(pixels)
+        .write_to(
+            &mut std::io::Cursor::new(&mut png),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let limits = ImageLimits {
+        width: 100,
+        height: 80,
+        bytes: 1 << 20,
+    };
+
+    let FitAnswer::Image(fitted) = ask(
+        &host,
+        &me,
+        &FitImage {
+            image: Base64(png),
+            limits,
+        },
+    )
+    .await
+    else {
+        panic!("the image was not fitted");
+    };
+    let made = image::load_from_memory(&fitted.data.0).unwrap();
+    assert_eq!((made.width(), made.height()), (100, 50));
+    assert_eq!(fitted.mime, "image/jpeg");
+    assert_eq!(
+        ask(
+            &host,
+            &me,
+            &FitImage {
+                image: Base64(b"plain text".to_vec()),
+                limits,
+            },
+        )
+        .await,
+        FitAnswer::Unusable {
+            words: "an image is a PNG, JPEG, WebP or GIF".into(),
+        }
+    );
 }

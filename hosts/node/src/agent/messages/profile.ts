@@ -98,9 +98,16 @@ export type SaveAnswer =
     | { readonly type: "kept" }
     | Refused;
 
+/** The character at `main`, and the paths where the agent's branch differs from it. */
+export interface LearnedList {
+    readonly character: string;
+    readonly paths: readonly Path[];
+}
+
 export interface ProfileActions {
     files(message: Files): FilesAnswer;
     save(message: Save): SaveAnswer;
+    learned(): LearnedList;
 }
 
 export function profileAt(profile: ProfileId): Address<ProfileActions> {
@@ -196,4 +203,12 @@ export const readFiles = reader(
                       ? {}
                       : { character: characterOf(answer.character) }),
               },
+);
+
+export const readLearned = reader(
+    obj({ character: str(), paths: arr(obj({ path: str() }, OPEN)) }, OPEN),
+    ({ character, paths }): LearnedList => ({
+        character,
+        paths: paths.map(({ path }) => ({ path })),
+    }),
 );

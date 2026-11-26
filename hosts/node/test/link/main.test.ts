@@ -67,7 +67,7 @@ test(
 );
 
 test(
-    "a kind demo.ts lacks ends the Node host with its name, and so does no kind",
+    "a kind demo.ts lacks ends the Node host with its name",
     SKIP,
     async () => {
         await inFolder(async (dir) => {
@@ -85,12 +85,6 @@ test(
             );
             assert.equal(lacking.code, 1, lacking.stderr);
             assert.match(lacking.stderr, /'spare'/);
-            const none = await run(
-                [example("bound"), process.execPath, MAIN],
-                dir,
-            );
-            assert.equal(none.code, 1, none.stderr);
-            assert.match(none.stderr, /--kind/);
             assert.deepEqual(readdirSync(dir), []);
         });
     },
