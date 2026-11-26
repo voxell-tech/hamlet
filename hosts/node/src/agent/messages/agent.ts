@@ -581,12 +581,22 @@ export interface ListedModel {
     readonly title: string;
     readonly context: number;
     readonly price?: Price;
-    /** The most images one line may give it; absent when it takes none. */
-    readonly images?: number;
+    /** The images it takes; absent when it takes none. */
+    readonly images?: ListedImages;
     /** The efforts it can be asked for, weakest first. */
     readonly efforts?: readonly Effort[];
     /** Whether its provider has a fast tier it can be asked for. */
     readonly fast?: boolean;
+}
+
+/** The images a model takes, as its provider lists them: each limit absent where the listing names none. */
+export interface ListedImages {
+    /** The most bytes of one image. */
+    readonly max_bytes?: number;
+    readonly max_height?: number;
+    readonly max_width?: number;
+    /** The most images one line gives it. */
+    readonly per_line?: number;
 }
 
 export interface ModelList {
