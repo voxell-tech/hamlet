@@ -296,7 +296,7 @@ pub(super) async fn read(rows: &Rows<'_>) -> Result<Settings> {
 
 /// The settings as the rows hold them: a chief's, else the realm's
 /// first.
-async fn kept(rows: &Rows<'_>) -> Result<Settings> {
+pub(super) async fn kept(rows: &Rows<'_>) -> Result<Settings> {
     let kept = rows
         .value::<Vec<u8>>(
             "SELECT value FROM settings WHERE id = 1",

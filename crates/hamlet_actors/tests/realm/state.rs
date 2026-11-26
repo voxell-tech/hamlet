@@ -8,6 +8,7 @@ use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::realm::client::{
     ReadState, ReadWorld, RememberSecret, World,
 };
+use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::lines::Working;
 use hamlet_messages::realm::models::{
@@ -15,7 +16,7 @@ use hamlet_messages::realm::models::{
 };
 use hamlet_messages::realm::profiles::CreateProfile;
 use hamlet_messages::realm::world::Revision;
-use hamlet_messages::realm::{HamletId, NeedsChief};
+use hamlet_messages::realm::{Asked, Done, HamletId, NeedsChief};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
@@ -339,6 +340,36 @@ async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
 
     assert!(state.is_err(), "the state is withheld: {state:?}");
     assert!(world.is_err(), "the world is withheld: {world:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_settings_are_unset_until_a_model_is_picked() {
+    let (realm, _) = hamlet_with(0).await;
+    let edit = async |set: Setting| {
+        let edited = realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act: EditSettings { set: vec![set] },
+            })
+            .await
+            .unwrap();
+        assert_eq!(edited, Done::Done);
+        state(&realm).await.settings.unset
+    };
+
+    let before = state(&realm).await.settings.unset;
+    let after_a_setting =
+        edit(Setting::AllowNet { allow: true }).await;
+    let after_a_model = edit(Setting::Model {
+        model: "anthropic::claude-opus-5-5".to_owned(),
+    })
+    .await;
+
+    assert_eq!(
+        (before, after_a_setting, after_a_model),
+        (true, true, false)
+    );
     realm.host.shutdown().await.unwrap();
 }
 

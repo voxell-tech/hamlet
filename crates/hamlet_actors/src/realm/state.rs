@@ -732,13 +732,7 @@ fn wait_shown(
 async fn settings_shown(
     rows: &Rows<'_>,
 ) -> Result<protocol::SettingsView> {
-    let chosen = rows
-        .value::<i64>(
-            "SELECT 1 FROM settings WHERE id = 1",
-            Vec::new(),
-        )
-        .await?
-        .is_some();
+    let picked = settings::kept(rows).await?.model.is_some();
     let kept = settings::read(rows).await?;
     Ok(protocol::SettingsView {
         allow_net: kept.allow_net,
@@ -760,7 +754,7 @@ async fn settings_shown(
             Newcomers::Hand => protocol::Newcomers::Hand,
         },
         reflect_every: kept.reflect_every.into(),
-        unset: !chosen,
+        unset: !picked,
         ..unset()
     })
 }
