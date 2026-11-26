@@ -176,6 +176,7 @@ pub(super) async fn open(
         tx,
         opening.agent,
         &call,
+        realm_task.as_ref(),
         opening.request.op(),
         opening.request_hash,
         "waiting",
@@ -381,12 +382,12 @@ impl NotRun {
 
 /// Ends every wait of `agent` with `why` in `tx`, as when its reach
 /// ended: a chief's answer that comes after finds no wait. Returns
-/// the calls whose waits it ended, each with why by its kind.
+/// what the agent is told of each call whose wait it ended.
 pub(super) async fn close(
     tx: &SqliteTransaction,
     agent: AgentNumber,
     why: &WaitEnd,
-) -> Result<Vec<(CallId, NotRun)>> {
+) -> Result<Vec<Finished>> {
     let agent = BindParam::Integer(i64::from(agent.0));
     tx.execute(
         "DELETE FROM waits WHERE agent = ?1",
@@ -397,7 +398,7 @@ pub(super) async fn close(
         .execute(
             "UPDATE calls SET state = 'refused', answer = ?2, \
              ended_at = ?3 WHERE agent = ?1 AND state = 'waiting' \
-             RETURNING call, op",
+             RETURNING call, op, task",
             Some(vec![
                 agent,
                 BindParam::Blob(crate::cbor(why)?),
@@ -409,10 +410,15 @@ pub(super) async fn close(
         .rows
         .iter()
         .map(|row| match row.as_slice() {
-            [ColumnValue::Text(call), ColumnValue::Text(op)] => Ok((
-                CallId(call.clone()),
-                NotRun::of(op, why.clone())?,
-            )),
+            [
+                ColumnValue::Text(call),
+                ColumnValue::Text(op),
+                task,
+            ] => Ok(Finished {
+                call: CallId(call.clone()),
+                task: calls::task_of(task)?,
+                outcome: NotRun::of(op, why.clone())?.outcome(),
+            }),
             other => bail!("a closed call's row is {other:?}"),
         })
         .collect()
