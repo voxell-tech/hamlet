@@ -285,7 +285,25 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         withHarness(async (harness, context) => {
             const live = await harness.snapshot(LiveDoc, conversation, context);
             const handle = await harness.conversation(conversation, context);
-            const placed: { kind: InputKind; kept: Kept }[] = [];
+            // pi names a run by its first input (`#input` in
+            // `harnesses/pi/src/runtime.ts`), whose task today's server
+            // reads; today a call's end is told to its call within the turn
+            // and is never an input. So a run's task is its first input's
+            // other than an end, and an end's only in a run of ends.
+            let first: { kind: InputKind; kept: Kept } | undefined;
+            const turnOf = (task: RealmTask | undefined): TurnInput =>
+                first === undefined
+                    ? none
+                    : {
+                          kind: first.kind,
+                          task:
+                              task === undefined
+                                  ? none.task
+                                  : { from: "input", task },
+                          ...(first.kept.question === undefined
+                              ? {}
+                              : { question: first.kept.question }),
+                      };
             for (const input of live?.run?.inputs ?? []) {
                 const submission = await harness.submission(input, context);
                 const record = await submission?.status(context);
@@ -299,24 +317,13 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
                     context,
                 );
                 const entry = page?.items[0];
-                if (entry?.kind.startsWith(KIND)) {
-                    placed.push({
-                        kind: entry.kind.slice(KIND.length) as InputKind,
-                        kept: (entry.data ?? {}) as Kept,
-                    });
-                }
+                if (!entry?.kind.startsWith(KIND)) continue;
+                const kind = entry.kind.slice(KIND.length) as InputKind;
+                const kept = (entry.data ?? {}) as Kept;
+                first ??= { kind, kept };
+                if (kind !== "finished") return turnOf(kept.task);
             }
-            const [first] = placed;
-            if (first === undefined) return none;
-            const task = placed.findLast(({ kept }) => kept.task !== undefined)
-                ?.kept.task;
-            return {
-                kind: first.kind,
-                task: task === undefined ? none.task : { from: "input", task },
-                ...(first.kept.question === undefined
-                    ? {}
-                    : { question: first.kept.question }),
-            };
+            return turnOf(first?.kept.task);
         });
     const conversationOfSession = (
         sessionId: string,

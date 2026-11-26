@@ -135,23 +135,18 @@ async fn an_upload_out_of_its_bounds_is_refused_in_todays_words() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_line_with_images_to_a_model_that_takes_none_is_refused() {
+async fn a_line_with_images_to_a_faux_model_is_taken() {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
     let mayor = found(&server, &mut chief, "Docs").await;
     chief.command(mayor, "/model mayor faux::unlisted").await;
-    let image = AttachedImage::last(sha256(&png(8)).parse().unwrap());
-    let refused = chief.say_with(mayor, "Look.", vec![image]).await;
+    let image = chief.put_image(&png(8), 4096).await.image.unwrap();
+    let said = chief
+        .say_with(mayor, "Look.", vec![AttachedImage::last(image)])
+        .await;
 
-    assert_eq!(
-        (refused.kind, refused.text.as_str()),
-        (
-            ReplyKind::Error,
-            // Under faux every agent runs the faux model, as today.
-            "the model `faux::faux-1` takes no images; choose \
-             another model or leave the images out"
-        )
-    );
+    // Every faux model takes images, as today's `Providers::images`.
+    assert_eq!(said.kind, ReplyKind::Notice, "{}", said.text);
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
