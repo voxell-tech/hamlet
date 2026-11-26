@@ -25,7 +25,7 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
     ]))
     .await;
     let hand = s.hand();
-    let lodge = s.home.file("hand");
+    let lodge = s.home.agent_files(1, "hand");
     let now = chat(hand);
     s.chief.open(&now).await;
     s.chief.tell(hand, "Try the network.").await;
@@ -135,7 +135,7 @@ async fn the_settings_can_allow_the_network_to_every_agent() {
     s.chief.tell(hand, "Go.").await;
     s.chief.shows(&now, "Done.").await;
     assert!(s.chief.waits().is_empty());
-    assert!(s.home.file("hand/open").exists());
+    assert!(s.home.agent_files(1, "hand").join("open").exists());
 }
 
 #[tokio::test]
@@ -147,7 +147,8 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     let home = Home::new();
     // The mayor's lodge, in a hamlet whose id is made once it is
     // founded.
-    let lodge_file = home.file("hamlets/{{docs}}/2/lodge-file");
+    let lodge_file =
+        home.agent_files(2, "hamlets/{{docs}}/2").join("lodge-file");
     let mut s = Session::start_in(
         home,
         Faux::new().agent(
@@ -171,10 +172,13 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     assert_eq!(ada, AgentId(2));
-    let lodge_file = s.home.file(&format!(
-        "hamlets/{}/2/lodge-file",
-        s.chief.hamlet_id("docs")
-    ));
+    let lodge_file = s
+        .home
+        .agent_files(
+            2,
+            &format!("hamlets/{}/2", s.chief.hamlet_id("docs")),
+        )
+        .join("lodge-file");
     s.chief
         .command(ada, &format!("/folder {}", folder.display()))
         .await;
@@ -376,12 +380,12 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
     assert!(objection.about.contains("better left alone"));
     s.chief.settle(Duration::from_millis(500)).await;
     assert!(
-        !s.home.file("hand/ruled").exists(),
+        !s.home.agent_files(1, "hand").join("ruled").exists(),
         "the other call is held"
     );
     s.chief.command(hand, "/go carry on").await;
     s.chief.shows(&now, "Went ahead.").await;
-    assert!(s.home.file("hand/ruled").exists());
+    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
 }
 
 #[tokio::test]
@@ -411,6 +415,6 @@ async fn withdrawing_an_objection_stops_the_turns_calls() {
         .until("the turn over", |c| !c.is_working(&now))
         .await;
     s.chief.settle(Duration::from_millis(500)).await;
-    assert!(!s.home.file("hand/ruled").exists());
+    assert!(!s.home.agent_files(1, "hand").join("ruled").exists());
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }

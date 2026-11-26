@@ -33,7 +33,7 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
     )
     .await;
     let hand = s.hand();
-    let inbox = s.home.file("hand/inbox");
+    let inbox = s.home.agent_files(1, "hand").join("inbox");
     let now = chat(hand);
     s.chief.open(&now).await;
 
@@ -120,10 +120,13 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
 
     s.chief.tell(ada, "Send cy the report.").await;
     s.chief.shows(&now, "Sent.").await;
-    let inbox = s.home.file(&format!(
-        "hamlets/{}/3/inbox/from-hire-2",
-        s.chief.hamlet_id("docs")
-    ));
+    let inbox = s
+        .home
+        .agent_files(
+            3,
+            &format!("hamlets/{}/3", s.chief.hamlet_id("docs")),
+        )
+        .join("inbox/from-hire-2");
     assert_eq!(
         fs::read_to_string(inbox.join("out/report.txt")).unwrap(),
         "findings"
@@ -177,10 +180,13 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     s.hire(ada, "cy", "dig").await;
     let now = chat(ada);
     s.chief.open(&now).await;
-    let inbox = format!(
-        "hamlets/{}/3/inbox/from-hire-2/big",
-        s.chief.hamlet_id("docs")
-    );
+    let inbox = s
+        .home
+        .agent_files(
+            3,
+            &format!("hamlets/{}/3", s.chief.hamlet_id("docs")),
+        )
+        .join("inbox/from-hire-2/big");
 
     s.chief.tell(ada, "Send cy everything.").await;
     let ask = s
@@ -193,13 +199,10 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     };
     assert_eq!(*danger, WaitDanger::Send);
     assert_eq!(*always, None);
-    assert!(!s.home.file(&inbox).exists());
+    assert!(!inbox.exists());
     s.chief.choose(&ask.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Sent.").await;
-    assert_eq!(
-        fs::read_dir(s.home.file(&inbox)).unwrap().count(),
-        1001
-    );
+    assert_eq!(fs::read_dir(&inbox).unwrap().count(), 1001);
 
     s.chief.tell(ada, "Once more.").await;
     let ask = s
@@ -220,7 +223,7 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
         refusals.iter().any(|words| words.contains("too much")),
         "{refusals:?}"
     );
-    assert!(!s.home.file(&format!("{inbox}-2")).exists());
+    assert!(!inbox.with_file_name("big-2").exists());
 }
 
 #[tokio::test]
