@@ -228,11 +228,14 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         .await;
     s.chief.choose(&wait.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Fetched.").await;
-    assert!(
-        fs::read_to_string(lodge.join("fetched"))
-            .unwrap()
-            .contains("org/large")
-    );
+    // An approval does not hold the turn under --actors, so the
+    // command may end after the words that follow it.
+    s.chief
+        .until("the fetch", |_| {
+            fs::read_to_string(lodge.join("fetched"))
+                .is_ok_and(|fetched| fetched.contains("org/large"))
+        })
+        .await;
     assert!(s.chief.realm().grants.is_empty());
 
     // The leave was for that call alone.
