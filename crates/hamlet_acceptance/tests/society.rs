@@ -305,13 +305,32 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "cy said blue.").await;
     let questions = lane(ada, ChatRefKind::Questions, cy);
+    // Under --actors the asker does not wait for the answer.
+    s.chief.open(&questions).await;
+    s.chief.shows(&questions, "Blue.").await;
     let page = s.chief.open(&questions).await;
     assert_eq!(page.items.first().unwrap().text, "Which colour?");
-    assert_eq!(page.items.last().unwrap().text, "Blue.");
     let back = failures(&s.chief, &questions);
     assert_eq!(back.len(), 1);
     assert_eq!(back[0].0, "ask");
-    assert!(back[0].1.is_some(), "asking back is refused: {back:?}");
+    if home::serves_actors() {
+        // ada does not wait on cy, so cy's question back is asked,
+        // and ada's answer to it comes after cy's.
+        assert!(
+            page.items.iter().any(|i| i.text == "Blue."),
+            "{page:?}"
+        );
+        assert!(
+            back[0].1.is_none(),
+            "asking back is asked: {back:?}"
+        );
+    } else {
+        assert_eq!(page.items.last().unwrap().text, "Blue.");
+        assert!(
+            back[0].1.is_some(),
+            "asking back is refused: {back:?}"
+        );
+    }
     let cy = s.chief.agent("hire#3").unwrap();
     let kinds = cy
         .conversations
