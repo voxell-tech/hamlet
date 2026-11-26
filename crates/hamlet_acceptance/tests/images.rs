@@ -1,6 +1,7 @@
 //! Images on a line: uploaded in parts, kept once by their hash,
-//! carried by the line's transcript item and read back by id, and
-//! given to a model its catalogue card says takes them.
+//! carried by the line's transcript item and read back by id, given
+//! to a model its catalogue card says takes them, and refused for a
+//! model that takes none.
 
 use base64::Engine as _;
 use base64::prelude::BASE64_STANDARD;
@@ -136,4 +137,27 @@ async fn a_model_the_chief_says_takes_images_is_given_them() {
         .map(|part| part["type"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
     assert!(parts.contains(&"image_url"), "{asked}");
+}
+
+#[tokio::test]
+async fn a_line_with_images_to_a_model_that_takes_none_is_refused() {
+    let endpoint = openai::Endpoint::start().await;
+    let mut s = Session::with_endpoint(&endpoint).await;
+    let hand = s.hand();
+    let png = BASE64_STANDARD.decode(PNG).unwrap();
+    let image =
+        s.chief.put_image(&png, png.len()).await.image.unwrap();
+
+    let refused = s
+        .chief
+        .say_with(hand, "Look.", vec![AttachedImage::last(image)])
+        .await;
+    assert_eq!(
+        (refused.kind, refused.text.as_str()),
+        (
+            ReplyKind::Error,
+            "the model `local::org/large` takes no images; choose \
+             another model or leave the images out"
+        )
+    );
 }
