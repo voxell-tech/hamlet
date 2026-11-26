@@ -33,6 +33,9 @@ Usage: cargo xtask <task> [args]
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
+  actors           the acceptance suite on `hamlet_server --actors`, \
+     with the Node host and its native module, but the scenarios \
+     the acceptance ledger records as failing there
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
@@ -304,6 +307,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
+        "actors" => actors(&root),
         "killkit" => {
             install(&root, NODE_HOST)?;
             native(
@@ -442,6 +446,155 @@ fn acceptance(root: &Path) -> Result<(), Failure> {
     status(&mut locked(
         "test",
         &["-p", "hamlet_acceptance", "--features", "acceptance"],
+    ))
+}
+
+/// The scenarios `actors` skips, each with the place of its test, by
+/// which the acceptance ledger's row records why it fails on
+/// `hamlet_server --actors`.
+const ACTORS_SKIP: &[(&str, &str)] = &[
+    (
+        "chats_with_answers_on_stdout_and_the_rest_on_stderr",
+        "tests/cli.rs:48",
+    ),
+    (
+        "starts_at_another_hamlet_and_switches_agents_and_hamlets",
+        "tests/cli.rs:149",
+    ),
+    (
+        "prices_and_notes_a_model_in_the_catalogue",
+        "tests/documents.rs:306",
+    ),
+    (
+        "founds_a_hamlet_under_a_new_scholar_then_an_existing_one",
+        "tests/city.rs:29",
+    ),
+    (
+        "the_network_waits_for_a_chief_and_always_becomes_a_grant",
+        "tests/oversight.rs:16",
+    ),
+    (
+        "a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder",
+        "tests/oversight.rs:142",
+    ),
+    (
+        "an_objection_holds_the_turn_until_the_chief_rules",
+        "tests/oversight.rs:353",
+    ),
+    (
+        "withdrawing_an_objection_stops_the_turns_calls",
+        "tests/oversight.rs:388",
+    ),
+    (
+        "the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it",
+        "tests/society.rs:31",
+    ),
+    (
+        "letters_and_questions_go_along_roads_and_a_question_back_is_refused",
+        "tests/society.rs:240",
+    ),
+    (
+        "a_worker_answers_its_starter_once_and_ends",
+        "tests/society.rs:326",
+    ),
+    (
+        "tries_the_model_and_the_connection_and_keeps_the_link",
+        "tests/models.rs:26",
+    ),
+    (
+        "signs_in_with_a_key_without_sending_it_to_any_client",
+        "tests/models.rs:127",
+    ),
+    (
+        "lists_prices_and_bills_an_endpoints_models",
+        "tests/models.rs:295",
+    ),
+    (
+        "gives_plain_words_for_http_refusals_and_charges_nothing",
+        "tests/models.rs:385",
+    ),
+    (
+        "a_hire_dreams_what_it_learned_onto_its_scholars_main",
+        "tests/dreams.rs:14",
+    ),
+    (
+        "a_scholars_dream_tidies_its_main_from_its_checkout",
+        "tests/dreams.rs:109",
+    ),
+    (
+        "confines_reads_writes_and_the_lodge_with_and_without_a_folder",
+        "tests/sandbox.rs:16",
+    ),
+    (
+        "a_letter_copies_the_files_it_names_into_the_receivers_inbox",
+        "tests/files.rs:86",
+    ),
+    (
+        "a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told",
+        "tests/files.rs:152",
+    ),
+    (
+        "a_file_mid_line_has_its_caption_in_place_for_the_model",
+        "tests/files.rs:227",
+    ),
+    (
+        "the_realms_budget_stops_the_hand_until_it_starts_again",
+        "tests/spend.rs:41",
+    ),
+    (
+        "a_hires_allowance_stops_its_calls_and_a_lead_may_set_it",
+        "tests/spend.rs:71",
+    ),
+    (
+        "spending_leaves_the_prompt_as_it_was_and_read_budget_tells_it",
+        "tests/spend.rs:112",
+    ),
+    (
+        "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
+        "tests/oauth.rs:185",
+    ),
+    (
+        "shutdown_waits_for_a_model_calls_started_rotation_to_persist",
+        "tests/oauth.rs:266",
+    ),
+    (
+        "concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_reach_either_store",
+        "tests/oauth.rs:298",
+    ),
+];
+
+fn actors(root: &Path) -> Result<(), Failure> {
+    prepare(root)?;
+    install(root, NODE_HOST)?;
+    if !native(root, "actors", "the acceptance suite on the actors")?
+    {
+        return Ok(());
+    }
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_cli", "-p", "hamlet_server"],
+    ))?;
+    let server = target(root)
+        .join("debug")
+        .join(format!("hamlet_server{}", env::consts::EXE_SUFFIX));
+    let mut test = locked(
+        "test",
+        &[
+            "-p",
+            "hamlet_acceptance",
+            "--features",
+            "acceptance",
+            "--no-fail-fast",
+            "--",
+            "--exact",
+        ],
+    );
+    for (scenario, _) in ACTORS_SKIP {
+        test.args(["--skip", scenario]);
+    }
+    status(test.env(
+        "HAMLET_ACCEPTANCE_SERVER",
+        format!("{} --actors", server.display()),
     ))
 }
 
@@ -599,8 +752,7 @@ fn native(
         return Ok(false);
     };
     status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
-    let target = env::var_os("CARGO_TARGET_DIR")
-        .map_or_else(|| root.join("target"), PathBuf::from);
+    let target = target(root);
     let folder = root.join(NATIVE);
     // A new file renamed over the old one, never the old one
     // rewritten: macOS kills a process that loads a signed library
@@ -611,6 +763,12 @@ fn native(
         .and_then(|_| fs::rename(&partial, folder.join(loaded)))
         .map_err(Failure::Native)?;
     Ok(true)
+}
+
+/// Cargo's target folder for the workspace in `root`.
+fn target(root: &Path) -> PathBuf {
+    env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| root.join("target"), PathBuf::from)
 }
 
 fn declarations(root: &Path) -> Result<(), Failure> {
