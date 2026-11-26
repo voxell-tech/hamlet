@@ -182,8 +182,6 @@ where
 }
 
 impl Library {
-    /// Emits [`Shelved`] when the shelves moved past the version last
-    /// told.
     async fn tell_shelved(&self, ctx: &Ctx<Self>) -> Result<()> {
         let mut shelved = self.shelved.lock().await;
         let version = self.repo.reads(version).await?;
@@ -246,8 +244,7 @@ pub(crate) fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-/// The shelves' version: the number of commits on `main`, so it
-/// counts up with every skill shelved or taken off.
+/// The shelves' version.
 fn version(git: &Reads) -> Result<u32> {
     Ok(u32::try_from(git.history(main(git)?, usize::MAX)?.len())?)
 }

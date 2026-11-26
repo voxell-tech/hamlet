@@ -542,7 +542,6 @@ async fn held_with_a_file(realm: &Realm) -> String {
     "1".to_owned()
 }
 
-/// The rows of the `held` table.
 async fn go(realm: &Realm, wait: &str) {
     let ruled =
         realm.ask(&answer(wait, Choice::Go, None)).await.unwrap();

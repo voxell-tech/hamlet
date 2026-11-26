@@ -250,7 +250,6 @@ pub(super) async fn apply(
     Ok(Affected::default())
 }
 
-/// Keeps the rows of the files of `parcel`.
 async fn kept(
     writer: &Writer<'_>,
     parcel: ParcelId,

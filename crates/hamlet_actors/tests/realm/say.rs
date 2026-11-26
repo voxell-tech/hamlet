@@ -344,8 +344,6 @@ async fn a_line_whose_attachments_the_store_lacks_or_misplaces_is_refused()
     realm.host.shutdown().await.unwrap();
 }
 
-/// One upload is aged, and one is fresh; the realm's start sweeps
-/// the store.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_store_keeps_an_upload_no_line_carried_for_a_day() {
     let (realm, _) = hamlet_with(0).await;

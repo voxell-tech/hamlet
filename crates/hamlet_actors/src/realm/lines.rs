@@ -274,9 +274,11 @@ impl Lines {
         }
     }
 
-    /// Keeps what `agent` told of its open inputs; whether it was
-    /// not working before and is now, or the other way.
-    pub fn working(&self, agent: AgentNumber, open: bool) -> bool {
+    pub fn changes_working(
+        &self,
+        agent: AgentNumber,
+        open: bool,
+    ) -> bool {
         let was = self.held().reports.insert(
             agent,
             Report {
@@ -370,7 +372,7 @@ impl Handler<Working> for Realm {
         working: Working,
     ) -> Result<()> {
         let agent = sender(&ctx, &working)?;
-        if self.lines.working(agent.0, working.open) {
+        if self.lines.changes_working(agent.0, working.open) {
             world::moved(&self, &ctx).await?;
         }
         Ok(())

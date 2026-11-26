@@ -182,7 +182,8 @@ pub(super) async fn read(
                 micros: spend.spent_micros,
                 ms: spend.spent_ms,
                 tokens: 0,
-                caps: (spend.budget_micros, spend.budget_ms),
+                cap_micros: spend.budget_micros,
+                cap_ms: spend.budget_ms,
                 period,
             })
             .unwrap_or_default();
@@ -223,7 +224,8 @@ async fn spent_by(
         micros,
         ms,
         tokens,
-        caps: (None, None),
+        cap_micros: None,
+        cap_ms: None,
         period: Some(period),
     })
 }

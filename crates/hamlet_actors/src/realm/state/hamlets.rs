@@ -32,8 +32,8 @@ pub(super) struct Spending {
     pub micros: u64,
     pub ms: u64,
     pub tokens: u64,
-    /// The budget's cost in micros and time in ms.
-    pub caps: (Option<u64>, Option<u64>),
+    pub cap_micros: Option<u64>,
+    pub cap_ms: Option<u64>,
     pub period: Option<Period>,
 }
 
@@ -117,7 +117,7 @@ pub(super) async fn place(
                 _ => None,
             },
             before,
-            budget: report("Hamlet", spending, 0),
+            budget: report(spending, 0),
             chiefs,
             folder,
             id: id.0.clone(),
@@ -151,7 +151,7 @@ impl Place {
             .grows_over_days
             .saturating_mul(DAY);
         protocol::Hamlet {
-            budget: report("Hamlet", self.spending, now),
+            budget: report(self.spending, now),
             roads: self
                 .roads
                 .iter()
@@ -271,15 +271,8 @@ async fn roads(
     Ok(roads)
 }
 
-/// The budget report of a payer, `Hamlet` or `Realm` by `whose`, at
-/// `now`.
-fn report(
-    whose: &str,
-    spending: Spending,
-    now: i64,
-) -> protocol::Report {
+fn report(spending: Spending, now: i64) -> protocol::Report {
     let spending = spending.at(now);
-    let (cost, ms) = spending.caps;
     let show = |amount: u64, time: bool| {
         if time {
             duration(amount)
@@ -287,19 +280,19 @@ fn report(
             money(amount)
         }
     };
-    let nearest =
-        [(spending.micros, cost, false), (spending.ms, ms, true)]
-            .into_iter()
-            .filter_map(|(spent, cap, time)| {
-                cap.map(|cap| (spent, cap, time))
-            })
-            .max_by(|a, b| {
-                fraction(a.0, a.1).total_cmp(&fraction(b.0, b.1))
-            });
+    let nearest = [
+        (spending.micros, spending.cap_micros, false),
+        (spending.ms, spending.cap_ms, true),
+    ]
+    .into_iter()
+    .filter_map(|(spent, cap, time)| {
+        cap.map(|cap| (spent, cap, time))
+    })
+    .max_by(|a, b| fraction(a.0, a.1).total_cmp(&fraction(b.0, b.1)));
     let period =
         spending.period.map_or(limits::Period::Day, |p| p.of);
     let summary = format!(
-        "{whose} {}: {}",
+        "Hamlet {}: {}",
         period.words(),
         nearest.map_or_else(
             || money(spending.micros),
@@ -321,8 +314,8 @@ fn report(
     });
     protocol::Report {
         caps: protocol::ReportCaps {
-            micros: cost.map(count),
-            ms: ms.map(count),
+            micros: spending.cap_micros.map(count),
+            ms: spending.cap_ms.map(count),
         },
         gone: (gone * 200.0).floor() / 200.0,
         left: nearest.map(|(spent, cap, _)| {

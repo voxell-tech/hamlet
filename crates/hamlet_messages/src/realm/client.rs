@@ -60,7 +60,6 @@ pub enum SayRefusal {
     NoSuchAgent { address: String },
     #[error("`{agent}` has left: {left}")]
     Left { agent: AgentName, left: Left },
-    /// `at` is not a place in the line's text of `length` bytes.
     #[error(
         "An attachment's place, {at}, is not a byte offset on a \
          character boundary of the line, which is {length} bytes."

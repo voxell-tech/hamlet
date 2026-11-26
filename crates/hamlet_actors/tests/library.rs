@@ -577,7 +577,6 @@ async fn an_unshelved_skill_leaves_library_and_the_list() {
     );
 }
 
-/// What a client of the program reads of the shelves.
 async fn read_as_client(host: &Host) -> ShelfList {
     let answer = host
         .call_for_client(
