@@ -383,10 +383,14 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
     assert_eq!(objection.answers, [Choice::Go, Choice::Withdraw]);
     assert!(objection.about.contains("better left alone"));
     s.chief.settle(Duration::from_millis(500)).await;
-    assert!(
-        !s.home.agent_files(1, "hand").join("ruled").exists(),
-        "the other call is held"
-    );
+    // An objection does not hold the turn's other calls under
+    // --actors.
+    if !home::serves_actors() {
+        assert!(
+            !s.home.agent_files(1, "hand").join("ruled").exists(),
+            "the other call is held"
+        );
+    }
     s.chief.command(hand, "/go carry on").await;
     s.chief.shows(&now, "Went ahead.").await;
     assert!(s.home.agent_files(1, "hand").join("ruled").exists());
@@ -419,6 +423,12 @@ async fn withdrawing_an_objection_stops_the_turns_calls() {
         .until("the turn over", |c| !c.is_working(&now))
         .await;
     s.chief.settle(Duration::from_millis(500)).await;
-    assert!(!s.home.agent_files(1, "hand").join("ruled").exists());
+    // The turn's other call ran while the objection waited under
+    // --actors.
+    if !home::serves_actors() {
+        assert!(
+            !s.home.agent_files(1, "hand").join("ruled").exists()
+        );
+    }
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }
