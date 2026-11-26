@@ -649,11 +649,14 @@ export async function callOut<
         );
     } catch (error) {
         if (context.abortSignal?.aborted) throw error;
-        return stamp.changes
-            ? interrupted(tool)
-            : failed(
-                  `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
-              );
+        if (stamp.changes) {
+            // The chief reads today's words; the log keeps why.
+            console.error(`${tool} was interrupted: ${reasonOf(error)}`);
+            return interrupted(tool);
+        }
+        return failed(
+            `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
+        );
     }
     if (isRefused(answer)) return refused?.(answer) ?? failed(answer.words);
     return said(answer as Granted<AnswersOf<A>[N]>);

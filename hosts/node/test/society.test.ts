@@ -1673,7 +1673,8 @@ test("a scholar's address is read as today's server reads it, a pinned version i
     await agent.stop();
 });
 
-test("a society tool whose call fails says it was interrupted, under the tool's name", async (t) => {
+test("a society tool whose call fails says it was interrupted, under the tool's name, and logs why", async (t) => {
+    const logged = t.mock.method(console, "error", () => {});
     const { calls } = fakeCalls({
         realm: {
             found: () => {
@@ -1692,6 +1693,14 @@ test("a society tool whose call fails says it was interrupted, under the tool's 
     await agent.idle();
 
     assert.deepEqual(await toolResults(agent), [interrupted("found_hamlet")]);
+    assert.deepEqual(
+        logged.mock.calls.map((call) => call.arguments),
+        [
+            [
+                "found_hamlet was interrupted: actor.action_timed_out: The action timed out.",
+            ],
+        ],
+    );
     await agent.stop();
 });
 
