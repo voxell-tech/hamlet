@@ -311,8 +311,8 @@ pub(super) async fn apply(
             writer
                 .execute(
                     "INSERT INTO profile (id, kind, name, status, \
-                     fork_of, fork_at) VALUES (?1, ?2, ?3, ?4, ?5, \
-                     ?6)",
+                     fork_of, fork_at, since) VALUES (?1, ?2, ?3, \
+                     ?4, ?5, ?6, ?7)",
                     vec![
                         id(profile),
                         BindParam::Text(change::case_name(
@@ -324,6 +324,7 @@ pub(super) async fn apply(
                         )?),
                         id(from),
                         BindParam::Text(at.0.to_string()),
+                        BindParam::Integer(writer.at().0),
                     ],
                 )
                 .await?;
