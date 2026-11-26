@@ -13,7 +13,7 @@ use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::world::{
     AgentSeen, Lasting, Seen, Starter, Status, WaitKind, WaitSeen,
 };
-use hamlet_messages::realm::{AgentName, HowEnded, Left};
+use hamlet_messages::realm::{AgentName, HowEnded, Left, ProfileId};
 use hamlet_messages::sender::{Client, Hand};
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
@@ -480,6 +480,8 @@ async fn scholars(
                 vec![BindParam::Integer(id.into())],
             )
             .await?;
+        let holds =
+            profiles::holds::Holds::read(rows, ProfileId(id)).await?;
         scholars.push(protocol::Scholar {
             arrival: match (kind, arrival) {
                 (
@@ -533,8 +535,16 @@ async fn scholars(
             },
             name: String::of(name)?,
             since: time(i64::of(since)?),
-            skills: Vec::new(),
-            versions: Vec::new(),
+            skills: holds.skills,
+            versions: holds
+                .versions
+                .into_iter()
+                .map(|version| protocol::VersionView {
+                    at: time(version.at),
+                    name: version.name,
+                    note: version.note,
+                })
+                .collect(),
         });
     }
     Ok(scholars)

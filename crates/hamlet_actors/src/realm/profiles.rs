@@ -37,7 +37,9 @@ use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
 use super::{Realm, dreams, hire, record, settings, tree};
+use crate::cbor;
 
+pub(super) mod holds;
 pub(super) mod lifecycle;
 mod making;
 
@@ -289,6 +291,11 @@ pub(super) enum Change {
         house: Option<HouseAt>,
         by: record::By,
     },
+    /// The profile's repository holds `holds`.
+    Holds {
+        profile: ProfileId,
+        holds: holds::Holds,
+    },
 }
 
 pub(super) async fn apply(
@@ -384,6 +391,14 @@ pub(super) async fn apply(
             house,
             by,
         } => place(writer, profile, arrival, house, &by).await?,
+        Change::Holds { profile, holds } => {
+            writer
+                .execute(
+                    "UPDATE profile SET holds = ?2 WHERE id = ?1",
+                    vec![id(profile), BindParam::Blob(cbor(&holds)?)],
+                )
+                .await?;
+        }
     }
     Ok(Affected::seen([Part::State]))
 }
@@ -499,6 +514,8 @@ pub(super) fn free_spot(taken: &[(f64, f64)]) -> Result<HouseAt> {
 impl Relay<Hand> for ByHand<Tool<ReadProfile>> {
     type Call = Read;
     type Output = ReadAnswer<AgentRefusal<ReadProfileRefusal>>;
+
+    const CHANGES: bool = false;
 
     async fn ask(
         &self,
@@ -790,7 +807,7 @@ impl<T: ProfileChange> Relay<Agent> for Carried<T> {
 /// Asks the profile for the change `by`'s call `asking` names, which
 /// a chief allowed, and gives the words `by` is told of it.
 pub(super) async fn carry_out<T: ProfileChange>(
-    realm: &Realm,
+    realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: Agent,
     asking: Carried<T>,

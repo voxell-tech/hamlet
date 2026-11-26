@@ -650,7 +650,11 @@ pub(in crate::realm) async fn fork(
                     &ProfileInput::Fork { profile: from, at },
                 )
                 .await?;
-            Ok(Vec::new())
+            let rows = cx.rows()?;
+            Ok(super::holds::reread(cx.peers(), &rows, profile)
+                .await
+                .into_iter()
+                .collect())
         }
         ForkStep::Live => Ok(vec![
             super::Change::Status {

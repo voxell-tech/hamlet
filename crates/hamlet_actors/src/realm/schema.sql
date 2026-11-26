@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS profile (
 	left_at INTEGER,
 	left_by TEXT,
 	left_reason TEXT,
+	-- the CBOR of what its repository holds that the State shows:
+	-- the skills at `main` and the versions
+	holds BLOB,
 	-- a fork's source profile and the commit it was made at
 	fork_of INTEGER,
 	fork_at TEXT) STRICT;

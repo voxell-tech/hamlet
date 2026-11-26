@@ -5,6 +5,7 @@ use std::time::Instant;
 use hamlet_actors::realm;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Party as _};
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::client::{
     ReadState, ReadWorld, RememberSecret, World,
 };
@@ -15,7 +16,7 @@ use hamlet_messages::realm::models::{
     KeepCredential, Kept, Settings,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, CreateProfile,
+    ArchiveProfile, CreateProfile, TagProfile,
 };
 use hamlet_messages::realm::world::Revision;
 use hamlet_messages::realm::{
@@ -26,6 +27,7 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::chiefs::chief;
+use super::profile_stand_in::{HELD_AT, HELD_SKILL, HELD_VERSION};
 use super::profiles::create;
 use super::stand_ins::{Callee, Seen};
 use super::world::seen_until;
@@ -470,5 +472,41 @@ async fn a_profile_shows_its_house_who_brought_it_and_since() {
     assert_eq!(newbie.arrival_by.as_deref(), Some("chief"));
     assert_eq!(helper.arrival_by.as_deref(), Some("hand"));
     assert!(newbie.since > 0 && helper.since >= newbie.since);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_shows_the_skills_and_versions_its_repository_holds()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let mason = |state: protocol::State| {
+        state
+            .scholars
+            .into_iter()
+            .find(|scholar| scholar.name == "Mason")
+            .expect("the profile is shown")
+    };
+    let made = mason(state(&realm).await);
+    let tag = TagProfile {
+        profile: ProfileId(u32::try_from(made.id.0).unwrap()),
+        version: VersionName("v2".to_owned()),
+        at: None,
+        note: String::new(),
+    };
+
+    chief(&realm, tag).await;
+    let tagged = mason(state(&realm).await);
+
+    assert!(made.skills.is_empty() && made.versions.is_empty());
+    assert_eq!(tagged.skills, [HELD_SKILL]);
+    assert_eq!(
+        tagged.versions,
+        [protocol::VersionView {
+            at: HELD_AT.unsigned_abs(),
+            name: HELD_VERSION.to_owned(),
+            note: String::new(),
+        }]
+    );
     realm.host.shutdown().await.unwrap();
 }

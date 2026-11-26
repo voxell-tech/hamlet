@@ -401,6 +401,8 @@ pub struct VersionSeen {
     pub note: String,
     /// The record's name of who made it: `chief:<n>`, `agent:<n>`.
     pub by: String,
+    /// When it was made, in milliseconds since the epoch.
+    pub at: i64,
 }
 message!(Versions, "versions", Reader => Profile, VersionList);
 
