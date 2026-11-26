@@ -27,7 +27,7 @@ use super::super::act::{
 };
 use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
-use super::super::tasks::{Origin, TaskId};
+use super::super::tasks::{self, Origin, TaskId};
 use super::super::waits::answer::Ruling;
 use super::super::waits::{self, Raised};
 use super::super::{Realm, letters, parcels, record, reviews, tree};
@@ -702,6 +702,7 @@ impl Act<Agent> for Carried<Object> {
             return Ok(Err(ObjectRefusal::NoReason));
         };
         let name = record::agent_name(rows, by.0).await?.name;
+        let line = tasks::line(rows, task).await?;
         let opening = Opening {
             wait: waits::next(rows).await?,
             raised: Raised {
@@ -710,7 +711,10 @@ impl Act<Agent> for Carried<Object> {
                 task: Some(task),
                 conversation: Some(self.act.conversation.clone()),
                 call: Some(self.called.call.clone()),
-                subject: format!("`{name}` objects: {reason}"),
+                subject: format!(
+                    "A chief told `{name}`: {line}\n`{name}` \
+                     objects: {reason}"
+                ),
                 detail: detail(&WaitKind::Objection {
                     reason,
                     source: ObjectionSource::Agent,

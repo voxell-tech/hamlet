@@ -32,6 +32,7 @@ const WRITERS: &[(&str, &[&str])] = &[
     ("parcels.rs", &["parcel", "parcel_file"]),
     ("dreams.rs", &["dream"]),
     ("librarian.rs", &["librarian"]),
+    ("newcomers.rs", &["newcomer"]),
     ("merges.rs", &["merge"]),
 ];
 
@@ -44,8 +45,8 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "RememberSecret"),
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
-    ("profiles.rs", "Create"),
-    ("profiles.rs", "ChiefCreate"),
+    ("profiles/making.rs", "Create"),
+    ("profiles/making.rs", "ChiefCreate"),
     ("profiles.rs", "Purging"),
     ("profiles.rs", "Asked"),
     ("dreams.rs", "ChiefDream"),

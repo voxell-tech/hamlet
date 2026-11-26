@@ -5,6 +5,7 @@ use hamlet_actor_error::ActorError;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::Input;
 use hamlet_messages::realm::choices::SetNickname;
+use hamlet_messages::realm::client::ReadState;
 use hamlet_messages::realm::documents::{
     CardSetting, EditCatalogue, EditSettings, Endpoint,
     RemoteWorkspace, Setting, SettingRefusal,
@@ -20,7 +21,7 @@ use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
-use hamlet_protocol::client::{Choice, RequestId};
+use hamlet_protocol::client::{self as protocol, Choice, RequestId};
 use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
@@ -559,6 +560,28 @@ fn endpoints(names: &[(&str, &str)]) -> EditSettings {
                 .collect(),
         }],
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn state_shows_which_endpoints_keep_a_key() {
+    let realm = Realm::start().await;
+    let both = [
+        ("keyed", "https://k.invalid"),
+        ("open", "https://o.invalid"),
+    ];
+    assert_eq!(chief(&realm, endpoints(&both)).await, Done::Done);
+    keep(&realm, "keyed", key("sk-made-up")).await;
+
+    let state: protocol::State = realm.ask(&ReadState).await.unwrap();
+    let shown = state
+        .settings
+        .endpoints
+        .iter()
+        .map(|endpoint| (endpoint.name.as_str(), endpoint.key))
+        .collect::<Vec<_>>();
+
+    assert_eq!(shown, [("keyed", true), ("open", false)]);
+    realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

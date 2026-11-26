@@ -360,8 +360,8 @@ impl Held {
 impl Look<Client> for ReadLine {
     type Output = LineIs;
 
-    fn look(&self, _by: &Client, realm: &Realm) -> LineIs {
-        realm.lines.read(&self.0)
+    fn look(&self, _by: &Client, realm: &Realm) -> Result<LineIs> {
+        Ok(realm.lines.read(&self.0))
     }
 }
 

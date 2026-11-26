@@ -4,6 +4,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::Ctx;
+use hamlet_host::HostRef;
 use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::{ReadWorld, World};
@@ -21,8 +22,8 @@ use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
 use super::tree::choices;
 use super::{
-    Realm, budget, chiefs, documents, laid, parcels, state, tree,
-    versions, waits,
+    Options, Realm, budget, chiefs, documents, laid, parcels, state,
+    tree, versions, waits,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -93,6 +94,7 @@ impl Held {
         let revision = versions::revision(&rows).await?;
         let kept = rebuilt(
             &rows,
+            faux(ctx)?,
             Kept::default(),
             revision,
             &BTreeSet::from(Part::ALL),
@@ -131,7 +133,9 @@ impl Held {
         };
         let built = async {
             let rows = Rows::outside(ctx)?;
-            rebuilt(&rows, Kept::clone(&held), revision, &parts).await
+            let faux = faux(ctx)?;
+            rebuilt(&rows, faux, Kept::clone(&held), revision, &parts)
+                .await
         }
         .await;
         match built {
@@ -160,8 +164,19 @@ impl Held {
     }
 }
 
+/// The model each agent of a faux realm runs.
+const FAUX_MODEL: &str = "faux::faux-1";
+
+/// Whether the realm's agents answer from a faux script.
+fn faux(ctx: &Ctx<Realm>) -> Result<bool> {
+    Ok(HostRef::of(ctx.inner())?
+        .value::<Options>()
+        .is_some_and(|options| options.faux))
+}
+
 async fn rebuilt(
     rows: &Rows<'_>,
+    faux: bool,
     mut kept: Kept,
     revision: Revision,
     parts: &BTreeSet<Part>,
@@ -170,7 +185,7 @@ async fn rebuilt(
     world.revision = revision;
     if parts.contains(&Part::Agents) || parts.contains(&Part::Reaches)
     {
-        world.agents = agents(rows).await?;
+        world.agents = agents(rows, faux).await?;
         world.grants = grants(rows).await?;
     }
     if parts.contains(&Part::Hamlets) {
@@ -191,7 +206,10 @@ async fn rebuilt(
     Ok(kept)
 }
 
-async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
+async fn agents(
+    rows: &Rows<'_>,
+    faux: bool,
+) -> Result<Vec<AgentSeen>> {
     let mut agents = Vec::new();
     for row in rows
         .select(
@@ -266,9 +284,12 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
                 }),
             },
             nickname: Option::of(nickname)?,
-            runs: documents::model(rows, agent)
-                .await?
-                .map(|chosen| chosen.model),
+            runs: match faux {
+                true => Some(FAUX_MODEL.to_owned()),
+                false => documents::model(rows, agent)
+                    .await?
+                    .map(|chosen| chosen.model),
+            },
             model: Option::of(model)?,
             effort: Option::of(effort)?
                 .map(change::from_case_name)
@@ -368,9 +389,9 @@ fn wait_seen(
                     .transpose()?,
             }
         }
-        waits::Kind::Question | waits::Kind::Objection => {
-            ciborium::from_reader(needed()?)?
-        }
+        waits::Kind::Question
+        | waits::Kind::Objection
+        | waits::Kind::Newcomer => ciborium::from_reader(needed()?)?,
         waits::Kind::Reserved => WaitKind::Reserved,
         waits::Kind::Send => WaitKind::Send {
             measure: parcels::measure_of(needed()?)?,
@@ -445,7 +466,7 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
 impl Look<Client> for ReadWorld {
     type Output = Seen;
 
-    fn look(&self, _by: &Client, realm: &Realm) -> Seen {
+    fn look(&self, _by: &Client, realm: &Realm) -> Result<Seen> {
         realm.secrets.scrubbed_value(&realm.world.current().seen)
     }
 }
