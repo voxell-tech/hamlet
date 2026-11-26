@@ -4,7 +4,8 @@
  * lines below (`run:`, `tell`, `read` and the others), and the line `tools`
  * with the tools it is offered, one `<name>: <description>` a line.
  *
- * A script is JSON, after today's server's `--faux` file:
+ * A script is JSON, in today's server's `--faux` format
+ * (`harnesses/pi/src/faux.ts`):
  *
  * ```json
  * {
@@ -16,8 +17,13 @@
  *     { "text": "Slow.", "waitMs": 20000 },
  *     { "text": "Stalled.", "stallMs": 1000 },
  *     { "error": "The model failed." },
- *     { "text": "Big.", "usage": { "input": 100000, "output": 10 } }
- *   ]
+ *     { "text": "Big.", "usage": { "input": 100000, "output": 10 } },
+ *     { "text": "Late.", "holdUntil": "go" },
+ *     { "calls": [{ "name": "tell", "arguments": { "to": "{{hamlet}}" } }], "fill": "names.json" }
+ *   ],
+ *   "agents": { "2": ["For agent 2."] },
+ *   "kinds": { "worker": ["For any worker."] },
+ *   "tokensPerSecond": 100
  * }
  * ```
  *
@@ -26,10 +32,19 @@
  * that names none. The agent runs the first model. A step's `waitMs` is the
  * time its answer takes, which stopping the request ends; its `stallMs` a
  * time stopping does not end; and its `usage` the tokens it says it used, in
- * place of the faux model's estimate. Each answer is priced from its model's
- * rates, as a real provider's is. A restarted host begins the script again.
+ * place of the faux model's estimate. A step's `holdUntil` is a file, from the
+ * script's folder, its answer waits for until stopped; its `fill` a JSON file
+ * of words, from the script's folder, for each `{{name}}` in its calls'
+ * arguments. The agent numbered `<n>` takes its answers from `agents`, else
+ * an agent of a kind such as `worker` or `errand` from `kinds`, and either
+ * takes from `responses` only when it has no list of its own. Each answer is
+ * priced from its model's rates, as a real provider's is. A restarted host
+ * begins the script again.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync } from "node:fs";
+import { access, readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
     type Api,
@@ -40,6 +55,7 @@ import {
     createFauxCore,
     createModels,
     createProvider,
+    type FauxContentBlock,
     type FauxModelDefinition,
     type FauxResponseFactory,
     fauxAssistantMessage,
@@ -49,6 +65,7 @@ import {
     getCurrentTools,
     type Message,
     type Model,
+    type Models,
     type MutableModels,
     type ProviderStreams,
     type SimpleStreamOptions,
@@ -155,7 +172,85 @@ interface Step {
 
 interface Script {
     readonly models?: readonly FauxModelDefinition[];
+    readonly tokensPerSecond?: number;
     readonly steps: Step[];
+    /** Each agent's and each kind's own steps, as `agent:<n>` and `kind:<kind>`. */
+    readonly lists: Map<string, Step[]>;
+}
+
+/** The agent a model request is made for, and its kind. */
+const caller = new AsyncLocalStorage<{ agent: number; kind: string }>();
+
+/** `models`, whose faux requests take the steps of the agent `agent` of `kind`. */
+export function answeringAs(
+    agent: number,
+    kind: string,
+    models: Models,
+): Models {
+    const as = { agent, kind };
+    return new Proxy(models, {
+        get(target, key, receiver) {
+            const value: unknown = Reflect.get(target, key, receiver);
+            if (typeof value !== "function") return value;
+            const bound = value.bind(target);
+            return key === "streamSimple" || key === "stream"
+                ? (...args: unknown[]) => caller.run(as, () => bound(...args))
+                : bound;
+        },
+    });
+}
+
+/** The steps the request being made takes from. */
+function stepsOf(script: Script): Step[] {
+    const asked = caller.getStore();
+    if (asked === undefined) return script.steps;
+    return (
+        script.lists.get(`agent:${asked.agent}`) ??
+        script.lists.get(`kind:${asked.kind}`) ??
+        script.steps
+    );
+}
+
+/** The names and their words in the JSON file `file`. */
+async function namesIn(file: string): Promise<Record<string, string>> {
+    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (
+        typeof value !== "object" ||
+        value === null ||
+        Object.values(value).some((v) => typeof v !== "string")
+    )
+        throw new Error(`${file} is not an object of words`);
+    return value as Record<string, string>;
+}
+
+/** `value` with each `{{name}}` in its strings replaced by the words of `name`; a name with none stays. */
+function filled(value: unknown, words: Record<string, string>): unknown {
+    if (typeof value === "string")
+        return value.replace(
+            /\{\{([^{}]+)\}\}/g,
+            (whole, name: string) => words[name] ?? whole,
+        );
+    if (Array.isArray(value)) return value.map((item) => filled(item, words));
+    if (typeof value === "object" && value !== null)
+        return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [
+                key,
+                filled(item, words),
+            ]),
+        );
+    return value;
+}
+
+/** Waits until `file` exists or `signal` aborts. */
+async function held(file: string, signal: AbortSignal | undefined) {
+    while (!signal?.aborted) {
+        try {
+            await access(file);
+            return;
+        } catch {
+            await sleep(20);
+        }
+    }
 }
 
 interface ScriptFile {
@@ -170,6 +265,9 @@ interface ScriptFile {
     )[];
     readonly price?: Tokens;
     readonly responses?: readonly (string | StepFile)[];
+    readonly agents?: Readonly<Record<string, readonly (string | StepFile)[]>>;
+    readonly kinds?: Readonly<Record<string, readonly (string | StepFile)[]>>;
+    readonly tokensPerSecond?: number;
 }
 
 interface StepFile {
@@ -182,11 +280,28 @@ interface StepFile {
     readonly error?: string;
     readonly waitMs?: number;
     readonly stallMs?: number;
+    readonly holdUntil?: string;
+    readonly fill?: string;
     readonly usage?: Tokens;
 }
 
 function scriptOf(path: string): Script {
     const file = JSON.parse(readFileSync(path, "utf8")) as ScriptFile;
+    const folder = dirname(resolve(path));
+    const steps = (listed: readonly (string | StepFile)[]): Step[] =>
+        listed.map((step) =>
+            typeof step === "string"
+                ? { answer: () => fauxAssistantMessage(step) }
+                : stepOf(step, folder),
+        );
+    const lists = (
+        prefix: string,
+        named: Readonly<Record<string, readonly (string | StepFile)[]>> = {},
+    ): [string, Step[]][] =>
+        Object.entries(named).map(([key, listed]) => [
+            `${prefix}:${key}`,
+            steps(listed),
+        ]);
     const price = file.price ?? { input: 0, output: 0 };
     const named =
         file.models ?? (file.price === undefined ? undefined : [FAUX_MODEL]);
@@ -211,27 +326,43 @@ function scriptOf(path: string): Script {
                       };
                   }),
               }),
-        steps: (file.responses ?? []).map((step) =>
-            typeof step === "string"
-                ? { answer: () => fauxAssistantMessage(step) }
-                : stepOf(step),
-        ),
+        ...(file.tokensPerSecond === undefined
+            ? {}
+            : { tokensPerSecond: file.tokensPerSecond }),
+        steps: steps(file.responses ?? []),
+        lists: new Map([
+            ...lists("agent", file.agents),
+            ...lists("kind", file.kinds),
+        ]),
     };
 }
 
-function stepOf(step: StepFile): Step {
+function stepOf(step: StepFile, folder: string): Step {
     const { thinking, text, calls = [], error, waitMs, stallMs, usage } = step;
+    const holdUntil =
+        step.holdUntil === undefined
+            ? undefined
+            : resolve(folder, step.holdUntil);
+    const fill =
+        step.fill === undefined ? undefined : resolve(folder, step.fill);
     const answer: FauxResponseFactory = async (_context, options) => {
         const signal = options?.signal;
         if (stallMs !== undefined) await sleep(stallMs);
         if (waitMs !== undefined)
             await sleep(waitMs, undefined, { signal }).catch(() => {});
+        if (holdUntil !== undefined) await held(holdUntil, signal);
         if (signal?.aborted)
             return fauxAssistantMessage("", { stopReason: "aborted" });
-        const content = [
+        const words = fill === undefined ? {} : await namesIn(fill);
+        const content: FauxContentBlock[] = [
             ...(thinking === undefined ? [] : [fauxThinking(thinking)]),
             ...(text === undefined ? [] : [fauxText(text)]),
-            ...calls.map((call) => fauxToolCall(call.name, call.arguments)),
+            ...calls.map((call) =>
+                fauxToolCall(
+                    call.name,
+                    filled(call.arguments, words) as ToolCall["arguments"],
+                ),
+            ),
         ];
         if (error !== undefined)
             return fauxAssistantMessage(content, {
@@ -362,10 +493,14 @@ export function fauxModels(
     path: string | undefined,
     signIn: boolean,
 ): FauxModels {
-    const script: Script = path === undefined ? { steps: [] } : scriptOf(path);
-    const core = createFauxCore(
-        script.models === undefined ? {} : { models: [...script.models] },
-    );
+    const script: Script =
+        path === undefined ? { steps: [], lists: new Map() } : scriptOf(path);
+    const core = createFauxCore({
+        ...(script.models === undefined ? {} : { models: [...script.models] }),
+        ...(script.tokensPerSecond === undefined
+            ? {}
+            : { tokensPerSecond: script.tokensPerSecond }),
+    });
     // Each request takes its step as it is made, so the answer and its usage
     // stay together when requests overlap.
     const stream: StreamFunction<string, SimpleStreamOptions> = (
@@ -373,7 +508,7 @@ export function fauxModels(
         context,
         options,
     ) => {
-        const step = script.steps.shift() ?? { answer: echo };
+        const step = stepsOf(script).shift() ?? { answer: echo };
         core.setResponses([step.answer]);
         return measured(
             core.stream(model, context, options),

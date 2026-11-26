@@ -64,6 +64,7 @@ import {
     type TurnEnded,
     tellingFailed,
 } from "./failed.ts";
+import { answeringAs } from "./faux.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import { drop_inbox, migrateInbox, read_inbox, take_inbox } from "./inbox.ts";
 import { admissionOf, withdrawnInput } from "./inputs.ts";
@@ -642,10 +643,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     const options: PiOptions = {
         registry,
-        models: gated(
-            agentModels(config.models, copies, peers),
-            peers,
-            placing,
+        models: answeringAs(
+            numberOf(c),
+            row.kind,
+            gated(agentModels(config.models, copies, peers), peers, placing),
         ),
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
