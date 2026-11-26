@@ -247,7 +247,13 @@ impl Door {
                 () = signals.next() => break Ok(()),
                 started = &mut agents, if starting => {
                     starting = false;
-                    started.map(|()| door.shows.read_providers())
+                    started.map(|()| {
+                        door.shows.read_providers();
+                        door.work.spawn(view::check_at_start(
+                            door.calls.clone(),
+                            door.own.clone(),
+                        ));
+                    })
                 }
                 accepted = listener.accept() => {
                     if let Ok((stream, _)) = accepted {

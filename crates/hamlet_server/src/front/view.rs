@@ -10,7 +10,9 @@ use anyhow::Result;
 use hamlet_actor::Event;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Library, Party, Realm};
-use hamlet_messages::agent::chat::ReadProviders;
+use hamlet_messages::agent::chat::{
+    CheckConnection, Checked, ReadProviders,
+};
 use hamlet_messages::library::{ReadShelves, Shelved};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::{ReadState, ReadWorld, World};
@@ -19,7 +21,8 @@ use hamlet_messages::realm::world::{
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, Confinement, Doing, Link, ServerMessage,
+    self as protocol, Confinement, Doing, Link, LinkState,
+    ServerMessage,
 };
 use hamlet_store::ids::AgentId;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -49,6 +52,48 @@ pub(crate) struct Own {
         watch::Sender<Option<protocol::SettingsViewWorkspaceMove>>,
     /// Every agent runs the faux model.
     pub(crate) faux: bool,
+}
+
+impl Own {
+    /// Shows `checked` as the realm's model link from then on: a
+    /// hello as connected, a failure as failed. A refusal leaves the
+    /// link as it was.
+    pub(crate) fn show_check(&self, checked: &Checked) {
+        let (state, models, words) = match checked {
+            Checked::Answered { words, models } => {
+                (LinkState::Connected, *models, words)
+            }
+            Checked::Failed { words } => {
+                (LinkState::Failed, None, words)
+            }
+            Checked::Refused { .. } => return,
+        };
+        self.link.send_replace(Link {
+            models: models.map(i64::from),
+            state,
+            words: Some(words.clone()),
+        });
+    }
+}
+
+/// Checks the realm's model once the agents started, as the realm's
+/// endpoints are asked for their models then. A realm served by the
+/// faux model, or with no endpoint, is left untested.
+pub(crate) async fn check_at_start(calls: Calls, own: Arc<Own>) {
+    if own.faux {
+        return;
+    }
+    let Ok(state) = calls.call(&Realm, &ReadState).await else {
+        return;
+    };
+    if state.settings.endpoints.is_empty() {
+        return;
+    }
+    if let Ok(checked) =
+        calls.call(&address::Agent(HAND), &CheckConnection).await
+    {
+        own.show_check(&checked);
+    }
 }
 
 /// The realm as the door last read it, with the server's own fields.

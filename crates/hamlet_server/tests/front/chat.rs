@@ -11,13 +11,13 @@ use hamlet_protocol::client::{
     New, Open, Read, ReadResult, ReplyKind, RequestId, Resume, Retry,
     Say, ServerMessage, Stop, TranscriptOperation,
 };
-use hamlet_testing::{Scratch, Server};
+use hamlet_testing::{Models, Scratch, Server, openai};
 use serde_json::json;
 
 use super::{
-    HeldNode, KEY, SIGN_IN, finish_sign_in, frames, keeps_to_itself,
-    kill_node, login_step, said_once_hired, serve, serve_with,
-    start_sign_in,
+    HeldNode, KEY, SERVER, SIGN_IN, finish_sign_in, frames,
+    keeps_to_itself, kill_node, login_step, said_once_hired, serve,
+    serve_with, start_sign_in,
 };
 
 /// What the faux model answers the first line it is given.
@@ -845,6 +845,38 @@ async fn a_scholar_made_and_founded_under_in_one_answer_has_its_papers()
     let scholar = chief.scholar("bo").unwrap().id;
     let papers = chief.papers(Keeper::Scholar(scholar)).await;
     assert_eq!(papers.character, "Careful.");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_realm_with_an_endpoint_shows_its_model_checked_once_started()
+ {
+    let endpoint = openai::Endpoint::start().await;
+    let home = Scratch::new("front-home");
+    let mut server = Server::start(
+        &[SERVER.to_owned(), "--actors".to_owned()],
+        &home,
+        Models::Providers,
+        &[
+            ("HAMLET_MODEL", "local::org/large"),
+            ("HAMLET_BASE_URL", endpoint.url.as_str()),
+        ],
+    )
+    .await
+    .unwrap_or_else(|failure| panic!("{failure}"));
+    let mut chief = Client::join(&server).await;
+    chief
+        .until("the model link the start's check set", |chief| {
+            chief.realm().settings.link.state == LinkState::Connected
+        })
+        .await;
+
+    let link = chief.realm().settings.link;
+    assert_eq!(
+        (link.models, link.words.as_deref()),
+        (Some(1), Some("Connected, 1 model(s)"))
+    );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
