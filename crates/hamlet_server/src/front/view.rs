@@ -588,10 +588,14 @@ impl Shown {
         };
         state.settings.link = own.link.borrow().clone();
         for agent in &mut state.agents {
-            if let Some(shown) = super::route::number(agent.id)
+            match super::route::number(agent.id)
                 .and_then(|number| self.hub.activity(number))
             {
-                show(agent, &shown);
+                Some(shown) => show(agent, &shown),
+                None => {
+                    agent.activity.doing_words =
+                        activity::words(&agent.activity.doing).into();
+                }
             }
         }
         Some(state)

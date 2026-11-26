@@ -288,6 +288,20 @@ async fn an_idle_realm_holds_no_agents_subscription() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_agent_that_has_not_worked_is_shown_at_rest_in_todays_words()
+ {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let chief = Client::join(&server).await;
+    let hand = shown(&chief, chief.hand()).unwrap();
+    assert_eq!(
+        (hand.activity.doing, hand.activity.doing_words.as_str()),
+        (Doing::Rest, "At rest")
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_watcher_sees_activity_while_the_agent_works() {
     let (mut server, _home, _side) =
         serve(json!([asks_the_chief(), "Planted."])).await;
