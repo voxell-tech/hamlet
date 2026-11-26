@@ -318,7 +318,8 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
             .await;
         assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     }
-    assert_eq!(s.chief.waits().len(), 1);
+    // Under --actors the second question may already wait beside it.
+    assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
     let reply = s
         .chief
         .request(|id| {
