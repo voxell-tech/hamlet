@@ -78,7 +78,8 @@ impl Own {
 
 /// Checks the realm's model once the agents started, as the realm's
 /// endpoints are asked for their models then. A realm served by the
-/// faux model, or with no endpoint, is left untested.
+/// faux model, or with no endpoint, is left untested. Once a client
+/// has checked, the link shows the client's check instead.
 pub(crate) async fn check_at_start(calls: Calls, own: Arc<Own>) {
     if own.faux {
         return;
@@ -91,6 +92,7 @@ pub(crate) async fn check_at_start(calls: Calls, own: Arc<Own>) {
     }
     if let Ok(checked) =
         calls.call(&address::Agent(HAND), &CheckConnection).await
+        && own.link.borrow().state == LinkState::Untested
     {
         own.show_check(&checked);
     }
