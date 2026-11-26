@@ -984,16 +984,18 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
             ...(message.task === undefined ? {} : { task: message.task }),
             ended: { call: message.call, end: endOf(message.outcome) },
         };
+        if (admission.ended?.end.type === "aborted") {
+            await conversation.submit(
+                await endedWithoutRun(harness, admission, words, context),
+                context,
+            );
+            return;
+        }
         // Kept before the admission, so its end always finds it.
         if (message.task !== undefined) {
             await given(c, conversation.id, message.call, message.task);
         }
-        await conversation.submit(
-            admission.ended?.end.type === "aborted"
-                ? await endedWithoutRun(harness, admission, words, context)
-                : draftOf(admission),
-            context,
-        );
+        await conversation.submit(draftOf(admission), context);
     });
 }
 
