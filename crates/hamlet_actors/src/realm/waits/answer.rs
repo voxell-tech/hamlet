@@ -19,8 +19,8 @@ use super::super::oversight::{asking, reserved};
 use super::super::tasks::TaskId;
 use super::super::{oversight, parcels, record, versions};
 use super::{
-    Change, Choice, Kind, Ran, Scope, Told, most_refusals, named,
-    past_the_count, refusals,
+    Change, Choice, Kind, Ran, Refused, Scope, Told, most_refusals,
+    named, needs_of, past_the_count, refusals,
 };
 
 /// What the unit of a wait's kind adds to a chief's answer: the
@@ -62,12 +62,24 @@ pub(in crate::realm) struct Waiting {
     task: Option<TaskId>,
     conversation: Option<ConversationId>,
     call: Option<CallId>,
+    subject: String,
     needs: Vec<Need>,
-    /// For a refusal that reaches its task's count: the agent's
-    /// other open tool waits on the task, with the words they close
-    /// with.
-    past_the_count: Option<(Vec<WaitId>, String)>,
+    /// The agent's other open tool waits.
+    others: Vec<Other>,
+    /// For a refusal that reaches its task's count: the words the
+    /// task's other waits close with.
+    past_the_count: Option<String>,
     ruling: Result<Ruling, AnswerRefusal>,
+}
+
+/// Another open tool wait of the agent's, which a ruling may settle
+/// with it, as today's turn would not have asked it.
+struct Other {
+    wait: WaitId,
+    task: Option<TaskId>,
+    conversation: Option<ConversationId>,
+    subject: String,
+    needs: Vec<Need>,
 }
 
 impl Waiting {
@@ -120,6 +132,72 @@ impl Waiting {
         })
     }
 
+    /// Whether the lasting change of an always on this wait allows
+    /// `other` too: a grant every call for the network alone, a
+    /// trust the conversation's calls for what it trusts.
+    fn allows(&self, other: &Other) -> bool {
+        if self.needs.contains(&Need::Network) {
+            other.needs.iter().all(|need| *need == Need::Network)
+        } else {
+            self.conversation.is_some()
+                && other.conversation == self.conversation
+                && other
+                    .needs
+                    .iter()
+                    .all(|need| self.needs.contains(need))
+        }
+    }
+
+    /// The other waits this ruling settles, each with its close: on
+    /// a refusal past the count every one on the task, on a refusal
+    /// each on the task it covers, on an always each it allows.
+    fn settled(
+        &self,
+        choice: &Choice,
+        text: Option<&str>,
+    ) -> Vec<(WaitId, Choice)> {
+        let on_task = |other: &Other| {
+            self.task.is_some() && other.task == self.task
+        };
+        let closing = |keep: &dyn Fn(&Other) -> bool,
+                       close: Choice| {
+            self.others
+                .iter()
+                .filter(|other| keep(other))
+                .map(|other| (other.wait, close.clone()))
+                .collect()
+        };
+        if let Some(words) = &self.past_the_count {
+            return closing(&on_task, Choice::Unasked(words.clone()));
+        }
+        match choice {
+            Choice::Refuse if self.kind == Kind::Tool => {
+                let refused = Refused {
+                    subject: self.subject.clone(),
+                    needs: self.needs.clone(),
+                    ruling: text.map(str::to_owned),
+                };
+                closing(
+                    &|other| {
+                        on_task(other)
+                            && refused
+                                .covers(&other.needs, &other.subject)
+                    },
+                    Choice::Unasked(refused.again().to_string()),
+                )
+            }
+            Choice::Allow(Scope::Always)
+                if self.kind == Kind::Tool =>
+            {
+                closing(
+                    &|other| self.allows(other),
+                    Choice::Allow(Scope::Once),
+                )
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn told(&self, choice: &Choice) -> Told {
         let notices = vec![self.wait];
         match (self.kind, choice) {
@@ -152,17 +230,27 @@ impl Act<Client> for Answer {
         let Some(wait) = named(&self.0.wait) else {
             return Ok(None);
         };
-        let Some((agent, kind, task, conversation, call, needs)) =
-            rows.row::<(
+        let Some((
+            agent,
+            kind,
+            task,
+            conversation,
+            call,
+            subject,
+            needs,
+        )) = rows
+            .row::<(
                 u32,
                 String,
                 Option<TaskId>,
                 Option<String>,
                 Option<String>,
+                String,
                 Option<String>,
             )>(
                 "SELECT agent, kind, task, conversation, call, \
-                 needs FROM wait WHERE id = ?1 AND closed_at IS NULL",
+                 subject, needs FROM wait WHERE id = ?1 AND \
+                 closed_at IS NULL",
                 vec![change::integer(wait.0)?],
             )
             .await?
@@ -193,43 +281,48 @@ impl Act<Client> for Answer {
                 let refused =
                     refusals(rows, agent, task).await?.len();
                 let most = most_refusals(rows, agent).await?;
-                match past_the_count(refused + 1, most) {
-                    Some(why) => Some((
-                        rows.values::<u64>(
-                            "SELECT id FROM wait WHERE agent = ?1 \
-                             AND task = ?2 AND kind = 'tool' AND \
-                             closed_at IS NULL AND id != ?3 ORDER \
-                             BY id",
-                            vec![
-                                number(agent),
-                                task.column()?,
-                                change::integer(wait.0)?,
-                            ],
-                        )
-                        .await?
-                        .into_iter()
-                        .map(WaitId)
-                        .collect(),
-                        why.to_string(),
-                    )),
-                    None => None,
-                }
+                past_the_count(refused + 1, most)
+                    .map(|why| why.to_string())
             }
             _ => None,
         };
+        let others = rows
+            .rows::<(
+                u64,
+                Option<TaskId>,
+                Option<String>,
+                String,
+                Option<String>,
+            )>(
+                "SELECT id, task, conversation, subject, needs FROM \
+                 wait WHERE agent = ?1 AND kind = 'tool' AND \
+                 closed_at IS NULL AND id != ?2 ORDER BY id",
+                vec![number(agent), change::integer(wait.0)?],
+            )
+            .await?
+            .into_iter()
+            .map(|(other, task, conversation, subject, needs)| {
+                Ok(Other {
+                    wait: WaitId(other),
+                    task,
+                    conversation: conversation.map(ConversationId),
+                    subject,
+                    needs: needs_of(needs)?,
+                })
+            })
+            .collect::<Result<_>>()?;
         Ok(Some(Waiting {
             wait,
             agent,
             kind,
             task,
+            others,
             past_the_count,
             ruling,
             conversation: conversation.map(ConversationId),
             call: call.map(CallId),
-            needs: needs
-                .map(|needs| serde_json::from_str(&needs))
-                .transpose()?
-                .unwrap_or_default(),
+            subject,
+            needs: needs_of(needs)?,
         }))
     }
 
@@ -297,15 +390,13 @@ impl Act<Client> for Answer {
                 .change(lasting)
                 .change(versions::Change::WantReach(open.agent));
         }
-        if let Some((others, words)) = open.past_the_count {
-            for other in others {
-                decided.done.workspace.push(other);
-                decided = decided.change(Change::Close {
-                    wait: other,
-                    choice: Choice::Unasked(words.clone()),
-                    text: None,
-                });
-            }
+        for (other, close) in open.settled(&choice, text) {
+            decided.done.workspace.push(other);
+            decided = decided.change(Change::Close {
+                wait: other,
+                choice: close,
+                text: None,
+            });
         }
         Decision::Change(decided.change(Change::Close {
             wait: open.wait,

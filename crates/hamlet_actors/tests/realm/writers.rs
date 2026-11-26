@@ -36,8 +36,9 @@ const WRITERS: &[(&str, &[&str])] = &[
 ];
 
 /// The handlers that run outside `Act`, by module: each writes
-/// something other than rows before it commits, or reads only
-/// something other than rows.
+/// something other than rows before it commits, reads only something
+/// other than rows, or reads what an act's steps did once it
+/// answered.
 const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "KeepCredential"),
     ("secrets.rs", "RememberSecret"),
@@ -46,6 +47,8 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("profiles.rs", "Create"),
     ("profiles.rs", "ChiefCreate"),
     ("profiles.rs", "Purging"),
+    ("profiles.rs", "Asked"),
+    ("dreams.rs", "ChiefDream"),
     ("librarian.rs", "Submitting"),
     ("tree/lead.rs", "Pinning"),
     ("chiefs.rs", "Pinning"),

@@ -54,6 +54,7 @@ fn view() -> View {
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            faux: false,
         }),
         Seen {
             agents: vec![
@@ -565,5 +566,21 @@ fn move_house_is_worded_as_today() {
                  another house or the city's middle",
             ),
         ],
+    );
+}
+
+#[test]
+fn the_hamlets_are_listed_by_name_then_id_as_today() {
+    let living = [
+        ("yard", "c"),
+        ("tagged", "d"),
+        ("Library", "a"),
+        ("mill", "b"),
+        ("mill", "a"),
+    ];
+    assert_eq!(
+        words::hamlets(living.into_iter()),
+        "- Library (`a`)\n- mill (`a`)\n- mill (`b`)\n- tagged \
+         (`d`)\n- yard (`c`)"
     );
 }

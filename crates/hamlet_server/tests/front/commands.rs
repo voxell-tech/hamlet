@@ -120,10 +120,11 @@ async fn the_oldest_wait_is_answered_when_none_is_named() {
             .await,
     )
     .unwrap();
-    let denied = chief.command(mayor, "/deny").await;
+    // Allowed once, so the ruling covers no other wait.
+    let allowed = chief.command(mayor, "/allow").await;
     assert!(
-        denied.starts_with("Answered /deny: hand "),
-        "the reply names the wait answered: {denied}"
+        allowed.starts_with("Answered /allow: hand "),
+        "the reply names the wait answered: {allowed}"
     );
     let second = oldest(
         &until(&server, "the oldest wait answered", |realm| {
@@ -242,7 +243,8 @@ async fn an_answer_names_the_wait_it_answered() {
             .await,
     )
     .unwrap();
-    let answered = chief.choose(&first, Choice::Deny, None).await;
+    // Allowed once, so the ruling covers no other wait.
+    let answered = chief.choose(&first, Choice::Allow, None).await;
     let second = oldest(
         &until(&server, "the next wait", |realm| {
             realm.waits.iter().all(|wait| wait.id != first)
@@ -253,16 +255,22 @@ async fn an_answer_names_the_wait_it_answered() {
     .unwrap();
     let commanded =
         chief.command(hand, &format!("/deny #{second}")).await;
-    let mut said = [answered.text, commanded];
-    said.sort();
+    // The two calls run at once, so either page's wait may come
+    // first.
+    let page = |said: &str, how: &str| {
+        said.strip_prefix(&format!(
+            "Answered /{how}: hand wants network access to run \
+             `curl "
+        ))
+        .unwrap_or_else(|| panic!("{said}"))
+        .to_owned()
+    };
+    let mut pages =
+        [page(&answered.text, "allow"), page(&commanded, "deny")];
+    pages.sort();
     assert_eq!(
-        said,
-        [
-            "Answered /deny: hand wants network access to run `curl \
-             https://one.example`",
-            "Answered /deny: hand wants network access to run `curl \
-             https://two.example`",
-        ]
+        pages,
+        ["https://one.example`", "https://two.example`"]
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
@@ -781,6 +789,95 @@ async fn scholar_new_makes_a_profile_from_its_character() {
     );
     assert_eq!(bare, "Use /scholar new <name>[: <character>]");
     assert_eq!(papers.character, "Careful.");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_pins_a_hire_to_a_profile_version() {
+    let (mut server, _home, _side, mut chief) =
+        with_ada(&[json!("Here.")]).await;
+    let hand = chief.hand();
+    chief.command(hand, "/tag scholar#2 v1").await;
+    found(&server, &mut chief, "Docs").await;
+    let docs = look(&server).await.hamlets[0].id.clone();
+    let hired = chief
+        .command(hand, &format!("/hire scholar#2 in {docs}"))
+        .await;
+    let name = hired_address(&hired);
+    let hire = until(&server, "the hire", |realm| {
+        realm.agents.iter().any(|agent| agent.name == name)
+    })
+    .await
+    .agents
+    .into_iter()
+    .find(|agent| agent.name == name)
+    .unwrap()
+    .id;
+
+    let pinned =
+        chief.command(hand, &format!("/pin {name} v1")).await;
+    until(&server, "the pin", |realm| {
+        realm.agents.iter().any(|agent| {
+            agent.id == hire && agent.pin.as_deref() == Some("v1")
+        })
+    })
+    .await;
+    let missing =
+        chief.refused(hand, &format!("/pin {name} v9")).await;
+    let main =
+        chief.command(hand, &format!("/pin {name} main")).await;
+    until(&server, "the pin taken away", |realm| {
+        realm
+            .agents
+            .iter()
+            .any(|agent| agent.id == hire && agent.pin.is_none())
+    })
+    .await;
+
+    assert_eq!(
+        pinned,
+        format!(
+            "{name} (ada) takes v1 in once idle, and no later \
+             learning."
+        )
+    );
+    assert_eq!(missing, "`scholar#2 (ada)` has no version `v9`");
+    assert_eq!(
+        main,
+        format!("{name} (ada) follows its scholar's main again.")
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn name_scholar_renames_a_profile() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    let renamed =
+        chief.command(hand, "/name-scholar scholar#2 Ada Two").await;
+    let missing =
+        chief.refused(hand, "/name-scholar scholar#9 Cy").await;
+    let listed = chief.command(hand, "/scholars").await;
+
+    assert_eq!(
+        renamed,
+        "The scholar is now named `scholar#2 (Ada Two)`."
+    );
+    assert_eq!(missing, "no scholar has the address `scholar#9`");
+    assert_eq!(listed, "- scholar#2 (Ada Two)");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unshelve_refuses_a_skill_not_on_the_shelves() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let refused = chief.refused(hand, "/unshelve nothing").await;
+    assert_eq!(refused, "no skill is named `nothing`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

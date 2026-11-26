@@ -14,7 +14,12 @@ import {
     type SubmissionDraft,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
-import { type AgentCall, generationOf, shownWithdrawn } from "./actor.ts";
+import {
+    type AgentCall,
+    generationOf,
+    numberOf,
+    shownWithdrawn,
+} from "./actor.ts";
 import { textOf } from "./chat-items.ts";
 import { stands } from "./compaction.ts";
 import { couldNotAnswer } from "./failed.ts";
@@ -378,7 +383,7 @@ export async function rewind(
             words: "Only the current session of a chief's chat goes back.",
         };
     }
-    const at = entryOf(message.item);
+    const at = entryOf(numberOf(c), message.item);
     const { options, inTurn, peers } = generationOf(c);
     return inTurn(async () => {
         const from = await current(c.db);
@@ -431,10 +436,15 @@ function rewindRefused(why: RewindRefusal, item: string): RewindAnswer {
     };
 }
 
-/** A client names an entry's item `<entry>:<block>`; a line has one block. */
-function entryOf(item: string): EntryId | undefined {
-    const entry = /^([1-9][0-9]*)(?::0)?$/.exec(item)?.[1];
-    return entry === undefined ? undefined : (Number(entry) as EntryId);
+/**
+ * A client names an entry's item `<agent>.<entry>:<block>`, as `entryIdOf`
+ * shows it; a line has one block.
+ */
+function entryOf(agent: number, item: string): EntryId | undefined {
+    const named = /^([1-9][0-9]*)\.([1-9][0-9]*)(?::0)?$/.exec(item);
+    return named?.[1] === String(agent)
+        ? (Number(named[2]) as EntryId)
+        : undefined;
 }
 
 async function lineAt(

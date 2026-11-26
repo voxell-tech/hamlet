@@ -449,6 +449,14 @@ impl<By: RealmWide> Act<By> for Pinned<Found> {
         )
     }
 
+    /// As today's, once its mayor is live.
+    fn answers_after(
+        &self,
+        &(_, mayor): &Self::Done,
+    ) -> Vec<steps::StepId> {
+        vec![hire::row(mayor)]
+    }
+
     fn answer(
         &self,
         (hamlet, mayor): Self::Done,

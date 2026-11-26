@@ -28,8 +28,8 @@ use hamlet_messages::address;
 use hamlet_messages::agent::chat::{Login, LoginAnswer};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, ClientMessage, Confinement, LoginProgress,
-    LoginReply, LoginStep, RequestId, ServerMessage,
+    self as protocol, ClientMessage, Confinement, Link, LinkState,
+    LoginProgress, LoginReply, LoginStep, RequestId, ServerMessage,
 };
 use hamlet_sandbox::Sandbox;
 use tokio::net::{TcpListener, TcpStream};
@@ -127,6 +127,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
             realm: hamlet_os::fs::path::text(&root),
             epoch: crate::clock::now(),
             link: watch::Sender::new(crate::settings::untested()),
+            faux: options.faux.is_some(),
         };
         Door::serve(
             host.clone(),
@@ -431,6 +432,16 @@ impl Door {
             }
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),
+            Route::Check(call) => {
+                if !self.own.faux {
+                    self.own.link.send_replace(Link {
+                        models: None,
+                        state: LinkState::Testing,
+                        words: None,
+                    });
+                }
+                self.call(client, call);
+            }
             Route::SignIn(login) => self.sign_in(client, login),
             Route::Read(reading) => {
                 let asker = self.ask_in_turn(client);

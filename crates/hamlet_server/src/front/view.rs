@@ -41,6 +41,8 @@ pub(crate) struct Own {
     pub(crate) epoch: i64,
     /// The last check of the realm's model.
     pub(crate) link: watch::Sender<Link>,
+    /// Every agent runs the faux model.
+    pub(crate) faux: bool,
 }
 
 /// The realm as the door last read it, with the server's own fields.
@@ -586,10 +588,14 @@ impl Shown {
         };
         state.settings.link = own.link.borrow().clone();
         for agent in &mut state.agents {
-            if let Some(shown) = super::route::number(agent.id)
+            match super::route::number(agent.id)
                 .and_then(|number| self.hub.activity(number))
             {
-                show(agent, &shown);
+                Some(shown) => show(agent, &shown),
+                None => {
+                    agent.activity.doing_words =
+                        activity::words(&agent.activity.doing).into();
+                }
             }
         }
         Some(state)
@@ -615,3 +621,6 @@ fn show(agent: &mut protocol::Agent, shown: &Activity) {
     };
     agent.faulted = shown.faulted;
 }
+
+#[cfg(test)]
+mod tests;

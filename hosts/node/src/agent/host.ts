@@ -1,6 +1,8 @@
 /**
- * The agent actor a Node host serves on the realm folder `home`, its model
- * the faux one of `faux.ts`. It writes the process's pid in the folder.
+ * The agent actor a Node host serves on the realm folder `home`, its models
+ * the faux ones of `faux.ts`, or today's providers and the realm's endpoints
+ * where it has no faux script and lists no sign-in on loopback. It writes the
+ * process's pid in the folder.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,6 +12,7 @@ import { fauxModels } from "./faux.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import { signIns } from "./login.ts";
 import { openAgentFilesystem } from "./native-filesystem.ts";
+import { hostProviders, servingEndpoints } from "./providers.ts";
 
 const PID_FILE = "demo-node.pid";
 
@@ -26,6 +29,13 @@ export interface HostedAgent {
 export function hostedAgent(home: string, host: HostedAgent): AgentDefinition {
     writeFileSync(join(home, PID_FILE), `${process.pid}\n`);
     const { models, model } = fauxModels(host.faux, host.signIn);
+    const real = host.faux === undefined && !host.signIn;
+    if (real) {
+        // Today's providers stand in the faux ones' place; the faux model's
+        // name stays the model of an agent the realm gave none.
+        models.clearProviders();
+        for (const provider of hostProviders()) models.setProvider(provider);
+    }
     const executable = host.claude ? claudeExecutable() : undefined;
     if (executable !== undefined)
         withClaude(models, { executable, folder: join(home, "claude") });
@@ -38,5 +48,6 @@ export function hostedAgent(home: string, host: HostedAgent): AgentDefinition {
         library: join(home, "library"),
         signIns: signIns(models),
         faux: host.faux !== undefined,
+        ...(real ? { serve: servingEndpoints(models) } : {}),
     });
 }

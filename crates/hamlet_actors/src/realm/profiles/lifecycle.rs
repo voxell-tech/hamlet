@@ -14,8 +14,8 @@ use hamlet_messages::profile::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
     ForkProfile, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    MoveHouse, ProfileRefusal, RestoreProfile, Site, Spot, TurnAway,
-    Welcome,
+    Made as Named, MoveHouse, NameProfile, NameProfileRefusal,
+    ProfileRefusal, RestoreProfile, Site, Spot, TurnAway, Welcome,
 };
 use hamlet_messages::realm::{
     Asked, Done, HamletId, HowEnded, ProfileId, Refusable,
@@ -979,4 +979,53 @@ pub(in crate::realm) async fn erase_failed(
         ],
         Calls::none(),
     ))
+}
+
+impl Act<Client> for NameProfile {
+    type Output = Named<NameProfileRefusal>;
+    /// Why it is not a living profile of the city.
+    type Loaded = Option<ProfileRefusal>;
+    /// Its label under the new name.
+    type Done = String;
+
+    async fn load(
+        &self,
+        _by: &Client,
+        rows: &Rows<'_>,
+    ) -> Result<Self::Loaded> {
+        Ok(living(rows, self.profile).await?.err())
+    }
+
+    fn decide(
+        &self,
+        _by: &Client,
+        refused: Self::Loaded,
+    ) -> Decision<Self::Done, Self::Output> {
+        if let Some(why) = refused {
+            return Decision::Answer(Named::refused(why.into()));
+        }
+        let Ok(name) = hamlet::checked_name(&self.name) else {
+            return Decision::Answer(Named::refused(
+                CreateRefusal::BadName {
+                    name: self.name.trim().to_owned(),
+                }
+                .into(),
+            ));
+        };
+        Decision::Change(
+            Decided::new(super::label(self.profile, name)).change(
+                super::Change::Named {
+                    profile: self.profile,
+                    name: name.to_owned(),
+                },
+            ),
+        )
+    }
+
+    fn answer(&self, label: String, _made: &Made) -> Self::Output {
+        Named::Made {
+            profile: self.profile,
+            label,
+        }
+    }
 }

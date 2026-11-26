@@ -57,8 +57,11 @@ export function gated(
                 peers.reach.may_spend({ task }),
             );
             if (may.type === "refused") {
-                // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`.
-                const held = may.why.type === "objection";
+                // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`:
+                // a withdrawn instruction's turn stops as today's does.
+                const held =
+                    may.why.type === "objection" ||
+                    may.why.type === "withdrawn";
                 const ended = held
                     ? heldOf(model, may.words)
                     : refusalOf(model, may.words);

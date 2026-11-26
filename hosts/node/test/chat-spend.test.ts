@@ -102,29 +102,41 @@ test("a refused call in a chief's chat tells the realm the turn failed", async (
     await agent.stop();
 });
 
-test("a held call ends quietly", async (t) => {
-    const answers = [held, refused];
-    const { calls, sent } = fakeCalls({
-        realm: { may_spend: () => answers.shift() ?? refused },
+/** As `crates/hamlet_messages/src/realm/oversight.rs` words `Hold::Withdrawn`. */
+const withdrawn = {
+    type: "refused",
+    why: { type: "withdrawn", task: "task-1" },
+    words: "The chief withdrew the instruction, so this call did not run.",
+} as const;
+
+for (const [name, hold] of [
+    ["held on an objection", held],
+    ["of a withdrawn instruction", withdrawn],
+] as const) {
+    test(`a call ${name} ends quietly`, async (t) => {
+        const answers: Done[] = [hold, refused];
+        const { calls, sent } = fakeCalls({
+            realm: { may_spend: () => answers.shift() ?? refused },
+        });
+        const agent = await wakeAgent(t, { calls });
+
+        await say(agent, 1, "Go.");
+        await say(agent, 2, "Go on.");
+
+        assert.deepEqual(
+            (await notices(agent)).map((notice) => notice.text),
+            [SPENT],
+        );
+        assert.deepEqual(
+            named(sent, "turn_failed").map(
+                (call) => (call.message as TurnFailed).task,
+            ),
+            ["task-2"],
+        );
+        assert.deepEqual(agent.reported, []);
+        await agent.stop();
     });
-    const agent = await wakeAgent(t, { calls });
-
-    await say(agent, 1, "Go.");
-    await say(agent, 2, "Go on.");
-
-    assert.deepEqual(
-        (await notices(agent)).map((notice) => notice.text),
-        [SPENT],
-    );
-    assert.deepEqual(
-        named(sent, "turn_failed").map(
-            (call) => (call.message as TurnFailed).task,
-        ),
-        ["task-2"],
-    );
-    assert.deepEqual(agent.reported, []);
-    await agent.stop();
-});
+}
 
 test("an empty answer fails its turn with today's words", async (t) => {
     const { calls, sent } = fakeCalls({});

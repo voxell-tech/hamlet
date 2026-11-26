@@ -362,6 +362,7 @@ pub(super) async fn run(
                     model: documents::model(&rows, agent)
                         .await?
                         .map(|chosen| chosen.model),
+                    dream: false,
                 }),
                 copies: documents::for_agent(&rows, agent).await?,
             };

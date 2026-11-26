@@ -26,8 +26,11 @@ use super::change::{self, Column as _, Rows, number};
 use super::chiefs::limits;
 use super::tree::HAND_PROFILE;
 use super::waits::Kind;
-use super::{Realm, budget, chiefs, profiles, record, settings};
+use super::{
+    Realm, budget, chiefs, letters, profiles, record, settings,
+};
 
+mod change_shown;
 mod hamlets;
 
 use hamlets::{Period, Place, Spending, place};
@@ -295,7 +298,7 @@ async fn agent_shown(
         allowance: agent.allowance_micros.map(limits::dollars),
         busy: false,
         consulting: left.is_none() && consulting,
-        conversations: Vec::new(),
+        conversations: peers(rows, n).await?,
         effort: agent.effort,
         faulted: false,
         fast: agent.fast.unwrap_or(false),
@@ -399,8 +402,8 @@ async fn closed(
     let mut closed = Vec::new();
     for (id, name) in rows
         .rows::<(String, String)>(
-            "SELECT id, name FROM hamlet WHERE status != 'living' \
-             ORDER BY at, id",
+            "SELECT id, name FROM hamlet WHERE status = 'removed' \
+             ORDER BY name, id",
             Vec::new(),
         )
         .await?
@@ -436,8 +439,8 @@ async fn scholars(
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
-             house_z, house_turn FROM profile WHERE status IN \
-             ('living', 'archived') ORDER BY id",
+             house_z, house_turn FROM profile WHERE kind != 'hand' \
+             AND status IN ('living', 'archived') ORDER BY id",
             Vec::new(),
         )
         .await?
@@ -463,9 +466,10 @@ async fn scholars(
             .await?;
         scholars.push(protocol::Scholar {
             arrival: match (kind, arrival) {
-                (profiles::Kind::Blank, _) => {
-                    protocol::Arrival::Apart
-                }
+                (
+                    profiles::Kind::Blank | profiles::Kind::Empty,
+                    _,
+                ) => protocol::Arrival::Apart,
                 (_, profiles::Arrival::Harbor) => {
                     protocol::Arrival::Waiting
                 }
@@ -506,6 +510,38 @@ async fn scholars(
         });
     }
     Ok(scholars)
+}
+
+/// The conversations other agents keep with `agent`, by sender and
+/// kind: the letters and questions sent it, as today's
+/// (`crates/hamlet_server/src/clients/state.rs`, `peers`).
+async fn peers(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<protocol::ConversationView>> {
+    rows.rows::<(u32, String, i64, Option<i64>)>(
+        "SELECT sender, kind, COUNT(*), MAX(at) FROM letter WHERE \
+         receiver = ?1 GROUP BY sender, kind ORDER BY MIN(id)",
+        vec![number(agent)],
+    )
+    .await?
+    .into_iter()
+    .map(|(sender, kind, count, last)| {
+        Ok(protocol::ConversationView {
+            count,
+            kind: match change::from_case_name(kind)? {
+                letters::Kind::Letter => {
+                    protocol::ConversationViewKind::Letters
+                }
+                letters::Kind::Question => {
+                    protocol::ConversationViewKind::Questions
+                }
+            },
+            last,
+            with: wire(AgentNumber(sender)),
+        })
+    })
+    .collect()
 }
 
 async fn grants(
@@ -664,7 +700,12 @@ fn wait_shown(
         answers,
         asked: at,
         by: by.to_owned(),
-        change: None,
+        change: match &wait.kind {
+            WaitKind::Tool {
+                change: Some(diff), ..
+            } => Some(change_shown::shown(diff, &wait.subject)),
+            _ => None,
+        },
         chat: in_chat.then(|| protocol::ChatRef {
             from: None,
             kind: None,

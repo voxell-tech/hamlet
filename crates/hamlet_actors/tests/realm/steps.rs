@@ -70,15 +70,18 @@ fn hire_seen(realm: &Realm) -> HireSeen {
     }
 }
 
+/// A realm whose founding's hire step failed once at `callee`. The
+/// founding answers once its mayor is live, so it is not waited for.
 async fn failed_once_at(callee: Callee) -> Realm {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     realm.seen.fail_once(callee, MAYOR);
-    founded(&realm).await;
-    until("the stand-in fails its call", || {
-        realm.seen.has_failed(callee, MAYOR)
-    })
-    .await;
+    tokio::select! {
+        _ = founded(&realm) => {}
+        () = until("the stand-in fails its call", || {
+            realm.seen.has_failed(callee, MAYOR)
+        }) => {}
+    }
     realm
 }
 
@@ -151,6 +154,28 @@ async fn a_hire_goes_live_through_its_steps() {
         }
     );
     assert!(closed, "a live hire's row is closed");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// As today's founding, it answers once its mayor is live, with the
+/// mayor's filesystem filled.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_founding_answers_once_its_mayor_is_live() {
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    realm.seen.hold(Callee::Fill);
+    let founding = founded(&realm);
+    tokio::pin!(founding);
+    tokio::select! {
+        _ = &mut founding => panic!("founded before its mayor's fill"),
+        () = until("the mayor's fill waits", || {
+            realm.seen.is_waiting(Callee::Fill, MAYOR)
+        }) => {}
+    }
+    realm.seen.release(Callee::Fill);
+    founding.await;
+
+    assert_eq!(hire_seen(&realm).fills.len(), 1);
     realm.host.shutdown().await.unwrap();
 }
 

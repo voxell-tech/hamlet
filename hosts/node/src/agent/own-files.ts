@@ -131,6 +131,12 @@ export function ownFiles(peers: Peers, folder: Folder): Extension {
                 context: Context,
             ) => {
                 const at = await reached(peers.files, folder, args.path);
+                if (
+                    (name === "write" || name === "edit") &&
+                    at.path === `${peers.files.root}/${CHARACTER}`
+                ) {
+                    return failed(CHARACTER_KEPT);
+                }
                 const resolved: AbsoluteFileCall<N> = {
                     ...args,
                     path: at.path,
@@ -150,6 +156,12 @@ export function ownFiles(peers: Peers, folder: Folder): Extension {
         wraps: (Object.keys(own) as FileTool[]).map(wrapOf),
     });
 }
+
+/** The scholar's character at the root, which only a chief changes. */
+const CHARACTER = "CHARACTER.md";
+
+/** Today's refusal of its write or edit (`calls.rs`, `character_refusal`). */
+const CHARACTER_KEPT = `${CHARACTER} is your scholar's character, which only a chief changes. Keep what you learn in memory/ instead.`;
 
 const EDIT_BEGAN = "hamlet.own-edit.began";
 

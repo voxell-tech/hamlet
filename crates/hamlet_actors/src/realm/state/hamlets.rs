@@ -185,7 +185,9 @@ fn level(
     }
 }
 
-/// The roads of the living hires of `hamlet`, each pair once: a
+/// The roads of the hires of `hamlet` that have not ended, those
+/// still being hired too, as today's hires live from their hiring,
+/// each pair once: a
 /// hire's to its lead or a mayor's to the Hand, a mayor's to each
 /// other mayor, and those laid or agreed, with the letters along
 /// each.
@@ -208,7 +210,7 @@ async fn roads(
         .await?;
     let mut ways = Vec::new();
     for hire in seen.agents.iter().filter(|agent| {
-        agent.status == Status::Live
+        !matches!(agent.status, Status::Ended { .. })
             && agent.worker.is_none()
             && agent.hamlet.as_ref() == Some(hamlet)
     }) {

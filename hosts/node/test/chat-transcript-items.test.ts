@@ -765,8 +765,8 @@ test("an objection stays open until the chief rules: go closes it at the ruling'
     });
     await send(agent, {
         type: "notice",
-        text: "The chief withdrew the instruction. Stop working on it.",
-        held: { call: withdrawn, end: "aborted" },
+        text: "The chief withdrew the instruction: Do both.",
+        held: { call: withdrawn, end: "withdrawn" },
     });
 
     const entries = await chiefEntries(agent);
@@ -775,10 +775,15 @@ test("an objection stays open until the chief rules: go closes it at the ruling'
     const ruling = entries.find((entry) => entry.kind === "hamlet.notice");
     assert.ok(result?.durationMs !== undefined && ruling !== undefined);
     const began = result.timestamp - result.durationMs;
-    assert.deepEqual(ends((await read(agent)).items), [
+    const { items } = await read(agent);
+    assert.deepEqual(ends(items), [
         ["object", 0, timeOf(ruling) - began, undefined],
         ["object", 1, undefined, "Tool object was aborted"],
     ]);
+    assert.deepEqual(
+        items.filter((item) => item.kind === "notice").map((item) => item.text),
+        ["The chief withdrew the instruction: Do both."],
+    );
 });
 
 test("a call that waits for a chief to allow it stays open, and its end closes the same item as today's", async (t) => {

@@ -13,8 +13,8 @@ use hamlet_messages::agent::chat::{
 };
 use hamlet_messages::bytes::Sha1;
 use hamlet_messages::profile::{
-    CommitId, PurgeAnswer, RevertAnswer, Revision, TagAnswer,
-    VersionName, Versions,
+    CommitId, Missing, PinAnswer, PinRefusal, PurgeAnswer,
+    RevertAnswer, Revision, TagAnswer, VersionName, Versions,
 };
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
@@ -29,8 +29,8 @@ use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
 };
 use hamlet_messages::realm::profiles::{
-    Dream, Dreamer, Forked, Lifecycle, LifecycleRefusal, Made,
-    MoveHouse, RevertProfile, Site,
+    Dream, Dreamer, Dreamt as Dreaming, Forked, Lifecycle,
+    LifecycleRefusal, Made, MoveHouse, PinHire, RevertProfile, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -780,17 +780,72 @@ async fn perform(
                     .map(|hire| Dreamer::Hire { hire }),
             };
             match of {
-                Ok(of) => {
-                    done(ask(calls, id, Dream { of }).await?, || {
-                        words::DREAM_BEGAN.into()
-                    })
+                Ok(of) => match ask(calls, id, Dream { of }).await? {
+                    Dreaming::Began { .. } => {
+                        Ok(words::DREAM_BEGAN.into())
+                    }
+                    Dreaming::Nothing => {
+                        Ok(words::NOTHING_TO_DREAM.into())
+                    }
+                    Dreaming::Refused { why } => Err(refused(why)),
+                },
+                Err(refusal) => Err(refusal),
+            }
+        }
+        Act::Pin { hire, to, reason } => {
+            match number(view, &hire, Reach::Living) {
+                Ok(agent) => {
+                    pin(calls, view, id, agent, to, reason).await?
                 }
                 Err(refusal) => Err(refusal),
             }
         }
-        Act::Unsupported(what) => Err(Refusal::Unsupported { what }),
+        Act::Unshelve(act) => {
+            let said = words::unshelved(&act.skill);
+            done(ask(calls, id, act).await?, || said)
+        }
+        Act::NameProfile(act) => match ask(calls, id, act).await? {
+            Made::Made { label, .. } => {
+                Ok(words::profile_named(&label))
+            }
+            Made::Refused { why } => Err(refused(why)),
+        },
     };
     Ok(Outcome::said(reply))
+}
+
+/// Holds `hire` at its profile's version `to`, or lets it follow
+/// `main` again.
+async fn pin(
+    calls: &Calls,
+    view: &View,
+    id: &RequestId,
+    hire: AgentNumber,
+    to: Option<VersionName>,
+    reason: Option<String>,
+) -> Result<Result<String, Refusal>> {
+    let name = view.name(hire);
+    let act = PinHire { hire, to, reason };
+    Ok(match ask(calls, id, act).await? {
+        PinAnswer::Pinned { version, .. } => {
+            Ok(words::pinned(&name, &version.0))
+        }
+        PinAnswer::FollowsMain => Ok(words::follows_main(&name)),
+        PinAnswer::Refused {
+            why:
+                PinRefusal::Missing(Missing::NoVersion {
+                    profile,
+                    version,
+                }),
+        } => match label(calls, profile).await? {
+            Ok(label) => Err(Refusal::NoVersion {
+                name: label,
+                version: version.0,
+            }),
+            Err(refusal) => Err(refusal),
+        },
+        PinAnswer::Refused { why } => Err(refused(why)),
+    })
 }
 
 /// The label of `profile`, refused when the realm keeps none.
