@@ -79,6 +79,37 @@ fn a_bad_address_is_refused_in_todays_words() {
 }
 
 #[test]
+fn an_address_past_the_realms_numbers_is_no_one_in_todays_words() {
+    for (line, words) in [
+        (
+            "/nickname hire#4294967297 Big",
+            "no agent has the address `hire#4294967297`",
+        ),
+        (
+            "/stop worker#4294967297",
+            "no agent has the address `worker#4294967297`",
+        ),
+        (
+            "/versions scholar#4294967297",
+            "no scholar has the address `scholar#4294967297`",
+        ),
+    ] {
+        assert_eq!(refused(line), words, "{line}");
+    }
+}
+
+#[test]
+fn a_hamlet_set_down_at_numbers_not_finite_is_refused_in_todays_words()
+ {
+    for (line, words) in [
+        ("/move-hamlet docs NaN 4", "`NaN, 4` is not an address"),
+        ("/move-hamlet docs 1e400 1", "`inf, 1` is not an address"),
+    ] {
+        assert_eq!(refused(line), words, "{line}");
+    }
+}
+
+#[test]
 fn effort_and_fast_each_set_one_part() {
     assert_eq!(
         parse("/effort hire#2 high", None),

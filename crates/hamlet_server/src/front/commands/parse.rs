@@ -293,13 +293,21 @@ pub(super) fn parse(
         }),
         "move-hamlet" => {
             let number = |at: usize| {
-                words.get(at).and_then(|w| w.parse().ok())
+                words.get(at).and_then(|w| w.parse::<f64>().ok())
             };
             let (Some(hamlet), Some(x), Some(z)) =
                 (words.first(), number(1), number(2))
             else {
                 return Err(usage(name));
             };
+            // An act's numbers are kept as JSON, which holds no NaN
+            // or infinity, so the door refuses them with the realm's
+            // words.
+            if !(x.is_finite() && z.is_finite()) {
+                return Err(Refusal::BadAddress {
+                    address: format!("{x}, {z}"),
+                });
+            }
             Act::MoveHamlet(MoveHamlet {
                 hamlet: HamletId((*hamlet).to_owned()),
                 x,
@@ -751,23 +759,24 @@ fn versioned(
     })
 }
 
-/// The profile a scholar's address names.
+/// The profile a scholar's address names; a number past the realm's
+/// is no scholar, as today.
 fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
     let id = addresses::parse_scholar(text)?;
     u32::try_from(id.0).map(ProfileId).map_err(|_| {
-        Refusal::BadAddress {
+        Refusal::NoScholar {
             address: text.into(),
         }
     })
 }
 
 /// The agent `text` addresses, said in `here`: `mayor` is the
-/// office of `here`.
+/// office of `here`. A number past the realm's is no one, as today.
 pub(super) fn target(
     text: &str,
     here: Option<&HamletId>,
 ) -> Result<Target, Refusal> {
-    let bad = || Refusal::BadAddress {
+    let bad = || Refusal::NoOne {
         address: text.into(),
     };
     let named = match addresses::parse(text)? {

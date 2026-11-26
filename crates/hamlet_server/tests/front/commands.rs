@@ -120,10 +120,11 @@ async fn the_oldest_wait_is_answered_when_none_is_named() {
             .await,
     )
     .unwrap();
-    let denied = chief.command(mayor, "/deny").await;
+    // Allowed once, so the ruling covers no other wait.
+    let allowed = chief.command(mayor, "/allow").await;
     assert!(
-        denied.starts_with("Answered /deny: hand "),
-        "the reply names the wait answered: {denied}"
+        allowed.starts_with("Answered /allow: hand "),
+        "the reply names the wait answered: {allowed}"
     );
     let second = oldest(
         &until(&server, "the oldest wait answered", |realm| {
@@ -242,7 +243,8 @@ async fn an_answer_names_the_wait_it_answered() {
             .await,
     )
     .unwrap();
-    let answered = chief.choose(&first, Choice::Deny, None).await;
+    // Allowed once, so the ruling covers no other wait.
+    let answered = chief.choose(&first, Choice::Allow, None).await;
     let second = oldest(
         &until(&server, "the next wait", |realm| {
             realm.waits.iter().all(|wait| wait.id != first)
@@ -258,7 +260,7 @@ async fn an_answer_names_the_wait_it_answered() {
     assert_eq!(
         said,
         [
-            "Answered /deny: hand wants network access to run `curl \
+            "Answered /allow: hand wants network access to run `curl \
              https://one.example`",
             "Answered /deny: hand wants network access to run `curl \
              https://two.example`",

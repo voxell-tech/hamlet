@@ -275,11 +275,15 @@ pub(crate) fn holds_no_grant(name: &str, word: &str) -> String {
     format!("{name} holds no grant of {word}.")
 }
 
-/// The living hamlets, each as its name and id.
+/// The living hamlets, each as its name and id, by name and then id
+/// as today.
 pub(crate) fn hamlets<'a>(
     living: impl Iterator<Item = (&'a str, &'a str)>,
 ) -> String {
+    let mut living = living.collect::<Vec<_>>();
+    living.sort_unstable();
     let list = living
+        .into_iter()
         .map(|(name, id)| format!("- {name} (`{id}`)"))
         .collect::<Vec<_>>()
         .join("\n");
