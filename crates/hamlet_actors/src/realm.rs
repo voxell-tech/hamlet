@@ -93,6 +93,7 @@ use hamlet_messages::realm::{
     ProfileId, ReadOwnPlace, Reply, RequestRoad, Seat, Secrets,
     SetLimits, SetTier, SetTools, TakeUpRoad, Tell, Tool,
 };
+pub use parcels::store::Store as ParcelStore;
 use serde::Serialize;
 
 use self::callers::{

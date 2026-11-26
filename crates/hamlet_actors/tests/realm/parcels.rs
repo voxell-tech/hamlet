@@ -18,7 +18,7 @@ use hamlet_protocol::client::Choice;
 
 use super::asking::{held_rows, objection, on, shared_task};
 use super::parcel_files::{
-    Files, hash, killed_while_held, restart, sending,
+    Files, aged, hash, killed_while_held, restart, sending,
 };
 use super::stand_ins::Callee;
 use super::{
@@ -76,7 +76,10 @@ async fn fetch(
 }
 
 /// The bytes of `file` as 3 fetches it, part by part.
-async fn fetched(realm: &Realm, file: &ParcelFile) -> Vec<u8> {
+pub(super) async fn fetched(
+    realm: &Realm,
+    file: &ParcelFile,
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     for part in 0.. {
         match fetch(realm, THREE, file.parcel, file.file, part).await
@@ -378,6 +381,7 @@ async fn the_sweep_keeps_open_parcels() {
     let store = realm.scratch.join("actors/realm/local.files");
     let orphan = hash(b"no one").to_string();
     std::fs::write(store.join(&orphan), "no one").unwrap();
+    aged(&store.join(&orphan));
     std::fs::write(store.join("99.0.part"), "stale").unwrap();
     files.hold_from(1);
 
@@ -399,9 +403,11 @@ async fn the_sweep_keeps_open_parcels() {
     let slow_file = letter_files(&realm, 3).await.remove(0);
     let slow_got = fetched(&realm, &slow_file).await;
     std::fs::write(store.join(&orphan), "no one").unwrap();
+    aged(&store.join(&orphan));
     let realm = restart(realm, &files).await;
     let after_restart = stored(&realm);
     let a_after_restart = fetched(&realm, &a).await;
+    aged(&store.join(hash(b"aaa").to_string()));
     realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     let a_old = fetch(&realm, THREE, a.parcel, 0, 0).await;
 

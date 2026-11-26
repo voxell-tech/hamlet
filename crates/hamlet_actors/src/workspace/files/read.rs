@@ -134,7 +134,7 @@ pub(super) fn read(
 
 /// The type of image `bytes` begin as, if it is one a model takes.
 // Copied from the server's `images::Format::detect`.
-fn image(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn image(bytes: &[u8]) -> Option<&'static str> {
     const PNG: [u8; 8] =
         [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     let at = |offset: usize, text: &[u8]| {

@@ -1,6 +1,6 @@
-//! Parcels, the files a letter or a question sends: the `parcel` and
-//! `parcel_file` tables, their steps, `FetchPart`, and the store the
-//! realm keeps their files in.
+//! Parcels, the files a letter, a question or a chief's line sends:
+//! the `parcel` and `parcel_file` tables, their steps, `FetchPart`,
+//! and the store the realm keeps their files in.
 
 use std::io::SeekFrom;
 use std::path::PathBuf;
@@ -88,6 +88,13 @@ pub(super) enum Change {
     Refused {
         parcel: ParcelId,
     },
+    /// The parcel of a chief's line to `receiver`, ready: its files
+    /// are in the store.
+    Line {
+        parcel: ParcelId,
+        receiver: AgentNumber,
+        files: Vec<ParcelEntry>,
+    },
     /// The parcels to `receiver` that wait for a chief are refused:
     /// it has left.
     ReceiverLeft {
@@ -144,29 +151,32 @@ pub(super) async fn apply(
             files,
             waits,
         } => {
-            for (file, entry) in files.into_iter().enumerate() {
-                writer
-                    .execute(
-                        "INSERT INTO parcel_file (parcel, file, \
-                         path, name, size, sha256) VALUES (?1, ?2, \
-                         ?3, ?4, ?5, ?6)",
-                        vec![
-                            id(parcel),
-                            change::integer(file)?,
-                            BindParam::Text(path_text(&entry.path)?),
-                            BindParam::Text(path_text(&entry.name)?),
-                            change::integer(entry.size)?,
-                            BindParam::Blob(entry.sha256.0.to_vec()),
-                        ],
-                    )
-                    .await?;
-            }
+            kept(writer, parcel, files).await?;
             let then = if waits {
                 State::Waiting
             } else {
                 State::Copying
             };
             moved(writer, parcel, &[State::Measuring], then).await?;
+        }
+        Change::Line {
+            parcel,
+            receiver,
+            files,
+        } => {
+            writer
+                .execute(
+                    "INSERT INTO parcel (id, receiver, paths, \
+                     state, at) VALUES (?1, ?2, '[]', ?3, ?4)",
+                    vec![
+                        id(parcel),
+                        number(receiver),
+                        state(State::Ready)?,
+                        BindParam::Integer(writer.at().0),
+                    ],
+                )
+                .await?;
+            kept(writer, parcel, files).await?;
         }
         Change::Allowed { parcel } => {
             moved(writer, parcel, &[State::Waiting], State::Copying)
@@ -238,6 +248,31 @@ pub(super) async fn apply(
         }
     }
     Ok(Affected::default())
+}
+
+/// Keeps the rows of the files of `parcel`.
+async fn kept(
+    writer: &Writer<'_>,
+    parcel: ParcelId,
+    files: Vec<ParcelEntry>,
+) -> Result<()> {
+    for (file, entry) in files.into_iter().enumerate() {
+        writer
+            .execute(
+                "INSERT INTO parcel_file (parcel, file, path, name, \
+                 size, sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                vec![
+                    id(parcel),
+                    change::integer(file)?,
+                    BindParam::Text(path_text(&entry.path)?),
+                    BindParam::Text(path_text(&entry.name)?),
+                    change::integer(entry.size)?,
+                    BindParam::Blob(entry.sha256.0.to_vec()),
+                ],
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 async fn moved(
@@ -348,13 +383,16 @@ struct Sent {
 impl Sent {
     async fn read(rows: &Rows<'_>, parcel: ParcelId) -> Result<Self> {
         let (letter, sender, receiver, paths, state) = rows
-            .row::<(u32, u32, u32, String, String)>(
+            .row::<(Option<u32>, Option<u32>, u32, String, String)>(
                 "SELECT letter, sender, receiver, paths, state FROM \
                  parcel WHERE id = ?1",
                 vec![id(parcel)],
             )
             .await?
             .with_context(|| format!("no parcel {}", parcel.0))?;
+        let (Some(letter), Some(sender)) = (letter, sender) else {
+            bail!("parcel {} sends no letter", parcel.0);
+        };
         let (kind, text, task, conversation) = rows
             .row::<(String, String, Option<TaskId>, Option<String>)>(
                 "SELECT kind, text, task, conversation FROM letter \
@@ -722,7 +760,7 @@ impl Handler<FetchPart> for Realm {
         let Agent(by) = sender(&ctx, &fetch)?;
         let rows = Rows::outside(&ctx)?;
         let Some((receiver, letter, state, swept)) = rows
-            .row::<(u32, u32, String, Option<i64>)>(
+            .row::<(u32, Option<u32>, String, Option<i64>)>(
                 "SELECT receiver, letter, state, swept_at FROM \
                  parcel WHERE id = ?1",
                 vec![id(fetch.parcel)],
@@ -741,7 +779,7 @@ impl Handler<FetchPart> for Realm {
         if change::from_case_name::<State>(state)? != State::Ready
             || swept.is_some()
             || tree::left(&rows, by).await?.is_some()
-            || asking::still_held(&rows, LetterId(letter)).await?
+            || held(&rows, letter).await?
         {
             return Ok(Part::Refused {
                 why: PartRefusal::NoSuchParcel,
@@ -776,6 +814,16 @@ impl Handler<FetchPart> for Realm {
             bytes: Base64(bytes),
             last,
         })
+    }
+}
+
+/// Whether `letter`, a parcel's, is held while its task is.
+async fn held(rows: &Rows<'_>, letter: Option<u32>) -> Result<bool> {
+    match letter {
+        Some(letter) => {
+            asking::still_held(rows, LetterId(letter)).await
+        }
+        None => Ok(false),
     }
 }
 

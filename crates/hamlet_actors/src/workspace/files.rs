@@ -28,6 +28,7 @@ use hamlet_sandbox::Env;
 use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{EDIT, Paths, WRITE, cut_off_changes};
+pub(crate) use self::read::image;
 use super::reach::{self, Gate, Op, Placement, Refused};
 use super::{Weighing, Workspace, read_only};
 

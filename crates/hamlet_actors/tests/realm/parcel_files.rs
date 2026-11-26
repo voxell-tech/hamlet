@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use hamlet_actor::{Actor, Ctx, Handler};
 use hamlet_actors::realm;
@@ -138,6 +139,18 @@ impl Files {
 
 pub(super) fn hash(bytes: &[u8]) -> Sha256 {
     Sha256(sha2::Sha256::digest(bytes).into())
+}
+
+/// Ages the store's file at `path` ten days, ten times the day the
+/// store keeps a file no parcel names.
+pub(super) fn aged(path: &Path) {
+    let ten_days = Duration::from_secs(10 * 24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(SystemTime::now() - ten_days)
+        .unwrap();
 }
 
 /// A workspace that takes a hire's reach and answers parcels from

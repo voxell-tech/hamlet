@@ -60,6 +60,22 @@ pub enum SayRefusal {
     NoSuchAgent { address: String },
     #[error("`{agent}` has left: {left}")]
     Left { agent: AgentName, left: Left },
+    /// `at` is not a place in the line's text of `length` bytes.
+    #[error(
+        "An attachment's place, {at}, is not a byte offset on a \
+         character boundary of the line, which is {length} bytes."
+    )]
+    NotAPlace { at: u64, length: u64 },
+    #[error("The file `{name}` was not sent first.")]
+    FileNotSent { name: String },
+    #[error("The file `{name}` is not the size it was sent as.")]
+    NotItsSize { name: String },
+    #[error("A line takes at most 1 GiB of files.")]
+    TooManyBytes,
+    #[error("no image `{image}` was sent first")]
+    NoImage { image: String },
+    #[error("`{name}` is not a name of a file.")]
+    NotAFileName { name: String },
 }
 
 /// A chief's answer to a wait.

@@ -44,6 +44,7 @@ use hamlet_messages::workspace::{
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
+pub(crate) use self::files::image;
 use self::reach::{Gate, Purpose, RealmFolder};
 use crate::call;
 

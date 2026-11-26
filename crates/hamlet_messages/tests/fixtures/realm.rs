@@ -1316,6 +1316,35 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                     left: left(HowEnded::ByTheChief),
                 },
             ),
+            (
+                "not_a_place",
+                SayRefusal::NotAPlace { at: 5, length: 4 },
+            ),
+            (
+                "file_not_sent",
+                SayRefusal::FileNotSent {
+                    name: "notes/plan.md".to_owned(),
+                },
+            ),
+            (
+                "not_its_size",
+                SayRefusal::NotItsSize {
+                    name: "notes/plan.md".to_owned(),
+                },
+            ),
+            ("too_many_bytes", SayRefusal::TooManyBytes),
+            (
+                "no_image",
+                SayRefusal::NoImage {
+                    image: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae".to_owned(),
+                },
+            ),
+            (
+                "not_a_file_name",
+                SayRefusal::NotAFileName {
+                    name: "../plan.md".to_owned(),
+                },
+            ),
         ],
     );
     fixtures.unprobed_args(
