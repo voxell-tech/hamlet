@@ -592,7 +592,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const placing = placingOf(c, peers);
     const tools = toolLister(peers);
     const prompt: PromptSources = {
-        ...promptSources(c, copies, peers, placing, tools),
+        ...promptSources(c, copies, peers, placing, tools, config.model),
         ...(config.library === undefined ? {} : { library: config.library }),
         ...(errand === undefined ? {} : { errand }),
     };

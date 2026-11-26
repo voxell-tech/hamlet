@@ -1050,3 +1050,53 @@ test("a ruling closes its call's item in the watched chat after a restart, howev
         [],
     );
 });
+
+test("a held edit a chief refused closes with no change, as today's", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            edit_file: () => ({ type: "waits_for_chief", needs: ["edit"] }),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall(
+                "edit",
+                { path: "/work/a.md", edits: [{ oldText: "a", newText: "b" }] },
+                "ce",
+            ),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Kept."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Edit it." });
+    const opened = (await read(agent)).items.find(
+        (item) => item.tool?.name === "edit",
+    );
+    assert.ok(opened?.tool?.change !== undefined, "the add shows the edit");
+
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOf(sent, "edit_file"),
+        outcome: {
+            type: "change",
+            end: {
+                type: "not_run",
+                why: { type: "chief_refused", reason: "keep it" },
+                words: "a chief refused the call: keep it",
+            },
+        },
+    });
+    await agent.idle();
+
+    const closing = agent.events
+        .filter(([name]) => name === "chat")
+        .flatMap(([, event]) => (event as ChatEvent).ops)
+        .flatMap((op) =>
+            op.type === "add" && op.item.tool?.exit !== undefined ? [op] : [],
+        );
+    assert.deepEqual(
+        closing.map((op) => [op.item.tool?.exit, op.item.tool?.change]),
+        [[1, undefined]],
+    );
+});

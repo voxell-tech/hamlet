@@ -21,6 +21,7 @@ import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
 import type { AgentInput, Place, PromptSection } from "./messages/agent.ts";
 import type { PlaceText, ReadPlace } from "./messages/realm.ts";
 import type { ReadAnswer, ToolList } from "./messages/workspace.ts";
+import { hostModel } from "./models.ts";
 import { type Peers, readFile, reasonOf } from "./turn.ts";
 
 /** Characters of the memory's root files together, and of the project's instructions, a prompt shows. */
@@ -45,6 +46,8 @@ export interface PromptSources {
     readonly tools: () => Promise<ToolList>;
     readonly readPlace: Placing["read"];
     readonly report: Peers["report"];
+    /** The model the host runs an agent on whose copy names none, as `provider/model`. */
+    readonly model: string;
     /** The library's checkout, by its absolute path. */
     readonly library?: string;
     /** An errand's prompt is its own instructions only. */
@@ -57,9 +60,11 @@ export function promptSources(
     peers: Peers,
     placing: Placing,
     tools: () => Promise<ToolList>,
+    model: string,
 ): PromptSources {
     return {
         copies,
+        model,
         files: peers.files,
         where: async () => {
             const row = await c.db.get<{ kind: Where["kind"]; place: string }>(
@@ -254,7 +259,7 @@ async function machine(sources: PromptSources): Promise<string> {
         settings?.allow_net === true
             ? "on"
             : "off unless a chief allows it; a command that needs it waits until the chief answers, so set `network` to true on it and carry on";
-    const named = model === undefined ? "" : ` Model: ${model.model}.`;
+    const named = ` Model: ${model?.model ?? hostModel(sources.model)}.`;
     const failed =
         faults.length === 0
             ? ""

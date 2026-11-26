@@ -764,6 +764,11 @@ export async function runningModel(
     if (copied !== undefined) {
         return `${copied.model.provider}::${copied.model.modelId}`;
     }
+    return hostModel(host);
+}
+
+/** `host`, given as `provider/model`, as `provider::model`. */
+export function hostModel(host: string): string {
     const at = host.indexOf("/");
     return `${host.slice(0, at)}::${host.slice(at + 1)}`;
 }

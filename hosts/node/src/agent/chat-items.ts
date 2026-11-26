@@ -184,7 +184,7 @@ export class Fold {
             heldUntilAnswered && ended.end.type === "ran"
                 ? { ...ended.end, ms: timeOf(entry) - held.began }
                 : ended.end;
-        const ops = [closed(held.item, endingOf(held, end))];
+        const ops = [closed(shownAt(held.item, end), endingOf(held, end))];
         const said =
             name === "ask_chief" ? chiefSaid(textOf(entry)) : undefined;
         if (said !== undefined) {
@@ -440,6 +440,13 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
         ),
         ...(change === undefined ? {} : { change }),
     };
+}
+
+/** A held call's item as its end closes it: a blocked call changed nothing, so it shows no change, as today's. */
+function shownAt(item: ChatItem, end: CallEnd): ChatItem {
+    if (end.type !== "blocked" || item.tool?.change === undefined) return item;
+    const { change: _, ...tool } = item.tool;
+    return { ...item, tool };
 }
 
 /** pi-durable's words before the reason a call was not run. */
