@@ -302,6 +302,7 @@ async fn read_budget_shows_what_may_spend_used() {
         spend: Spend {
             payer: payer.clone(),
             spent_micros: 8,
+            spent_tokens: 120,
             budget_micros,
             spent_ms: 1,
             budget_ms: None,

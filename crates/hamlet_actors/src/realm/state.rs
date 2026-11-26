@@ -188,7 +188,7 @@ pub(super) async fn read(
             .map(|spend| Spending {
                 micros: spend.spent_micros,
                 ms: spend.spent_ms,
-                tokens: 0,
+                tokens: spend.spent_tokens,
                 cap_micros: spend.budget_micros,
                 cap_ms: spend.budget_ms,
                 period,
