@@ -314,6 +314,33 @@ test("each answer names its model and its price", async (t) => {
     await agent.stop();
 });
 
+test("an endpoint's billed cost stands over the price, as today's harness charges it", async (t) => {
+    const { calls, sent } = signedIn();
+    const second = loopback();
+    const agent = await wakeAgent(t, { calls, models: second.add });
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(1, { model: "loopback::large" }),
+    );
+    second.core.setResponses([
+        async (_transcript, options, _state, model) => {
+            await options?.onProviderStreamEvent?.(
+                { usage: { cost: 0.0015 } },
+                model,
+            );
+            return fauxAssistantMessage("Billed.");
+        },
+    ]);
+    await say(agent, "Bill me.");
+
+    assert.equal((await lastAnswer(agent)).usage.cost.total, 0.0015);
+    const charged = named(sent, "charge").at(-1)?.message as {
+        micros: number;
+    };
+    assert.equal(charged.micros, 1500);
+    await agent.stop();
+});
+
 test("the copy's effort and fast tier reach its requests", async (t) => {
     const { calls } = signedIn();
     const second = loopback([
@@ -395,7 +422,11 @@ test("a client reads the listing's models and checks one with the realm's key", 
     assert.deepEqual(keysSeen, [KEY]);
     assert.deepEqual(
         named(sent, "credential").map((call) => call.message),
-        [{ provider: "loopback" }],
+        [
+            { provider: "faux" },
+            { provider: "loopback" },
+            { provider: "loopback" },
+        ],
     );
     await agent.stop();
 });
@@ -458,7 +489,9 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::large",
             title: "Large",
             context: 64_000,
+            images: 20,
             price: { input: 2, output: 4, cache_read: 1, cache_write: 3 },
+            efforts: ["off"],
         },
     );
     assert.deepEqual(
@@ -467,7 +500,44 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::partly",
             title: "partly",
             context: createFauxCore({}).models[0]?.contextWindow,
+            images: 20,
+            efforts: ["off"],
         },
+    );
+});
+
+test("the model list says how many images one line gives a model, as today's listing", () => {
+    const listed = createModels();
+    const taking = (id: string, input: Model<Api>["input"], most?: number) => ({
+        id,
+        input,
+        ...(most === undefined
+            ? {}
+            : { inputLimits: { images: { maxPerMessage: most } } }),
+    });
+    listed.setProvider(
+        served(
+            "local",
+            [
+                taking("plain", ["text"]),
+                taking("sees", ["text", "image"]),
+                taking("few", ["text", "image"], 5),
+                taking("many", ["text", "image"], 50),
+            ],
+            fauxAssistantMessage("Hello."),
+        ),
+    );
+
+    // As `listed_images` in `crates/hamlet_server/src/providers.rs` reads a
+    // listing and `Limits::of` in `crates/hamlet_server/src/images.rs` caps it.
+    assert.deepEqual(
+        modelList(listed).map(({ name, images }) => ({ name, images })),
+        [
+            { name: "local::plain", images: undefined },
+            { name: "local::sees", images: 20 },
+            { name: "local::few", images: 5 },
+            { name: "local::many", images: 20 },
+        ],
     );
 });
 
@@ -1181,6 +1251,7 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
                 {
                     id: "claude-sonnet-4-5",
                     name: "Claude Sonnet 4.5",
+                    input: ["text"],
                     contextWindow: 200_000,
                     cost: {
                         input: 3,
@@ -1196,7 +1267,14 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
     listed.setProvider(
         served(
             "local",
-            [{ id: "small", name: "Small", contextWindow: 8192 }],
+            [
+                {
+                    id: "small",
+                    name: "Small",
+                    input: ["text"],
+                    contextWindow: 8192,
+                },
+            ],
             fauxAssistantMessage("", {
                 stopReason: "error",
                 errorMessage: "the provider answered 401",

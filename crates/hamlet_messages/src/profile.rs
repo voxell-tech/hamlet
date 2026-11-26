@@ -497,6 +497,19 @@ answer!(FilesAnswer<Gone> {
 });
 message!(Files, "files", Agent => Profile, FilesAnswer);
 
+/// Reads the character at `main`, and the paths where the caller's
+/// branch differs from `main` in bytes or in whether they run, in
+/// path order. `CHARACTER.md` and `inbox/` are never among them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Learned;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LearnedList {
+    pub character: String,
+    pub paths: Vec<Path>,
+}
+message!(Learned, "learned", Agent => Profile, LearnedList);
+
 /// A change to one file of the caller's filesystem.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

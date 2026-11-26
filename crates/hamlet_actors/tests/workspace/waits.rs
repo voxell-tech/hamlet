@@ -356,8 +356,8 @@ async fn a_pending_operation_does_not_run_after_a_revoke() {
 }
 
 /// In manual mode a write and an edit wait for a chief, and the realm
-/// is shown each in the words of the server's tools, the edit with
-/// its change. Allowed, each is carried out and the agent is told its
+/// is shown each in the words of the server's tools, with its
+/// change. Allowed, each is carried out and the agent is told its
 /// answer.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -397,7 +397,16 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
     );
     let diff = asked[0].change.as_ref().expect("an edit's change");
     assert!(diff.patch.contains("-two\n+2"), "{}", diff.patch);
-    assert_eq!(asked[1].change, None);
+    // A write shows its change too, as today's gate does.
+    let made_diff =
+        asked[1].change.as_ref().expect("a write's change");
+    assert!(
+        made_diff.patch.ends_with(
+            "@@ -0,0 +1,1 @@\n+hi\n\\ No newline at end of file\n"
+        ),
+        "{}",
+        made_diff.patch
+    );
     assert_eq!(
         (edit_taken, write_taken),
         (AnswerTaken::Taken, AnswerTaken::Taken)

@@ -34,7 +34,9 @@ import {
 import {
     type Files,
     type FilesAnswer,
+    type LearnedList,
     profileAt,
+    readLearned,
     type Save,
     type SaveAnswer,
 } from "./messages/profile.ts";
@@ -67,6 +69,9 @@ export interface Peers {
     readonly cancel: (
         message: Parameters<WorkspaceActions["cancel"]>[0],
     ) => Promise<ReturnType<WorkspaceActions["cancel"]>>;
+    readonly fitImage: (
+        message: Parameters<WorkspaceActions["fit_image"]>[0],
+    ) => Promise<ReturnType<WorkspaceActions["fit_image"]>>;
     readonly files: AgentFilesystem;
     readonly turns: Turns;
     report(what: string, error: unknown): void;
@@ -114,6 +119,7 @@ export function peersOf(given: {
             ]),
         ) as unknown as BareRealm,
         cancel: (message) => reach(WORKSPACE, "cancel", [message]),
+        fitImage: (message) => reach(WORKSPACE, "fit_image", [message]),
         files: given.files,
         turns: given.turns,
         report: given.report,
@@ -148,7 +154,8 @@ export type CallEnd =
           readonly created?: boolean;
       }
     | { readonly type: "blocked"; readonly why: string }
-    | { readonly type: "aborted" };
+    // The chief's withdrawal shows its notice, as today's transcript does.
+    | { readonly type: "aborted"; readonly withdrawn?: true };
 
 export type Ended = { readonly call: string; readonly end: CallEnd };
 
@@ -168,6 +175,8 @@ export type Admission = {
     /** The images and files of a chief's line, as its item shows them. */
     readonly images?: readonly ChatImage[];
     readonly files?: readonly ChatFile[];
+    /** A chief's line's words, where its content holds captions besides. */
+    readonly text?: string;
 } & (
     | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
@@ -206,6 +215,8 @@ export type Kept = {
     ended?: Ended;
     images?: Pick<ChatImage, keyof ChatImage>[];
     files?: Pick<ChatFile, keyof ChatFile>[];
+    /** The words an item shows, where the model's content says more. */
+    text?: string;
 };
 
 /**
@@ -242,6 +253,7 @@ export function keptOf(admission: Admission): Kept {
         ...(admission.files === undefined || admission.files.length === 0
             ? {}
             : { files: [...admission.files] }),
+        ...(admission.text === undefined ? {} : { text: admission.text }),
     };
 }
 
@@ -526,6 +538,7 @@ const WORKSPACE_STAMPS: {
     find: "read",
     list_tools: "read",
     cancel: "read",
+    fit_image: "read",
 };
 
 type Carries<
@@ -636,11 +649,13 @@ export async function callOut<
         );
     } catch (error) {
         if (context.abortSignal?.aborted) throw error;
-        return stamp.changes
-            ? interrupted(tool)
-            : failed(
-                  `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
-              );
+        if (stamp.changes) {
+            peers.report(`${tool} was interrupted`, error);
+            return interrupted(tool);
+        }
+        return failed(
+            `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
+        );
     }
     if (isRefused(answer)) return refused?.(answer) ?? failed(answer.words);
     return said(answer as Granted<AnswersOf<A>[N]>);
@@ -697,12 +712,14 @@ export function profileCalls(
 ): {
     readonly files: (message: Files) => Promise<FilesAnswer>;
     readonly save: (message: Save) => Promise<SaveAnswer>;
+    readonly learned: () => Promise<LearnedList>;
 } {
     const reach = reaching(peers[CALLS]);
     const to = profileAt(profile);
     return {
         files: (message) => reach(to, "files", [message]),
         save: (message) => reach(to, "save", [message]),
+        learned: async () => readLearned(await reach(to, "learned", [])),
     };
 }
 

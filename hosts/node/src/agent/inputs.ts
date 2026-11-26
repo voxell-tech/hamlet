@@ -1,6 +1,8 @@
 /** The inputs a turn is given, as the model reads them. */
-import type { SubmissionDraft } from "@earendil-works/pi-durable";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { SubmissionDraft, UserInput } from "@earendil-works/pi-durable";
 import type { Author, HeldCall, Input, Submit } from "./messages/agent.ts";
+import { type Caption, NOTHING_RECEIVED, type Received } from "./parcels.ts";
 import {
     type Admission,
     type CallEnd,
@@ -13,29 +15,35 @@ export function nameOf(author: Author, kind: "hire" | "worker"): string {
     return author.name ?? `${kind}#${author.agent}`;
 }
 
-/** `captions` say where a letter's or a question's files were saved. */
-export function admissionOf(message: Submit, captions = ""): Admission {
+export function admissionOf(
+    message: Submit,
+    received: Received = NOTHING_RECEIVED,
+): Admission {
     const { input } = message;
-    const told = (text: string) =>
-        captions === "" ? text : `${text}\n\n${captions}`;
+    const told = (text: string) => placed(text, received.captions);
     const base = {
         id: message.id,
         ...(message.task === undefined ? {} : { task: message.task }),
     };
     switch (input.type) {
         case "line": {
+            const said = told(input.text);
             const line = {
                 ...base,
                 ...attachedOf(input),
                 ...(input.chief === undefined ? {} : { chief: input.chief }),
+                ...(said === input.text ? {} : { text: input.text }),
                 kind: "line" as const,
             };
             return input.note === undefined
-                ? { ...line, content: input.text }
+                ? { ...line, content: given(said, received.images) }
                 : {
                       ...line,
                       note: input.note,
-                      content: `${input.text}${NOTE_BREAK}${input.note}`,
+                      content: given(
+                          `${said}${NOTE_BREAK}${input.note}`,
+                          received.images,
+                      ),
                   };
         }
         case "notice":
@@ -111,7 +119,53 @@ function heldEnd(end: HeldCall["end"], why: string): CallEnd {
             return { type: "blocked", why };
         case "aborted":
             return { type: "aborted" };
+        case "withdrawn":
+            return { type: "aborted", withdrawn: true };
     }
+}
+
+/**
+ * `text` with `captions` placed as `Attached::place` in
+ * `crates/hamlet_server/src/attached.rs` places them: each at its byte
+ * offset, set apart by a space, and those with none after it.
+ */
+function placed(text: string, captions: readonly Caption[]): string {
+    const bytes = Buffer.from(text);
+    const cuts = [
+        ...new Set(
+            captions.flatMap(({ at }) => (at === undefined ? [] : [at])),
+        ),
+    ].sort((a, b) => a - b);
+    const pieces: string[] = [];
+    let from = 0;
+    for (const cut of cuts) {
+        pieces.push(bytes.subarray(from, cut).toString());
+        from = cut;
+    }
+    pieces.push(bytes.subarray(from).toString());
+    let content = "";
+    for (const [index, cut] of cuts.entries()) {
+        content += pieces[index];
+        if (content !== "" && !/\s$/u.test(content)) content += " ";
+        content += captions
+            .filter(({ at }) => at === cut)
+            .map(({ words }) => words)
+            .join(" ");
+        if (/^\S/u.test(pieces[index + 1] ?? "")) content += " ";
+    }
+    content += pieces.at(-1);
+    const last = captions
+        .filter(({ at }) => at === undefined)
+        .map(({ words }) => words)
+        .join("\n");
+    if (last === "") return content;
+    return content === "" ? last : `${content}\n\n${last}`;
+}
+
+function given(words: string, images: readonly ImageContent[]): UserInput {
+    return images.length === 0
+        ? words
+        : [{ type: "text", text: words }, ...images];
 }
 
 /** A line's images and files as its item shows them. */

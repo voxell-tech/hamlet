@@ -10,8 +10,24 @@ import {
     wrongCaller,
 } from "./actor.ts";
 import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
-import { type ClientActions, readClient } from "./messages/agent.ts";
-import { agentKeys, checkModel, modelList, secretsLoaded } from "./models.ts";
+import {
+    type Checked,
+    type ClientActions,
+    readClient,
+} from "./messages/agent.ts";
+import {
+    agentKeys,
+    checkConnection,
+    checkModel,
+    modelList,
+    providerViews,
+    reached,
+    runningImages,
+    runningModel,
+    secretsLoaded,
+    signedInTo,
+} from "./models.ts";
+import { editMemory, readPapers } from "./papers.ts";
 import { promptSections } from "./prompt.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
@@ -77,23 +93,54 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 generationOf(c).peers.reach.keep_credential,
             );
         }),
-        read_models: askedBy("read_models", async () => ({
-            models: modelList(config.models),
+        read_models: askedBy("read_models", async (c) => ({
+            models: config.faux
+                ? modelList(config.models)
+                : modelList(
+                      config.models,
+                      await reached(config.models, generationOf(c).peers.reach),
+                  ),
         })),
-        check: askedBy("check", (c, { model }) =>
-            checkModel(
+        images_taken: askedBy("images_taken", async (c) => {
+            const taken = await runningImages(
                 config.models,
-                agentKeys(config.models, generationOf(c).peers),
-                model,
-            ),
+                generationOf(c).copies,
+                config.model,
+            );
+            return taken === undefined ? {} : { per_line: taken.perLine };
+        }),
+        check: askedBy("check", async (c, { model }) => {
+            const { peers, copies } = generationOf(c);
+            const name = model ?? (await runningModel(copies, config.model));
+            return config.faux && !signedInTo(config.models, name)
+                ? FAUX_CHECKED
+                : checkModel(
+                      config.models,
+                      agentKeys(config.models, peers),
+                      name,
+                  );
+        }),
+        check_connection: askedBy("check_connection", async (c) =>
+            config.faux
+                ? FAUX_CHECKED
+                : checkConnection(
+                      config.models,
+                      await runningModel(generationOf(c).copies, config.model),
+                  ),
         ),
-        check_connection: askedBy("check_connection", unbuilt),
-        read_providers: askedBy("read_providers", unbuilt),
-        read_papers: askedBy("read_papers", unbuilt),
-        edit_memory: askedBy("edit_memory", unbuilt),
+        read_providers: askedBy("read_providers", async (c) => ({
+            providers: await providerViews(
+                config.models,
+                generationOf(c).peers.reach,
+            ),
+        })),
+        read_papers: askedBy("read_papers", readPapers),
+        edit_memory: askedBy("edit_memory", editMemory),
     };
 }
 
-async function unbuilt(): Promise<never> {
-    throw new Error("this agent does not answer that yet");
-}
+/** A check's answer where the faux model runs, as today's faux realm answers every check. */
+const FAUX_CHECKED: Checked = {
+    type: "answered",
+    words: "Every agent runs the faux model here.",
+};

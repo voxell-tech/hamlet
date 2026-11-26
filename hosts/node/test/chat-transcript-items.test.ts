@@ -765,8 +765,8 @@ test("an objection stays open until the chief rules: go closes it at the ruling'
     });
     await send(agent, {
         type: "notice",
-        text: "The chief withdrew the instruction. Stop working on it.",
-        held: { call: withdrawn, end: "aborted" },
+        text: "The chief withdrew the instruction: Do both.",
+        held: { call: withdrawn, end: "withdrawn" },
     });
 
     const entries = await chiefEntries(agent);
@@ -775,10 +775,15 @@ test("an objection stays open until the chief rules: go closes it at the ruling'
     const ruling = entries.find((entry) => entry.kind === "hamlet.notice");
     assert.ok(result?.durationMs !== undefined && ruling !== undefined);
     const began = result.timestamp - result.durationMs;
-    assert.deepEqual(ends((await read(agent)).items), [
+    const { items } = await read(agent);
+    assert.deepEqual(ends(items), [
         ["object", 0, timeOf(ruling) - began, undefined],
         ["object", 1, undefined, "Tool object was aborted"],
     ]);
+    assert.deepEqual(
+        items.filter((item) => item.kind === "notice").map((item) => item.text),
+        ["The chief withdrew the instruction: Do both."],
+    );
 });
 
 test("a call that waits for a chief to allow it stays open, and its end closes the same item as today's", async (t) => {
@@ -1048,5 +1053,55 @@ test("a ruling closes its call's item in the watched chat after a restart, howev
     assert.deepEqual(
         added(woken).filter((item) => item.kind === "notice"),
         [],
+    );
+});
+
+test("a held edit a chief refused closes with no change, as today's", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            edit_file: () => ({ type: "waits_for_chief", needs: ["edit"] }),
+        },
+    });
+    const agent = await wake(
+        t,
+        [
+            toolCall(
+                "edit",
+                { path: "/work/a.md", edits: [{ oldText: "a", newText: "b" }] },
+                "ce",
+            ),
+            fauxAssistantMessage("Waiting on the chief."),
+            fauxAssistantMessage("Kept."),
+        ],
+        calls,
+    );
+    await send(agent, { type: "line", text: "Edit it." });
+    const opened = (await read(agent)).items.find(
+        (item) => item.tool?.name === "edit",
+    );
+    assert.ok(opened?.tool?.change !== undefined, "the add shows the edit");
+
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOf(sent, "edit_file"),
+        outcome: {
+            type: "change",
+            end: {
+                type: "not_run",
+                why: { type: "chief_refused", reason: "keep it" },
+                words: "a chief refused the call: keep it",
+            },
+        },
+    });
+    await agent.idle();
+
+    const closing = agent.events
+        .filter(([name]) => name === "chat")
+        .flatMap(([, event]) => (event as ChatEvent).ops)
+        .flatMap((op) =>
+            op.type === "add" && op.item.tool?.exit !== undefined ? [op] : [],
+        );
+    assert.deepEqual(
+        closing.map((op) => [op.item.tool?.exit, op.item.tool?.change]),
+        [[1, undefined]],
     );
 });

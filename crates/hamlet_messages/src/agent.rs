@@ -88,6 +88,10 @@ pub struct Brief {
     pub tools: Vec<BuiltIn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The errand is a dream, which asks its model as a dream's
+    /// conversation does, not as another errand's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dream: bool,
 }
 
 /// One of an agent's built-in tools, by name.
@@ -216,8 +220,10 @@ pub enum HeldEnd {
     Ran,
     /// It did not run; the notice says why.
     Blocked,
-    /// A stop or the chief's withdrawal of the instruction ended it.
+    /// A stop ended it.
     Aborted,
+    /// The chief withdrew the instruction, as the notice says.
+    Withdrawn,
 }
 
 /// The writer of a letter, as the receiver is shown it (C30).

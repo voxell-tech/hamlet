@@ -24,7 +24,7 @@ use hamlet_sandbox::Sandbox;
 /// built from.
 const ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../hosts/node/src/agent/demo-host.ts"
+    "/../../hosts/node/src/main.ts"
 );
 
 /// Set to `1`, the Node host lists two loopback providers to sign in

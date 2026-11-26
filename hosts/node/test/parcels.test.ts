@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import type { Context } from "@earendil-works/pi-ai";
+import { ActorError } from "../src/actor/actor/mod.ts";
 import type { ParcelFile, Submit } from "../src/agent/messages/agent.ts";
 import type { FetchPart, Part } from "../src/agent/messages/realm.ts";
 import {
@@ -9,6 +10,7 @@ import {
     fakeCalls,
     fakeFiles,
     from,
+    itemOfLine,
     named,
     userWords,
     wakeAgent,
@@ -257,4 +259,136 @@ test("a question's files are told after its words, as a letter's are", async (t)
     assert.deepEqual(words, [
         `Is this plan right?\n\n[File 1 of this message, 3 bytes, saved at ${INBOX}/plan.md]`,
     ]);
+});
+
+const IMAGE =
+    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+function base64(text: string): string {
+    return Buffer.from(text).toString("base64");
+}
+
+test("a line with an image shows it to the model", async (t) => {
+    const held: Record<string, string> = {};
+    const seen: Context[] = [];
+    const { calls, sent } = fakeCalls({
+        realm: { fetch_part: serving(["GIF89a", "# Plan\n"], 64) },
+        workspace: {
+            fit_image: () => ({
+                type: "image",
+                mime: "image/gif",
+                data: base64("GIF89a, fitted"),
+            }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(held),
+        responses: [asked(seen, "Seen.")],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: {
+            type: "line",
+            text: "Look at this.",
+            images: [
+                {
+                    image: { id: IMAGE, at: 4 },
+                    file: {
+                        parcel: 7,
+                        file: 0,
+                        path: `images/${IMAGE}.gif`,
+                        size: 6,
+                    },
+                },
+            ],
+            files: [
+                {
+                    attached: { id: "a".repeat(64), name: "plan.md", size: 7 },
+                    file: { parcel: 7, file: 1, path: "plan.md", size: 7 },
+                },
+            ],
+        },
+    });
+    await agent.idle();
+
+    const line = seen[0]?.messages.findLast(
+        (message) => message.role === "user",
+    );
+    // As `crates/hamlet_server/src/images.rs` `attach_images` and
+    // `crates/hamlet_server/src/inbox.rs` `placed_captions` word them,
+    // placed as `crates/hamlet_server/src/attached.rs` places them.
+    assert.deepEqual(line?.content, [
+        {
+            type: "text",
+            text: `Look [Image 1 of this message, saved at ${FAKE_ROOT}/inbox/images/${IMAGE}.gif] at this.\n\n[File 1 of this message, 7 bytes, saved at ${FAKE_ROOT}/inbox/plan.md]`,
+        },
+        {
+            type: "image",
+            data: base64("GIF89a, fitted"),
+            mimeType: "image/gif",
+        },
+    ]);
+    assert.deepEqual(held, {
+        [`inbox/images/${IMAGE}.gif`]: "GIF89a",
+        "inbox/plan.md": "# Plan\n",
+    });
+    // The faux model takes images at `ImageInput`'s defaults, as today's.
+    assert.deepEqual(
+        named(sent, "fit_image").map(({ message }) => message),
+        [
+            {
+                image: base64("GIF89a"),
+                limits: { width: 2000, height: 2000, bytes: 4_718_592 },
+            },
+        ],
+    );
+    assert.ok(await itemOfLine(agent, "Look at this."));
+    await agent.stop();
+});
+
+test("an image the workspace does not fit is left out, and the line is still told", async (t) => {
+    const seen: Context[] = [];
+    const { calls } = fakeCalls({
+        realm: { fetch_part: serving(["GIF89a"], 64) },
+        workspace: {
+            fit_image: () => {
+                throw new ActorError("actor", "timed_out", "no answer");
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({}),
+        responses: [asked(seen, "Seen.")],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: {
+            type: "line",
+            text: "Look.",
+            images: [
+                {
+                    image: { id: IMAGE },
+                    file: {
+                        parcel: 7,
+                        file: 0,
+                        path: `images/${IMAGE}.gif`,
+                        size: 6,
+                    },
+                },
+            ],
+        },
+    });
+    await agent.idle();
+
+    assert.deepEqual(
+        seen.map((request) => userWords(request).at(-1)),
+        [
+            `Look.\n\n[Image 1 of this message, saved at ${FAKE_ROOT}/inbox/images/${IMAGE}.gif]`,
+        ],
+    );
+    assert.equal(agent.reported.length, 1);
+    assert.match(agent.reported[0] ?? "", /^an image was left out/);
+    await agent.stop();
 });

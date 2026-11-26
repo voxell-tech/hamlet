@@ -31,6 +31,9 @@ use hamlet_messages::workspace::files::{
     Hashed, Image, Note, ReadAnswer, ReadFile, Replace, Search,
     SearchAnswer, Severity, Text, Truncation, WriteFile,
 };
+use hamlet_messages::workspace::images::{
+    FitAnswer, FitImage, ImageLimits,
+};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Need, Project, Reach, SecretsVersion, Trust,
 };
@@ -70,6 +73,7 @@ fn enums() -> Vec<Cases> {
         tagged::<Outcome>(),
         tagged::<Reach>(),
         tagged::<ReadAnswer>(),
+        tagged::<FitAnswer>(),
         tagged::<SearchAnswer>(),
         tagged::<ChangeAnswer>(),
         tagged::<ChangeEnd>(),
@@ -694,6 +698,7 @@ fn every_fixture(fixtures: &mut Fixtures) {
     the_chiefs_answers(fixtures);
     the_answers_about_a_command(fixtures);
     the_reads(fixtures);
+    the_image_fits(fixtures);
     the_changes(fixtures);
     the_realms_and_the_agents(fixtures);
     the_addresses(fixtures);
@@ -1426,6 +1431,35 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
         "workspace/cancel.cancelled",
         &Cancelled {
             commands: vec![CommandId(4), CommandId(5)],
+        },
+    );
+}
+
+fn the_image_fits(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "workspace/fit_image",
+        &FitImage {
+            image: Base64(b"done\n".to_vec()),
+            limits: ImageLimits {
+                width: 2000,
+                height: 2000,
+                bytes: 4_718_592,
+            },
+        },
+    );
+    fixtures.answer(
+        "workspace/fit_image.image",
+        &FitAnswer::Image(Image {
+            mime: "image/jpeg".into(),
+            data: Base64(vec![0xff, 0xd8, 0xff, 0xe0]),
+        }),
+    );
+    fixtures.answer(
+        "workspace/fit_image.unusable",
+        &FitAnswer::Unusable {
+            words: "that image cannot be made small enough for the \
+                    model"
+                .into(),
         },
     );
 }

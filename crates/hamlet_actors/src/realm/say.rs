@@ -30,7 +30,7 @@ use super::parcels::store::Store;
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
 use super::{Realm, chiefs, marker, parcels, reviews};
-use crate::workspace::image;
+use crate::workspace::image::Format;
 
 /// A chief's line, its text scrubbed, with what the store holds of
 /// its images and files, or why it is refused.
@@ -223,10 +223,7 @@ async fn read(
 /// The extension today's server keeps an image in, for the image
 /// `bytes` begin as.
 fn extension(bytes: &[u8]) -> Option<&'static str> {
-    image(bytes).map(|mime| match mime {
-        "image/jpeg" => "jpg",
-        other => other.trim_start_matches("image/"),
-    })
+    Format::detect(bytes).map(Format::extension)
 }
 
 pub(super) struct Target {

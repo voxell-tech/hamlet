@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import {
     err,
@@ -32,14 +32,26 @@ const CODES: Record<string, FileErrorCode> = {
     EINVAL: "invalid",
 };
 
-function fileError(error: unknown, path: string): FileError {
+/**
+ * A native refusal as a `FileError`. Given the system call that `opened`
+ * the file at that absolute path, its words are Node's own, as today's.
+ */
+function fileError(
+    error: unknown,
+    path: string,
+    opened?: { readonly call: string; readonly at: string },
+): FileError {
     if (error instanceof FileError) {
         return error;
     }
     const cause = error instanceof Error ? error : undefined;
     const message = cause?.message ?? String(error);
     const code = CODES[message.slice(0, message.indexOf(":"))] ?? "unknown";
-    return new FileError(code, `${message}: ${path}`, path, cause);
+    const words =
+        opened === undefined
+            ? `${message}: ${path}`
+            : `${message}, ${opened.call} '${opened.at}'`;
+    return new FileError(code, words, path, cause);
 }
 
 /**
@@ -61,6 +73,7 @@ export function openAgentFilesystem(
         path: string,
         context: Context,
         work: () => Promise<T>,
+        syscall?: string,
     ): Promise<Result<T, FileError>> => {
         if (context.abortSignal?.aborted) {
             return err(new FileError("aborted", "the call was aborted", path));
@@ -68,7 +81,15 @@ export function openAgentFilesystem(
         try {
             return ok(await work());
         } catch (error) {
-            return err(fileError(error, path));
+            return err(
+                fileError(
+                    error,
+                    path,
+                    syscall === undefined
+                        ? undefined
+                        : { call: syscall, at: resolve(root, path) },
+                ),
+            );
         }
     };
     return {
@@ -79,6 +100,7 @@ export function openAgentFilesystem(
                 path,
                 context,
                 async () => new Uint8Array(await folder.read(path)),
+                "open",
             ),
         write: (path, content, context, executable) =>
             call(path, context, () =>

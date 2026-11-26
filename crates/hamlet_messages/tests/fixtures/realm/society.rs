@@ -14,10 +14,10 @@ use hamlet_messages::realm::choices::{
     ChoiceRefusal, ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::documents::{
-    CardSetting, CatalogueRefusal, CharterRead, EditCatalogue,
-    EditCharter, EditRefusal, EditSettings, Endpoint, ImageLimits,
-    Newcomers, ReadCharter, ReadCopies, RemoteWorkspace, Setting,
-    SettingRefusal,
+    CardRead, CardSetting, CatalogueRefusal, CharterRead,
+    EditCatalogue, EditCharter, EditRefusal, EditSettings, Endpoint,
+    ImageLimits, Newcomers, ReadCatalogue, ReadCharter, ReadCopies,
+    RemoteWorkspace, Setting, SettingRefusal,
 };
 use hamlet_messages::realm::hamlets::{
     MoveHamlet, NameHamlet, ReadRecord, Record, RecordLine,
@@ -748,6 +748,24 @@ fn the_documents(fixtures: &mut Fixtures) {
             ),
             ("a_profiles", EditRefusal::AProfiles),
         ],
+    );
+    fixtures.args("realm/read_catalogue", &ReadCatalogue);
+    fixtures.answer(
+        "realm/read_catalogue",
+        &vec![CardRead {
+            model: "local::org/large".into(),
+            note: "For careful work.".into(),
+            price: Some(Price {
+                input: 2.0,
+                output: 3.0,
+                cache_read: 0.0,
+                cache_write: 0.0,
+            }),
+            images: Some(ImageLimits {
+                per_line: Some(4),
+                ..ImageLimits::default()
+            }),
+        }],
     );
     fixtures.args("realm/read_charter", &ReadCharter);
     fixtures.answer(

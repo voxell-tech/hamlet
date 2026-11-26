@@ -119,6 +119,15 @@ async fn said_once_hired(
     chief.say(agent, text).await
 }
 
+/// The address of the hire a "`hire#3 (ada)` is hired." reply names.
+fn hired_address(hired: &str) -> String {
+    let named = hired
+        .strip_suffix(" is hired.")
+        .unwrap_or_else(|| panic!("{hired}"))
+        .trim_matches('`');
+    named.split(" (").next().unwrap_or(named).to_owned()
+}
+
 /// A `node` for the server that, once its first start ended, starts
 /// again only when released.
 struct HeldNode {

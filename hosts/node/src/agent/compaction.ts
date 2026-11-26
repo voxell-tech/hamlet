@@ -28,10 +28,10 @@ import { realmWordsIn } from "./spend.ts";
 import { draftOf } from "./turn.ts";
 
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
-const ANSWER_SHARE = 0.2;
+export const ANSWER_SHARE = 0.2;
 const BACKGROUND_SHARE = 0.1;
 /** The window assumed for a model the listing does not hold. */
-const DEFAULT_WINDOW = 32_768;
+export const DEFAULT_WINDOW = 32_768;
 
 /** Compaction sized by each model's window, and by today's default window for any other. */
 export function compactionFor(

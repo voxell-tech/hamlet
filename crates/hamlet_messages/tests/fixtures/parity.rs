@@ -2,8 +2,8 @@
 //! profile and an agent, and of a chief's line with attachments.
 
 use hamlet_messages::agent::chat::{
-    CheckConnection, EditMemory, ProviderList, ReadPapers,
-    ReadProviders,
+    CheckConnection, EditMemory, ImagesTaken, ProviderList,
+    ReadPapers, ReadProviders, TakenImages,
 };
 use hamlet_messages::agent::{LineFile, LineImage};
 use hamlet_messages::library::Shelved;
@@ -77,6 +77,15 @@ pub fn what_a_client_reads(fixtures: &mut Fixtures) {
     );
     fixtures.answer("library/shelved", &Shelved { version: 3 });
     fixtures.args("agent/check_connection", &CheckConnection);
+    fixtures.args("agent/images_taken", &ImagesTaken);
+    fixtures.answer(
+        "agent/images_taken",
+        &TakenImages { per_line: Some(20) },
+    );
+    fixtures.answer(
+        "agent/images_taken.none",
+        &TakenImages { per_line: None },
+    );
     fixtures.args("agent/read_providers", &ReadProviders);
     fixtures.answer(
         "agent/read_providers",

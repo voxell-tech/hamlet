@@ -1,8 +1,7 @@
 //! The images the realm keeps, each once under the hash of its bytes,
-//! and the making of one to fit a model (S29, S30).
+//! and given to a model made to fit it (S29, S30).
 
 use std::collections::{HashMap, HashSet};
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -10,6 +9,9 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use diesel::dsl::exists;
 use diesel::prelude::*;
+pub(crate) use hamlet_actors::workspace::image::{
+    Bounds, Fitted, Format, Unusable, check, fit,
+};
 use hamlet_protocol::client::{
     AttachedFile, AttachedImage, ImageBytes, ImageId, ImageInput,
     ImageSize, PutImage, PutImagePart, ReadResult, RequestId,
@@ -19,13 +21,6 @@ use hamlet_protocol::runtime::Picture;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 use hamlet_store::schema::{input, item, marker};
-use image::codecs::jpeg::JpegEncoder;
-use image::codecs::png::PngEncoder;
-use image::imageops::FilterType;
-use image::{
-    DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder,
-    ImageReader, Limits as DecodeLimits,
-};
 use sha2::{Digest, Sha256};
 
 use crate::attached::{Attached, Caption, is_place};
@@ -42,16 +37,9 @@ use crate::workspace::lodges::LODGE;
 
 /// The most bytes of an image the realm keeps.
 pub(crate) const MOST_BYTES: usize = 20 << 20;
-/// The most pixels of an image that is opened.
-const MOST_PIXELS: u64 = 64_000_000;
-/// The JPEG quality an image is first made at, and the least.
-const QUALITY: u8 = 80;
-const LEAST_QUALITY: u8 = 40;
-/// The shortest side an image is made down to.
-const LEAST_SIDE: u32 = 32;
 /// The longest side of a thumbnail, and the most bytes it takes.
-const THUMBNAIL_SIDE: u32 = 320;
-const THUMBNAIL_BYTES: u64 = 256 * 1024;
+pub(crate) const THUMBNAIL_SIDE: u32 = 320;
+pub(crate) const THUMBNAIL_BYTES: u64 = 256 * 1024;
 /// The folder of a lodge, or of a worker's scratch folder, that holds
 /// the images given to its agent (S29).
 pub(crate) const SEEN: &str = "inbox/images";
@@ -59,94 +47,6 @@ pub(crate) const SEEN: &str = "inbox/images";
 /// realm's sweeps for such images.
 const GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
-
-/// An image's format.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Format {
-    Png,
-    Jpeg,
-    Webp,
-    Gif,
-}
-
-impl Format {
-    const ALL: [Self; 4] =
-        [Self::Png, Self::Jpeg, Self::Webp, Self::Gif];
-
-    pub fn mime(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
-            Self::Webp => "image/webp",
-            Self::Gif => "image/gif",
-        }
-    }
-
-    pub fn extension(self) -> &'static str {
-        match self {
-            Self::Png => "png",
-            Self::Jpeg => "jpg",
-            Self::Webp => "webp",
-            Self::Gif => "gif",
-        }
-    }
-
-    fn decoding(self) -> image::ImageFormat {
-        match self {
-            Self::Png => image::ImageFormat::Png,
-            Self::Jpeg => image::ImageFormat::Jpeg,
-            Self::Webp => image::ImageFormat::WebP,
-            Self::Gif => image::ImageFormat::Gif,
-        }
-    }
-
-    /// The format `bytes` begin as, if it is one an image is kept in.
-    pub fn detect(bytes: &[u8]) -> Option<Self> {
-        const PNG: [u8; 8] =
-            [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-        let at = |offset: usize, text: &[u8]| {
-            bytes.get(offset..offset + text.len()) == Some(text)
-        };
-        if at(0, &[0xff, 0xd8, 0xff]) {
-            return (bytes.get(3) != Some(&0xf7))
-                .then_some(Self::Jpeg);
-        }
-        if at(0, &PNG) {
-            let header = bytes.len() >= 16
-                && at(12, b"IHDR")
-                && be32(bytes, 8) == 13;
-            return header.then_some(Self::Png);
-        }
-        if at(0, b"GIF87a") || at(0, b"GIF89a") {
-            return Some(Self::Gif);
-        }
-        if at(0, b"RIFF") && at(8, b"WEBP") {
-            return Some(Self::Webp);
-        }
-        None
-    }
-}
-
-fn be32(bytes: &[u8], offset: usize) -> usize {
-    bytes.get(offset..offset + 4).map_or(0, |b| {
-        u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
-    })
-}
-
-/// Why bytes are not an image the realm can keep or give a model.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum Unusable {
-    #[error("an image is a PNG, JPEG, WebP or GIF")]
-    NotAnImage,
-    #[error("an image is at most 20 MiB")]
-    TooLarge,
-    #[error("that image has too many pixels to open")]
-    TooManyPixels,
-    #[error("that image could not be read")]
-    Broken,
-    #[error("that image cannot be made small enough for the model")]
-    Unfit,
-}
 
 /// The limits of the images a model takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,15 +72,14 @@ impl Limits {
                 .min(ImageInput::PER_LINE),
         }
     }
-}
 
-/// An image made to fit a model.
-pub(crate) struct Fitted {
-    pub bytes: Vec<u8>,
-    pub format: Format,
-    /// Its size before it was made smaller, when it was.
-    pub from: Option<(u32, u32)>,
-    pub size: (u32, u32),
+    pub fn bounds(self) -> Bounds {
+        Bounds {
+            width: self.width,
+            height: self.height,
+            bytes: self.bytes,
+        }
+    }
 }
 
 /// An image the realm keeps, and the format it was found in.
@@ -215,12 +114,8 @@ impl Images {
         let Some(format) = Format::detect(bytes) else {
             return Ok(Err(Unusable::NotAnImage));
         };
-        let Ok(decoder) = reader(bytes, format).into_decoder() else {
-            return Ok(Err(Unusable::Broken));
-        };
-        let (width, height) = decoder.dimensions();
-        if u64::from(width) * u64::from(height) > MOST_PIXELS {
-            return Ok(Err(Unusable::TooManyPixels));
+        if let Err(unusable) = check(bytes, format) {
+            return Ok(Err(unusable));
         }
         let hash = Sha256::digest(bytes)
             .iter()
@@ -271,13 +166,12 @@ impl Images {
         let Some(original) = self.find(id)? else {
             return Ok(None);
         };
-        let limits = Limits {
+        let bounds = Bounds {
             width: THUMBNAIL_SIDE,
             height: THUMBNAIL_SIDE,
             bytes: THUMBNAIL_BYTES,
-            per_line: 1,
         };
-        let Ok(made) = fit(&original.bytes, original.format, limits)
+        let Ok(made) = fit(&original.bytes, original.format, bounds)
         else {
             return Ok(Some(original));
         };
@@ -366,8 +260,9 @@ impl Images {
         let stored = self
             .find(id)?
             .with_context(|| format!("the image {id} is not kept"))?;
-        let fitted = fit(&stored.bytes, stored.format, limits)
-            .map_err(|unusable| anyhow::anyhow!("{unusable}"))?;
+        let fitted =
+            fit(&stored.bytes, stored.format, limits.bounds())
+                .map_err(|unusable| anyhow::anyhow!("{unusable}"))?;
         Ok(picture(&fitted.bytes, fitted.format))
     }
 }
@@ -406,7 +301,7 @@ pub(crate) async fn keep_fitted(
     limits: Limits,
 ) -> Result<std::result::Result<(ImageId, Fitted), Unusable>> {
     tokio::task::spawn_blocking(move || {
-        let fitted = match fit(&bytes, format, limits) {
+        let fitted = match fit(&bytes, format, limits.bounds()) {
             Ok(fitted) => fitted,
             Err(unusable) => return Ok(Err(unusable)),
         };
@@ -435,121 +330,6 @@ fn picture(bytes: &[u8], format: Format) -> Picture {
     Picture {
         data: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime: format.mime().into(),
-    }
-}
-
-fn reader(
-    bytes: &[u8],
-    format: Format,
-) -> ImageReader<Cursor<&[u8]>> {
-    ImageReader::with_format(Cursor::new(bytes), format.decoding())
-}
-
-/// `bytes` made to fit `limits`: as they are when they do, else
-/// turned upright, made smaller and encoded again until they do.
-pub(crate) fn fit(
-    bytes: &[u8],
-    format: Format,
-    limits: Limits,
-) -> std::result::Result<Fitted, Unusable> {
-    let mut decoder = reader(bytes, format)
-        .into_decoder()
-        .map_err(|_| Unusable::Broken)?;
-    let (width, height) = decoder.dimensions();
-    if u64::from(width) * u64::from(height) > MOST_PIXELS {
-        return Err(Unusable::TooManyPixels);
-    }
-    let orientation = decoder
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let fits = width <= limits.width
-        && height <= limits.height
-        && bytes.len() as u64 <= limits.bytes;
-    if fits
-        && orientation == image::metadata::Orientation::NoTransforms
-    {
-        return Ok(Fitted {
-            bytes: bytes.to_vec(),
-            format,
-            from: None,
-            size: (width, height),
-        });
-    }
-    decoder
-        .set_limits(DecodeLimits::default())
-        .map_err(|_| Unusable::Broken)?;
-    let mut image = DynamicImage::from_decoder(decoder)
-        .map_err(|_| Unusable::Broken)?;
-    image.apply_orientation(orientation);
-    let (upright_width, upright_height) =
-        (image.width(), image.height());
-    let scale = f64::min(
-        f64::from(limits.width) / f64::from(upright_width),
-        f64::from(limits.height) / f64::from(upright_height),
-    )
-    .min(1.0);
-    let mut scale = scale;
-    let mut quality = QUALITY;
-    loop {
-        let side = |side: u32| {
-            ((f64::from(side) * scale).round() as u32).max(1)
-        };
-        let size = (side(upright_width), side(upright_height));
-        let made = if size == (upright_width, upright_height) {
-            image.clone()
-        } else {
-            image.resize_exact(size.0, size.1, FilterType::Lanczos3)
-        };
-        let (encoded, format) = encode(&made, quality)?;
-        if encoded.len() as u64 <= limits.bytes {
-            return Ok(Fitted {
-                bytes: encoded,
-                format,
-                from: (size != (width, height))
-                    .then_some((width, height)),
-                size,
-            });
-        }
-        if format == Format::Jpeg && quality > LEAST_QUALITY {
-            quality -= 10;
-        } else {
-            scale *= 0.75;
-            if size.0.min(size.1) <= LEAST_SIDE {
-                return Err(Unusable::Unfit);
-            }
-        }
-    }
-}
-
-/// `image` as a PNG when it has transparency, else a JPEG of
-/// `quality`.
-fn encode(
-    image: &DynamicImage,
-    quality: u8,
-) -> std::result::Result<(Vec<u8>, Format), Unusable> {
-    let mut out = Vec::new();
-    if image.color().has_alpha() {
-        let rgba = image.to_rgba8();
-        PngEncoder::new(&mut out)
-            .write_image(
-                rgba.as_raw(),
-                rgba.width(),
-                rgba.height(),
-                ExtendedColorType::Rgba8,
-            )
-            .map_err(|_| Unusable::Broken)?;
-        Ok((out, Format::Png))
-    } else {
-        let rgb = image.to_rgb8();
-        JpegEncoder::new_with_quality(&mut out, quality)
-            .write_image(
-                rgb.as_raw(),
-                rgb.width(),
-                rgb.height(),
-                ExtendedColorType::Rgb8,
-            )
-            .map_err(|_| Unusable::Broken)?;
-        Ok((out, Format::Jpeg))
     }
 }
 
@@ -955,7 +735,7 @@ fn held_by_agents(layout: &Layout) -> HashSet<ImageId> {
 }
 
 /// `words` with its first letter in capitals.
-fn capitalised(words: &str) -> String {
+pub(crate) fn capitalised(words: &str) -> String {
     let mut letters = words.chars();
     letters
         .next()
@@ -965,6 +745,9 @@ fn capitalised(words: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use image::codecs::png::PngEncoder;
+    use image::{ExtendedColorType, ImageEncoder};
+
     use super::*;
 
     fn png(width: u32, height: u32) -> Vec<u8> {
@@ -986,63 +769,6 @@ mod tests {
             )
             .unwrap();
         out
-    }
-
-    const LIMITS: Limits = Limits {
-        width: 100,
-        height: 80,
-        bytes: 1 << 20,
-        per_line: 20,
-    };
-
-    #[test]
-    fn a_larger_image_is_made_smaller_to_keep_its_shape() {
-        let fitted =
-            fit(&png(400, 200), Format::Png, LIMITS).unwrap();
-        assert_eq!(fitted.from, Some((400, 200)));
-        assert_eq!(fitted.size, (100, 50));
-        let again = Format::detect(&fitted.bytes).unwrap();
-        assert_eq!(again, fitted.format);
-    }
-
-    /// `png` with an animation control chunk after its header, which
-    /// makes it an animated PNG of one frame.
-    fn animated(png: &[u8]) -> Vec<u8> {
-        let crc = |bytes: &[u8]| {
-            let mut crc = u32::MAX;
-            for byte in bytes {
-                crc ^= u32::from(*byte);
-                for _ in 0..8 {
-                    crc = (crc >> 1) ^ (0xedb8_8320 * (crc & 1));
-                }
-            }
-            !crc
-        };
-        let mut chunk = Vec::from(*b"acTL");
-        chunk.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0]);
-        let mut out = png[..33].to_vec();
-        out.extend_from_slice(&8_u32.to_be_bytes());
-        out.extend_from_slice(&chunk);
-        out.extend_from_slice(&crc(&chunk).to_be_bytes());
-        out.extend_from_slice(&png[33..]);
-        out
-    }
-
-    #[test]
-    fn an_animated_png_is_kept_and_made_smaller_by_its_first_frame() {
-        let bytes = animated(&png(400, 200));
-        assert_eq!(Format::detect(&bytes), Some(Format::Png));
-        let big = Limits {
-            width: 1000,
-            height: 1000,
-            ..LIMITS
-        };
-        let kept = fit(&bytes, Format::Png, big).unwrap();
-        assert_eq!(kept.bytes, bytes);
-        assert_eq!(
-            fit(&bytes, Format::Png, LIMITS).unwrap().size,
-            (100, 50)
-        );
     }
 
     #[test]

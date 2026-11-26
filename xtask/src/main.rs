@@ -33,6 +33,9 @@ Usage: cargo xtask <task> [args]
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
+  actors           the acceptance suite on `hamlet_server --actors`, \
+     with the Node host and its native module, but the scenarios \
+     that fail there
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
@@ -304,6 +307,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
+        "actors" => actors(&root),
         "killkit" => {
             install(&root, NODE_HOST)?;
             native(
@@ -442,6 +446,74 @@ fn acceptance(root: &Path) -> Result<(), Failure> {
     status(&mut locked(
         "test",
         &["-p", "hamlet_acceptance", "--features", "acceptance"],
+    ))
+}
+
+/// The scenarios `actors` skips, each with the place of its test:
+/// they fail on `hamlet_server --actors`.
+const ACTORS_SKIP: &[(&str, &str)] = &[
+    (
+        "chats_with_answers_on_stdout_and_the_rest_on_stderr",
+        "tests/cli.rs:48",
+    ),
+    (
+        "starts_at_another_hamlet_and_switches_agents_and_hamlets",
+        "tests/cli.rs:149",
+    ),
+    (
+        "withdrawing_an_objection_stops_the_turns_calls",
+        "tests/oversight.rs:400",
+    ),
+    (
+        "a_letter_copies_the_files_it_names_into_the_receivers_inbox",
+        "tests/files.rs:86",
+    ),
+    (
+        "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
+        "tests/oauth.rs:185",
+    ),
+    (
+        "shutdown_waits_for_a_model_calls_started_rotation_to_persist",
+        "tests/oauth.rs:266",
+    ),
+    (
+        "concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_reach_either_store",
+        "tests/oauth.rs:298",
+    ),
+];
+
+fn actors(root: &Path) -> Result<(), Failure> {
+    prepare(root)?;
+    install(root, NODE_HOST)?;
+    if !native(root, "actors", "the acceptance suite on the actors")?
+    {
+        return Ok(());
+    }
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_cli", "-p", "hamlet_server"],
+    ))?;
+    let server = target(root)
+        .join("debug")
+        .join(format!("hamlet_server{}", env::consts::EXE_SUFFIX));
+    let mut test = locked(
+        "test",
+        &[
+            "-p",
+            "hamlet_acceptance",
+            "--features",
+            "acceptance",
+            "--no-fail-fast",
+            "--",
+            "--exact",
+        ],
+    );
+    for (scenario, _) in ACTORS_SKIP {
+        test.args(["--skip", scenario]);
+    }
+    status(test.env(
+        "HAMLET_ACCEPTANCE_SERVER",
+        format!("{} --actors", server.display()),
     ))
 }
 
@@ -599,8 +671,7 @@ fn native(
         return Ok(false);
     };
     status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
-    let target = env::var_os("CARGO_TARGET_DIR")
-        .map_or_else(|| root.join("target"), PathBuf::from);
+    let target = target(root);
     let folder = root.join(NATIVE);
     // A new file renamed over the old one, never the old one
     // rewritten: macOS kills a process that loads a signed library
@@ -611,6 +682,12 @@ fn native(
         .and_then(|_| fs::rename(&partial, folder.join(loaded)))
         .map_err(Failure::Native)?;
     Ok(true)
+}
+
+/// Cargo's target folder for the workspace in `root`.
+fn target(root: &Path) -> PathBuf {
+    env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| root.join("target"), PathBuf::from)
 }
 
 fn declarations(root: &Path) -> Result<(), Failure> {

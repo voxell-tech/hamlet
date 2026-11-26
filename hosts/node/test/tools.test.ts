@@ -517,6 +517,45 @@ test("an own write and an own edit answer in today's words, a write that makes i
     await agent.stop();
 });
 
+test("an own write or edit of the root's CHARACTER.md is refused in today's words and changes nothing", async (t) => {
+    const { calls } = fakeCalls({});
+    const files: Record<string, string> = {
+        [`${ROOT}/CHARACTER.md`]: "Kind.",
+    };
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            toolCall(
+                "write",
+                { path: "CHARACTER.md", content: "Cruel." },
+                "c1",
+            ),
+            toolCall(
+                "edit",
+                {
+                    path: `${ROOT}/CHARACTER.md`,
+                    edits: [{ oldText: "Kind.", newText: "Cruel." }],
+                },
+                "c2",
+            ),
+            fauxAssistantMessage("Tried."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
+    await agent.idle();
+
+    // Today's `character_refusal` (`crates/hamlet_server/src/calls.rs`).
+    const refusal = {
+        output: "CHARACTER.md is your scholar's character, which only a chief changes. Keep what you learn in memory/ instead.",
+        isError: true,
+        diagnostics: [],
+    };
+    assert.deepEqual(await toolResults(agent), [refusal, refusal]);
+    assert.equal(files[`${ROOT}/CHARACTER.md`], "Kind.");
+    await agent.stop();
+});
+
 test("an own write and edit name their path as today does, without `.` parts or doubled slashes", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {

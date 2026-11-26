@@ -11,8 +11,9 @@ use hamlet_messages::agent::copies::{
     Copies, CopyVersion, ModelChoice, Price, Versioned,
 };
 use hamlet_messages::realm::documents::{
-    CardSetting, CatalogueRefusal, CharterRead, EditCatalogue,
-    EditCharter, EditRefusal, ImageLimits, ReadCharter, ReadCopies,
+    CardRead, CardSetting, CatalogueRefusal, CharterRead,
+    EditCatalogue, EditCharter, EditRefusal, ImageLimits,
+    ReadCatalogue, ReadCharter, ReadCopies,
 };
 use hamlet_messages::realm::{Done, Refusable};
 use hamlet_messages::sender::Client;
@@ -559,6 +560,50 @@ impl Act<Client> for ReadCharter {
     }
 
     fn answer(&self, done: Unchanged, _made: &Made) -> CharterRead {
+        match done {}
+    }
+}
+
+impl Act<Client> for ReadCatalogue {
+    type Output = Vec<CardRead>;
+    type Loaded = Vec<CardRead>;
+    type Done = Unchanged;
+
+    async fn load(
+        &self,
+        _by: &Client,
+        rows: &Rows<'_>,
+    ) -> Result<Vec<CardRead>> {
+        Ok(catalogue(rows)
+            .await?
+            .into_iter()
+            .map(
+                |(
+                    model,
+                    Card {
+                        images,
+                        note,
+                        price,
+                    },
+                )| CardRead {
+                    model,
+                    note,
+                    price,
+                    images,
+                },
+            )
+            .collect())
+    }
+
+    fn decide(
+        &self,
+        _by: &Client,
+        read: Vec<CardRead>,
+    ) -> Decision<Unchanged, Vec<CardRead>> {
+        Decision::Answer(read)
+    }
+
+    fn answer(&self, done: Unchanged, _made: &Made) -> Vec<CardRead> {
         match done {}
     }
 }

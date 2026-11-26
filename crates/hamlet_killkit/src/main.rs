@@ -328,12 +328,15 @@ fn run_once(
         Kill::Fault(point) => Some((point, faults.as_path())),
         Kill::After { .. } | Kill::NodeHost => None,
     };
+    // A Node host with no faux script serves today's providers, which
+    // a demo's agents have none of.
     let faux = match scenario.demo {
-        Demo::RealmActor { faux: Some(script) } => {
+        Demo::RealmActor { faux } => {
             let path = dir.join("faux.json");
-            std::fs::write(&path, script).with_context(|| {
-                format!("write {}", path.display())
-            })?;
+            std::fs::write(&path, faux.unwrap_or("{}"))
+                .with_context(|| {
+                    format!("write {}", path.display())
+                })?;
             Some(path)
         }
         _ => None,

@@ -8,6 +8,7 @@ use hamlet_messages::workspace::files::{
 use hamlet_sandbox::{Env, FileError};
 use unicode_normalization::UnicodeNormalization;
 
+use crate::workspace::image::Format;
 use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// `path`'s lines from `offset`, at most `limit` of them and within
@@ -40,9 +41,9 @@ pub(super) fn read(
         tried.push(variant);
     }
     let bytes = env.read_file(&absolute)?;
-    if let Some(mime) = image(&bytes) {
+    if let Some(format) = Format::detect(&bytes) {
         return Ok(ReadAnswer::Image(Image {
-            mime: mime.to_owned(),
+            mime: format.mime().to_owned(),
             data: Base64(bytes),
         }));
     }
@@ -130,32 +131,6 @@ pub(super) fn read(
         });
     }
     Ok(ReadAnswer::Text(out))
-}
-
-/// The type of image `bytes` begin as, if it is one a model takes.
-// Copied from the server's `images::Format::detect`.
-pub(crate) fn image(bytes: &[u8]) -> Option<&'static str> {
-    const PNG: [u8; 8] =
-        [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-    let at = |offset: usize, text: &[u8]| {
-        bytes.get(offset..offset + text.len()) == Some(text)
-    };
-    if at(0, &[0xff, 0xd8, 0xff]) {
-        return (bytes.get(3) != Some(&0xf7)).then_some("image/jpeg");
-    }
-    if at(0, &PNG) {
-        let header = bytes.len() >= 16
-            && at(12, b"IHDR")
-            && bytes.get(8..12) == Some(&13u32.to_be_bytes());
-        return header.then_some("image/png");
-    }
-    if at(0, b"GIF87a") || at(0, b"GIF89a") {
-        return Some("image/gif");
-    }
-    if at(0, b"RIFF") && at(8, b"WEBP") {
-        return Some("image/webp");
-    }
-    None
 }
 
 /// `path` with a narrow no-break space before ` AM.` or ` PM.`, as
@@ -336,35 +311,6 @@ mod tests {
         assert_eq!(format_size(1280), "1.3KB");
         assert_eq!(format_size(60_001), "58.6KB");
         assert_eq!(format_size(3 * 1024 * 1024 / 2), "1.5MB");
-    }
-
-    /// An image is told by its first bytes, and only a whole header
-    /// counts.
-    #[test]
-    fn an_image_is_told_by_its_first_bytes() {
-        let mut png =
-            vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-        png.extend(13u32.to_be_bytes());
-        png.extend(b"IHDR");
-        let mut no_header = png.clone();
-        no_header[12..16].copy_from_slice(b"IDAT");
-        let mut webp = b"RIFF".to_vec();
-        webp.extend([0; 4]);
-        webp.extend(b"WEBP");
-
-        assert_eq!(image(&png), Some("image/png"));
-        assert_eq!(image(&no_header), None);
-        assert_eq!(image(&png[..12]), None);
-        assert_eq!(
-            image(&[0xff, 0xd8, 0xff, 0xe0]),
-            Some("image/jpeg")
-        );
-        assert_eq!(image(&[0xff, 0xd8, 0xff, 0xf7]), None);
-        assert_eq!(image(b"GIF89a..."), Some("image/gif"));
-        assert_eq!(image(b"GIF87a"), Some("image/gif"));
-        assert_eq!(image(&webp), Some("image/webp"));
-        assert_eq!(image(b"RIFF"), None);
-        assert_eq!(image(b"plain text"), None);
     }
 
     /// A screenshot's name as macOS writes it, with a narrow no-break

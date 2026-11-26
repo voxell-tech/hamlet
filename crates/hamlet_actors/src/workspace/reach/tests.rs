@@ -1,4 +1,4 @@
-use hamlet_messages::workspace::reach::Project;
+use hamlet_messages::workspace::reach::{Project, Trust};
 
 use super::*;
 

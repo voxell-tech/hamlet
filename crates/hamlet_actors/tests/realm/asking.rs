@@ -565,8 +565,8 @@ async fn withdraw_drops_only_that_tasks_letters() {
     assert_eq!(withdrawn, Done::Done);
     assert_eq!(
         after_withdraw,
-        ["notice: The chief withdrew the instruction. Stop working \
-          on it."]
+        ["notice: The chief withdrew the instruction: Make the \
+          file."]
     );
     assert_eq!(still_held, held(&second));
     assert_eq!(
@@ -732,8 +732,8 @@ async fn a_withdrawn_task_spends_nothing_and_takes_no_letters() {
         told,
         [
             "letter: lunch at noon",
-            "notice: The chief withdrew the instruction. Stop \
-             working on it.",
+            "notice: The chief withdrew the instruction: Make the \
+             file.",
         ]
     );
     realm.host.shutdown().await.unwrap();

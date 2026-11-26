@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use futures::future::BoxFuture;
 use hamlet_actor::{Ctx, KeepAwakeRegion};
 use hamlet_messages::address::Agent;
@@ -349,7 +349,7 @@ async fn attempt(
             return Tried::Over(Ok(None));
         }
         Ok(Some(Status::Hiring)) => {
-            return failed(anyhow!("agent {} is being hired", to.0));
+            return failed(BeingHired(to).into());
         }
         Ok(Some(Status::Live)) => {}
     }
@@ -422,8 +422,20 @@ async fn make(
     made.map(drop)
 }
 
+/// A delivery to an agent still being hired, which waits for it.
+#[derive(Debug, thiserror::Error)]
+#[error("agent {} is being hired", .0.0)]
+struct BeingHired(AgentNumber);
+
+/// Tells `delivery`'s failure. One that waits for its receiver's
+/// hiring, or for the Node host to link up, runs again and is told at
+/// debug.
 fn log_failure(delivery: &Delivery, error: &anyhow::Error) {
-    tracing::warn!(?delivery, "a delivery failed: {error:#}");
+    if error.is::<BeingHired>() || peer::unreached(error) {
+        tracing::debug!(?delivery, "a delivery waits: {error:#}");
+    } else {
+        tracing::warn!(?delivery, "a delivery failed: {error:#}");
+    }
 }
 
 /// Makes `delivery`, giving a stop's answer.

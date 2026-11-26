@@ -67,6 +67,21 @@ test("a filesystem read gives a file's bytes, by a relative or an absolute path"
     assert.equal(missing.ok ? undefined : missing.error.code, "not_found");
 });
 
+test("a read of a missing file says ENOENT as today's read does", async (t) => {
+    const { filesystem } = await planted(t);
+    for (const path of [
+        "memory/missing.md",
+        `${filesystem.root}/memory/missing.md`,
+    ]) {
+        const missing = await filesystem.read(path, context);
+        assert.equal(
+            missing.ok ? undefined : missing.error.message,
+            `ENOENT: no such file or directory, open '${filesystem.root}/memory/missing.md'`,
+            path,
+        );
+    }
+});
+
 test("a filesystem write makes the file and its folders, then reads back", async (t) => {
     const { filesystem } = await planted(t);
     const wrote = await filesystem.write("memory/new/today.md", "new", context);

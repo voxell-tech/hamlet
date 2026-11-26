@@ -1,9 +1,13 @@
 /**
- * A letter's or a question's parcel, saved in the agent's `inbox/` as
- * `crates/hamlet_server/src/inbox.rs` saves files sent to an agent.
+ * A letter's or a question's parcel, and a chief's line's images and files,
+ * saved in the agent's `inbox/` as `crates/hamlet_server/src/inbox.rs` and
+ * `crates/hamlet_server/src/images.rs` save files sent to an agent.
  */
 import type { Context } from "@earendil-works/chord/context";
-import type { ParcelFile } from "./messages/agent.ts";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { Input, ParcelFile } from "./messages/agent.ts";
+import { u32 } from "./messages/shared.ts";
+import type { ImagesTaken } from "./models.ts";
 import type { Peers } from "./turn.ts";
 
 const INBOX = "inbox";
@@ -14,30 +18,154 @@ const INBOX = "inbox";
  */
 const MOST_HELD = 256 * 1024 * 1024;
 
+/** Words of an input's content: at a byte offset of its text, or after it. */
+export interface Caption {
+    readonly at?: number;
+    readonly words: string;
+}
+
+/** What an input was given besides its words. */
+export interface Received {
+    readonly captions: readonly Caption[];
+    /** As the model is given them. */
+    readonly images: readonly ImageContent[];
+}
+
+export const NOTHING_RECEIVED: Received = { captions: [], images: [] };
+
 /** A file or folder saved, as the agent finds it. */
 interface Saved {
     /** Its path from the agent's filesystem. */
     readonly path: string;
+    readonly at: number | undefined;
     files: number;
     bytes: number;
     folder: boolean;
 }
 
-/**
- * Saves each file of `files` under `inbox/`, a top name the folder holds
- * already numbered as today's, and gives the captions that say where each
- * landed. A file that is not saved is reported and has no caption.
- */
+interface Placed {
+    readonly file: ParcelFile;
+    readonly folder: string;
+    readonly path: string;
+    readonly at?: number;
+}
+
+/** Saves each file of a letter's parcel under `inbox/<its sender>/`. */
 export async function received(
     peers: Peers,
     files: readonly ParcelFile[],
     context: Context,
-): Promise<string> {
+): Promise<Received> {
+    const placed = files.map((file) => {
+        const [from = "", ...path] = file.path.split("/");
+        return { file, folder: `${INBOX}/${from}`, path: path.join("/") };
+    });
+    return { captions: await savedIn(peers, placed, context), images: [] };
+}
+
+/**
+ * Saves each image of `line` at `inbox/images/<name>` and each file under
+ * `inbox/`, in the order of their places, as `attach` in
+ * `crates/hamlet_server/src/images.rs` does. The images are given to the
+ * model when it takes them, at most as many as it takes in a line, fitted
+ * as `pictures` in `crates/hamlet_server/src/talk/sync.rs` fits them; one
+ * that cannot be is left out and reported.
+ */
+export async function attached(
+    peers: Peers,
+    line: Extract<Input, { type: "line" }>,
+    taken: ImagesTaken | undefined,
+    context: Context,
+): Promise<Received> {
+    const captions: Caption[] = [];
+    const images: ImageContent[] = [];
+    const sorted = [...(line.images ?? [])].sort(
+        (a, b) => placeOf(a.image.at) - placeOf(b.image.at),
+    );
+    for (const [index, { image, file }] of sorted.entries()) {
+        const path = `${INBOX}/${file.path}`;
+        const bytes = await savedWhole(peers, file, path, context);
+        if (bytes === undefined) continue;
+        captions.push({
+            ...(image.at === undefined ? {} : { at: image.at }),
+            words: `[Image ${index + 1} of this message, saved at ${peers.files.root}/${path}]`,
+        });
+        if (taken === undefined || index >= taken.perLine) continue;
+        const fitted = await peers
+            .fitImage({
+                image: bytes.toString("base64"),
+                limits: {
+                    width: u32(taken.width),
+                    height: u32(taken.height),
+                    bytes: u32(taken.bytes),
+                },
+            })
+            .catch((error: unknown) => ({ type: "failed" as const, error }));
+        if (fitted.type !== "image") {
+            peers.report(
+                "an image was left out",
+                fitted.type === "unusable" ? fitted.words : fitted.error,
+            );
+            continue;
+        }
+        images.push({
+            type: "image",
+            data: fitted.data,
+            mimeType: fitted.mime,
+        });
+    }
+    const files = [...(line.files ?? [])]
+        .sort((a, b) => placeOf(a.attached.at) - placeOf(b.attached.at))
+        .map(({ attached, file }) => ({
+            file,
+            folder: INBOX,
+            path: file.path,
+            ...(attached.at === undefined ? {} : { at: attached.at }),
+        }));
+    captions.push(...(await savedIn(peers, files, context)));
+    return { captions, images };
+}
+
+/** A place to sort by: one with none comes last, as today's. */
+function placeOf(at: number | undefined): number {
+    return at ?? Number.POSITIVE_INFINITY;
+}
+
+async function savedWhole(
+    peers: Peers,
+    file: ParcelFile,
+    path: string,
+    context: Context,
+): Promise<Buffer | undefined> {
+    const unsaved = (why: unknown) => {
+        peers.report(`${file.path} was not saved in the inbox`, why);
+        return undefined;
+    };
+    const bytes = await fetched(peers, file).catch((error: unknown) => error);
+    if (!Buffer.isBuffer(bytes)) return unsaved(bytes);
+    const wrote = await peers.files.write(path, bytes, context);
+    return wrote.ok ? bytes : unsaved(wrote.error);
+}
+
+/**
+ * Saves each of `files` under its folder, a top name the folder holds
+ * already numbered as today's, and gives the captions that say where each
+ * landed. A file that is not saved is reported and has no caption.
+ */
+async function savedIn(
+    peers: Peers,
+    files: readonly Placed[],
+    context: Context,
+): Promise<Caption[]> {
     const saved = new Map<string, Saved>();
     const taken = new Map<string, Set<string>>();
     // A path sent twice in one send keeps both, as today's `put_at`.
     const written = new Set<string>();
-    const savedAt = async (folder: string, top: string): Promise<Saved> => {
+    const savedAt = async (
+        folder: string,
+        top: string,
+        at: number | undefined,
+    ): Promise<Saved> => {
         const key = `${folder}/${top}`;
         const known = saved.get(key);
         if (known !== undefined) return known;
@@ -54,6 +182,7 @@ export async function received(
         names.add(name);
         const made = {
             path: `${folder}/${name}`,
+            at,
             files: 0,
             bytes: 0,
             folder: false,
@@ -62,13 +191,13 @@ export async function received(
         return made;
     };
     /** Saves `sent`, or gives why it was not. */
-    const save = async (sent: ParcelFile): Promise<unknown> => {
-        const [from = "", top = "", ...rest] = sent.path.split("/");
-        const bytes = await fetched(peers, sent).catch(
+    const save = async (sent: Placed): Promise<unknown> => {
+        const [top = "", ...rest] = sent.path.split("/");
+        const bytes = await fetched(peers, sent.file).catch(
             (error: unknown) => error,
         );
         if (!Buffer.isBuffer(bytes)) return bytes;
-        const at = await savedAt(`${INBOX}/${from}`, top);
+        const at = await savedAt(sent.folder, top, sent.at);
         const names = [...at.path.split("/"), ...rest];
         let path = names.join("/");
         for (let n = 2; written.has(path); n += 1) {
@@ -88,7 +217,7 @@ export async function received(
     for (const sent of files) {
         const why = await save(sent);
         if (why !== undefined) {
-            peers.report(`${sent.path} was not saved in the inbox`, why);
+            peers.report(`${sent.file.path} was not saved in the inbox`, why);
         }
     }
     return [...saved.values()]
@@ -96,11 +225,13 @@ export async function received(
         .map((at, index) => {
             const where = `${peers.files.root}/${at.path}`;
             const size = sizeWords(at.bytes);
-            return at.folder
-                ? `[Folder ${index + 1} of this message, ${at.files} files, ${size}, saved at ${where}]`
-                : `[File ${index + 1} of this message, ${size}, saved at ${where}]`;
-        })
-        .join("\n");
+            return {
+                ...(at.at === undefined ? {} : { at: at.at }),
+                words: at.folder
+                    ? `[Folder ${index + 1} of this message, ${at.files} files, ${size}, saved at ${where}]`
+                    : `[File ${index + 1} of this message, ${size}, saved at ${where}]`,
+            };
+        });
 }
 
 /** The file's bytes, part by part, or why it was not fetched. */

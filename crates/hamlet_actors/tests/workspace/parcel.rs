@@ -194,7 +194,7 @@ async fn a_path_outside_the_reach_is_refused() {
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_sends_the_files_of_its_own_filesystem() {
+async fn a_letter_may_carry_files_from_the_senders_own_folder() {
     let dir = Scratch::new("workspace-parcel-own");
     let (_project, folder) =
         project("workspace-parcel-own-project", &[("a", "a")]);

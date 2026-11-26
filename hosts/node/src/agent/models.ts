@@ -33,9 +33,18 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { Checked, Effort, ListedModel, Price } from "./messages/agent.ts";
+import {
+    type Checked,
+    EFFORTS,
+    type Effort,
+    type ListedModel,
+    type Price,
+    type ProviderView,
+} from "./messages/agent.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
+import type { ImageLimits } from "./messages/workspace.ts";
+import { isEndpoint } from "./providers.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
@@ -194,8 +203,8 @@ export function keysOf(
     report: Peers["report"],
     subscriptions?: Subscriptions,
 ): Keys {
-    const asked = new Map<string, Promise<Kept>>();
-    const ask = async (provider: string): Promise<Kept> => {
+    const asked = new Map<string, Promise<CredentialAnswer>>();
+    const ask = async (provider: string): Promise<CredentialAnswer> => {
         let answer: CredentialAnswer;
         try {
             answer = await realm.credential({ provider });
@@ -204,8 +213,7 @@ export function keysOf(
             report(words, error);
             throw new Error(`${words}: ${reasonOf(error)}`);
         }
-        if (answer.type === "refused") throw new Error(answer.words);
-        rememberKept(answer);
+        if (answer.type !== "refused") rememberKept(answer);
         return answer;
     };
     const givenOf = async (provider: string, kept: Kept): Promise<Given> => {
@@ -248,9 +256,18 @@ export function keysOf(
                 asking = ask(provider);
                 asked.set(provider, asking);
                 // A refusal or a failed call is asked again at the next request.
-                asking.catch(() => asked.delete(provider));
+                const forget = () => asked.delete(provider);
+                asking.then((answer) => {
+                    if (answer.type === "refused") forget();
+                }, forget);
             }
             const kept = await asking;
+            if (kept.type === "refused") {
+                // An endpoint no one signed in to is called without a key, as today's.
+                const listed = subscriptions?.listed.getProvider(provider);
+                if (listed !== undefined && isEndpoint(listed)) return {};
+                throw new Error(kept.words);
+            }
             // The Claude program signs in itself; the realm's credential only marks that it did.
             if (provider === CLAUDE) return {};
             return givenOf(provider, kept);
@@ -355,6 +372,7 @@ export function agentModels(
     const served = async (
         model: Model<Api>,
         options: ModelsSimpleStreamOptions | undefined,
+        bill: Bill,
     ): Promise<[Model<Api>, ModelsSimpleStreamOptions]> => {
         const signal = options?.signal;
         // A stop does not wait for a refresh or the first load, which go on.
@@ -366,7 +384,16 @@ export function agentModels(
             stoppable(secretsLoaded(peers.reach)),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
-        const made: ModelsSimpleStreamOptions = { ...options, ...given };
+        const previous = options?.onProviderStreamEvent;
+        const made: ModelsSimpleStreamOptions = {
+            ...options,
+            ...given,
+            onProviderStreamEvent: async (event, called) => {
+                const billed = billedCost(event);
+                if (billed !== undefined) bill.billed = billed;
+                await previous?.(event, called);
+            },
+        };
         return [
             {
                 ...model,
@@ -375,29 +402,40 @@ export function agentModels(
             chosen && choice.fast === true ? fastened(made, model.api) : made,
         ];
     };
-    const streamSimple: Models["streamSimple"] = (model, transcript, options) =>
-        new Scrubbed(
-            served(model, options).then(([made, asked]) =>
+    const streamSimple: Models["streamSimple"] = (
+        model,
+        transcript,
+        options,
+    ) => {
+        const bill: Bill = {};
+        return new Scrubbed(
+            served(model, options, bill).then(([made, asked]) =>
                 takingKeys(listed, made.provider, asked).streamSimple(
                     made,
                     transcript,
                     asked,
                 ),
             ),
+            bill,
         );
+    };
     const completeSimple: Models["completeSimple"] = async (
         model,
         transcript,
         options,
     ) => {
         try {
-            const [made, asked] = await served(model, options);
-            return scrub(
-                await takingKeys(listed, made.provider, asked).completeSimple(
-                    made,
-                    transcript,
-                    asked,
+            const bill: Bill = {};
+            const [made, asked] = await served(model, options, bill);
+            return billedIn(
+                scrub(
+                    await takingKeys(
+                        listed,
+                        made.provider,
+                        asked,
+                    ).completeSimple(made, transcript, asked),
                 ),
+                bill,
             );
         } catch (error) {
             throw scrubbedError(error);
@@ -460,13 +498,15 @@ const GIVEN_KEY: ApiKeyAuth = {
  */
 class Scrubbed extends AssistantMessageEventStream {
     readonly #source: Promise<AssistantMessageEventStream>;
+    readonly #bill: Bill;
 
-    constructor(source: Promise<AssistantMessageEventStream>) {
+    constructor(source: Promise<AssistantMessageEventStream>, bill: Bill) {
         super();
         // Its consumer may first wait on the realm, and a rejection seen
         // later is still a rejection there.
         source.catch(() => {});
         this.#source = source;
+        this.#bill = bill;
     }
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
@@ -482,7 +522,10 @@ class Scrubbed extends AssistantMessageEventStream {
 
     override async result(): Promise<AssistantMessage> {
         try {
-            const message = scrub(await (await this.#source).result());
+            const message = billedIn(
+                scrub(await (await this.#source).result()),
+                this.#bill,
+            );
             if (isCutOff(message)) withheldIn(message);
             return message;
         } catch (error) {
@@ -500,7 +543,9 @@ class Scrubbed extends AssistantMessageEventStream {
         received: Map<number, string>,
     ): AssistantMessageEvent {
         const event = scrub(source);
-        if (event.type === "error") withheldIn(event.error);
+        if (event.type === "done") billedIn(event.message, this.#bill);
+        if (event.type === "error")
+            withheldIn(billedIn(event.error, this.#bill));
         if (event.type === "done" && isCutOff(event.message)) {
             withheldIn(event.message);
         }
@@ -535,6 +580,28 @@ class Scrubbed extends AssistantMessageEventStream {
         }
         return event;
     }
+}
+
+/** What an endpoint says it billed a call, which stands over pi-ai's own price, as today's harness takes it. */
+interface Bill {
+    billed?: number;
+}
+
+/** `message` at the cost its endpoint billed, where it billed one. */
+function billedIn(message: AssistantMessage, bill: Bill): AssistantMessage {
+    if (bill.billed !== undefined) message.usage.cost.total = bill.billed;
+    return message;
+}
+
+/** The cost a provider's raw event reports in its usage, as OpenRouter-style endpoints bill (`harnesses/pi/src/models.ts`). */
+function billedCost(event: unknown): number | undefined {
+    if (typeof event !== "object" || event === null || !("usage" in event))
+        return undefined;
+    const { usage } = event;
+    if (typeof usage !== "object" || usage === null || !("cost" in usage))
+        return undefined;
+    const { cost } = usage;
+    return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
 }
 
 /** An answer whose text may end in part of a key. */
@@ -640,13 +707,28 @@ function fastened(
     };
 }
 
-export function modelList(listed: Models): ListedModel[] {
-    return listed.getModels().map((model) => {
+/**
+ * The models of `providers`, or of every provider when it is absent, each
+ * with what today's catalogue learns of its listing (`providers.rs`,
+ * `Card::learn`).
+ */
+export function modelList(
+    listed: Models,
+    providers?: ReadonlySet<string>,
+): ListedModel[] {
+    const models = listed
+        .getModels()
+        .filter((model) => providers?.has(model.provider) ?? true);
+    return models.map((model) => {
         const cost = listedCost(model);
+        const images = imagesOf(model);
         return {
             name: nameOf(model),
             title: model.name,
             context: model.contextWindow,
+            ...(images === undefined ? {} : { images: images.perLine }),
+            efforts: effortsOf(model),
+            ...(FAST_APIS.includes(model.api) ? { fast: true } : {}),
             ...(cost === undefined
                 ? {}
                 : {
@@ -662,6 +744,41 @@ export function modelList(listed: Models): ListedModel[] {
 }
 
 /**
+ * The efforts `model` can be asked for: every one its thinking map does not
+ * leave out, the two highest only where it names them, or none but off for a
+ * model that does not reason.
+ */
+function effortsOf(model: Model<Api>): Effort[] {
+    if (!model.reasoning) return ["off"];
+    const map: Partial<Record<string, unknown>> = model.thinkingLevelMap ?? {};
+    return EFFORTS.filter((effort) =>
+        effort in map
+            ? map[effort] !== null
+            : effort !== "xhigh" && effort !== "max",
+    );
+}
+
+/**
+ * The providers whose models a chief can choose, as today's catalogue
+ * shows them: those the realm holds a sign-in for, and the endpoints.
+ */
+export async function reached(
+    listed: Models,
+    realm: Pick<BareRealm, "credential">,
+): Promise<Set<string>> {
+    const views = await providerViews(listed, realm);
+    return new Set(
+        views.flatMap(({ id, configured }) => {
+            const provider = listed.getProvider(id);
+            return configured ||
+                (provider !== undefined && isEndpoint(provider))
+                ? [id]
+                : [];
+        }),
+    );
+}
+
+/**
  * Asks the model `name` for a hello, as today's check does. It goes to the
  * listing itself, so it is neither admitted to a conversation nor charged,
  * and a repeat asks again.
@@ -671,20 +788,9 @@ export async function checkModel(
     keys: Keys,
     name: string,
 ): Promise<Checked> {
-    const ref = refOf(name);
-    if (ref === undefined) {
-        return {
-            type: "refused",
-            words: `\`${name}\` names no endpoint. A model is named \`endpoint::model\`.`,
-        };
-    }
+    const ref = named(listed, name);
+    if ("type" in ref) return ref;
     const { provider, modelId } = ref;
-    if (listed.getProvider(provider) === undefined) {
-        return {
-            type: "refused",
-            words: `\`${name}\` is served by the endpoint \`${provider}\`, which the settings do not have.`,
-        };
-    }
     const model = listed.getModel(provider, modelId);
     if (model === undefined) {
         return { type: "refused", words: `no model is named \`${name}\`` };
@@ -724,12 +830,181 @@ export async function checkModel(
         return { type: "answered", words: scrub(text) };
     } catch (error) {
         // Scrubbed before `plainly` cuts it, so no part of a key is left.
-        return { type: "failed", words: plainly(scrub(String(error))) };
+        return { type: "failed", words: plainly(scrub(String(error)), true) };
     }
 }
 
-/** A failed hello in words a chief can act on, as today's `plainly` gives them. */
-function plainly(error: string): string {
+/**
+ * Asks the provider of the model `name` for its list again, and answers with
+ * the count of the models it lists, as today's connection check does.
+ */
+export async function checkConnection(
+    listed: Models,
+    name: string,
+): Promise<Checked> {
+    const ref = named(listed, name);
+    if ("type" in ref) return ref;
+    const { provider } = ref;
+    const { errors } = await listed.refresh({
+        providers: [provider],
+        force: true,
+        signal: AbortSignal.timeout(90_000),
+    });
+    const error = errors.get(provider);
+    if (error !== undefined) {
+        return {
+            type: "failed",
+            words: plainly(scrub(String(error)), false),
+        };
+    }
+    const count = listed.getModels(provider).length;
+    return {
+        type: "answered",
+        words: `Connected, ${count} model(s)`,
+        models: count,
+    };
+}
+
+/** The provider and model `name` names, or its refusal, as today's `named_model`. */
+function named(listed: Models, name: string): ModelRef | Checked {
+    const ref = refOf(name);
+    if (ref === undefined) {
+        return {
+            type: "refused",
+            words: `\`${name}\` names no endpoint. A model is named \`endpoint::model\`.`,
+        };
+    }
+    if (listed.getProvider(ref.provider) === undefined) {
+        return {
+            type: "refused",
+            words: `\`${name}\` is served by the endpoint \`${ref.provider}\`, which the settings do not have.`,
+        };
+    }
+    return ref;
+}
+
+/** Whether the model `name` is served by a provider a chief signs in to. */
+export function signedInTo(listed: Models, name: string): boolean {
+    const auth = listed.getProvider(refOf(name)?.provider ?? "")?.auth;
+    return auth?.apiKey?.login !== undefined || auth?.oauth !== undefined;
+}
+
+async function runningRef(copies: ReadCopies, host: string): Promise<ModelRef> {
+    return (await copiedAgent(copies))?.model ?? hostRef(host);
+}
+
+function hostRef(host: string): ModelRef {
+    const at = host.indexOf("/");
+    return { provider: host.slice(0, at), modelId: host.slice(at + 1) };
+}
+
+/** The model the agent runs, as `provider::model`. */
+export async function runningModel(
+    copies: ReadCopies,
+    host: string,
+): Promise<string> {
+    const { provider, modelId } = await runningRef(copies, host);
+    return nameOf({ provider, id: modelId });
+}
+
+/** `host`, given as `provider/model`, as `provider::model`. */
+export function hostModel(host: string): string {
+    const { provider, modelId } = hostRef(host);
+    return nameOf({ provider, id: modelId });
+}
+
+/** As `ImageInput`'s defaults in `crates/hamlet_protocol/src/client/images.rs`. */
+const IMAGE_WIDTH = 2000;
+const IMAGE_HEIGHT = 2000;
+const IMAGE_BYTES = 4_718_592;
+const IMAGES_PER_LINE = 20;
+
+/** The images a model takes, and the most of them one line gives it. */
+export interface ImagesTaken extends ImageLimits {
+    readonly perLine: number;
+}
+
+/**
+ * The images `model` takes, as `listed_images` in
+ * `crates/hamlet_server/src/providers.rs` reads its listing and `Limits::of`
+ * fills in what it leaves out; a faux model takes them at the defaults.
+ * `undefined` when it takes none.
+ */
+function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+    if (model.provider !== FAUX && !model.input.includes("image")) {
+        return undefined;
+    }
+    const images = model.inputLimits?.images;
+    const size = (value: number | undefined, otherwise: number) =>
+        value !== undefined && value > 0 ? value : otherwise;
+    return {
+        width: size(images?.resize?.maxWidth, IMAGE_WIDTH),
+        height: size(images?.resize?.maxHeight, IMAGE_HEIGHT),
+        bytes: size(images?.resize?.maxBytes, IMAGE_BYTES),
+        perLine: Math.min(
+            size(images?.maxPerMessage, IMAGES_PER_LINE),
+            IMAGES_PER_LINE,
+        ),
+    };
+}
+
+/** The images the model the agent runs takes; `undefined` when it takes none. */
+export async function runningImages(
+    listed: Models,
+    copies: ReadCopies,
+    host: string,
+): Promise<ImagesTaken | undefined> {
+    const { provider, modelId } = await runningRef(copies, host);
+    const model = listed.getModel(provider, modelId);
+    return model === undefined ? undefined : imagesOf(model);
+}
+
+/** The providers a subscription signs in to, as today's (ADR 0006). */
+const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
+
+/** The words of a provider's sign-in button where they are not its name. */
+const LABELS: Readonly<Record<string, string>> = {
+    chatgpt: "Continue with ChatGPT",
+    openrouter: "Sign in with OpenRouter",
+    claude: "Sign in to Claude",
+};
+
+/**
+ * The providers a chief may sign in to, and whether each is, in today's
+ * order and words (`crates/hamlet_server/src/providers.rs`,
+ * `provider_views`).
+ */
+export async function providerViews(
+    listed: Models,
+    realm: Pick<BareRealm, "credential">,
+): Promise<ProviderView[]> {
+    const providers = [...listed.getProviders()].sort((a, b) =>
+        a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    return Promise.all(
+        providers.map(async (provider): Promise<ProviderView> => {
+            const kept = await realm.credential({ provider: provider.id });
+            return {
+                configured: kept.type !== "refused",
+                id: provider.id,
+                label: LABELS[provider.id] ?? provider.name,
+                methods: [
+                    ...(provider.auth.apiKey?.login === undefined
+                        ? []
+                        : ["key" as const]),
+                    ...(SUBSCRIPTIONS.includes(provider.id) &&
+                    provider.auth.oauth !== undefined
+                        ? ["subscription" as const]
+                        : []),
+                ],
+                name: provider.name,
+            };
+        }),
+    );
+}
+
+/** A failed hello or list in words a chief can act on, as today's `plainly` gives them. */
+function plainly(error: string, hello: boolean): string {
     const lower = error.toLowerCase();
     const says = (...words: string[]) =>
         words.some((word) => lower.includes(word));
@@ -746,7 +1021,13 @@ function plainly(error: string): string {
         return "It took too long to answer. Try again, or pick a smaller model.";
     }
     const detail = [...error].slice(0, 160).join("");
-    return `That model did not answer a hello. Pick another one. (${detail})`;
+    if (hello) {
+        return `That model did not answer a hello. Pick another one. (${detail})`;
+    }
+    if (says("http 404")) {
+        return "That address did not answer as a model provider. It usually ends in /v1.";
+    }
+    return `It answered with an error. Try again. (${detail})`;
 }
 
 export function agentKeys(listed: Models, peers: Peers): Keys {
