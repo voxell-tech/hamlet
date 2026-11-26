@@ -15,11 +15,10 @@ use hamlet_messages::profile::{
     RevertAnswer, Sha1, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
-    CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
-    Made, PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
-    ReadProfile, ReadProfileRefusal, RevertProfile,
-    RevertProfileRefusal, TagProfile, TagProfileRefusal,
-    UnshelveSkill,
+    EditProfile, EditProfileRefusal, PinHire, ProfileRefusal,
+    PurgeProfile, PurgeProfileRefusal, ReadProfile,
+    ReadProfileRefusal, RevertProfile, RevertProfileRefusal,
+    TagProfile, TagProfileRefusal, UnshelveSkill,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
@@ -31,17 +30,18 @@ use hamlet_protocol::client::{HouseAt, RequestId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::act::{Act, Carried, Decided, Decision};
+use super::act::Carried;
 use super::callers::{self, ByHand, Relay};
 use super::change::{self, Affected, Column as _, Rows, Writer};
-use super::chiefs::hamlet;
-use super::newcomers::Asking;
 use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
-use super::{Realm, calls, dreams, hire, record, settings, tree};
+use super::{Realm, dreams, hire, record, settings, tree};
 
 pub(super) mod lifecycle;
+mod making;
+
+pub(super) use making::{ChiefCreate, Create};
 
 const HAND_CHARACTER: &str =
     include_str!("../../../hamlet_server/assets/hand.md");
@@ -473,240 +473,6 @@ pub(super) fn free_spot(taken: &[(f64, f64)]) -> Result<HouseAt> {
         }
     }
     bail!("the city has no free spot left")
-}
-
-fn given(character: Option<&str>) -> Option<&str> {
-    character.filter(|text| !text.is_empty())
-}
-
-/// The profile `create` makes for `by` as `making` names it,
-/// arriving as `arrival`, or why it is refused.
-fn made(
-    create: &CreateProfile,
-    making: Making,
-    arrival: Arrival,
-    by: record::By,
-) -> Result<Decided<(ProfileId, String)>, CreateRefusal> {
-    let Making { profile, house } = making;
-    let Ok(name) = hamlet::checked_name(&create.name) else {
-        return Err(CreateRefusal::BadName {
-            name: create.name.trim().to_owned(),
-        });
-    };
-    if given(create.character.as_deref()).is_some_and(|text| {
-        text.chars().count() > settings::CHARACTER_MOST
-    }) {
-        return Err(CreateRefusal::LongCharacter);
-    }
-    let name = name.to_owned();
-    Ok(Decided::new((profile, name.clone())).change(Change::Made {
-        profile,
-        name,
-        arrival,
-        house,
-        by,
-    }))
-}
-
-/// The id a new profile takes, and the city's next free spot.
-pub(super) struct Making {
-    profile: ProfileId,
-    house: HouseAt,
-}
-
-impl Making {
-    async fn read(rows: &Rows<'_>) -> Result<Self> {
-        Ok(Self {
-            profile: next(rows).await?,
-            house: free_spot(&houses(rows, None).await?)?,
-        })
-    }
-}
-
-/// A profile an agent other than the Hand makes waits at the harbor,
-/// as today, for a chief or the Hand to let it in, unless the realm
-/// lets newcomers in.
-impl Act<Agent> for CreateProfile {
-    type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = (Making, Asking);
-    type Done = (ProfileId, String);
-
-    async fn load(
-        &self,
-        by: &Agent,
-        rows: &Rows<'_>,
-    ) -> Result<Self::Loaded> {
-        let making = Making::read(rows).await?;
-        let settings = settings::read(rows).await?;
-        let character = given(self.character.as_deref())
-            .unwrap_or(&settings.character);
-        let asking = Asking::read(
-            rows,
-            by.0,
-            settings.newcomers,
-            making.profile,
-            character,
-        )
-        .await?;
-        Ok((making, asking))
-    }
-
-    fn decide(
-        &self,
-        by: &Agent,
-        (making, asking): Self::Loaded,
-    ) -> Decision<Self::Done, Self::Output> {
-        let arrival = asking.arrival();
-        match made(self, making, arrival, record::By::Agent(by.0)) {
-            Ok(decided) => {
-                let (profile, name) = &decided.done;
-                let asked = asking.changes(
-                    by.0,
-                    *profile,
-                    label(*profile, name),
-                );
-                Decision::Change(decided.changes(asked))
-            }
-            Err(why) => Decision::Answer(Made::refused(
-                AgentRefusal::Act(why),
-            )),
-        }
-    }
-
-    fn answer(
-        &self,
-        (profile, name): Self::Done,
-        _made: &calls::Made,
-    ) -> Self::Output {
-        Made::Made {
-            profile,
-            label: label(profile, &name),
-        }
-    }
-}
-
-impl Act<Client> for CreateProfile {
-    type Output = Made<CreateRefusal>;
-    type Loaded = Making;
-    type Done = (ProfileId, String);
-
-    async fn load(
-        &self,
-        _by: &Client,
-        rows: &Rows<'_>,
-    ) -> Result<Making> {
-        Making::read(rows).await
-    }
-
-    fn decide(
-        &self,
-        _by: &Client,
-        making: Making,
-    ) -> Decision<Self::Done, Self::Output> {
-        match made(self, making, Arrival::Housed, record::By::Chief) {
-            Ok(decided) => Decision::Change(decided),
-            Err(why) => Decision::Answer(Made::refused(why)),
-        }
-    }
-
-    fn answer(
-        &self,
-        (profile, name): Self::Done,
-        _made: &calls::Made,
-    ) -> Self::Output {
-        Made::Made {
-            profile,
-            label: label(profile, &name),
-        }
-    }
-}
-
-/// `create_profile`, which makes the profile's actor from its
-/// character before it answers.
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-pub(super) struct Create(pub Tool<CreateProfile>);
-
-impl Action for Create {
-    type Output = <Tool<CreateProfile> as Action>::Output;
-    const NAME: &'static str = <Tool<CreateProfile> as Action>::NAME;
-}
-
-impl Message for Create {
-    type To = <Tool<CreateProfile> as Message>::To;
-    type From = <Tool<CreateProfile> as Message>::From;
-}
-
-impl Handler<Create> for Realm {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        Create(tool): Create,
-    ) -> Result<<Create as Action>::Output> {
-        let character = tool.act.character.clone();
-        let _making = self.making.read().await;
-        let made = self.clone().handle(ctx.clone(), tool).await?;
-        if let Made::Made { profile, .. } = &made {
-            self.start_profile(&ctx, *profile, character).await?;
-        }
-        Ok(made)
-    }
-}
-
-/// `chief_create_profile`, which makes the profile's actor from its
-/// character before it answers.
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-pub(super) struct ChiefCreate(pub Asked<CreateProfile>);
-
-impl Action for ChiefCreate {
-    type Output = <Asked<CreateProfile> as Action>::Output;
-    const NAME: &'static str = <Asked<CreateProfile> as Action>::NAME;
-}
-
-impl Message for ChiefCreate {
-    type To = <Asked<CreateProfile> as Message>::To;
-    type From = <Asked<CreateProfile> as Message>::From;
-}
-
-impl Handler<ChiefCreate> for Realm {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        ChiefCreate(asked): ChiefCreate,
-    ) -> Result<<ChiefCreate as Action>::Output> {
-        let character = asked.act.character.clone();
-        let _making = self.making.read().await;
-        let made = self.clone().handle(ctx.clone(), asked).await?;
-        if let Made::Made { profile, .. } = &made {
-            self.start_profile(&ctx, *profile, character).await?;
-        }
-        Ok(made)
-    }
-}
-
-impl Realm {
-    /// Makes the actor of the new `profile` from `character`, or from
-    /// the realm's character when none is given.
-    async fn start_profile(
-        &self,
-        ctx: &Ctx<Self>,
-        profile: ProfileId,
-        character: Option<String>,
-    ) -> Result<()> {
-        let text = match given(character.as_deref()) {
-            Some(text) => text.to_owned(),
-            None => {
-                settings::read(&Rows::outside(ctx)?).await?.character
-            }
-        };
-        self.peers
-            .create(
-                &Profile(profile),
-                &ProfileInput::Character { text },
-            )
-            .await
-    }
 }
 
 impl Relay<Hand> for ByHand<Tool<ReadProfile>> {
