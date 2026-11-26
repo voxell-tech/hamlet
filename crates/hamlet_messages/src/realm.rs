@@ -947,6 +947,10 @@ pub enum LetterRefusal {
          run."
     )]
     Withdrawn,
+    /// The files it names cannot be sent, as the workspace measured
+    /// them under the sender's reach.
+    #[error("{words}")]
+    Files { words: String },
 }
 
 /// The answer to a question, when the asked agent's turn on it ends.

@@ -9,9 +9,6 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use diesel::dsl::exists;
 use diesel::prelude::*;
-pub(crate) use hamlet_actors::workspace::image::{
-    Bounds, Fitted, Format, Unusable, check, fit,
-};
 use hamlet_protocol::client::{
     AttachedFile, AttachedImage, ImageBytes, ImageId, ImageInput,
     ImageSize, PutImage, PutImagePart, ReadResult, RequestId,
@@ -21,6 +18,9 @@ use hamlet_protocol::runtime::Picture;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 use hamlet_store::schema::{input, item, marker};
+pub(crate) use hamlet_workspace_wire::image::{
+    Bounds, Fitted, Format, Unusable, check, fit,
+};
 use sha2::{Digest, Sha256};
 
 use crate::attached::{Attached, Caption, is_place};

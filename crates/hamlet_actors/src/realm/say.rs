@@ -19,6 +19,7 @@ use hamlet_os::fs::TreePath;
 use hamlet_protocol::client::{
     self as protocol, AttachedFile, AttachedImage,
 };
+use hamlet_workspace_wire::image::Format;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt as _;
@@ -30,7 +31,6 @@ use super::parcels::store::Store;
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
 use super::{Realm, chiefs, marker, parcels, reviews};
-use crate::workspace::image::Format;
 
 /// A chief's line, its text scrubbed, with what the store holds of
 /// its images and files, or why it is refused.

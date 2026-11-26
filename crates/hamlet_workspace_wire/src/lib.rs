@@ -3,6 +3,7 @@
 //! hold to.
 
 mod bytes;
+pub mod image;
 mod walk;
 
 use hamlet_protocol::Version;
