@@ -6,21 +6,22 @@ pub(super) mod parse;
 use std::fmt::Display;
 
 use anyhow::Result;
-use hamlet_messages::address::{Agent, Realm};
+use hamlet_messages::address::{Agent, Profile, Realm};
 use hamlet_messages::agent::chat::{
     Count, NewSession, ReadHistory, Reflect, Reflecting, Resume,
     ResumeAnswer, Retry,
 };
-use hamlet_messages::agent::copies::Price;
-use hamlet_messages::profile::VersionName;
+use hamlet_messages::bytes::Sha1;
+use hamlet_messages::profile::{
+    CommitId, PurgeAnswer, RevertAnswer, Revision, TagAnswer,
+    VersionName, Versions,
+};
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::client::Answer;
-use hamlet_messages::realm::documents::{
-    CardSetting, EditCatalogue, EditCharter, ImageLimits,
-};
+use hamlet_messages::realm::client::{Answer, ReadState};
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::hires::{
     EraseHire, Merge, Restore, Restored,
 };
@@ -28,7 +29,8 @@ use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
 };
 use hamlet_messages::realm::profiles::{
-    Forked, Lifecycle, LifecycleRefusal, MoveHouse, Site,
+    Dream, Dreamer, Forked, Lifecycle, LifecycleRefusal, MoveHouse,
+    RevertProfile, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -38,14 +40,14 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, AgentKind, Choice, RequestId,
+    self as protocol, AgentKind, Choice, RequestId, ScholarId,
 };
 
-use self::parse::{Act, Part, Target, parse};
+use self::parse::{Act, Dreamt, Part, Target, parse};
 use super::call::{Calls, Said};
 use super::host::HAND;
 use super::view::{self, View};
-use super::words;
+use super::{answers, words};
 use crate::oversight::gate;
 use crate::society::addresses::Reach;
 use crate::society::agents::Effort as Level;
@@ -89,58 +91,6 @@ pub(crate) async fn run(
         Ok(act) => perform(calls, view, &say.id, speaker, act).await,
         Err(refusal) => Ok(Outcome::said(Err(refusal))),
     }
-}
-
-/// Makes the edit `edit` asks for.
-pub(crate) async fn edit(
-    calls: &Calls,
-    edit: &protocol::Edit,
-) -> Result<Outcome> {
-    let reply = match edit {
-        protocol::Edit::Charter { id, text } => {
-            let text =
-                text.clone().filter(|text| !text.trim().is_empty());
-            let answer = ask(calls, id, EditCharter { text }).await?;
-            done(answer, || words::CHARTER_SAVED.into())
-        }
-        protocol::Edit::Catalogue { id, model, set } => {
-            let act = EditCatalogue {
-                model: model.clone(),
-                set: card(set),
-            };
-            done(ask(calls, id, act).await?, || {
-                words::CATALOGUE_SAVED.into()
-            })
-        }
-        _ => Err(Refusal::Unsupported {
-            what: "`edit`".into(),
-        }),
-    };
-    Ok(Outcome::said(reply))
-}
-
-/// The parts of a model's card a catalogue edit sets.
-fn card(set: &protocol::EditCatalogueSet) -> Vec<CardSetting> {
-    let images =
-        set.images.clone().map(|images| CardSetting::Images {
-            images: images.map(|takes| ImageLimits {
-                max_bytes: takes.max_bytes,
-                max_height: takes.max_height,
-                max_width: takes.max_width,
-                per_line: takes.per_line,
-            }),
-        });
-    let note =
-        set.note.clone().map(|note| CardSetting::Note { note });
-    let price = set.price.clone().map(|price| CardSetting::Price {
-        price: price.map(|price| Price {
-            input: price.input,
-            output: price.output,
-            cache_read: 0.0,
-            cache_write: 0.0,
-        }),
-    });
-    images.into_iter().chain(note).chain(price).collect()
 }
 
 fn number(
@@ -240,14 +190,14 @@ fn lived(
 }
 
 /// A refusal of an actor, in its own words.
-fn refused(why: impl Display) -> Refusal {
+pub(super) fn refused(why: impl Display) -> Refusal {
     Refusal::Usage {
         words: why.to_string(),
     }
 }
 
 /// The words of an act that answers only that it was done.
-fn done<W: Display>(
+pub(super) fn done<W: Display>(
     answer: Done<W>,
     words: impl FnOnce() -> String,
 ) -> Result<String, Refusal> {
@@ -258,7 +208,7 @@ fn done<W: Display>(
 }
 
 /// Asks the realm for the chief's `act` under the command's id.
-async fn ask<T: ChiefRequest>(
+pub(super) async fn ask<T: ChiefRequest>(
     calls: &Calls,
     id: &RequestId,
     act: T,
@@ -274,12 +224,12 @@ async fn ask<T: ChiefRequest>(
         .await
 }
 
-/// The id of the line `/to` gives another agent, the same for each
-/// repeat of the command.
-fn line_id(id: &RequestId) -> RequestId {
+/// The id of a second act a request asks, told apart by `mark`, the
+/// same for each repeat of the request.
+pub(super) fn derived(id: &RequestId, mark: [u8; 2]) -> RequestId {
     let uuid = uuid::Uuid::parse_str(id.as_str())
         .map(|uuid| {
-            uuid.as_u128() ^ u128::from(u16::from_be_bytes(*b"to"))
+            uuid.as_u128() ^ u128::from(u16::from_be_bytes(mark))
         })
         .unwrap_or_default();
     RequestId::try_from(uuid::Uuid::from_u128(uuid).to_string())
@@ -308,9 +258,13 @@ async fn perform(
         Act::Sessions => {
             let history =
                 calls.call(&Agent(speaker), &ReadHistory).await?;
-            Ok(words::sessions(
-                history.sessions.iter().map(|session| session.number),
-            ))
+            let mut numbers = history
+                .sessions
+                .iter()
+                .map(|session| session.number)
+                .collect::<Vec<_>>();
+            numbers.sort_unstable();
+            Ok(words::sessions(numbers.into_iter()))
         }
         Act::Resume(number) => {
             let resume = protocol::Resume {
@@ -360,7 +314,7 @@ async fn perform(
                 Ok(agent) => {
                     let line = protocol::Say {
                         files: Vec::new(),
-                        id: line_id(id),
+                        id: derived(id, *b"to"),
                         images: Vec::new(),
                         text,
                         to: view::wire(agent),
@@ -694,9 +648,184 @@ async fn perform(
                 _ => Err(usage),
             }
         }
+        Act::History(hamlet) => {
+            let act = ReadRecord {
+                hamlet: Some(hamlet),
+            };
+            match ask(calls, id, act).await? {
+                Record::Read { lines } => Ok(lines
+                    .into_iter()
+                    .map(|line| line.text)
+                    .collect::<Vec<_>>()
+                    .join("\n")),
+                Record::Refused { why } => Err(refused(why)),
+            }
+        }
+        Act::Scholars => {
+            let state = calls.call(&Realm, &ReadState).await?;
+            let hands = state
+                .agents
+                .iter()
+                .filter(|agent| agent.kind == AgentKind::Hand)
+                .filter_map(|agent| agent.scholar)
+                .collect::<Vec<_>>();
+            Ok(words::scholars(
+                state
+                    .scholars
+                    .into_iter()
+                    .filter(|shown| {
+                        shown.arrival != protocol::Arrival::Apart
+                            && !hands.contains(&shown.id)
+                    })
+                    .map(|shown| {
+                        (
+                            format!(
+                                "scholar#{} ({})",
+                                shown.id.0, shown.name
+                            ),
+                            shown.left.is_none(),
+                        )
+                    }),
+            ))
+        }
+        Act::ToolsOff(hire) => number(view, &hire, Reach::Living)
+            .map(|agent| {
+                let off = view
+                    .agent(agent)
+                    .map(|seen| {
+                        seen.tools_off
+                            .iter()
+                            .map(|tool| tool.name.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                words::tools_off(&hire.text, &off)
+            }),
+        Act::Versions(profile) => {
+            match label(calls, profile).await? {
+                Ok(_) => Ok(words::versions(
+                    &calls.call(&Profile(profile), &Versions).await?,
+                )),
+                Err(refusal) => Err(refusal),
+            }
+        }
+        Act::Tag(act) => match label(calls, act.profile).await? {
+            Ok(label) => match ask(calls, id, act).await? {
+                TagAnswer::Tagged { version, .. } => {
+                    Ok(words::tagged(&label, &version.0))
+                }
+                TagAnswer::Refused { why } => Err(refused(why)),
+            },
+            Err(refusal) => Err(refusal),
+        },
+        Act::Revert {
+            profile,
+            which,
+            reason,
+        } => match label(calls, profile).await? {
+            Ok(label) => {
+                let list =
+                    calls.call(&Profile(profile), &Versions).await?;
+                let (what, undone) = revision(&list, &which);
+                let act = RevertProfile {
+                    profile,
+                    what,
+                    reason,
+                };
+                match ask(calls, id, act).await? {
+                    RevertAnswer::Reverted { clashes, .. } => {
+                        Ok(words::reverted(&undone, &label, &clashes))
+                    }
+                    RevertAnswer::Unchanged => {
+                        Ok(words::reverted(&undone, &label, &[]))
+                    }
+                    RevertAnswer::Refused { why } => {
+                        Err(refused(why))
+                    }
+                }
+            }
+            Err(refusal) => Err(refusal),
+        },
+        Act::Purge(act) => match label(calls, act.profile).await? {
+            Ok(label) => {
+                let path = act.path.clone();
+                match ask(calls, id, act).await? {
+                    PurgeAnswer::Purged { branches, .. } => {
+                        Ok(words::purged(&path, &label, branches))
+                    }
+                    PurgeAnswer::Refused { why } => Err(refused(why)),
+                }
+            }
+            Err(refusal) => Err(refusal),
+        },
+        Act::Dream(dreamt) => {
+            let of = match dreamt {
+                Dreamt::Profile(profile) => {
+                    Ok(Dreamer::Profile { profile })
+                }
+                Dreamt::Hire(hire) => hire_of(view, &hire)
+                    .map(|hire| Dreamer::Hire { hire }),
+            };
+            match of {
+                Ok(of) => {
+                    done(ask(calls, id, Dream { of }).await?, || {
+                        words::DREAM_BEGAN.into()
+                    })
+                }
+                Err(refusal) => Err(refusal),
+            }
+        }
         Act::Unsupported(what) => Err(Refusal::Unsupported { what }),
     };
     Ok(Outcome::said(reply))
+}
+
+/// The label of `profile`, refused when the realm keeps none.
+async fn label(
+    calls: &Calls,
+    profile: hamlet_messages::realm::ProfileId,
+) -> Result<Result<String, Refusal>> {
+    let scholar = ScholarId(u64::from(profile.0));
+    Ok(answers::profile(calls, scholar)
+        .await?
+        .map(|(_, label)| label))
+}
+
+/// The commit `which` names among a profile's versions and `main`,
+/// as the profile takes it and as a chief reads it: `main`, a
+/// version, a commit's whole id, or a branch by its name.
+fn revision(
+    list: &hamlet_messages::profile::VersionList,
+    which: &str,
+) -> (Revision, String) {
+    if which == hamlet_git::MAIN {
+        let tip =
+            list.commits.first().map(|tip| words::short(&tip.commit));
+        return (Revision::Main, tip.unwrap_or_else(|| which.into()));
+    }
+    if let Some(seen) =
+        list.versions.iter().find(|seen| seen.version.0 == which)
+    {
+        return (
+            Revision::Version {
+                version: seen.version.clone(),
+            },
+            words::short(&seen.commit),
+        );
+    }
+    match Sha1::from_hex(which) {
+        Some(sha) => {
+            let commit = CommitId(sha);
+            let short = words::short(&commit);
+            (Revision::Commit { commit }, short)
+        }
+        None => (
+            Revision::Version {
+                version: VersionName(which.into()),
+            },
+            which.into(),
+        ),
+    }
 }
 
 /// Stops the running turns of the agent a client names by `agent`,

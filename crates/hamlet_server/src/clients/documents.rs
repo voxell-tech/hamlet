@@ -27,7 +27,7 @@ use crate::talk::{chats, items, prompt};
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.
-fn memory_path(path: &str) -> Result<String, Refusal> {
+pub(crate) fn memory_path(path: &str) -> Result<String, Refusal> {
     let path = path.trim().trim_start_matches("memory/");
     let plain = !path.is_empty()
         && !path.starts_with('/')
@@ -768,7 +768,9 @@ fn endpoint_fault(
     None
 }
 
-fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
+pub(crate) fn budget_of(
+    budget: &protocol::LimitsBudget,
+) -> limits::Budget {
     limits::Budget {
         cost: budget.cost.map(micros),
         minutes: budget.minutes,
@@ -780,7 +782,7 @@ fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
 }
 
 /// A hamlet's limits from their client form.
-fn limits_of(shown: &protocol::Limits) -> Limits {
+pub(crate) fn limits_of(shown: &protocol::Limits) -> Limits {
     Limits {
         budget: budget_of(&shown.budget),
         road: limits::RoadRules {

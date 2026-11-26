@@ -4,9 +4,10 @@ use hamlet_acceptance::Client;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{
     AgentId, AgentKind, Answer, AttachedImage, Choice, ClientMessage,
-    Edit, ReplyKind, RequestId, Say, ServerMessage, State,
+    Edit, Keeper, ReplyKind, RequestId, Say, ScholarId,
+    ServerMessage, State,
 };
-use hamlet_testing::Server;
+use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
 use super::ended::{ended, hire_blank};
@@ -546,6 +547,222 @@ async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_
             at_harbor,
         ]
     );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// A server whose Hand made the profile `scholar#2 (ada)`, its faux
+/// model answering with `more` after, and its chief.
+async fn with_ada(
+    more: &[serde_json::Value],
+) -> (Server, Scratch, Scratch, Client) {
+    let mut responses = vec![
+        json!({"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]}),
+        json!("Ada is made."),
+    ];
+    responses.extend_from_slice(more);
+    let (server, home, side) = serve(json!(responses)).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = hamlet_acceptance::chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Make ada.").await;
+    chief.shows(&chat, "Ada is made.").await;
+    (server, home, side, chief)
+}
+
+/// Writes `text` to ada's memory file `notes.md`.
+async fn note(chief: &mut Client, text: &str) {
+    let text = text.to_owned();
+    let saved = chief
+        .request(|id| {
+            ClientMessage::Edit(Edit::Memory {
+                id,
+                of: Keeper::Scholar(ScholarId(2)),
+                path: "notes.md".into(),
+                text,
+            })
+        })
+        .await;
+    assert_eq!(
+        (saved.kind, saved.text.as_str()),
+        (ReplyKind::Notice, "The memory is saved.")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tag_names_a_version_and_versions_lists_it() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    let none = chief.command(hand, "/versions scholar#2").await;
+    let tagged =
+        chief.command(hand, "/tag scholar#2 v1 the first").await;
+    let taken = chief.refused(hand, "/tag scholar#2 v1").await;
+    let listed = chief.command(hand, "/versions scholar#2").await;
+    let missing = chief.refused(hand, "/versions scholar#9").await;
+
+    assert!(
+        none.starts_with(
+            "No versions yet; /tag names one.\nLatest commits of \
+             main:\n- "
+        ),
+        "{none}"
+    );
+    assert_eq!(tagged, "Tagged scholar#2 (ada) as v1.");
+    assert_eq!(
+        taken,
+        "the version `v1` exists already; choose another"
+    );
+    assert!(listed.starts_with("Versions:\n- v1 ("), "{listed}");
+    assert!(
+        listed.contains("): the first\nLatest commits of main:\n- "),
+        "{listed}"
+    );
+    assert_eq!(missing, "no scholar has the address `scholar#9`");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn revert_undoes_a_commit_of_a_profiles_main() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    note(&mut chief, "Metric.").await;
+    chief.command(hand, "/tag scholar#2 noted").await;
+
+    let reverted = chief
+        .command(hand, "/revert scholar#2 noted not wanted")
+        .await;
+    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+
+    assert!(
+        reverted.starts_with("Reverted ")
+            && reverted.ends_with(" on scholar#2 (ada)'s main."),
+        "{reverted}"
+    );
+    assert!(papers.memory.is_empty(), "{papers:?}");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn purge_takes_a_file_out_of_a_profiles_history() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    note(&mut chief, "A secret.").await;
+
+    let purged = chief
+        .command(hand, "/purge scholar#2 memory/notes.md")
+        .await;
+    let outside = chief.refused(hand, "/purge scholar#2 ../x").await;
+    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+
+    assert!(
+        purged.starts_with(
+            "Purged memory/notes.md from scholar#2 (ada): "
+        ) && purged.ends_with(" branches rewritten."),
+        "{purged}"
+    );
+    assert_eq!(outside, "there is no file `../x` here");
+    assert!(papers.memory.is_empty(), "{papers:?}");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scholars_lists_the_citys_profiles() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    let listed = chief.command(hand, "/scholars").await;
+    assert_eq!(listed, "- scholar#2 (ada)");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hamlet_is_founded_from_a_profile_version() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    chief.command(hand, "/tag scholar#2 v1").await;
+    let missing = chief
+        .refused(hand, "/create-hamlet scholar#2@v9 Nowhere")
+        .await;
+    chief
+        .command(hand, "/create-hamlet scholar#2@v1 Docs")
+        .await;
+
+    assert_eq!(missing, "`scholar#2 (ada)` has no version `v9`");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tools_with_no_change_lists_them() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let mayor = found(&server, &mut chief, "Docs").await;
+    let every = chief.command(mayor, "/tools mayor").await;
+    chief.command(mayor, "/tools mayor -bash").await;
+    let off = chief.command(mayor, "/tools mayor").await;
+
+    assert_eq!(every, "`mayor` has every tool.");
+    assert_eq!(off, "`mayor` has these off: bash");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_shows_the_hamlets_decisions() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let mayor = found(&server, &mut chief, "Docs").await;
+    let hand = chief.hand();
+    let decided = chief.command(mayor, "/history").await;
+    let nowhere = chief.refused(hand, "/history").await;
+
+    assert!(decided.starts_with("- "), "{decided}");
+    assert!(
+        decided.contains("founded the hamlet under"),
+        "{decided}"
+    );
+    assert_eq!(
+        nowhere,
+        "Say this to a hamlet's mayor or one of its hires."
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resume_with_no_number_lists_the_sessions() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = hamlet_acceptance::chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "First.").await;
+    chief.shows(&chat, "Heard: First.").await;
+    chief.command(hand, "/new").await;
+    chief.say(hand, "Second.").await;
+    chief.shows(&chat, "Heard: Second.").await;
+
+    let listed = chief.command(hand, "/resume").await;
+
+    assert_eq!(listed, "- session 1\n- session 2");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dream_names_one_profile_or_hire() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let bare = chief.refused(hand, "/dream").await;
+    let missing = chief.refused(hand, "/dream scholar#9").await;
+
+    assert_eq!(bare, "Use /dream <scholar#id|address>");
+    assert_eq!(missing, "no scholar has the address `scholar#9`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

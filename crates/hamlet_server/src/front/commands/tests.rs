@@ -102,10 +102,11 @@ fn refused_with<W>(why: impl Into<W>) -> Done<W> {
 }
 
 #[test]
-fn a_line_told_on_has_one_id_for_each_command() {
+fn a_second_act_has_one_id_for_each_request_and_mark() {
     let id = RequestId::new();
-    assert_eq!(line_id(&id), line_id(&id));
-    assert_ne!(line_id(&id), id);
+    assert_eq!(derived(&id, *b"to"), derived(&id, *b"to"));
+    assert_ne!(derived(&id, *b"to"), id);
+    assert_ne!(derived(&id, *b"to"), derived(&id, *b"md"));
 }
 
 #[test]

@@ -373,3 +373,44 @@ fn files(folder: &Path) -> Vec<PathBuf> {
     }
     files
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_cannot_answer_another_clients_sign_in() {
+    let (mut server, _home, _side) =
+        serve_with(json!([]), &[SIGN_IN]).await;
+    let mut owner = Client::join(&server).await;
+    let mut other = Client::join(&server).await;
+    let start = start_sign_in(&mut owner).await;
+
+    let answered = other
+        .request(|id| {
+            ClientMessage::Login(Login::Reply {
+                id,
+                reply: LoginReply {
+                    login: start.to_string(),
+                    value: "made-up-other-key".into(),
+                },
+            })
+        })
+        .await;
+    let cancelled = other
+        .request(|id| {
+            ClientMessage::Login(Login::Cancel {
+                id,
+                cancel: start.to_string(),
+            })
+        })
+        .await;
+    finish_sign_in(&mut owner, &start).await;
+
+    assert_eq!(answered.kind, ReplyKind::Error, "{}", answered.text);
+    assert_eq!(
+        cancelled.kind,
+        ReplyKind::Error,
+        "{}",
+        cancelled.text
+    );
+    owner.close().await;
+    other.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}

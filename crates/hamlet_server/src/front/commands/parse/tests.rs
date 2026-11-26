@@ -243,8 +243,8 @@ fn every_command_served_is_parsed_into_its_act() {
 #[test]
 fn a_command_of_the_table_not_done_yet_is_unsupported() {
     assert_eq!(
-        parse("/history", Some(&docs())),
-        Ok(Act::Unsupported("`/history`".into()))
+        parse("/pin mayor v1", Some(&docs())),
+        Ok(Act::Unsupported("`/pin`".into()))
     );
     assert_eq!(
         parse("/dance", None).unwrap_err().to_string(),
