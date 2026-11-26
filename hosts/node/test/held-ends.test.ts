@@ -249,7 +249,7 @@ test("a held call's end that lands while its conversation is busy is read after 
     assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("ask_chief")]);
 });
 
-test("a cancelled command starts no run", async (t) => {
+test("a cancelled command starts no run and leaves the agent off its task", async (t) => {
     const asked: (readonly Message[])[] = [];
     const { calls, sent } = fakeCalls({
         workspace: { run: () => ({ type: "running", command: 4 }) },
@@ -273,10 +273,18 @@ test("a cancelled command starts no run", async (t) => {
     };
     await agent.actions.finished(agent.by(from.workspace), {
         call: callOf(sent, "run"),
+        task: "7",
         outcome: cancelled,
     });
     await agent.idle();
     assert.equal(agent.faux.state.callCount, 2, "the end started no run");
+    assert.equal(
+        await agent.actions.on_task(agent.by(from.realm), {
+            tasks: ["7"],
+            within_ms: 60_000,
+        }),
+        false,
+    );
 
     await send(agent, { type: "line", text: "Go on." });
     assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("bash")]);

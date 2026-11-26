@@ -16,7 +16,7 @@ use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_host::HostRef;
 use hamlet_messages::address::Realm;
-use hamlet_messages::agent::Outcome;
+use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::NeedsChief;
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
@@ -28,7 +28,7 @@ use hamlet_messages::workspace::refusal::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, ChiefAnswer,
-    ReachVersion, Run, RunEnd,
+    ConversationId, ReachVersion, RealmTask, Run, RunEnd,
 };
 use hamlet_sandbox::scrub::scrub_text;
 
@@ -77,6 +77,30 @@ impl Pending {
         }
     }
 
+    /// The call, its conversation and the realm's task it was made
+    /// under.
+    fn asked(&self) -> (CallId, ConversationId, Option<RealmTask>) {
+        let (Self::Run(Run {
+            call,
+            conversation,
+            realm_task,
+            ..
+        })
+        | Self::Write(WriteFile {
+            call,
+            conversation,
+            realm_task,
+            ..
+        })
+        | Self::Edit(EditFile {
+            call,
+            conversation,
+            realm_task,
+            ..
+        })) = self;
+        (call.clone(), conversation.clone(), realm_task.clone())
+    }
+
     fn read(op: &str, bytes: &[u8]) -> Result<Self> {
         Ok(match op {
             run::OP => Self::Run(ciborium::from_reader(bytes)?),
@@ -95,6 +119,17 @@ pub(super) struct Wait {
     pub request: Pending,
     pub reach_version: ReachVersion,
     pub base_hash: Option<Hashed>,
+}
+
+impl Wait {
+    /// What its agent is told when it ended as `outcome`.
+    pub(super) fn ended(&self, outcome: Outcome) -> Finished {
+        Finished {
+            call: self.call.clone(),
+            task: self.request.asked().2,
+            outcome,
+        }
+    }
 }
 
 /// A wait to open, and what the realm is told of it.
@@ -119,28 +154,7 @@ pub(super) async fn open(
     secrets: &[String],
     opening: Opening,
 ) -> Result<Result<NeedsChief, CallRefusal>> {
-    let (call, conversation, realm_task) = match &opening.request {
-        Pending::Run(Run {
-            call,
-            conversation,
-            realm_task,
-            ..
-        })
-        | Pending::Write(WriteFile {
-            call,
-            conversation,
-            realm_task,
-            ..
-        })
-        | Pending::Edit(EditFile {
-            call,
-            conversation,
-            realm_task,
-            ..
-        }) => {
-            (call.clone(), conversation.clone(), realm_task.clone())
-        }
-    };
+    let (call, conversation, realm_task) = opening.request.asked();
     let request = opening.request.cbor()?;
     if holds_a_secret(secrets, &request) {
         tracing::warn!(
@@ -476,7 +490,7 @@ impl Workspace {
         {
             return Ok(AnswerTaken::NoWait);
         }
-        tell(ctx, wait.agent, wait.call.clone(), why.outcome()).await;
+        tell(ctx, wait.agent, wait.ended(why.outcome())).await;
         Ok(why.taken())
     }
 

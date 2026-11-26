@@ -383,6 +383,8 @@ async fn a_tag_is_kept_and_its_repeat_answered_from_the_marker() {
     assert_eq!(error_code(other), "message.id_reused");
     let listed: VersionList =
         call_as(&host, &realm(), &Versions).await.unwrap();
+    let at = listed.versions.first().map_or(0, |seen| seen.at);
+    assert!(at > 0, "a version is made at a time");
     assert_eq!(
         listed.versions,
         [VersionSeen {
@@ -390,6 +392,7 @@ async fn a_tag_is_kept_and_its_repeat_answered_from_the_marker() {
             commit: tip,
             note: "first".into(),
             by: "chief:3".into(),
+            at,
         }]
     );
     host.shutdown().await.unwrap();

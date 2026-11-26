@@ -231,6 +231,7 @@ fn the_versions(fixtures: &mut Fixtures) {
                 commit: commit(0xab),
                 note: "Before the refactor".into(),
                 by: "chief:1".into(),
+                at: 1_700_000_000_000,
             }],
             commits: vec![CommitSeen {
                 commit: commit(0xab),
