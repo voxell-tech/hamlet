@@ -549,14 +549,7 @@ async fn line_of(
     let Some(task) = task else {
         return Ok(String::new());
     };
-    Ok(Rows::outside(ctx)?
-        .value::<Option<String>>(
-            "SELECT text FROM task WHERE id = ?1",
-            vec![task.column()?],
-        )
-        .await?
-        .flatten()
-        .unwrap_or_default())
+    tasks::line(&Rows::outside(ctx)?, task).await
 }
 
 /// Delivers the notice that closed `wait` to its agent, under the

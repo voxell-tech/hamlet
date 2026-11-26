@@ -39,9 +39,9 @@ use tokio::task::JoinSet;
 
 use super::stand_ins::{Callee, Forward};
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, answer, call, decoded, done_to,
-    founded, hamlet_with, hire, needs, say, standing, to, tool,
-    until,
+    DEADLINE, HIRE_3, MAYOR, Realm, THREE, answer, call, decoded,
+    done_to, founded, hamlet_with, hire, needs, say, standing, to,
+    tool, until,
 };
 
 pub(super) async fn seen_until(
@@ -771,11 +771,12 @@ async fn every_wait_kind_reads_in_the_world() {
             "too many files"
         ]
     );
-    assert!(
-        subjects[2]
-            .ends_with("objects: the field is better left alone"),
-        "{}",
-        subjects[2]
+    assert_eq!(
+        subjects[2],
+        format!(
+            "A chief told `{HIRE_3}`: Make the file.\n`{HIRE_3}` \
+             objects: the field is better left alone"
+        )
     );
     assert!(subjects[3].starts_with("hire {"), "{}", subjects[3]);
     assert_eq!(committed.waits[..], seen.waits[..5]);

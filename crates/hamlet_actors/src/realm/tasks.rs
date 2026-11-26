@@ -161,6 +161,21 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<TaskId> {
     Ok(TaskId(rows.next_id("task").await?))
 }
 
+/// The chief's line `task` keeps; empty for a task no line started.
+pub(super) async fn line(
+    rows: &Rows<'_>,
+    task: TaskId,
+) -> Result<String> {
+    Ok(rows
+        .value::<Option<String>>(
+            "SELECT text FROM task WHERE id = ?1",
+            vec![task.column()?],
+        )
+        .await?
+        .flatten()
+        .unwrap_or_default())
+}
+
 pub(super) async fn standing(
     rows: &Rows<'_>,
     agent: AgentNumber,
