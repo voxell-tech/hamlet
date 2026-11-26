@@ -684,6 +684,12 @@ fn wait_shown(
         WaitKind::Fault => {
             (Kind::Fault.answers(false), WaitDetail::Fault {})
         }
+        WaitKind::Newcomer { profile } => (
+            Kind::Newcomer.answers(false),
+            WaitDetail::Newcomer {
+                scholar: protocol::ScholarId(profile.0.into()),
+            },
+        ),
         WaitKind::Reserved => approval(WaitDanger::Reserved, None),
         WaitKind::Send { .. } => approval(WaitDanger::Send, None),
     };

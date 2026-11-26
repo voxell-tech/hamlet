@@ -4,25 +4,27 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::Profile;
 use hamlet_messages::profile::{
     CommitId, Erase, Missing, ProfileInput, VersionList, Versions,
 };
+use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
     ForkProfile, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
     Made as Named, MoveHouse, NameProfile, NameProfileRefusal,
     ProfileRefusal, RestoreProfile, Site, Spot, TurnAway, Welcome,
 };
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Asked, Done, HamletId, HowEnded, ProfileId, Refusable,
 };
 use hamlet_messages::sender::{Client, sender};
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::HouseAt;
+use hamlet_protocol::client::{Choice, HouseAt};
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +36,8 @@ use super::super::chiefs::{self, hamlet};
 use super::super::peer::{self, When};
 use super::super::steps::{self, Cx, StepId, Steps};
 use super::super::tree::{self, Life};
+use super::super::waits::answer::Ruling;
+use super::super::waits::{self};
 use super::super::{Realm, erase, marker, record, retire};
 use super::{Arrival, Kind, Status};
 
@@ -397,6 +401,8 @@ pub(in crate::realm) struct Placing {
     found: Result<Found, ProfileRefusal>,
     /// The spots of every other house.
     taken: Vec<(f64, f64)>,
+    /// The open newcomer waits about it.
+    waits: Vec<WaitId>,
 }
 
 async fn placing(
@@ -406,6 +412,47 @@ async fn placing(
     Ok(Placing {
         found: living(rows, profile).await?,
         taken: super::houses(rows, Some(profile)).await?,
+        waits: waits::newcomer_waits(rows, profile).await?,
+    })
+}
+
+/// What a chief's answer to the newcomer wait `wait` does: a welcome
+/// lets its profile in as [`Welcome`] does, and a dismissal leaves it
+/// at the harbor. A newcomer gone or let in since stays as it is.
+pub(in crate::realm) async fn newcomer_ruling(
+    rows: &Rows<'_>,
+    wait: WaitId,
+    answer: &Answer,
+) -> Result<Ruling> {
+    if answer.0.choice != Choice::Welcome {
+        return Ok(Ruling::default());
+    }
+    let detail = rows
+        .value::<Vec<u8>>(
+            "SELECT detail FROM wait WHERE id = ?1",
+            vec![change::integer(wait.0)?],
+        )
+        .await?
+        .with_context(|| format!("wait {} has no row", wait.0))?;
+    let welcome = Welcome {
+        profile: waits::newcomer_of(&detail)?,
+        why: answer
+            .0
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|why| !why.is_empty())
+            .map(str::to_owned),
+    };
+    let mut placing = welcome.load(&Client, rows).await?;
+    placing.waits.retain(|other| *other != wait);
+    Ok(match welcome.decide(&Client, placing) {
+        Decision::Change(decided) => Ruling {
+            changes: decided.changes,
+            entries: decided.entries,
+            ..Ruling::default()
+        },
+        _ => Ruling::default(),
     })
 }
 
@@ -422,13 +469,17 @@ fn of_the_city(
     Ok(found)
 }
 
+/// The profile placed as `arrival`, with each of `closing` closed as
+/// its choice.
 fn placed(
     profile: ProfileId,
     label: String,
     arrival: Arrival,
     house: Option<HouseAt>,
     entry: record::Entry,
+    closing: (Vec<WaitId>, waits::Choice),
 ) -> Decision<String, Lifecycle> {
+    let (closed, choice) = closing;
     Decision::Change(
         Decided::new(label)
             .change(super::Change::Placed {
@@ -437,6 +488,14 @@ fn placed(
                 house,
                 by: record::By::Chief,
             })
+            .changes(closed.into_iter().map(|wait| {
+                waits::Change::Close {
+                    wait,
+                    choice: choice.clone(),
+                    text: None,
+                }
+                .into()
+            }))
             .record(entry),
     )
 }
@@ -486,6 +545,7 @@ impl Act<Client> for Welcome {
                 by: record::By::Chief,
                 why: self.why.clone(),
             },
+            (placing.waits, waits::Choice::Welcome),
         )
     }
 
@@ -530,6 +590,7 @@ impl Act<Client> for TurnAway {
                 by: record::By::Chief,
                 why: self.why.clone(),
             },
+            (placing.waits, waits::Choice::Dismiss),
         )
     }
 
@@ -594,6 +655,7 @@ impl Act<Client> for MoveHouse {
             record::Entry::HouseMoved {
                 by: record::By::Chief,
             },
+            (placing.waits, waits::Choice::Dismiss),
         )
     }
 

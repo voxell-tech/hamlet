@@ -389,9 +389,9 @@ fn wait_seen(
                     .transpose()?,
             }
         }
-        waits::Kind::Question | waits::Kind::Objection => {
-            ciborium::from_reader(needed()?)?
-        }
+        waits::Kind::Question
+        | waits::Kind::Objection
+        | waits::Kind::Newcomer => ciborium::from_reader(needed()?)?,
         waits::Kind::Reserved => WaitKind::Reserved,
         waits::Kind::Send => WaitKind::Send {
             measure: parcels::measure_of(needed()?)?,

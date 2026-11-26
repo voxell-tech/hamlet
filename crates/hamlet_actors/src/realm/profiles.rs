@@ -39,7 +39,9 @@ use super::chiefs::hamlet;
 use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
-use super::{Realm, calls, dreams, hire, record, settings, tree};
+use super::{
+    Realm, calls, dreams, hire, record, settings, tree, waits,
+};
 
 pub(super) mod lifecycle;
 
@@ -527,24 +529,26 @@ impl Making {
 /// as today, unless the realm lets newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = (Making, Newcomers);
+    type Loaded = (Making, Newcomers, waits::Newcomer);
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
         _by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<(Making, Newcomers)> {
-        Ok((
-            Making::read(rows).await?,
-            settings::read(rows).await?.newcomers,
-        ))
+    ) -> Result<Self::Loaded> {
+        let making = Making::read(rows).await?;
+        let newcomer =
+            waits::Newcomer::read(rows, making.profile).await?;
+        Ok((making, settings::read(rows).await?.newcomers, newcomer))
     }
 
+    /// Under a chief's newcomers, a profile at the harbor waits for
+    /// a chief to let it in.
     fn decide(
         &self,
         by: &Agent,
-        (making, newcomers): (Making, Newcomers),
+        (making, newcomers, newcomer): Self::Loaded,
     ) -> Decision<Self::Done, Self::Output> {
         let arrival =
             if by.0 == Hand::NUMBER || newcomers == Newcomers::Open {
@@ -553,6 +557,15 @@ impl Act<Agent> for CreateProfile {
                 Arrival::Harbor
             };
         match made(self, making, arrival, record::By::Agent(by.0)) {
+            Ok(decided)
+                if arrival == Arrival::Harbor
+                    && newcomers == Newcomers::Chief =>
+            {
+                let (profile, name) = &decided.done;
+                let wait =
+                    newcomer.raise(by.0, label(*profile, name));
+                Decision::Change(decided.change(wait))
+            }
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(
                 AgentRefusal::Act(why),
