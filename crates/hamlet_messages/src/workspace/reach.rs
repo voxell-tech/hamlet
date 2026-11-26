@@ -50,6 +50,28 @@ pub struct Footing {
     pub secrets: SecretsVersion,
 }
 
+impl Footing {
+    /// Whether a call in `conversation` that needs `need` goes on
+    /// without a chief: the network by `network`, an edit or a
+    /// command by the conversation's trust.
+    pub fn allows(
+        &self,
+        conversation: &ConversationId,
+        need: Need,
+    ) -> bool {
+        let trusted = |allows: fn(&Trust) -> bool| {
+            self.trust.iter().any(|trust| {
+                trust.conversation == *conversation && allows(trust)
+            })
+        };
+        match need {
+            Need::Network => self.network,
+            Need::Command => trusted(|trust| trust.commands),
+            Need::Edit => trusted(|trust| trust.edits),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Project {
     pub folder: PathBuf,

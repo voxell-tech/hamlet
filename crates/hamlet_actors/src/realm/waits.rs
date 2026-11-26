@@ -14,7 +14,7 @@ use hamlet_messages::realm::models::{Cause, TurnFailed};
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Gate, NeedsChief};
-use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::reach::{Need, SecretsVersion};
 use hamlet_messages::workspace::refusal::WaitEnd;
 use hamlet_messages::workspace::{
     self, AgentNumber, CallId, ChiefAnswer, ConversationId,
@@ -30,7 +30,7 @@ use super::oversight::{asking, reserved};
 use super::peer::When;
 use super::tasks::TaskId;
 use super::world::Part;
-use super::{Realm, oversight, parcels, tasks, tree};
+use super::{Realm, oversight, parcels, reach, tasks, tree};
 use crate::cbor;
 
 pub(super) mod answer;
@@ -176,12 +176,13 @@ pub(super) enum Change {
     Open {
         asked: NeedsChief,
     },
-    /// A tool wait past its agent's count is kept as `wait`, closed
-    /// at once.
-    Unasked {
+    /// A tool wait is kept as `wait`, closed at once with `choice`:
+    /// refused with no chief asked, or allowed by a grant or a trust
+    /// made since the workspace weighed its call.
+    Settled {
         wait: WaitId,
         asked: NeedsChief,
-        words: String,
+        choice: Choice,
     },
     Raise {
         wait: WaitId,
@@ -207,8 +208,12 @@ pub(super) async fn apply(
 ) -> Result<Affected> {
     let changed = match change {
         Change::Open { asked } => open(writer, None, asked).await?,
-        Change::Unasked { wait, asked, words } => {
-            open(writer, Some((wait, words)), asked).await?;
+        Change::Settled {
+            wait,
+            asked,
+            choice,
+        } => {
+            open(writer, Some((wait, choice)), asked).await?;
             0
         }
         Change::Raise { wait, raised } => {
@@ -226,20 +231,18 @@ pub(super) async fn apply(
     })
 }
 
-/// A tool wait: open, or kept as `unasked`'s wait, closed with its
-/// words.
+/// A tool wait: open, or kept as `settled`'s wait, closed with its
+/// choice.
 async fn open(
     writer: &Writer<'_>,
-    unasked: Option<(WaitId, String)>,
+    settled: Option<(WaitId, Choice)>,
     asked: NeedsChief,
 ) -> Result<u64> {
     let at = BindParam::Integer(writer.at().0);
-    let (wait, [choice, scope, reason], closed_at) = match unasked {
-        Some((wait, words)) => (
-            change::integer(wait.0)?,
-            Choice::Unasked(words).columns()?,
-            at.clone(),
-        ),
+    let (wait, [choice, scope, reason], closed_at) = match settled {
+        Some((wait, choice)) => {
+            (change::integer(wait.0)?, choice.columns()?, at.clone())
+        }
         None => (
             BindParam::Null,
             [BindParam::Null, BindParam::Null, BindParam::Null],
@@ -788,9 +791,12 @@ pub(super) enum Asker {
     /// Its call already has a wait.
     Known,
     Asks,
-    Refused {
+    /// Its call is answered without a chief, as `wait`: refused past
+    /// the count or after a refusal, or allowed by the reach the
+    /// realm holds now.
+    Settled {
         wait: WaitId,
-        words: String,
+        choice: Choice,
     },
 }
 
@@ -826,6 +832,20 @@ impl Act<Workspace> for NeedsChief {
         if known {
             return Ok(Asker::Known);
         }
+        // The secrets play no part in what a reach allows.
+        let reach =
+            reach::standing(rows, self.agent, SecretsVersion(0))
+                .await?;
+        if reach.footing().is_some_and(|footing| {
+            self.needs
+                .iter()
+                .all(|need| footing.allows(&self.conversation, *need))
+        }) {
+            return Ok(Asker::Settled {
+                wait: next(rows).await?,
+                choice: Choice::Allow(Scope::Once),
+            });
+        }
         let Some(task) =
             self.realm_task.as_ref().and_then(TaskId::of)
         else {
@@ -840,9 +860,9 @@ impl Act<Workspace> for NeedsChief {
         )
         .await?;
         Ok(match refused {
-            Some(why) => Asker::Refused {
+            Some(why) => Asker::Settled {
                 wait: next(rows).await?,
-                words: why.to_string(),
+                choice: Choice::Unasked(why.to_string()),
             },
             None => Asker::Asks,
         })
@@ -860,12 +880,12 @@ impl Act<Workspace> for NeedsChief {
                     asked: self.clone(),
                 }),
             ),
-            Asker::Refused { wait, words } => Decision::Change(
+            Asker::Settled { wait, choice } => Decision::Change(
                 Decided::new(Told::workspace(wait)).change(
-                    Change::Unasked {
+                    Change::Settled {
                         wait,
                         asked: self.clone(),
-                        words,
+                        choice,
                     },
                 ),
             ),
