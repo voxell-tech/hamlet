@@ -24,8 +24,8 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::chiefs::chief;
 use super::stand_ins::{Callee, Seen};
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, errand, founded, hires, paid,
-    say, sent, submits_to, tell, to, tool, until,
+    DEADLINE, FOUR, MAYOR, Realm, THREE, answer, errand, founded,
+    hires, paid, say, sent, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -802,5 +802,22 @@ async fn a_stop_during_a_review_withdraws_the_line() {
 
     assert_eq!(read, LineIs::Withdrawn);
     assert_eq!(lines(&realm, THREE), []);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_held_for_review_is_answered_when_the_review_ends() {
+    let (realm, _) = hamlet(DEADLINE, Review::Always).await;
+    let id = RequestId::new();
+
+    realm.ask(&say(&id, THREE, "Plain line.")).await.unwrap();
+    briefed(&realm, 0).await;
+    let held = realm.ask(&ReadLine(id.clone())).await.unwrap();
+    ends(&realm, 0, answered("PASS")).await;
+    lines_until(&realm, THREE, 1).await;
+    let given = realm.ask(&ReadLine(id)).await.unwrap();
+
+    assert_eq!(held, LineIs::Waiting);
+    assert_eq!(given, LineIs::Given);
     realm.host.shutdown().await.unwrap();
 }

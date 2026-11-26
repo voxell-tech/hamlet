@@ -299,7 +299,7 @@ async fn a_verdict_the_library_refuses_is_told_to_the_offerer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_offer_not_the_callers_own_or_not_held_is_not_judged() {
+async fn an_offer_that_is_not_yours_reads_as_no_such_offer() {
     let (realm, _) = hamlet_with(1).await;
 
     for (call, offer) in [("s1", OTHERS_OFFER), ("s2", NO_OFFER)] {
@@ -329,7 +329,7 @@ async fn an_offer_not_the_callers_own_or_not_held_is_not_judged() {
     assert_eq!(
         seen,
         [
-            told("s1", "the offer 405 is not yours"),
+            told("s1", "there is no offer 405"),
             told("s2", "there is no offer 404"),
         ]
     );

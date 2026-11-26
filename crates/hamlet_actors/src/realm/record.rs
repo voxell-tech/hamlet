@@ -608,7 +608,10 @@ pub(super) async fn address(
     address_of(agent, super::tree::kind_of(rows, agent).await?)
 }
 
-fn address_of(agent: AgentNumber, kind: AgentKind) -> Result<String> {
+pub(super) fn address_of(
+    agent: AgentNumber,
+    kind: AgentKind,
+) -> Result<String> {
     let n = agent.0;
     Ok(match kind {
         AgentKind::Hand => "hand".to_owned(),

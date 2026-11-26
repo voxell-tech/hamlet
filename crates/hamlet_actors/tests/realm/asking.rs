@@ -55,6 +55,20 @@ pub(super) async fn chief_task(
         .expect("a line carries its task")
 }
 
+/// The task of a new chief's line to 3, which 3 then writes the
+/// mayor on, so the mayor may name it too.
+pub(super) async fn shared_task(realm: &Realm) -> RealmTask {
+    let task = chief_task(realm, THREE).await;
+    let before = submits_to(realm, MAYOR).len();
+    let call = RequestId::new().to_string();
+    realm
+        .tool(THREE, &paid(&call, &task, tell(to(MAYOR), "On it.")))
+        .await
+        .unwrap();
+    given_until(realm, MAYOR, before, 1).await;
+    task
+}
+
 fn asked(task: &RealmTask, questions: Vec<Question>) -> AskChief {
     AskChief {
         task: task.clone(),
@@ -434,7 +448,7 @@ async fn a_misshapen_question_is_refused_as_today() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objection_holds_spending_and_letters_until_go() {
     let (realm, _) = hamlet_with(1).await;
-    let task = chief_task(&realm, THREE).await;
+    let task = shared_task(&realm).await;
     let question = the_mayor_asks_three(&realm, &task).await;
     let mayor_before = submits_to(&realm, MAYOR).len();
     let before = submits_to(&realm, THREE).len();
@@ -508,8 +522,8 @@ async fn an_objection_holds_spending_and_letters_until_go() {
 #[tokio::test(flavor = "multi_thread")]
 async fn withdraw_drops_only_that_tasks_letters() {
     let (realm, _) = hamlet_with(1).await;
-    let first = chief_task(&realm, THREE).await;
-    let second = chief_task(&realm, THREE).await;
+    let first = shared_task(&realm).await;
+    let second = shared_task(&realm).await;
     for (call, task) in [("o1", &first), ("o2", &second)] {
         let objected = realm
             .tool(THREE, &tool(call, objection(task, "no")))
@@ -560,7 +574,7 @@ async fn withdraw_drops_only_that_tasks_letters() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objection_survives_a_restart() {
     let (realm, _) = hamlet_with(1).await;
-    let task = chief_task(&realm, THREE).await;
+    let task = shared_task(&realm).await;
     realm
         .tool(THREE, &tool("o1", objection(&task, "no")))
         .await
@@ -663,7 +677,7 @@ pub(super) async fn held_rows(realm: &Realm) -> i64 {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_withdrawn_task_spends_nothing_and_takes_no_letters() {
     let (realm, _) = hamlet_with(1).await;
-    let task = chief_task(&realm, THREE).await;
+    let task = shared_task(&realm).await;
     realm
         .tool(THREE, &paid("t0", &task, tell(to(MAYOR), "on it")))
         .await
@@ -721,7 +735,7 @@ async fn a_withdrawn_task_spends_nothing_and_takes_no_letters() {
 async fn a_lapsed_objection_drops_its_held_letters() {
     for why in [LapseReason::Stopped, LapseReason::Rewound] {
         let (realm, _) = hamlet_with(1).await;
-        let task = chief_task(&realm, THREE).await;
+        let task = shared_task(&realm).await;
         realm
             .tool(THREE, &tool("o1", objection(&task, "no")))
             .await

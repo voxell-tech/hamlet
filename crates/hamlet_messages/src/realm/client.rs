@@ -148,3 +148,20 @@ pub struct World {
 impl hamlet_actor::Event for World {
     const NAME: &'static str = "world";
 }
+
+/// A secret a chief typed at a sign-in. The realm scrubs it from
+/// everything it shows, as it scrubs a kept key, until it stops.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RememberSecret {
+    pub secret: String,
+}
+
+impl Action for RememberSecret {
+    type Output = ();
+    const NAME: &'static str = "remember_secret";
+}
+
+impl Message for RememberSecret {
+    type To = Realm;
+    type From = Client;
+}

@@ -906,3 +906,23 @@ async fn a_key_kept_after_a_reason_is_removed_from_the_record_read() {
         );
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_keeps_the_credentials_files_version_and_the_keys_the_realm_does_not_own()
+ {
+    let mut file = todays_file();
+    file["version"] = json!(5);
+    let realm = moved_over(Realm::start().await, &file).await;
+    let realm = realm.restart().await;
+    let untouched = stored(&realm);
+
+    keep(&realm, "anthropic", key("sk-new")).await;
+    let realm = realm.restart().await;
+
+    assert_eq!(untouched, file);
+    file["models"]["anthropic"] =
+        json!({ "type": "api_key", "key": "sk-new" });
+    file["version"] = json!(6);
+    assert_eq!(stored(&realm), file);
+    realm.host.shutdown().await.unwrap();
+}

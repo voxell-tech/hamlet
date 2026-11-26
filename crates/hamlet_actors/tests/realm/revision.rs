@@ -2,12 +2,13 @@
 
 use std::time::Duration;
 
-use hamlet_messages::agent::Input;
 use hamlet_messages::realm::budget::BudgetLimit;
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::client::{ReadWorld, SayAnswer};
+use hamlet_messages::realm::client::{
+    ReadState, ReadWorld, SayAnswer,
+};
 use hamlet_messages::realm::oversight::{
     AskChief, Lapse, LapseReason, Object, Permission, Question,
     Revoke, Revoked,
@@ -26,7 +27,7 @@ use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, RealmTask,
 };
 use hamlet_protocol::Effort;
-use hamlet_protocol::client::{Choice, RequestId};
+use hamlet_protocol::client::{Choice, RequestId, State};
 
 use super::asking::chief_task;
 use super::world::{
@@ -34,8 +35,8 @@ use super::world::{
     start, started_by_three,
 };
 use super::{
-    MAYOR, Realm, THREE, answer, hamlet_with, hire, say, sent,
-    standing, submits_to, tell, tool, until,
+    MAYOR, Realm, THREE, answer, hamlet_with, hire, say, standing,
+    tool,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -83,22 +84,6 @@ async fn an_unrelated_commit_leaves_the_world_as_it_was() {
         })
         .await;
 
-    let told = realm
-        .tool(
-            MAYOR,
-            &tool(
-                "t1",
-                tell(Named::Agent { agent: THREE }, "Hello."),
-            ),
-        )
-        .await
-        .unwrap();
-    until("the letter reaches 3", || {
-        submits_to(&realm, THREE).iter().any(|submit| {
-            matches!(submit.input, Input::Letter { .. })
-        })
-    })
-    .await;
     let asked_again = realm.tool(THREE, &asked).await.unwrap();
     realm.tool(four, &done).await.unwrap();
     let revoked = chief(
@@ -111,7 +96,7 @@ async fn an_unrelated_commit_leaves_the_world_as_it_was() {
     .await;
     let after = realm.ask(&ReadWorld).await.unwrap();
 
-    assert_eq!((told, asked_again), (sent(THREE), Done::Done));
+    assert_eq!(asked_again, Done::Done);
     assert!(
         matches!(revoked, Revoked::NoGrant { .. }),
         "{revoked:?}"
@@ -134,6 +119,16 @@ async fn settled(realm: &Realm) -> Seen {
     }
 }
 
+/// The client's whole state, its budgets' share of their period
+/// gone aside.
+async fn state(realm: &Realm) -> State {
+    let mut state = realm.ask(&ReadState).await.unwrap();
+    for hamlet in &mut state.hamlets {
+        hamlet.budget.gone = 0.0;
+    }
+    state
+}
+
 /// What `seen` shows, its revision aside.
 fn shown(seen: &Seen) -> Seen {
     Seen {
@@ -147,26 +142,29 @@ fn shown(seen: &Seen) -> Seen {
 async fn stepped(
     realm: Realm,
     step: &str,
-    before: &Seen,
+    before: &(Seen, State),
     faults: &mut Vec<String>,
-) -> (Realm, Seen) {
+) -> (Realm, (Seen, State)) {
     let after = settled(&realm).await;
+    let after_state = state(&realm).await;
     let realm = realm.restart().await;
     let restarted = settled(&realm).await;
-    if after != restarted {
+    let restarted_state = state(&realm).await;
+    if (&after, &after_state) != (&restarted, &restarted_state) {
         faults.push(format!(
-            "{step}: the copy {after:?} is not a restart's read \
-             {restarted:?}"
+            "{step}: the copy {after:?} {after_state:?} is not a \
+             restart's read {restarted:?} {restarted_state:?}"
         ));
     }
-    let changed = shown(&after) != shown(before);
-    let moved = after.revision != before.revision;
+    let changed =
+        shown(&after) != shown(&before.0) || after_state != before.1;
+    let moved = after.revision != before.0.revision;
     if changed != moved {
         faults.push(format!(
             "{step}: shown changed {changed}, revision moved {moved}"
         ));
     }
-    (realm, restarted)
+    (realm, (restarted, restarted_state))
 }
 
 fn wait_of(seen: &Seen, kind: fn(&WaitKind) -> bool) -> String {
@@ -190,7 +188,7 @@ fn lapse(why: LapseReason) -> Lapse {
 async fn each_writer_moves_the_revision_only_with_the_world() {
     let (mut realm, hamlet) = hamlet_with(1).await;
     let mut faults = Vec::new();
-    let mut before = settled(&realm).await;
+    let mut before = (settled(&realm).await, state(&realm).await);
     macro_rules! step {
         ($step:expr, $body:expr) => {{
             $body;
@@ -219,7 +217,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
             .unwrap();
     });
     step!("always grants", {
-        let wait = wait_of(&before, is_tool);
+        let wait = wait_of(&before.0, is_tool);
         realm
             .ask(&answer(&wait, Choice::Always, None))
             .await
@@ -237,7 +235,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
             .unwrap();
     });
     step!("always trusts", {
-        let wait = wait_of(&before, is_tool);
+        let wait = wait_of(&before.0, is_tool);
         realm
             .ask(&answer(&wait, Choice::Always, None))
             .await
@@ -335,7 +333,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         realm.tool(THREE, &tool("q1", ask)).await.unwrap();
     });
     step!("the question is answered", {
-        let wait = wait_of(&before, |kind| {
+        let wait = wait_of(&before.0, |kind| {
             matches!(kind, WaitKind::Question { .. })
         });
         realm
@@ -352,7 +350,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         realm.tool(THREE, &tool("o1", object)).await.unwrap();
     });
     step!("go", {
-        let wait = wait_of(&before, |kind| {
+        let wait = wait_of(&before.0, |kind| {
             matches!(kind, WaitKind::Objection { .. })
         });
         realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
@@ -376,7 +374,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         realm.tool(MAYOR, &tool("h9", hire(None))).await.unwrap();
     });
     step!("the reserved hire is denied", {
-        let wait = wait_of(&before, |kind| {
+        let wait = wait_of(&before.0, |kind| {
             matches!(kind, WaitKind::Reserved)
         });
         realm.ask(&answer(&wait, Choice::Deny, None)).await.unwrap();
@@ -388,8 +386,9 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
             .unwrap();
     });
     step!("the fault is dismissed", {
-        let wait =
-            wait_of(&before, |kind| matches!(kind, WaitKind::Fault));
+        let wait = wait_of(&before.0, |kind| {
+            matches!(kind, WaitKind::Fault)
+        });
         realm
             .ask(&answer(&wait, Choice::Dismiss, None))
             .await
@@ -412,7 +411,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
             .unwrap();
     });
     step!("refused", {
-        let wait = wait_of(&before, is_tool);
+        let wait = wait_of(&before.0, is_tool);
         realm
             .ask(&answer(&wait, Choice::Deny, Some("no")))
             .await
@@ -493,7 +492,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
     });
 
     assert!(faults.is_empty(), "{}", faults.join("\n"));
-    assert!(agent(&before, THREE).is_some_and(|hire| matches!(
+    assert!(agent(&before.0, THREE).is_some_and(|hire| matches!(
         hire.status,
         Status::Ended { .. }
     )));

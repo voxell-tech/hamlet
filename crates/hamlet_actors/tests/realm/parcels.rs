@@ -16,7 +16,7 @@ use hamlet_messages::realm::{Done, DoneTo, Enclosed, End};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::Choice;
 
-use super::asking::{chief_task, held_rows, objection, on};
+use super::asking::{held_rows, objection, on, shared_task};
 use super::parcel_files::{
     Files, hash, killed_while_held, restart, sending,
 };
@@ -522,10 +522,11 @@ async fn sends_on(
     assert_eq!(answer, self::sent(THREE), "tell answers at once");
 }
 
-/// 3 objects to a chief's new line, and the mayor sends it a file
-/// on that line's task. Returns the objection's wait.
+/// 3 objects to a chief's new line it shared with the mayor, and the
+/// mayor sends it a file on that line's task. Returns the objection's
+/// wait.
 async fn held_with_a_file(realm: &Realm) -> String {
-    let task = chief_task(realm, THREE).await;
+    let task = shared_task(realm).await;
     let objected = realm
         .tool(THREE, &tool("o1", objection(&task, "no")))
         .await
@@ -586,7 +587,7 @@ async fn a_held_letters_files_outlive_a_day() {
 async fn a_kill_after_ready_keeps_a_held_letter() {
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
-    let task = chief_task(&realm, THREE).await;
+    let task = shared_task(&realm).await;
     sends_on(&realm, "t1", &task, &["/project/a"]).await;
     letter_files(&realm, 1).await;
     realm

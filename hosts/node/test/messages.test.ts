@@ -2384,7 +2384,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the client's read of the world, and the realm's and the library's events",
     ],
     [
-        /^realm\/(say|answer|read_world|read_charter|read_line|stop_agents)\./,
+        /^realm\/(say|answer|read_world|read_charter|read_line|stop_agents|remember_secret)\./,
         "a client's call of the realm",
     ],
     [

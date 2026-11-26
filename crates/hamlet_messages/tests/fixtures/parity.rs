@@ -7,7 +7,9 @@ use hamlet_messages::agent::chat::{
 };
 use hamlet_messages::agent::{LineFile, LineImage};
 use hamlet_messages::library::Shelved;
-use hamlet_messages::realm::client::{ReadState, World};
+use hamlet_messages::realm::client::{
+    ReadState, RememberSecret, World,
+};
 use hamlet_messages::realm::parcels::{ParcelFile, ParcelId};
 use hamlet_messages::realm::world::Revision;
 use hamlet_protocol::client::{
@@ -60,6 +62,12 @@ pub fn line_file() -> LineFile {
 
 pub fn what_a_client_reads(fixtures: &mut Fixtures) {
     fixtures.args("realm/read_state", &ReadState);
+    fixtures.args(
+        "realm/remember_secret",
+        &RememberSecret {
+            secret: "sk-typed-at-a-sign-in".to_owned(),
+        },
+    );
     fixtures.protocol_answer("realm/read_state", &state());
     fixtures.answer(
         "realm/world",

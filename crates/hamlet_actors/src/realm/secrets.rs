@@ -9,22 +9,26 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use anyhow::{Result, anyhow, bail};
 use hamlet_actor::{Action as _, Ctx, Handler};
 use hamlet_messages::address::Agent;
+use hamlet_messages::realm::client::RememberSecret;
 use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin, Settings,
 };
 use hamlet_messages::realm::{SecretList, Secrets};
-use hamlet_messages::sender::{Hand, Scrubber, sender};
+use hamlet_messages::sender::{Client, Hand, Scrubber, sender};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
-use hamlet_sandbox::scrub::scrub_text;
+use hamlet_sandbox::scrub::{scrub_text, scrub_value};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::act::Look;
 use super::tree::Life;
-use super::{Realm, callers, calls, change, documents, versions};
+use super::{
+    Realm, callers, calls, change, documents, versions, world,
+};
 
 /// The version of a file that holds no counter, and of no file.
 pub(super) const VERSION: SecretsVersion = SecretsVersion(1);
@@ -91,6 +95,8 @@ struct InMemory {
     /// The values replaced since the start, which the workspace
     /// still takes out.
     retired: Vec<String>,
+    /// The secrets a chief typed at a sign-in since the start.
+    typed: Vec<String>,
 }
 
 impl Held {
@@ -133,6 +139,7 @@ impl Held {
             held: Mutex::new(InMemory {
                 stored,
                 retired: Vec::new(),
+                typed: Vec::new(),
             }),
         })
     }
@@ -153,6 +160,49 @@ impl Held {
     /// `text` with every secret the realm holds removed.
     pub fn scrubbed(&self, text: &str) -> String {
         scrub_text(&self.secrets(), text)
+    }
+
+    /// `value` with every secret the realm holds removed from each
+    /// of its texts.
+    pub fn scrubbed_value<T: Serialize + DeserializeOwned + Clone>(
+        &self,
+        value: &T,
+    ) -> T {
+        let scrubbed =
+            serde_json::to_value(value).and_then(|mut json| {
+                scrub_value(&self.secrets(), &mut json);
+                serde_json::from_value(json)
+            });
+        scrubbed.unwrap_or_else(|error| {
+            tracing::warn!("a value was shown unscrubbed: {error}");
+            value.clone()
+        })
+    }
+
+    /// Keeps `secret`, typed at a sign-in, among the secrets until
+    /// the realm stops; whether it was new.
+    pub fn remember(&self, secret: &str) -> bool {
+        let mut held = self.held();
+        let new = !secret.is_empty()
+            && !held.typed.iter().any(|typed| typed == secret);
+        if new {
+            held.typed.push(secret.to_owned());
+        }
+        new
+    }
+
+    /// Whether a credential of `provider` is kept.
+    pub fn keeps(&self, provider: &str) -> bool {
+        self.held().stored.models.contains_key(provider)
+    }
+
+    /// The address of the workspace on another machine a chief chose.
+    pub fn workspace_url(&self) -> Option<String> {
+        self.held()
+            .stored
+            .workspace
+            .as_ref()
+            .map(|workspace| workspace.url.clone())
     }
 
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may
@@ -193,6 +243,7 @@ impl Held {
             .secrets()
             .chain(self.workspace_token.as_deref())
             .chain(held.retired.iter().map(String::as_str))
+            .chain(held.typed.iter().map(String::as_str))
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
@@ -403,6 +454,20 @@ impl Look<Agent> for Credential {
                     provider: self.provider.clone(),
                 },
             })
+    }
+}
+
+impl Handler<RememberSecret> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        remember: RememberSecret,
+    ) -> Result<()> {
+        let Client = sender(&ctx, &remember)?;
+        if self.secrets.remember(&remember.secret) {
+            world::moved(&self, &ctx).await?;
+        }
+        Ok(())
     }
 }
 

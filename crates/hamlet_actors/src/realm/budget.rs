@@ -236,20 +236,42 @@ pub(super) async fn began(
     rows: &Rows<'_>,
     period: limits::Period,
 ) -> Result<i64> {
+    bound(rows, period, "+0 days").await
+}
+
+/// The end of the period holding `rows.at()`, in ms.
+pub(super) async fn ends(
+    rows: &Rows<'_>,
+    period: limits::Period,
+) -> Result<i64> {
+    let next = match period {
+        limits::Period::Day => "+1 day",
+        limits::Period::Month => "+1 month",
+    };
+    bound(rows, period, next).await
+}
+
+/// The start of the period holding `rows.at()`, moved by `by`.
+async fn bound(
+    rows: &Rows<'_>,
+    period: limits::Period,
+    by: &str,
+) -> Result<i64> {
     let start = match period {
         limits::Period::Day => "start of day",
         limits::Period::Month => "start of month",
     };
     rows.value(
         "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', \
-         'localtime', ?2, 'utc') AS INTEGER) * 1000",
+         'localtime', ?2, ?3, 'utc') AS INTEGER) * 1000",
         vec![
             BindParam::Integer(rows.at().0),
             BindParam::Text(start.to_owned()),
+            BindParam::Text(by.to_owned()),
         ],
     )
     .await?
-    .context("the start of a budget's period")
+    .context("a bound of a budget's period")
 }
 
 /// What an agent has spent, by its charges.

@@ -61,7 +61,7 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::choices::{SetModel, SetNickname};
 use hamlet_messages::realm::client::{
-    Answer, ReadState, ReadWorld, Say, World,
+    Answer, ReadState, ReadWorld, RememberSecret, Say, World,
 };
 use hamlet_messages::realm::documents::{
     EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
@@ -244,6 +244,7 @@ impl Actor for Realm {
         Secrets,
         Looks<ReadWorld>,
         Looks<ReadState>,
+        RememberSecret,
         Asked<LayRoad>,
         Tool<LayRoad>,
         Asked<TakeUpRoad>,

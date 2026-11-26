@@ -104,9 +104,13 @@ pub(super) fn fresh() -> HamletId {
 }
 
 pub(super) async fn name(rows: &Rows<'_>) -> Result<String> {
+    named(rows).await?.context("the realm has no chief")
+}
+
+/// The chief's name, once the realm's first start has kept it.
+pub(super) async fn named(rows: &Rows<'_>) -> Result<Option<String>> {
     rows.value::<String>("SELECT name FROM chief", Vec::new())
-        .await?
-        .context("the realm has no chief")
+        .await
 }
 
 #[derive(Debug, PartialEq)]
@@ -141,15 +145,19 @@ pub(super) async fn apply(
     match change {
         Change::First => first(writer).await,
         Change::Chief { name } => {
-            writer
+            let named = writer
                 .execute(
                     "INSERT INTO chief (id, name) VALUES (1, ?1) ON \
                      CONFLICT (id) DO UPDATE SET name = \
-                     excluded.name",
+                     excluded.name WHERE name != excluded.name",
                     vec![BindParam::Text(name)],
                 )
                 .await?;
-            Ok(Affected::default())
+            Ok(if named > 0 {
+                Affected::seen([Part::State])
+            } else {
+                Affected::default()
+            })
         }
         Change::Found {
             hamlet,

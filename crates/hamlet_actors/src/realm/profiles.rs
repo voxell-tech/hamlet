@@ -34,6 +34,7 @@ use super::change::{self, Affected, Column as _, Rows, Writer};
 use super::chiefs::hamlet;
 use super::peer::When;
 use super::steps::Cx;
+use super::world::Part;
 use super::{Realm, calls, dreams, record, settings};
 
 pub(super) mod lifecycle;
@@ -320,7 +321,7 @@ pub(super) async fn apply(
             house,
         } => place(writer, profile, arrival, house).await?,
     }
-    Ok(Affected::default())
+    Ok(Affected::seen([Part::State]))
 }
 
 async fn place(
