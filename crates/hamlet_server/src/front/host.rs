@@ -88,6 +88,7 @@ pub(crate) fn open(
     .with_value(Arc::new(sandbox))
     .with_value(Arc::new(realm::Options {
         chief: crate::serve::chief_name(),
+        faux: faux.is_some(),
         ..realm::Options::default()
     }));
     let child = ChildOptions {

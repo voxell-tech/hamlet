@@ -13,7 +13,8 @@ use hamlet_messages::address::{self, Library, Party, Realm};
 use hamlet_messages::agent::chat::{
     CheckConnection, Checked, ReadProviders,
 };
-use hamlet_messages::library::{ReadShelves, Shelved};
+use hamlet_messages::library::{ReadShelves, Shelved, Skill};
+use hamlet_messages::profile::By;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::{ReadState, ReadWorld, World};
 use hamlet_messages::realm::world::{
@@ -129,13 +130,7 @@ impl View {
     /// The address of the agent numbered `number`: `hand`,
     /// `hire#<n>` or `worker#<n>`.
     pub(crate) fn address(&self, number: AgentNumber) -> String {
-        let id = AgentId(i64::from(number.0));
-        match self.kind(number) {
-            protocol::AgentKind::Hand => Address::Hand,
-            protocol::AgentKind::Hire => Address::Hire(id),
-            protocol::AgentKind::Worker => Address::Worker(id),
-        }
-        .to_string()
+        address(self.kind(number), number)
     }
 
     /// How the agent numbered `number` is shown to a chief: its
@@ -423,6 +418,41 @@ async fn next(followed: &mut Option<Subscription>) -> Result<Item> {
     }
 }
 
+/// The address of the agent of `kind` numbered `number`: `hand`,
+/// `hire#<n>` or `worker#<n>`.
+fn address(kind: protocol::AgentKind, number: AgentNumber) -> String {
+    let id = AgentId(i64::from(number.0));
+    match kind {
+        protocol::AgentKind::Hand => Address::Hand,
+        protocol::AgentKind::Hire => Address::Hire(id),
+        protocol::AgentKind::Worker => Address::Worker(id),
+    }
+    .to_string()
+}
+
+/// Who shelved a skill, as today names them: an agent by its address
+/// among `agents`, a chief by `chief`'s name, and none as the
+/// starters.
+fn shelver(
+    by: Option<&By>,
+    agents: &[protocol::Agent],
+    chief: &str,
+) -> String {
+    match by {
+        Some(By::Agent { agent }) => {
+            let kind = agents
+                .iter()
+                .find(|shown| shown.id == wire(*agent))
+                .map_or(protocol::AgentKind::Hire, |shown| {
+                    shown.kind
+                });
+            address(kind, *agent)
+        }
+        Some(By::Chief { .. }) => chief.to_owned(),
+        None => "the starters".to_owned(),
+    }
+}
+
 /// What [`serve`] keeps: the realm as read last, the door's own parts
 /// of it, and the `State` the clients were sent with the changes
 /// since.
@@ -433,7 +463,7 @@ struct Shown {
     hub: Hub,
     frames: Frames,
     realm: Option<protocol::State>,
-    library: Vec<protocol::LibrarySkill>,
+    library: Vec<Skill>,
     /// The credentials, whose keys say which endpoint is signed in
     /// to.
     keys: Keys,
@@ -539,15 +569,7 @@ impl Shown {
         if let Ok(shelves) =
             self.calls.call(&Library, &ReadShelves).await
         {
-            self.library = shelves
-                .skills
-                .into_iter()
-                .map(|skill| protocol::LibrarySkill {
-                    by: String::new(),
-                    description: skill.description,
-                    name: skill.name,
-                })
-                .collect();
+            self.library = shelves.skills;
         }
     }
 
@@ -646,7 +668,19 @@ impl Shown {
             confinement: own.confinement.clone(),
             deeds: crate::commands::deeds(),
             hand: wire(HAND),
-            library: self.library.clone(),
+            library: self
+                .library
+                .iter()
+                .map(|skill| protocol::LibrarySkill {
+                    by: shelver(
+                        skill.shelved_by.as_ref(),
+                        &realm.agents,
+                        &own.chief,
+                    ),
+                    description: skill.description.clone(),
+                    name: skill.name.clone(),
+                })
+                .collect(),
             providers,
             realm: hamlet_os::fs::path::text(&own.root),
             ..realm
