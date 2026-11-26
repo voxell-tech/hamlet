@@ -4,14 +4,14 @@
  * where it has no faux script and lists no sign-in on loopback. It writes the
  * process's pid in the folder.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Provider } from "@earendil-works/pi-ai/models";
 import { type AgentConfig, type AgentDefinition, agentActor } from "./actor.ts";
 import { claudeExecutable, withClaude } from "./claude.ts";
 import { fauxModels } from "./faux.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import { type SignInOptions, signIns } from "./login.ts";
+import { installationOf, signIns } from "./login.ts";
 import { openAgentFilesystem } from "./native-filesystem.ts";
 import { hostProviders, servingEndpoints } from "./providers.ts";
 
@@ -59,22 +59,4 @@ export function hostedConfig(home: string, host: HostedAgent): AgentConfig {
         faux: host.faux !== undefined,
         ...(real ? { serve: servingEndpoints(models) } : {}),
     };
-}
-
-/**
- * The installation's id, which today's server gives a subscription's
- * sign-in (`crates/hamlet_server/src/providers.rs:341`), from the realm
- * folder's `credentials.json`; the server writes it before the host starts.
- */
-function installationOf(home: string): SignInOptions {
-    let stored: unknown;
-    try {
-        stored = JSON.parse(
-            readFileSync(join(home, "credentials.json"), "utf8"),
-        );
-    } catch {
-        return {};
-    }
-    const id = (stored as { installationId?: unknown } | null)?.installationId;
-    return typeof id === "string" && id !== "" ? { deviceId: id } : {};
 }

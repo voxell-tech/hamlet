@@ -25,10 +25,10 @@ use hamlet_messages::workspace::{
 use sha2::Digest as _;
 use tokio::io::AsyncWriteExt as _;
 
-use super::super::Realm;
 use super::super::change::{self, Rows};
 use super::super::peer::When;
 use super::super::steps::Cx;
+use super::super::{Realm, reviews};
 use super::{
     Change, KEPT_MS, Sent, State, either_left, hash_of, held, state,
 };
@@ -132,7 +132,10 @@ pub(in crate::realm) async fn sweep(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
 ) -> Result<()> {
-    let changes = done(&Rows::outside(ctx)?).await?;
+    let rows = Rows::outside(ctx)?;
+    let mut waiting = reviews::withheld_parcels(&rows).await?;
+    waiting.extend(realm.lines.waiting_parcels());
+    let changes = done(&rows, &waiting).await?;
     if !changes.is_empty() {
         change::commit(realm, ctx, changes).await?;
     }
@@ -192,8 +195,12 @@ pub(in crate::realm) async fn sweep(
 
 /// The changes that end the parcels done with: one waiting for a
 /// chief while its sender or receiver has ended is refused, and one
-/// refused, or delivered a day ago and not held, is swept.
-async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
+/// refused, or delivered a day ago with neither its letter held nor
+/// its line `waiting`, is swept.
+async fn done(
+    rows: &Rows<'_>,
+    waiting: &HashSet<ParcelId>,
+) -> Result<Vec<change::Change>> {
     let unswept = rows
         .rows::<(u32, Option<u32>, Option<u32>, u32, String, i64)>(
             "SELECT id, letter, sender, receiver, state, at FROM \
@@ -212,7 +219,11 @@ async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
         let parcel = ParcelId(parcel);
         let sweeps = match change::from_case_name(was)? {
             State::Refused => true,
-            State::Ready => at < old && !held(rows, letter).await?,
+            State::Ready => {
+                at < old
+                    && !held(rows, letter).await?
+                    && !waiting.contains(&parcel)
+            }
             State::Waiting => {
                 let sender = sender.with_context(|| {
                     format!(

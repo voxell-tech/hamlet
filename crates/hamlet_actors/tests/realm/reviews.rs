@@ -22,6 +22,8 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
+use super::parcels::fetched;
+use super::say::{file, uploaded};
 use super::stand_ins::{Callee, Seen};
 use super::{
     DEADLINE, FOUR, MAYOR, Realm, THREE, answer, errand, founded,
@@ -802,6 +804,32 @@ async fn a_stop_during_a_review_withdraws_the_line() {
 
     assert_eq!(read, LineIs::Withdrawn);
     assert_eq!(lines(&realm, THREE), []);
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The line's parcel is a day old while the review keeps the line,
+/// and its day begins again when the line is given: the restart
+/// after each sweeps the store.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reviewed_lines_files_are_kept_until_the_line_is_given() {
+    let (realm, _) = hamlet(DEADLINE, Review::Always).await;
+    let notes = b"the mill turns at dawn";
+    let txt = uploaded(&realm, notes);
+    let mut said = say(&RequestId::new(), THREE, "see this");
+    said.0.files = vec![file(&txt, "notes.txt", 22, None)];
+
+    realm.ask(&said).await.unwrap();
+    briefed(&realm, 0).await;
+    realm.write("UPDATE parcel SET at = 0").await;
+    ends(&realm, 0, answered("PASS")).await;
+    lines_until(&realm, THREE, 1).await;
+    let realm = realm.restart().await;
+    let given = submits_to(&realm, THREE);
+    let Input::Line { files, .. } = &given[0].input else {
+        panic!("a line: {given:?}");
+    };
+
+    assert_eq!(fetched(&realm, &files[0].file).await, notes);
     realm.host.shutdown().await.unwrap();
 }
 

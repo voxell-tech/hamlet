@@ -303,6 +303,17 @@ async fn edits_settings_and_refuses_bad_ones() {
 }
 
 #[tokio::test]
+async fn each_agent_of_a_faux_realm_runs_the_faux_model() {
+    let s = Session::start(Faux::new()).await;
+    let hand = s.hand();
+
+    let realm = s.chief.realm();
+    let shown = realm.agents.iter().find(|a| a.id == hand).unwrap();
+
+    assert_eq!(shown.model, "faux::faux-1");
+}
+
+#[tokio::test]
 async fn prices_and_notes_a_model_in_the_catalogue() {
     let mut s = Session::start(Faux::new()).await;
     s.chief

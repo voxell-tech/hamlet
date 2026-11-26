@@ -77,6 +77,10 @@ async fn the_librarian_judges_offers_and_answers_questions() {
     let library = s.chief.realm().library;
     let greet = library.iter().find(|s| s.name == "greet").unwrap();
     assert_eq!(greet.description, "Does greet");
+    assert_eq!(greet.by, "hand");
+    let weather =
+        library.iter().find(|s| s.name == "weather").unwrap();
+    assert_eq!(weather.by, "the starters");
     assert!(!shelved(&s.chief).contains(&"shout".to_string()));
     assert!(s.home.file("library/greet/SKILL.md").exists());
     assert!(!s.home.file("library/shout").exists());

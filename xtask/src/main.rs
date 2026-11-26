@@ -460,18 +460,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "starts_at_another_hamlet_and_switches_agents_and_hamlets",
         "tests/cli.rs:149",
     ),
-    (
-        "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
-        "tests/oauth.rs:185",
-    ),
-    (
-        "shutdown_waits_for_a_model_calls_started_rotation_to_persist",
-        "tests/oauth.rs:266",
-    ),
-    (
-        "concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_reach_either_store",
-        "tests/oauth.rs:298",
-    ),
 ];
 
 fn actors(root: &Path) -> Result<(), Failure> {

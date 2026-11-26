@@ -1,4 +1,5 @@
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use hamlet_messages::agent::chat::Count;
 use hamlet_messages::agent::{AgentInput, AgentKind, BuiltIn};
@@ -25,9 +26,9 @@ use super::chiefs::chief;
 use super::profiles::{asked, create};
 use super::stand_ins::Callee;
 use super::{
-    HIRE_3, Realm, THREE, charge, dream_ends, errand, hamlet_with,
-    hire_3_ends, made, made_until, may_spend, of_hire, standing, to,
-    until,
+    DEADLINE, HIRE_3, Realm, THREE, charge, dream_ends, errand,
+    hamlet_with, hire_3_ends, made, made_until, may_spend, of_hire,
+    standing, to, until,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's
@@ -350,7 +351,17 @@ async fn a_dream_that_cannot_be_prepared_ends_not_done() {
         Dreamt::Began { .. }
     ));
     assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
-    let next = chief(&realm, of_hire(THREE)).await;
+    // The dream closes once its end is kept, a little after the end.
+    let begun = Instant::now();
+    let next = loop {
+        let next = chief(&realm, of_hire(THREE)).await;
+        if matches!(next, Dreamt::Began { .. })
+            || begun.elapsed() > DEADLINE
+        {
+            break next;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
 
     assert!(matches!(next, Dreamt::Began { .. }));
     assert!(made(&realm, errand(0)).is_none());

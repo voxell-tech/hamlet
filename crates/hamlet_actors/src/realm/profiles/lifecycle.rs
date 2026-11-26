@@ -165,6 +165,11 @@ impl Act<Client> for ArchiveProfile {
                     from: Status::Living,
                     to: Status::Archived,
                 })
+                .change(super::Change::Left {
+                    profile: self.profile,
+                    by: record::By::Chief,
+                    why: self.why.clone(),
+                })
                 .record(record::Entry::ProfileArchived {
                     by: record::By::Chief,
                     why: self.why.clone(),
@@ -645,7 +650,11 @@ pub(in crate::realm) async fn fork(
                     &ProfileInput::Fork { profile: from, at },
                 )
                 .await?;
-            Ok(Vec::new())
+            let rows = cx.rows()?;
+            Ok(super::holds::reread(cx.peers(), &rows, profile)
+                .await
+                .into_iter()
+                .collect())
         }
         ForkStep::Live => Ok(vec![
             super::Change::Status {

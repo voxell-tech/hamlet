@@ -1,6 +1,7 @@
 //! A lead's review of a chief's line to its hire, before the hire
 //! receives it: the `review` table and its deadline (H10).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,6 +11,7 @@ use hamlet_host::HostRef;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{AgentKind, Input, Submit};
 use hamlet_messages::realm::Review;
+use hamlet_messages::realm::parcels::ParcelId;
 use hamlet_messages::realm::workers::Ended;
 use hamlet_messages::realm::world::{ObjectionSource, WaitKind};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
@@ -24,7 +26,8 @@ use super::tasks::TaskId;
 use super::tree::{self, Lineage};
 use super::workers::errands::{self, ErrandInput, Purpose};
 use super::{
-    Options, REVIEW_DEADLINE, Realm, documents, record, waits,
+    Options, REVIEW_DEADLINE, Realm, documents, parcels, record,
+    waits,
 };
 
 /// The provider every agent runs in a faux realm.
@@ -149,7 +152,7 @@ async fn end(
                     ],
                 )
                 .await?;
-            Ok(gives(task))
+            gives(writer, task).await
         }
         Verdict::Objected(reason) => {
             let wait = waits::next(&rows).await?;
@@ -187,15 +190,24 @@ async fn end(
             .await?;
             Ok(affected)
         }
-        Verdict::Passed(None) | Verdict::Failed => Ok(gives(task)),
+        Verdict::Passed(None) | Verdict::Failed => {
+            gives(writer, task).await
+        }
     }
 }
 
-fn gives(task: TaskId) -> Affected {
-    Affected {
+/// Lines up the delivery of the line kept on `task` to its hire,
+/// from which day its parcel keeps its files.
+async fn gives(
+    writer: &Writer<'_>,
+    task: TaskId,
+) -> Result<Affected> {
+    parcels::apply(writer, parcels::Change::Released { task })
+        .await?;
+    Ok(Affected {
         deliveries: vec![Delivery::Kept(task)],
         ..Affected::default()
-    }
+    })
 }
 
 /// A line kept for its review.
@@ -234,26 +246,57 @@ async fn held(rows: &Rows<'_>, task: TaskId) -> Result<Option<Held>> {
     }))
 }
 
-/// Whether the chief's line of `task` is kept from its hire: its
-/// review is open, or objected with no go from a chief.
+/// The reviews that keep their lines from their hires: open, or
+/// objected with no go from a chief. `?1` is [`OBJECTED`].
+const WITHHELD: &str = "FROM review LEFT JOIN objection ON \
+                        objection.task = review.task WHERE \
+                        (review.outcome IS NULL OR (review.outcome \
+                        = ?1 AND objection.ruling IS NOT 'go'))";
+
+/// Whether the chief's line of `task` is kept from its hire.
 pub(super) async fn withholds(
     rows: &Rows<'_>,
     task: TaskId,
 ) -> Result<bool> {
     Ok(rows
         .value::<bool>(
-            "SELECT EXISTS (SELECT 1 FROM review LEFT JOIN \
-             objection ON objection.task = review.task WHERE \
-             review.task = ?1 AND (review.outcome IS NULL OR \
-             (review.outcome = ?2 AND objection.ruling IS NOT \
-             'go')))",
+            &format!(
+                "SELECT EXISTS (SELECT 1 {WITHHELD} AND review.task \
+                 = ?2)"
+            ),
             vec![
-                task.column()?,
                 BindParam::Text(OBJECTED.to_owned()),
+                task.column()?,
             ],
         )
         .await?
         .unwrap_or(false))
+}
+
+/// The parcels of the lines reviews keep from their hires.
+pub(super) async fn withheld_parcels(
+    rows: &Rows<'_>,
+) -> Result<HashSet<ParcelId>> {
+    let mut named = HashSet::new();
+    for line in rows
+        .values::<Vec<u8>>(
+            &format!("SELECT review.line {WITHHELD}"),
+            vec![BindParam::Text(OBJECTED.to_owned())],
+        )
+        .await?
+    {
+        let line: Submit = ciborium::from_reader(line.as_slice())?;
+        named.extend(parcels::of_line(&line.input));
+    }
+    Ok(named)
+}
+
+/// The line the review of `task` keeps.
+pub(super) async fn kept_line(
+    rows: &Rows<'_>,
+    task: TaskId,
+) -> Result<Option<Submit>> {
+    Ok(held(rows, task).await?.map(|kept| kept.line))
 }
 
 fn text_of(line: &Submit) -> Result<&str> {

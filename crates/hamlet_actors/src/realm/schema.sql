@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS profile (
 	-- `chief` or `agent/<n>`
 	since INTEGER NOT NULL DEFAULT 0,
 	arrival_by TEXT,
+	-- when it was archived last, by whom, as `arrival_by`, and why
+	left_at INTEGER,
+	left_by TEXT,
+	left_reason TEXT,
+	-- the CBOR of what its repository holds that the State shows:
+	-- the skills at `main` and the versions
+	holds BLOB,
 	-- a fork's source profile and the commit it was made at
 	fork_of INTEGER,
 	fork_at TEXT) STRICT;

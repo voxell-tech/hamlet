@@ -220,7 +220,7 @@ const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x01";
 
 /// Keeps `bytes` in `realm`'s store as a client's upload does, and
 /// answers their hash.
-fn uploaded(realm: &Realm, bytes: &[u8]) -> Sha256 {
+pub(super) fn uploaded(realm: &Realm, bytes: &[u8]) -> Sha256 {
     let store = ParcelStore::at(&realm.scratch).unwrap();
     std::fs::create_dir_all(store.folder()).unwrap();
     let sha256 = hash(bytes);
@@ -228,7 +228,7 @@ fn uploaded(realm: &Realm, bytes: &[u8]) -> Sha256 {
     sha256
 }
 
-fn file(
+pub(super) fn file(
     sha256: &Sha256,
     name: &str,
     size: u64,
