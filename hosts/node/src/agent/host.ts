@@ -39,5 +39,6 @@ export function hostedAgent(home: string, host: HostedAgent): AgentDefinition {
         files: (n) => given(openAgentFilesystem(home, n)),
         library: join(home, "library"),
         signIns: signIns(models),
+        faux: host.faux !== undefined,
     });
 }

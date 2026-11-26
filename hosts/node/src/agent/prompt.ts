@@ -427,7 +427,7 @@ async function readText(
 }
 
 /** A field of a front matter, as `field` in `crates/hamlet_server/src/knowledge/library.rs` reads one. */
-function field(paper: string, key: string): string {
+export function field(paper: string, key: string): string {
     const head = paper.startsWith("---") ? paper.slice(3) : "";
     for (const line of (head.split("\n---")[0] ?? "").split("\n")) {
         const trimmed = line.trim();

@@ -7,9 +7,9 @@ use hamlet_git::Change;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, DropSaveParts, FileChange, Files, FilesAnswer,
-    Gone, Missing, NotAHire, Piece, Pin, PinAnswer, PinRefusal,
-    Protected, Purge, PurgeAnswer, Save, SaveAnswer, SaveRefusal,
-    TooLarge,
+    Gone, Learned, LearnedList, Missing, NotAHire, Piece, Pin,
+    PinAnswer, PinRefusal, Protected, Purge, PurgeAnswer, Save,
+    SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::CallId;
@@ -850,4 +850,45 @@ async fn a_hire_made_at_a_version_starts_there_and_stays_there() {
         "message.wrong_caller"
     );
     host.shutdown().await.unwrap();
+}
+
+/// What a hire learned is where its branch differs from `main`: a
+/// file it wrote and a file it removed, and not a file it kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_learned_what_its_branch_holds_apart_from_main() {
+    let dir = Scratch::new("profile-learned");
+    let host = hired(
+        &dir,
+        &[write("old.md", "old"), write("kept.md", "kept")],
+        Arc::default(),
+    )
+    .await;
+    let filled = fill(&host, None).await;
+    let base = filled.tip.unwrap();
+    let saved = save(
+        "s4",
+        base,
+        0,
+        true,
+        vec![
+            whole("notes.md", b"notes"),
+            FileChange::Remove {
+                path: "old.md".into(),
+            },
+        ],
+    );
+    call_as(&host, &agent(), &saved).await.unwrap();
+
+    let learned = call_as(&host, &agent(), &Learned).await.unwrap();
+    assert_eq!(
+        learned,
+        LearnedList {
+            character: filled.character.unwrap().text,
+            paths: ["notes.md", "old.md"]
+                .map(|path| hamlet_messages::profile::Path {
+                    path: path.into()
+                })
+                .to_vec(),
+        }
+    );
 }

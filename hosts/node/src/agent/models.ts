@@ -33,7 +33,13 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { Checked, Effort, ListedModel, Price } from "./messages/agent.ts";
+import type {
+    Checked,
+    Effort,
+    ListedModel,
+    Price,
+    ProviderView,
+} from "./messages/agent.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
@@ -726,6 +732,84 @@ export async function checkModel(
         // Scrubbed before `plainly` cuts it, so no part of a key is left.
         return { type: "failed", words: plainly(scrub(String(error))) };
     }
+}
+
+/**
+ * Asks the model `name` for a hello, and answers with the count of the
+ * models its provider lists, as today's connection check does.
+ */
+export async function checkConnection(
+    listed: Models,
+    keys: Keys,
+    name: string,
+): Promise<Checked> {
+    const checked = await checkModel(listed, keys, name);
+    if (checked.type !== "answered") return checked;
+    const count = listed.getModels(refOf(name)?.provider).length;
+    return { type: "answered", words: `Connected, ${count} model(s)` };
+}
+
+/** Whether the model `name` is served by a provider a chief signs in to. */
+export function signedInTo(listed: Models, name: string): boolean {
+    const auth = listed.getProvider(refOf(name)?.provider ?? "")?.auth;
+    return auth?.apiKey?.login !== undefined || auth?.oauth !== undefined;
+}
+
+/** The model the agent runs, as `provider::model`: its copy's, else `host`'s, given as `provider/model`. */
+export async function runningModel(
+    copies: ReadCopies,
+    host: string,
+): Promise<string> {
+    const copied = await copiedAgent(copies);
+    if (copied !== undefined) {
+        return `${copied.model.provider}::${copied.model.modelId}`;
+    }
+    const at = host.indexOf("/");
+    return `${host.slice(0, at)}::${host.slice(at + 1)}`;
+}
+
+/** The providers a subscription signs in to, as today's (ADR 0006). */
+const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
+
+/** The words of a provider's sign-in button where they are not its name. */
+const LABELS: Readonly<Record<string, string>> = {
+    chatgpt: "Continue with ChatGPT",
+    openrouter: "Sign in with OpenRouter",
+    claude: "Sign in to Claude",
+};
+
+/**
+ * The providers a chief may sign in to, and whether each is, in today's
+ * order and words (`crates/hamlet_server/src/providers.rs`,
+ * `provider_views`).
+ */
+export async function providerViews(
+    listed: Models,
+    realm: Pick<BareRealm, "credential">,
+): Promise<ProviderView[]> {
+    const providers = [...listed.getProviders()].sort((a, b) =>
+        a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    return Promise.all(
+        providers.map(async (provider): Promise<ProviderView> => {
+            const kept = await realm.credential({ provider: provider.id });
+            return {
+                configured: kept.type !== "refused",
+                id: provider.id,
+                label: LABELS[provider.id] ?? provider.name,
+                methods: [
+                    ...(provider.auth.apiKey?.login === undefined
+                        ? []
+                        : ["key" as const]),
+                    ...(SUBSCRIPTIONS.includes(provider.id) &&
+                    provider.auth.oauth !== undefined
+                        ? ["subscription" as const]
+                        : []),
+                ],
+                name: provider.name,
+            };
+        }),
+    );
 }
 
 /** A failed hello in words a chief can act on, as today's `plainly` gives them. */

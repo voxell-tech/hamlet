@@ -19,9 +19,9 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
     Branch, Bundle, CommitId, DropBranch, DropSaveParts, Edit,
-    EndDream, Erase, Files, MergeBranch, Papers, Pin, PrepareDream,
-    ProfileInput, Purge, Read, Revert, Save, Sha1, Tag, TooLong,
-    Unmerge, Versions,
+    EndDream, Erase, Files, Learned, MergeBranch, Papers, Pin,
+    PrepareDream, ProfileInput, Purge, Read, Revert, Save, Sha1, Tag,
+    TooLong, Unmerge, Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -78,6 +78,7 @@ impl Actor for Profile {
         EndDream,
         Erase,
         Files,
+        Learned,
         MergeBranch,
         Papers,
         Pin,
@@ -280,6 +281,7 @@ mod tests {
                 since: None,
                 after: None,
             }),
+            args(&Learned),
             args(&Save {
                 call: CallId("c".into()),
                 base: CommitId(Sha1([0; 20])),

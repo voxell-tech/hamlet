@@ -496,6 +496,7 @@ export async function wakeAgent(
         settings?: HarnessSettings;
         library?: string;
         key?: string;
+        faux?: boolean;
     },
 ): Promise<Woken> {
     const file = scratchFile(t);
@@ -509,6 +510,7 @@ export async function wakeAgent(
         files: () => files,
         ...(given.library === undefined ? {} : { library: given.library }),
         ...(given.settings === undefined ? {} : { settings: given.settings }),
+        ...(given.faux === undefined ? {} : { faux: given.faux }),
     };
     // The config is untyped once `actor()` has it, as the host sees it.
     const definition = agentActor(config).config as unknown as Definition;

@@ -34,7 +34,9 @@ import {
 import {
     type Files,
     type FilesAnswer,
+    type LearnedList,
     profileAt,
+    readLearned,
     type Save,
     type SaveAnswer,
 } from "./messages/profile.ts";
@@ -697,12 +699,14 @@ export function profileCalls(
 ): {
     readonly files: (message: Files) => Promise<FilesAnswer>;
     readonly save: (message: Save) => Promise<SaveAnswer>;
+    readonly learned: () => Promise<LearnedList>;
 } {
     const reach = reaching(peers[CALLS]);
     const to = profileAt(profile);
     return {
         files: (message) => reach(to, "files", [message]),
         save: (message) => reach(to, "save", [message]),
+        learned: async () => readLearned(await reach(to, "learned", [])),
     };
 }
 

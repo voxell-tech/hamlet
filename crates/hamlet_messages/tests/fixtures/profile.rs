@@ -7,15 +7,16 @@ use hamlet_messages::profile::{
     BadCommit, BadPath, Bundle, BundleAnswer, By, Character,
     CommitId, CommitSeen, Cursor, DreamEnd, DreamId, DreamOf,
     DreamOpen, DropBranch, DropSaveParts, Edit, EditRefusal,
-    EndDream, Erase, FileChange, Files, FilesAnswer, Gone,
-    MergeAnswer, MergeBranch, Missing, Moved, NotAHire, Paper,
-    PaperList, Papers, Path, Piece, Pin, PinAnswer, PinRefusal,
-    PrepareDream, Prepared, ProfileInput, Protected, Purge,
-    PurgeAnswer, PurgeRefusal, Read, ReadAnswer, ReadFileRefusal,
-    Removal, RemovePath, Removed, Revert, RevertAnswer,
-    RevertRefusal, Revision, Save, SaveAnswer, SaveRefusal, Sha1,
-    Source, Tag, TagAnswer, TagRefusal, TooLarge, TooLong, Unmerge,
-    UnmergeAnswer, VersionList, VersionName, VersionSeen, Versions,
+    EndDream, Erase, FileChange, Files, FilesAnswer, Gone, Learned,
+    LearnedList, MergeAnswer, MergeBranch, Missing, Moved, NotAHire,
+    Paper, PaperList, Papers, Path, Piece, Pin, PinAnswer,
+    PinRefusal, PrepareDream, Prepared, ProfileInput, Protected,
+    Purge, PurgeAnswer, PurgeRefusal, Read, ReadAnswer,
+    ReadFileRefusal, Removal, RemovePath, Removed, Revert,
+    RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
+    SaveRefusal, Sha1, Source, Tag, TagAnswer, TagRefusal, TooLarge,
+    TooLong, Unmerge, UnmergeAnswer, VersionList, VersionName,
+    VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
 use hamlet_messages::workspace::AgentNumber;
@@ -97,6 +98,7 @@ pub fn the_profiles_messages(fixtures: &mut Fixtures) {
     the_changes_of_main(fixtures);
     the_dreams(fixtures);
     the_files_of_a_hire(fixtures);
+    what_a_hire_learned(fixtures);
     the_merges(fixtures);
     the_calls_on_an_agent(fixtures);
 }
@@ -548,6 +550,19 @@ fn the_dreams(fixtures: &mut Fixtures) {
     ] {
         fixtures.kept(&format!("profile/end_dream.{arm}"), &answer);
     }
+}
+
+fn what_a_hire_learned(fixtures: &mut Fixtures) {
+    fixtures.args("profile/learned", &Learned);
+    fixtures.answer(
+        "profile/learned",
+        &LearnedList {
+            character: "You write careful tests.".into(),
+            paths: vec![Path {
+                path: "memory/tests.md".into(),
+            }],
+        },
+    );
 }
 
 fn the_files_of_a_hire(fixtures: &mut Fixtures) {

@@ -147,6 +147,12 @@ export interface AgentConfig {
     readonly listed?: () => readonly Model<Api>[];
     /** Answers the Hand's `login`; a host without it signs no one in. */
     readonly signIns?: SignIns;
+    /**
+     * Every agent runs the faux model, as on a server started with a faux
+     * script: a check of a model no chief signs in to says so, and the
+     * listing lists no model.
+     */
+    readonly faux?: boolean;
 }
 
 export type AgentContext = PiContext;

@@ -794,6 +794,21 @@ const WRITTEN: readonly Written[] = [
         },
     },
     {
+        fixture: "profile/learned",
+        drive: async (t, calls) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+            await agent.actions.read_papers(agent.by(from.client));
+            return agent;
+        },
+        answers: {
+            profile: {
+                files: () => answer("profile/files.part.last"),
+                learned: () => answer("profile/learned"),
+            },
+        },
+    },
+    {
         fixture: "profile/files.since",
         drive: async (t, calls, sent) => {
             const agent = await wakeAgent(t, { calls, input: HAND });
@@ -2527,6 +2542,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "library/offer",
             "profile/files",
             "profile/save",
+            "profile/learned",
         ].flatMap(answersTo),
         "agent/chat.event.answer",
         "agent/chat.event.letters.answer",
