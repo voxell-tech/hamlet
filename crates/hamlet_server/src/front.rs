@@ -272,8 +272,6 @@ impl Door {
                 break Err(error);
             }
         };
-        // New connections are refused from here, as today's close
-        // drops its listener first.
         drop(listener);
         shutdown.send_replace(true);
         door.work.abort_all();
@@ -284,15 +282,18 @@ impl Door {
         };
         let _ = tokio::time::timeout(GRACE, drained).await;
         door.connections.abort_all();
-        // The agents' host stops after this, so a rotated login has
-        // to reach the realm first, as today's close waits for it. No
-        // rotation began where the agents never started.
         if !starting && result.is_ok() {
-            let settled =
-                door.calls.call(&address::Agent(HAND), &Settle);
-            let _ = tokio::time::timeout(ROTATING, settled).await;
+            door.settle_before_the_host_stops().await;
         }
         result
+    }
+
+    /// Has the Hand end its open sign-ins and keep the logins it
+    /// rotated in the realm, for up to `ROTATING`: the Node host
+    /// stops once the door returns.
+    async fn settle_before_the_host_stops(&self) {
+        let settled = self.calls.call(&address::Agent(HAND), &Settle);
+        let _ = tokio::time::timeout(ROTATING, settled).await;
     }
 
     fn accept(&mut self, stream: TcpStream) {

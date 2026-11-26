@@ -125,8 +125,8 @@ impl Repo {
         })
     }
 
-    /// What `look` reads of the repository, beside other reads,
-    /// outside any call.
+    /// `look`'s read of the repository, beside other reads, outside
+    /// any call.
     pub async fn reads<T, F>(&self, look: F) -> Result<T>
     where
         T: Send + 'static,

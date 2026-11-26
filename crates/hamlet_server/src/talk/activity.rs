@@ -248,7 +248,7 @@ impl Activity {
     }
 }
 
-/// What a call of `name` has its agent doing, with `text` its
+/// The activity a call of `name` gives its agent, with `text` its
 /// arguments written in lower case.
 fn doing_of(name: &str, text: &str) -> Doing {
     let (read, write) = if text.contains("memory/") {

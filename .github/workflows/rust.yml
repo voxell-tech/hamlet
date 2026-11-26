@@ -137,16 +137,12 @@ jobs:
       - run: cargo xtask harness
       - run: cargo xtask node
 
-  # The acceptance suite on `hamlet_server --actors`. `cargo xtask
-  # actors` skips the scenarios that fail there, each named in its
-  # list.
   test-actors:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          # vendor/fynix is a submodule.
           submodules: recursive
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2

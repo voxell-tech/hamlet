@@ -73,9 +73,7 @@ async fn the_turn_after_a_command_cut_off_by_a_restart_asks_its_chief()
         "bash",
         json!({"command": "echo curl > one; sleep 60"}),
     )];
-    // Under --actors the call does not hold the turn: the turn ends
-    // on these words, and the call's end starts the next one.
-    if home::serves_actors() {
+    if !home::calls_hold_the_turn() {
         before.push(words("Waiting."));
     }
     let mut server =

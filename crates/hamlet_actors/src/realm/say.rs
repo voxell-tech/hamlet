@@ -126,8 +126,8 @@ fn placed(
     Ok(())
 }
 
-/// What `store` holds of `say`'s files, then of its images, each in
-/// the order of its place, checked as today's server checks them.
+/// The files of `say` that `store` holds, then its images, each in
+/// the order of its place and checked.
 async fn stored(
     store: &Store,
     say: &protocol::Say,
@@ -220,8 +220,7 @@ async fn read(
     Ok(Some((size, head)))
 }
 
-/// The extension today's server keeps an image in, for the image
-/// `bytes` begin as.
+/// The extension an image is kept in, for the image `bytes` begin as.
 fn extension(bytes: &[u8]) -> Option<&'static str> {
     Format::detect(bytes).map(Format::extension)
 }

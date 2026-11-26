@@ -41,9 +41,10 @@ async fn placing(
     })
 }
 
-/// What a chief's answer to the newcomer wait `wait` does: a welcome
-/// lets its profile in as [`Welcome`] does, and a dismissal leaves it
-/// at the harbor. A newcomer gone or let in since stays as it is.
+/// The effect of a chief's answer to the newcomer wait `wait`: a
+/// welcome lets its profile in as [`Welcome`] does, and a dismissal
+/// leaves it at the harbor. A newcomer gone or let in since stays as
+/// it is.
 pub(in crate::realm) async fn newcomer_ruling(
     rows: &Rows<'_>,
     wait: WaitId,

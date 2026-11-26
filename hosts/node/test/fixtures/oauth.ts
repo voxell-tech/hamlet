@@ -1,12 +1,11 @@
 /**
- * A Node host entry serving the agent with three offline providers in place
- * of today's, as `harnesses/pi/test/fixtures/oauth.ts` gives pi: `chatgpt`
- * signs in by subscription only, `openrouter` by key or subscription, and
- * `openai` by key only. A Rust host starts it through `HAMLET_NODE_HOST`.
- * Its files go in the folder `HAMLET_ACTOR_OAUTH_FIXTURE`: `started` once it
- * serves, `requests.jsonl` per model request, `login-ended` per sign-in, and
- * `refresh.jsonl` and `refresh-started` per rotation, which waits while
- * `hold-refresh` is there without `release-refresh`, and
+ * A Node host entry serving the agent with three offline providers in place of
+ * the built-in ones: `chatgpt` signs in by subscription only, `openrouter` by
+ * key or subscription, and `openai` by key only. A Rust host starts it through
+ * `HAMLET_NODE_HOST`. Its files go in the folder `HAMLET_ACTOR_OAUTH_FIXTURE`:
+ * `started` once it serves, `requests.jsonl` per model request, `login-ended`
+ * per sign-in, and `refresh.jsonl` and `refresh-started` per rotation, which
+ * waits while `hold-refresh` is there without `release-refresh`, and
  * `read-while-refreshing` per read of a subscription while it waits.
  */
 

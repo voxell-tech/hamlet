@@ -158,7 +158,7 @@ export function chatActions(config: AgentConfig): ChatHandlers {
     };
 }
 
-/** A check's answer where the faux model runs, as today's faux realm answers every check. */
+/** A check's answer where the faux model runs. */
 const FAUX_CHECKED: Checked = {
     type: "answered",
     words: "Every agent runs the faux model here.",

@@ -89,7 +89,6 @@ async fn an_offer_is_refused_for_each_reason() {
         })
     );
 
-    // Six parts of 700 KiB: the sixth takes the skill over 4 MiB.
     let size = 700 * 1024;
     let mut answers = Vec::new();
     for part in 0..6 {

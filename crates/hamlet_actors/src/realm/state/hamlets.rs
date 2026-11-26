@@ -27,7 +27,7 @@ pub(super) struct Place {
     roads: Vec<(protocol::Road, Option<i64>)>,
 }
 
-/// What was spent in a period, until its end.
+/// The spending of a period, until its end.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Spending {
     pub micros: u64,
@@ -187,11 +187,9 @@ fn level(
 }
 
 /// The roads of the hires of `hamlet` that have not ended, those
-/// still being hired too, as today's hires live from their hiring,
-/// each pair once: a
-/// hire's to its lead or a mayor's to the Hand, a mayor's to each
-/// other mayor, and those laid or agreed, with the letters along
-/// each.
+/// still being hired too, each pair once: a hire's to its lead or a
+/// mayor's to the Hand, a mayor's to each other mayor, and those laid
+/// or agreed, with the letters along each.
 async fn roads(
     rows: &Rows<'_>,
     seen: &Seen,
@@ -334,7 +332,7 @@ fn report(spending: Spending, now: i64) -> protocol::Report {
 }
 
 impl Spending {
-    /// What was spent as of `now`: nothing once its period ended.
+    /// The spending as of `now`: nothing once its period ended.
     pub(super) fn at(self, now: i64) -> Self {
         match self.period {
             Some(period) if now >= period.ends => Self {

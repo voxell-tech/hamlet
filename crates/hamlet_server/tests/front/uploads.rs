@@ -145,7 +145,6 @@ async fn a_line_with_images_to_a_faux_model_is_taken() {
         .say_with(mayor, "Look.", vec![AttachedImage::last(image)])
         .await;
 
-    // Every faux model takes images, as today's `Providers::images`.
     assert_eq!(said.kind, ReplyKind::Notice, "{}", said.text);
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

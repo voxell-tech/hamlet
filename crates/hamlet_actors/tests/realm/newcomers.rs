@@ -119,8 +119,7 @@ async fn a_profile_at_the_harbor_waits_for_a_chief_until_let_in_or_turned_away()
     realm.host.shutdown().await.unwrap();
 }
 
-/// The Hand's part before every verdict, and the city it is shown,
-/// as today words them.
+/// The Hand's part before every verdict, and the city it is shown.
 const JUDGE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
      into the city. The city is where the realm's scholars live \

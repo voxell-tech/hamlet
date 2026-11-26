@@ -1,6 +1,6 @@
 /**
- * The agent actor a Node host serves on the realm folder `home`, its models
- * the faux ones of `faux.ts`, or today's providers and the realm's endpoints
+ * The agent actor a Node host serves on the realm folder `home`, its models the
+ * faux ones of `faux.ts`, or the built-in providers and the realm's endpoints
  * where it has no faux script and lists no sign-in on loopback. It writes the
  * process's pid in the folder.
  */
@@ -24,7 +24,7 @@ export interface HostedAgent {
     readonly signIn: boolean;
     /** Adds the Claude program's models, where it is installed. */
     readonly claude: boolean;
-    /** The providers in place of today's, where it has no faux script and lists no sign-in. */
+    /** The providers in place of the built-in ones, where it has no faux script and lists no sign-in. */
     readonly providers?: readonly Provider[];
     readonly files?: (files: AgentFilesystem) => AgentFilesystem;
 }
@@ -39,8 +39,6 @@ export function hostedConfig(home: string, host: HostedAgent): AgentConfig {
     const { models, model } = fauxModels(host.faux, host.signIn);
     const real = host.faux === undefined && !host.signIn;
     if (real) {
-        // Today's providers stand in the faux ones' place; the faux model's
-        // name stays the model of an agent the realm gave none.
         models.clearProviders();
         for (const provider of host.providers ?? hostProviders())
             models.setProvider(provider);

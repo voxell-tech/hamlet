@@ -244,7 +244,7 @@ impl Message for ReadCatalogue {
     type From = Client;
 }
 
-/// What the chief says of the model `model`.
+/// The chief's card for the model `model`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CardRead {
     /// `provider::model`, as the catalogue names it.

@@ -620,7 +620,6 @@ async fn a_resumed_lapse_drops_the_conversations_trust() {
     })
     .await;
     let trusted = footing(&realm, HAND).trust;
-    // The trust covers its command, not the network, so it waits.
     realm
         .call_as_workspace(&NeedsChief {
             needs: vec![Need::Command, Need::Network],

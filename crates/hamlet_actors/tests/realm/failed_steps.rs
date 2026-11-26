@@ -700,8 +700,6 @@ async fn a_profile_whose_hire_kept_its_inbox_from_a_living_hire_is_archived_agai
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_whose_inbox_is_refused_after_a_file_moved_names_what_stays()
  {
-    // 4 takes 3's first file, then refuses the second for good: the
-    // first stays with 4, the second with 3, and the words say so.
     let (realm, _) = super::hamlet_with(2).await;
     realm.seen.inboxes.lock().unwrap().insert(
         THREE,
