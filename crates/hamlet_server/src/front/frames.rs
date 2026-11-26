@@ -667,6 +667,65 @@ mod tests {
     }
 
     #[test]
+    fn a_status_tells_what_the_agent_did_last() {
+        let event = ChatEvent {
+            chat: ChatRef {
+                with: AgentNumber(7),
+                from: None,
+                kind: None,
+                past: None,
+            },
+            epoch: 1,
+            number: 1,
+            ops: vec![
+                ChatOp::Add {
+                    item: Box::new(ChatItem {
+                        id: "11:0".to_owned(),
+                        at: Count(1_763_200_000_123),
+                        kind: ItemKind::Tool,
+                        text: String::new(),
+                        author: None,
+                        chief: None,
+                        images: Vec::new(),
+                        files: Vec::new(),
+                        rewindable: None,
+                        tool: Some(ChatTool {
+                            name: "read".to_owned(),
+                            summary: "notes.md".to_owned(),
+                            exit: None,
+                            ms: None,
+                            failure: None,
+                            change: None,
+                        }),
+                    }),
+                    replaces: None,
+                },
+                ChatOp::Status {
+                    working: true,
+                    pending: 0,
+                },
+            ],
+        };
+        let chat = chat_ref(&event.chat);
+        let mut last = None;
+        let turn = turn(event, &chat, &mut last).unwrap().unwrap();
+        let read = LastActivity {
+            at: 1_763_200_000_123,
+            what: "tool read".to_owned(),
+        };
+        assert!(
+            matches!(
+                turn.operations.last(),
+                Some(TranscriptOperation::Status { last: Some(shown), .. })
+                    if *shown == read
+            ),
+            "{:?}",
+            turn.operations
+        );
+        assert_eq!(last, Some(read));
+    }
+
+    #[test]
     fn a_chiefs_line_names_its_chief_as_today() {
         let line = item(ChatItem {
             id: "10:0".to_owned(),

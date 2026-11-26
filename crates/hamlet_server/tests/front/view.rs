@@ -245,17 +245,31 @@ async fn a_second_client_sees_the_hire_the_first_made() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// The Hand works on a line nobody follows, then rests. A chat the
-/// door still followed would end when the Node host is killed, and
-/// say so in the log before the host is back to answer a line.
+/// The Hand is followed at work on a line nobody watches, then
+/// rests. A chat the door still followed would end when the Node host
+/// is killed, and say so in the log before the host is back to answer
+/// a line.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_idle_realm_holds_no_agents_subscription() {
     let (mut server, home, _side) =
-        serve(json!(["Here.", "Back."])).await;
+        serve(json!([asks_the_chief(), "Planted.", "Back."])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
-    let reply = chief.say(hand, "Are you there?").await;
-    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    let line = chief.tell(hand, "Plant something.").await;
+    chief
+        .until("the Hand at work", |chief| {
+            shown(chief, hand).is_some_and(|hand| {
+                hand.busy && hand.activity.doing != Doing::Rest
+            })
+        })
+        .await;
+    let asked = chief
+        .wait_for("the question", |wait| {
+            matches!(wait.detail, WaitDetail::Question { .. })
+        })
+        .await;
+    chief.choose(&asked.id, Choice::Dismiss, None).await;
+    chief.reply(&line).await;
     chief
         .until("the Hand at rest", |chief| {
             shown(chief, hand).is_some_and(|hand| !hand.busy)
@@ -340,10 +354,18 @@ async fn a_hire_is_named_by_its_address_and_its_profile() {
     let (mut server, _home, _side) = serve(json!(["Here."])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
+    let asked = chief.messages().len();
     let founded = chief.command(hand, "/create-hamlet Docs").await;
     assert!(
         founded.ends_with("under its mayor `hire#2 (Mayor)`."),
         "{founded}"
+    );
+    assert!(
+        chief.messages()[asked..].iter().any(|message| matches!(
+            message,
+            ServerMessage::Change(_)
+        )),
+        "the asker is shown the hamlet before the reply"
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

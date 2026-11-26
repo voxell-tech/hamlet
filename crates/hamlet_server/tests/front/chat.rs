@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Login,
-    LoginMethod, LoginReply, LoginStart, LoginStep, New, Open, Read,
-    ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
+    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, LinkState,
+    Login, LoginMethod, LoginReply, LoginStart, LoginStep, New, Open,
+    Read, ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
     ServerMessage, Stop, TranscriptOperation,
 };
 use hamlet_testing::{Scratch, Server};
@@ -470,6 +470,14 @@ async fn each_request_is_answered_in_todays_words() {
         })
         .await;
     assert_eq!(checked.kind, ReplyKind::Notice, "{}", checked.text);
+    chief
+        .until("the model link the check set", |chief| {
+            let link = chief.realm().settings.link;
+            link.state == LinkState::Connected
+                && link.words.as_deref()
+                    == Some(checked.text.as_str())
+        })
+        .await;
     let unnamed = chief
         .request(|id| {
             ClientMessage::Check(Check::Model { id, model: None })

@@ -85,11 +85,7 @@ impl Folded {
     fn of(page: &ChatPage) -> Self {
         let mut folded = Self::new();
         folded.seen = Some(Mark::of(page));
-        folded.activity.live(
-            page.working,
-            u64::from(page.pending),
-            None,
-        );
+        folded.status(page.working, page.pending);
         let since = page
             .items
             .iter()
@@ -104,11 +100,7 @@ impl Folded {
     fn fold(&mut self, op: &ChatOp) {
         match op {
             ChatOp::Status { working, pending } => {
-                self.activity.live(
-                    *working,
-                    u64::from(*pending),
-                    None,
-                );
+                self.status(*working, *pending);
             }
             ChatOp::Add { item, replaces } => {
                 self.add(item, replaces.as_deref());
@@ -122,6 +114,19 @@ impl Folded {
                 }
             }
             ChatOp::Usage { .. } | ChatOp::Reset => {}
+        }
+    }
+
+    /// Takes in whether the chat runs and how many inputs wait: a
+    /// turn that begins calls its model.
+    fn status(&mut self, working: bool, pending: u32) {
+        let begins = working && !self.activity.working;
+        self.activity.live(working, u64::from(pending), None);
+        if begins {
+            self.activity.attempted();
+        }
+        if !working {
+            self.written.clear();
         }
     }
 
