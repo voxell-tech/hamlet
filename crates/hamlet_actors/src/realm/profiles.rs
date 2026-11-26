@@ -275,6 +275,12 @@ pub(super) enum Change {
     },
     /// The profile is named `name`.
     Named { profile: ProfileId, name: String },
+    /// `by` archived the profile now, for `why`.
+    Left {
+        profile: ProfileId,
+        by: record::By,
+        why: Option<String>,
+    },
     /// `by` places the profile as `arrival`, its house at `house` or
     /// none.
     Placed {
@@ -355,6 +361,20 @@ pub(super) async fn apply(
                 .execute(
                     "UPDATE profile SET name = ?2 WHERE id = ?1",
                     vec![id(profile), BindParam::Text(name)],
+                )
+                .await?;
+        }
+        Change::Left { profile, by, why } => {
+            writer
+                .execute(
+                    "UPDATE profile SET left_at = ?2, left_by = ?3, \
+                     left_reason = ?4 WHERE id = ?1",
+                    vec![
+                        id(profile),
+                        BindParam::Integer(writer.at().0),
+                        BindParam::Text(by.name()),
+                        why.map_or(BindParam::Null, BindParam::Text),
+                    ],
                 )
                 .await?;
         }

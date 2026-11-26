@@ -165,6 +165,11 @@ impl Act<Client> for ArchiveProfile {
                     from: Status::Living,
                     to: Status::Archived,
                 })
+                .change(super::Change::Left {
+                    profile: self.profile,
+                    by: record::By::Chief,
+                    why: self.why.clone(),
+                })
                 .record(record::Entry::ProfileArchived {
                     by: record::By::Chief,
                     why: self.why.clone(),

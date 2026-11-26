@@ -14,9 +14,13 @@ use hamlet_messages::realm::lines::Working;
 use hamlet_messages::realm::models::{
     KeepCredential, Kept, Settings,
 };
-use hamlet_messages::realm::profiles::CreateProfile;
+use hamlet_messages::realm::profiles::{
+    ArchiveProfile, CreateProfile,
+};
 use hamlet_messages::realm::world::Revision;
-use hamlet_messages::realm::{Asked, Done, HamletId, NeedsChief};
+use hamlet_messages::realm::{
+    Asked, Done, HamletId, NeedsChief, ProfileId,
+};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
@@ -402,6 +406,38 @@ async fn each_agent_of_a_faux_realm_runs_the_faux_model() {
     let state = state(&realm).await;
 
     assert_eq!(agent(&state, Hand::NUMBER).model, "faux::faux-1");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_archived_profile_shows_when_who_and_why_it_left() {
+    let (realm, _) = hamlet_with(0).await;
+    let made = CreateProfile {
+        name: "Newbie".to_owned(),
+        character: None,
+    };
+    chief(&realm, made).await;
+    let newbie = |state: protocol::State| {
+        state
+            .scholars
+            .into_iter()
+            .find(|scholar| scholar.name == "Newbie")
+            .expect("the profile is shown")
+    };
+    let id = newbie(state(&realm).await).id;
+    let archived = ArchiveProfile {
+        profile: ProfileId(u32::try_from(id.0).unwrap()),
+        why: Some("not needed".to_owned()),
+    };
+
+    chief(&realm, archived).await;
+    let left = newbie(state(&realm).await).left.expect("it left");
+
+    assert!(left.at > 0);
+    assert_eq!(
+        (left.by.as_str(), left.reason.as_str()),
+        ("chief", "not needed")
+    );
     realm.host.shutdown().await.unwrap();
 }
 

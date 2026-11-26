@@ -440,15 +440,28 @@ async fn scholars(
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
-             house_z, house_turn, since, arrival_by FROM profile \
-             WHERE kind != 'hand' AND status IN ('living', \
-             'archived') ORDER BY id",
+             house_z, house_turn, since, arrival_by, left_at, \
+             left_by, left_reason FROM profile WHERE kind != 'hand' \
+             AND status IN ('living', 'archived') ORDER BY id",
             Vec::new(),
         )
         .await?
     {
-        let [id, kind, name, status, arrival, x, z, turn, since, by] =
-            &row[..]
+        let [
+            id,
+            kind,
+            name,
+            status,
+            arrival,
+            x,
+            z,
+            turn,
+            since,
+            by,
+            left_at,
+            left_by,
+            left_reason,
+        ] = &row[..]
         else {
             bail!("a profile's row of another form: {row:?}");
         };
@@ -500,13 +513,24 @@ async fn scholars(
                 _ => None,
             },
             id: protocol::ScholarId(id.into()),
-            left: (status == profiles::Status::Archived).then(|| {
-                protocol::ScholarLeft {
-                    at: 0,
-                    by: chief.to_owned(),
-                    reason: String::new(),
+            left: match status {
+                profiles::Status::Archived => {
+                    Some(protocol::ScholarLeft {
+                        at: time(
+                            Option::<i64>::of(left_at)?
+                                .unwrap_or_default(),
+                        ),
+                        by: shown_by(
+                            &Option::<String>::of(left_by)?
+                                .unwrap_or_default(),
+                            chief,
+                        ),
+                        reason: Option::<String>::of(left_reason)?
+                            .unwrap_or_default(),
+                    })
                 }
-            }),
+                _ => None,
+            },
             name: String::of(name)?,
             since: time(i64::of(since)?),
             skills: Vec::new(),
