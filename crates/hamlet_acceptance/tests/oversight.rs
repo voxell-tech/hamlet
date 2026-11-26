@@ -14,16 +14,27 @@ fn bash(command: &str) -> hamlet_testing::Step {
 
 #[tokio::test]
 async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
-    let mut s = Session::start(Faux::new().responses([
+    let mut script = vec![
         bash("echo curl one > one"),
         bash("echo curl two > two"),
         bash("echo curl three > three"),
         words("Done."),
+    ];
+    // Under --actors no call holds the turn: each of the three calls'
+    // ends starts a turn of its own after these words.
+    if home::serves_actors() {
+        script.extend([
+            words("Noted."),
+            words("Noted."),
+            words("Noted."),
+        ]);
+    }
+    script.extend([
         bash("echo curl four > four"),
         bash("echo curl five > five"),
         words("Done again."),
-    ]))
-    .await;
+    ]);
+    let mut s = Session::start(Faux::new().responses(script)).await;
     let hand = s.hand();
     let lodge = s.home.agent_files(1, "hand");
     let now = chat(hand);
@@ -64,6 +75,18 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         !lodge.join("two").exists() && !lodge.join("three").exists()
     );
     assert!(s.chief.waits().is_empty());
+    if home::serves_actors() {
+        s.chief
+            .until("the three ends heard", |c| {
+                !c.is_working(&now)
+                    && c.texts(&now)
+                        .iter()
+                        .filter(|t| *t == "Noted.")
+                        .count()
+                        == 3
+            })
+            .await;
+    }
 
     // Allowed for good: no later command asks.
     s.chief.tell(hand, "Once more.").await;
