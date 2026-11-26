@@ -7,9 +7,11 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::ui::UiSystems;
-use hamlet_assets::tint;
-use hamlet_client::realm::Lead;
-use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
+use hamlet_core::assets::tint;
+use hamlet_core::client::realm::Lead;
+use hamlet_core::client::waits::{
+    Choice, ChoiceExt, RaisedBy, Waiting,
+};
 use hamlet_core::pick::{TagAnswered, TagOpened, Thing};
 
 use super::label::{self, Lens};

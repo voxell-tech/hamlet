@@ -1,29 +1,29 @@
 //! The first-run gallery scenes.
 
-use hamlet_app::welcome;
 use hamlet_protocol::client as protocol;
+use hamlet_welcome::{NOTHING_LOCAL, Step, Welcome};
 
 use crate::scenes::Scene;
 
 /// The first-run screen as `scene` shows it: closed, or at a step
 /// with what a provider or the server might have answered.
-pub(crate) fn first_run(scene: Scene) -> welcome::Welcome {
+pub(crate) fn first_run(scene: Scene) -> Welcome {
     let Some(step) = scene.first_run() else {
-        return welcome::Welcome::default();
+        return Welcome::default();
     };
-    let mut shown = welcome::Welcome::default();
+    let mut shown = Welcome::default();
     shown.open = true;
     shown.step = step;
     shown.from = "OpenRouter".into();
     shown.models =
         catalogue().into_iter().map(|model| model.name).collect();
     shown.problem = match step {
-        welcome::Step::Key => Some(
+        Step::Key => Some(
             "That key was not accepted. Check it was copied whole \
              and is still active."
                 .into(),
         ),
-        welcome::Step::Local => Some(welcome::NOTHING_LOCAL.into()),
+        Step::Local => Some(NOTHING_LOCAL.into()),
         _ => None,
     };
     shown

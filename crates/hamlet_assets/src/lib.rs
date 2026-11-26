@@ -52,6 +52,8 @@ pub const PALETTE: File = file!("palette.toml");
 pub const VFX: File = file!("vfx.toml");
 /// The panels' sizes and limits.
 pub const UI: File = file!("ui.toml");
+/// The chat's sizes and limits.
+pub const CHAT: File = file!("chat.toml");
 /// The widgets' effects.
 pub const EFFECTS: File = file!("effects.toml");
 /// The panels' lettering, spacing, shadow fall and motion, shared by

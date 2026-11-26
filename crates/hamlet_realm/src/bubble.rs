@@ -4,8 +4,8 @@ mod words;
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
-use hamlet_assets::tint;
-use hamlet_client::realm::{Activity, Busy, Doing, Saying};
+use hamlet_core::assets::tint;
+use hamlet_core::client::realm::{Activity, Busy, Doing, Saying};
 use hamlet_core::sound::{Cue, Sound};
 
 use self::words::{action, gist, tail};

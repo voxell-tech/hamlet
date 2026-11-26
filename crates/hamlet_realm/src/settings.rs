@@ -2,7 +2,9 @@
 //! module, whose `Default` is the file's value.
 
 use bevy::prelude::*;
-use hamlet_assets::{File, Tuning, TuningPlugin, designed, follow};
+use hamlet_core::assets::{
+    File, Tuning, TuningPlugin, designed, follow,
+};
 
 use crate::bubble::BubbleSettings;
 use crate::chief::ChiefSettings;
@@ -58,7 +60,7 @@ pub(crate) struct WorldTuning {
 }
 
 impl Tuning for WorldTuning {
-    const FILE: File = hamlet_assets::WORLD;
+    const FILE: File = hamlet_core::assets::WORLD;
 
     /// The generator's settings are not followed: the land keeps the
     /// copy it was built from.

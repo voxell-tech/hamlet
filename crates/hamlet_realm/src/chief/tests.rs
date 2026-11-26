@@ -1,5 +1,5 @@
 use bevy::transform::TransformPlugin;
-use hamlet_testing::Scratch;
+use hamlet_core::testing::Scratch;
 
 use super::mascot::Doing;
 use super::wickstep::Rune;

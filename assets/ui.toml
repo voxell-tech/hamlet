@@ -1,7 +1,7 @@
 # The panels' sizes and limits. What each value means is written beside
 # its field, in the module its section tunes.
 # crates/hamlet_app/src/tuning.rs names the struct of each. The widgets'
-# effects are in effects.toml.
+# effects are in effects.toml, the chat's in chat.toml.
 
 [chrome]
 edge = 5.0
@@ -12,12 +12,3 @@ button = 28.0
 underline_glow = 0.75
 underline_glow_blur = 4.8
 drag_start = 4.0
-
-[chat]
-change_lines = 16
-picture_width = 720.0
-picture_height = 360.0
-picture_wait = 120.0
-picture_bytes = 20_000_000
-picture_memory = 64_000_000
-reply_chars = 600

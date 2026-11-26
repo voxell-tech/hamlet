@@ -1,7 +1,7 @@
 use bevy::transform::TransformPlugin;
-use hamlet_client::ClientPlugin;
-use hamlet_client::realm::{Identity, Profile};
-use hamlet_protocol::client as protocol;
+use hamlet_core::client::ClientPlugin;
+use hamlet_core::client::realm::{Identity, Profile};
+use hamlet_core::protocol::client as protocol;
 
 use super::figures::Figure;
 use super::houses::Home;

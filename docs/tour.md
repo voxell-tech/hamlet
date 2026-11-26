@@ -50,10 +50,12 @@ every crate. `xtask/` is a workspace of its own, run as `cargo xtask`
 | `hamlet_git` | Profiles' and the library's repositories through gix, with no git program |
 | `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies and secret scrubbing |
 | `hamlet_os` | System calls whose form differs by OS, with no C code: `fs`, `process`, `process::pty` |
-| `hamlet_app` | `hamlet_app`, the window: panels, menus, chat and pointer, and the examples |
+| `hamlet_app` | `hamlet_app`, the window: the dock, desks, menu bar, chief and toasts, and the examples |
 | `hamlet_core` | What the window's parts are built on: Bevy, fynix, the widget kit and the client as one crate, the panels' steps and the counts of what changed (`roll.rs`) |
+| `hamlet_hub` | The Hub: the chat with agents, the realm's overview and the pages a Hub shows, and the menu over the world's things |
 | `hamlet_settings` | The Settings panel and its pages: endpoints, models, MCP servers, agents, workspace, charter and realm limits |
 | `hamlet_terminal` | The Terminal panel: terminals of the realm's machines and agents' command logs |
+| `hamlet_welcome` | Welcome: first-run setup through the server's settings, models and logins, and the projects to bring in |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime: conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types, `client` and `runtime`; `State::apply`; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realms |
@@ -81,10 +83,13 @@ the scene, the generator, the chief's interactions and the bridge from
 client entities. The realm's steps before the world are `RealmSystems`
 in `hamlet_realm/src/stage.rs`, and [`bevy.md`](bevy.md#order) says what
 goes in each. The panels' steps before fynix mounts are `PanelSystems`
-in `hamlet_core/src/panels.rs`. Panels live in `hamlet_app/src/screens/` and
-register their dock window with `PanelAppExt` from
-`hamlet_core/src/panels.rs`; they are built from
-`hamlet_ui`, which reads no client state.
+in `hamlet_core/src/panels.rs`. Panels live in `hamlet_hub`,
+`hamlet_settings`, `hamlet_terminal`, `hamlet_welcome` and
+`hamlet_app/src/` and register their dock window with `PanelAppExt`
+from `hamlet_core/src/panels.rs`; they are built from `hamlet_ui`,
+which reads no client state. A part other than `hamlet_app` reaches
+the other Hamlet crates only through `hamlet_core`, as a plugin does;
+`hamlet_core/tests/layers.rs` fails when one names another.
 
 ## The store and the repositories
 
@@ -156,7 +161,7 @@ Search the module names above first. The ones that are not obvious:
 
 | Change | Owner |
 |---|---|
-| What the chat field lists after `@`, `/`, `$` and `#` | `hamlet_protocol/src/signs.rs`; `hamlet_app/src/screens/chat/suggestions.rs` |
+| What the chat field lists after `@`, `/`, `$` and `#` | `hamlet_protocol/src/signs.rs`; `hamlet_hub/src/chat/suggestions.rs` |
 | An address's form | `hamlet_protocol/src/address.rs` |
 | Who may do what | `hamlet_server/src/society/authority.rs` |
 | The database's tables | `hamlet_store/src/schema.sql`, then `cargo test -p hamlet_store` |
@@ -168,11 +173,11 @@ Search the module names above first. The ones that are not obvious:
 | Updates | `hamlet_update`, `hamlet_app/src/updates.rs`; [`releases.md`](releases.md#updates) |
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
-| The Hubs and desks | `hamlet_app/src/screens/hub.rs`, `desk.rs` |
+| The Hubs and desks | `hamlet_hub/src/hub.rs`, `hamlet_app/src/desk.rs` |
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |
-| World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
+| World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml`, `chat.toml` |
 
 ## Tuning and previewing the window
 

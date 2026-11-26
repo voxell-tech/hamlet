@@ -13,7 +13,9 @@ mod tower;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_client::realm::{Busy, HandId, Identity, Left, Profile};
+use hamlet_core::client::realm::{
+    Busy, HandId, Identity, Left, Profile,
+};
 use hamlet_core::pick::Thing;
 
 use crate::generator::land::{IslandId, Land};

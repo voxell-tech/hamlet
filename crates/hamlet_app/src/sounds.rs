@@ -7,18 +7,17 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
 use bevy::ecs::system::{Local, Query, Res};
 use bevy::ecs::world::World;
-use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
 use hamlet_client::messages::{ChatOutput, ChiefMessage};
 use hamlet_core::sound::{Cue, Sound};
+use hamlet_hub::chat::ChatError;
+use hamlet_hub::hub::Showing;
+use hamlet_hub::world_menu::Open;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::widgets::effects::ControlSound;
 
-use crate::chat::ChatError;
-use crate::hub::Showing;
 use crate::menu::OpenMenu;
-use crate::world_menu::Open;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<ControlSound>()
@@ -26,7 +25,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(failed)
         .add_observer(
             |_: On<ChatError>, mut cues: MessageWriter<Cue>| {
-                cues.write(cue(Sound::Error));
+                cues.write(Cue::panel(Sound::Error));
             },
         )
         .add_systems(Update, (controls, menus, tabs));
@@ -45,34 +44,13 @@ fn controls(
             ControlSound::Confirm => Sound::Confirm,
             ControlSound::Deny => Sound::Deny,
         };
-        write(&mut cues, &mut turn, sound);
-    }
-}
-
-fn cue(sound: Sound) -> Cue {
-    Cue {
-        sound,
-        at: Vec3::ZERO,
-        turn: 0,
+        cues.write(Cue::next(sound, &mut turn));
     }
 }
 
 /// One of the window's own buttons was pressed.
 pub(crate) fn window_button(world: &mut World) {
-    world.write_message(cue(Sound::Sash));
-}
-
-/// Writes a cue with a number of its own.
-pub(crate) fn write(
-    cues: &mut MessageWriter<Cue>,
-    turn: &mut u32,
-    sound: Sound,
-) {
-    *turn = turn.wrapping_add(1);
-    cues.write(Cue {
-        turn: *turn,
-        ..cue(sound)
-    });
+    world.write_message(Cue::panel(Sound::Sash));
 }
 
 /// A top-bar menu or a question over the world, opening.
@@ -86,7 +64,7 @@ fn menus(
     let now = (bar.is_open(), matches!(*over, Open::Question(..)));
     let before = std::mem::replace(&mut *was, now);
     if now.0 && !before.0 || now.1 && !before.1 {
-        write(&mut cues, &mut turn, Sound::PopOpen);
+        cues.write(Cue::next(Sound::PopOpen, &mut turn));
     }
 }
 
@@ -117,7 +95,7 @@ fn tabs(
     if dragging != docked.dragging {
         docked.dragging = dragging;
         let sound = if dragging { Sound::Grab } else { Sound::Dock };
-        write(&mut cues, &mut turn, sound);
+        cues.write(Cue::next(sound, &mut turn));
         docked.let_go = now;
     }
     // A docked panel's tabs and the first tabs were not chosen by
@@ -127,20 +105,20 @@ fn tabs(
         .iter()
         .any(|showing| showing.is_changed() && !showing.is_added());
     if !fronted.is_empty() && by_hand || turned {
-        write(&mut cues, &mut turn, Sound::Tab);
+        cues.write(Cue::next(Sound::Tab, &mut turn));
     }
     docked.tabs = !fronts.is_empty();
 }
 
 /// A message sent from the command line.
 fn sent(_: On<ChiefMessage>, mut cues: MessageWriter<Cue>) {
-    cues.write(cue(Sound::Send));
+    cues.write(Cue::panel(Sound::Send));
 }
 
 /// A reply that could not be finished.
 fn failed(output: On<ChatOutput>, mut cues: MessageWriter<Cue>) {
     if matches!(&output.operation, protocol::TranscriptOperation::Add { item, .. } if item.kind == protocol::ItemKind::Error)
     {
-        cues.write(cue(Sound::Error));
+        cues.write(Cue::panel(Sound::Error));
     }
 }

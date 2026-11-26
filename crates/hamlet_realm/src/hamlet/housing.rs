@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{
+use hamlet_core::client::realm::{
     HamletId, Identity, Kind, Lead, Left, Lived, LivesIn, MergedInto,
     Spot,
 };
-use hamlet_protocol::client::AgentKind;
+use hamlet_core::protocol::client::AgentKind;
 
 use super::{Housed, Returning, Sited, Unhoused, Wing};
 use crate::generator::land::Land;

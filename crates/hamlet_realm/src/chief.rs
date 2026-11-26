@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use bevy::prelude::*;
-use hamlet_client::ViewFolder;
+use hamlet_core::client::ViewFolder;
 
 pub use self::look::{Cloak, Hat, Holds, Light, Look};
 pub use self::wickstep::{Mascot, Phase, Stay};
@@ -373,8 +373,8 @@ pub fn named(world: &mut World, name: &str) -> Option<Entity> {
 
 #[cfg(test)]
 mod persistence_tests {
-    use hamlet_client::ViewFolder;
-    use hamlet_testing::Scratch;
+    use hamlet_core::client::ViewFolder;
+    use hamlet_core::testing::Scratch;
 
     use super::*;
     use crate::generator::society::Society;

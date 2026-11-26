@@ -23,6 +23,8 @@ use hamlet_core::panels::{DeskCapture, PanelSystems};
 use hamlet_core::pick::{Selected, Thing, select};
 use hamlet_core::roll::Roll;
 use hamlet_desktop::awake::KeepAwake;
+use hamlet_hub::hub;
+use hamlet_hub::world_menu::{Favorites, LastSide};
 use hamlet_realm::sky::{
     DistanceFogSettings, Quality, VolumetricFogSettings,
 };
@@ -34,9 +36,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::appearance::{Appearance, Pick, Zoom};
 use crate::desk::{Desks, Part};
-use crate::hub;
 use crate::updates::UpdateChannel;
-use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
 /// Seconds a change waits before it is written, so that dragging a
@@ -297,7 +297,7 @@ impl Chosen {
                 hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let name = crate::convo::chief_name(world);
+                let name = hamlet_hub::convo::chief_name(world);
                 let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),

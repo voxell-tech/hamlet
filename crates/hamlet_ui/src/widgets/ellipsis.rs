@@ -65,6 +65,21 @@ pub fn cut(text: &str, most: usize) -> String {
     }
 }
 
+/// `text` cut to its first `most` letters at a word's end, ending in
+/// an ellipsis where it was cut.
+pub fn short(text: &str, most: usize) -> String {
+    if text.chars().count() <= most {
+        return text.to_string();
+    }
+    let at = text
+        .char_indices()
+        .nth(most)
+        .map_or(text.len(), |(at, _)| at);
+    let kept = &text[..at];
+    let kept = kept.rsplit_once(' ').map_or(kept, |(kept, _)| kept);
+    format!("{kept}{DOTS}")
+}
+
 /// A [`Label`] that is cut with an ellipsis where it does not fit.
 pub struct OneLine(Label, Keep);
 

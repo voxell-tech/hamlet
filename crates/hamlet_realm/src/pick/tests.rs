@@ -41,8 +41,10 @@ fn the_view_stays_within_reach_of_something_to_look_at() {
 
 #[test]
 fn the_leads_name_names_its_things_and_a_profile_house_its_lodging() {
-    use hamlet_client::realm::{AgentName, Identity, Lead, Lodging};
-    use hamlet_protocol::client::AgentId;
+    use hamlet_core::client::realm::{
+        AgentName, Identity, Lead, Lodging,
+    };
+    use hamlet_core::protocol::client::AgentId;
 
     let mut world = World::new();
     let lead = world

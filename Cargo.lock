@@ -4458,7 +4458,7 @@ dependencies = [
  "hamlet_client",
  "hamlet_core",
  "hamlet_desktop",
- "hamlet_import",
+ "hamlet_hub",
  "hamlet_protocol",
  "hamlet_realm",
  "hamlet_settings",
@@ -4467,12 +4467,10 @@ dependencies = [
  "hamlet_ui",
  "hamlet_update",
  "hamlet_vfx",
+ "hamlet_welcome",
  "image",
  "jiff",
- "parley",
  "pulldown-cmark",
- "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -4552,6 +4550,7 @@ dependencies = [
  "jiff",
  "reqwest",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -4589,6 +4588,22 @@ dependencies = [
  "gix",
  "hamlet_testing",
  "serde",
+]
+
+[[package]]
+name = "hamlet_hub"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "image",
+ "jiff",
+ "parley",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -4636,11 +4651,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
- "hamlet_assets",
- "hamlet_client",
  "hamlet_core",
- "hamlet_protocol",
- "hamlet_testing",
  "hamlet_vfx",
  "jiff",
  "serde",
@@ -4802,6 +4813,16 @@ dependencies = [
  "hamlet_assets",
  "image",
  "serde",
+]
+
+[[package]]
+name = "hamlet_welcome"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "hamlet_core",
+ "jiff",
+ "serde_json",
 ]
 
 [[package]]

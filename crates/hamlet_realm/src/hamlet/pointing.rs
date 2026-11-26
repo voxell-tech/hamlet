@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_client::realm::{Identity, Lead, Left};
+use hamlet_core::client::realm::{Identity, Lead, Left};
 use hamlet_core::pick::Thing;
 
 use super::{Housed, Returning, Sited, housing};

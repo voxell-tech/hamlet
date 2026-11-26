@@ -3,11 +3,11 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use hamlet_client::realm::{
+use hamlet_core::client::realm::{
     Activity, Busy, Doing, Faulted, Left, Paper,
 };
-use hamlet_client::waits::{Needs, RaisedBy, Waiting};
-use hamlet_protocol::client as protocol;
+use hamlet_core::client::waits::{Needs, RaisedBy, Waiting};
+use hamlet_core::protocol::client as protocol;
 
 use super::Housed;
 use crate::generator::Objecting;

@@ -2,7 +2,7 @@
 //! `assets/palette.toml`.
 
 use bevy::prelude::*;
-use hamlet_assets::{File, Tuning, TuningPlugin, follow, tint};
+use hamlet_core::assets::{File, Tuning, TuningPlugin, follow, tint};
 
 /// The palette, kept in step with its file.
 pub fn plugin(app: &mut App) {
@@ -214,7 +214,7 @@ pub struct Palette {
 }
 
 impl Tuning for Palette {
-    const FILE: File = hamlet_assets::PALETTE;
+    const FILE: File = hamlet_core::assets::PALETTE;
 
     /// A colour baked into a mesh that is already built stays as it
     /// is.

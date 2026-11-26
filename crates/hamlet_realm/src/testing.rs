@@ -1,9 +1,9 @@
 //! Helpers the tests of several modules share.
 
 use bevy::prelude::*;
-use hamlet_client::realm::Seen;
-use hamlet_client::receive;
-use hamlet_protocol::client as protocol;
+use hamlet_core::client::realm::Seen;
+use hamlet_core::client::receive;
+use hamlet_core::protocol::client as protocol;
 
 /// Receives `state` as the server's whole state.
 pub(crate) fn receive_state(app: &mut App, state: protocol::State) {

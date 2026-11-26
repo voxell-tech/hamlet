@@ -1,7 +1,7 @@
 # The chat
 
 An agent's watched conversation, its rows, and the links and pictures
-they hold. The drawing is `hamlet_app/src/screens/chat/` and `markdown/`,
+they hold. The drawing is `hamlet_hub/src/chat/` and `markdown/`,
 on the Markdown of `hamlet_ui/src/markdown/`. The client transcript is
 `hamlet_client/src/chats.rs`. [The client protocol](protocol.md) has the
 wire messages, watch rules and page boundaries; this page covers the
@@ -92,7 +92,7 @@ name:
 | `#` | the files and folders of the hamlet's folder | attached where the word stood (C33) |
 
 `$5` is money and `#3` a wait, so neither opens the list. Each kind is a
-`Source` in `crates/hamlet_app/src/screens/chat/suggestions/`, added with
+`Source` in `crates/hamlet_hub/src/chat/suggestions/`, added with
 `add_source`.
 
 Faults with a `setup` cause (no model, refused credentials) share one
@@ -145,7 +145,7 @@ is whole (`unsettle` in `hamlet_ui/src/markdown/draw.rs`), because a chip
 in a reflowing line would jump.
 
 In the field, an address becomes a chip once written whole
-(`screens/chat/field.rs`). A bracketed name must be the current one, and
+(`chat/field.rs`). A bracketed name must be the current one, and
 `hand` needs its name. The chip is sent as its words.
 
 ## Edits
@@ -170,8 +170,8 @@ Paper.
 ```
 
 So the log, a rewind and a replay need nothing new. At most
-`reply_chars` characters of the message are carried (`[chat]` in
-`assets/ui.toml`). A rewind to a reply puts what it answered back over
+`reply_chars` characters of the message are carried (in
+`assets/chat.toml`). A rewind to a reply puts what it answered back over
 the field.
 
 A line that opens with `> ` is a quote; the model reads it as a Markdown
@@ -189,7 +189,7 @@ attachment placed in its words is drawn with its links and quotes only.
 ## Selecting words
 
 Text of the panels is selected where it is drawn
-(`hamlet_app/src/select.rs`). Bevy does not select text, so it uses the
+(`hamlet_hub/src/select.rs`). Bevy does not select text, so it uses the
 parley layout each text node keeps (`ComputedTextBlock::buffer`), broken
 again at the width the node is drawn at, since Bevy breaks it at other
 widths while it measures.
@@ -238,7 +238,7 @@ file as last written, shared by every row that names it.
 ## The field and attachments
 
 The field is fynix's `rich_field`. Each draft, words and chips, is kept
-per chat for the window's life (`Unsent` in `screens/chat/field.rs`). An
+per chat for the window's life (`Unsent` in `chat/field.rs`). An
 attachment is a chip in the field, an `Atom` that Backspace removes along
 with the attachment; `attach.rs` keeps them in `Attached`, and an upload
 goes on while another chat is shown.
@@ -292,7 +292,7 @@ question with no options always takes words.
 `crates/hamlet_server/src/conversations/questions.rs` checks a call, and
 a call it refuses tells the agent why.
 
-One card, `hamlet_app/src/asking.rs`, is shown on the realm's page and
+One card, `hamlet_hub/src/asking.rs`, is shown on the realm's page and
 over the field of the chat with the agent that asked, and both read the
 same answers. Each question takes one option or words, not both. Dismiss
 tells the agent to go on with its best judgement.

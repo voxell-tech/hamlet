@@ -29,10 +29,10 @@ use hamlet_core::pick::{Hovered, Taken, Thing};
 use hamlet_realm::hand::{Grip, Hand};
 use hamlet_realm::pick::{Pressable, Steer};
 use hamlet_ui::theme::{HamletTheme, Palette, ThemeChanged, Themes};
+use hamlet_welcome::Welcome;
 
 pub use self::art::{Inks, face, frames, hot, side};
 use crate::appearance::Appearance;
-use crate::welcome::Welcome;
 
 /// The share of a cursor that is left while the hand carries a thing
 /// of the world, so that the thing is seen through it.

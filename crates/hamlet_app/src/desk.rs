@@ -17,7 +17,7 @@ use bevy_fynix::dock::{
     DockAreaStyle, DockLeaf, DockNode, DockRegistry, DockSplit,
     DockTree, NodeId, SplitAxis,
 };
-use hamlet_core::panels::DeskCapture;
+use hamlet_core::panels::{DeskCapture, FollowingHub};
 use hamlet_ui::theme::HamletTheme;
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,10 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
+                keep_following
+                    .run_if(resource_changed::<FollowingHub>),
                 show.run_if(resource_changed::<Desks>),
+                tell_following.run_if(resource_changed::<Desks>),
                 capture
                     .run_if(resource_changed::<DockTree>)
                     .in_set(DeskCapture),
@@ -277,18 +280,6 @@ impl Desks {
         })
     }
 
-    /// Whether a desk lays out the panel `id`, as it was last shown.
-    pub(crate) fn holds(&self, id: &str) -> bool {
-        self.list.iter().any(|desk| {
-            desk.dock.iter().any(|part| match part {
-                Part::Tabs { tabs, .. } => {
-                    tabs.iter().any(|t| t == id)
-                }
-                Part::Split { .. } => false,
-            })
-        })
-    }
-
     /// These, with at least one desk, one of them shown, and every
     /// one named. A desk that names a panel the window no longer has
     /// starts again from the dock the window starts with.
@@ -350,6 +341,29 @@ pub(crate) fn show(
         saved: desks.list[at].dock.clone(),
         drawn: noted(&tree),
     };
+}
+
+/// Keeps in the shown desk the Hub that started to follow.
+fn keep_following(
+    following: Res<FollowingHub>,
+    mut desks: ResMut<Desks>,
+) {
+    if let Some(id) = &following.0
+        && desks.following() != Some(id.as_str())
+    {
+        desks.follow(id);
+    }
+}
+
+/// Tells the Hubs which of them the shown desk has follow.
+fn tell_following(
+    desks: Res<Desks>,
+    mut following: ResMut<FollowingHub>,
+) {
+    let now = desks.following().map(str::to_owned);
+    if following.0 != now {
+        following.0 = now;
+    }
 }
 
 /// Keeps in the shown desk what was changed in the dock by hand.

@@ -2,7 +2,7 @@
 //! look about, a hand held out.
 
 use bevy::prelude::*;
-use hamlet_assets::tint::hex;
+use hamlet_core::assets::tint::hex;
 use hamlet_vfx::inlay;
 
 use super::Context;

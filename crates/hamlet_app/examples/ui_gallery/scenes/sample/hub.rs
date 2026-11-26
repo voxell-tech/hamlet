@@ -2,9 +2,9 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use hamlet_app::Convo;
-use hamlet_app::hub::{self, Showing};
 use hamlet_client::outbox::Outbox;
+use hamlet_hub::convo::Convo;
+use hamlet_hub::hub::{self, Showing};
 use hamlet_protocol::client as protocol;
 
 use crate::scenes::Scene;
@@ -55,7 +55,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::HubMenu {
         let agent = agent(world);
-        hamlet_app::world_menu::open_agent(
+        hamlet_hub::world_menu::open_agent(
             world,
             agent,
             bevy::math::Vec2::new(1580.0, 150.0),
@@ -65,7 +65,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         offer_models(world);
     }
     if scene == Scene::ModelsSearch {
-        hamlet_app::world_menu::search_models(world, "wren");
+        hamlet_hub::world_menu::search_models(world, "wren");
     }
     if scene == Scene::Profile {
         let profile = hamlet_client::realm::profile(
@@ -273,9 +273,9 @@ fn offer_models(world: &mut World) {
     {
         account.model = "openai::wren-large".into();
     }
-    hamlet_app::world_menu::open_model(world, agent);
+    hamlet_hub::world_menu::open_model(world, agent);
     // Starred after it opens, so it opens on the agent's provider.
-    world.resource_mut::<hamlet_app::world_menu::Favorites>().0 =
+    world.resource_mut::<hamlet_hub::world_menu::Favorites>().0 =
         vec!["openai::wren-large".into()];
 }
 

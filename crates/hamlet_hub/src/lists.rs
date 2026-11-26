@@ -1,0 +1,137 @@
+//! The library's skills, and the card a row of a list is.
+
+use bevy::ecs::resource::Resource;
+use bevy::ui::{AlignItems, UiRect, px};
+use hamlet_core::client::realm::Skills;
+use hamlet_core::fynix::tokens::{MotionTokens, Tone};
+use hamlet_core::fynix::views::{
+    FrameProps, column, frame, label, row,
+};
+use hamlet_core::fynix::{
+    ScopedExt, StateExt, ViewExt, each, keyed, resource,
+};
+use hamlet_core::ui::kinds::tile;
+use hamlet_core::ui::styles::{
+    Fills, action, bad_action, description, hidden,
+};
+use hamlet_core::ui::theme::HamletTheme;
+use hamlet_core::ui::widgets::icons::Glyph;
+use hamlet_core::ui::{AnyView, View, built, with_cx};
+
+use crate::world_menu::{self, Action};
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct SkillRow {
+    name: String,
+    description: String,
+}
+
+fn skill_rows(skills: &Skills) -> Vec<SkillRow> {
+    skills
+        .0
+        .iter()
+        .map(|s| SkillRow {
+            name: s.name.clone(),
+            description: s.description.clone(),
+        })
+        .collect()
+}
+
+/// The words of a list while it is empty, and a way to the chat.
+fn empty_state<R: Resource>(
+    is_empty: fn(&R) -> bool,
+    hint: &'static str,
+) -> impl View {
+    keyed(resource::<R, _>(is_empty), move |empty| {
+        if *empty {
+            with_cx(move |cx| {
+                let section = cx.theme().space.section;
+                column((
+                    description(hint),
+                    action(Glyph::Talk, "Open Chat", |w| {
+                        crate::hub::bring_following(w);
+                    }),
+                ))
+                .gap(section)
+                .padding(UiRect::bottom(px(section)))
+                .align(AlignItems::FlexStart)
+            })
+            .boxed()
+        } else {
+            frame().boxed()
+        }
+    })
+    .within(column(()))
+}
+
+/// The library's skills, each with the press that takes it out.
+pub(crate) fn skills() -> impl View {
+    column((
+        empty_state(
+            |l: &Skills| l.0.is_empty(),
+            "The library is empty. Agents offer skills and the \
+             librarian decides which to keep.",
+        ),
+        each(
+            resource::<Skills, _>(skill_rows),
+            |r: &SkillRow| format!("{}|{}", r.name, r.description),
+            |r| {
+                // Beside its name, so the words have the full width.
+                let gone = r.name.clone();
+                let out = bad_action(
+                    Glyph::Delete,
+                    "Take Out",
+                    move |world| {
+                        world_menu::ask(
+                            world,
+                            Action::Unshelve(gone.clone()),
+                        );
+                    },
+                );
+                card(
+                    r.name.clone(),
+                    r.description.clone(),
+                    Tone::Body,
+                    Some(out),
+                )
+                .boxed()
+            },
+        )
+        .presence(HamletTheme::expand)
+        .within(column(()).gap(8.0)),
+    ))
+    .gap(0.0)
+}
+
+/// One card: a title over a dim line.
+pub fn item(title: String, detail: String, tone: Tone) -> impl View {
+    card(title, detail, tone, None)
+}
+
+/// One card: a title with `beside` at its right, over a dim line.
+pub fn card(
+    title: String,
+    detail: String,
+    tone: Tone,
+    beside: Option<AnyView>,
+) -> impl View {
+    built(move |cx| {
+        let space = &cx.theme().space;
+        let name = row((label(title)
+            .size(cx.theme().text.heading)
+            .bold(true)
+            .tone(tone),))
+        .fills_width()
+        .boxed();
+        let head =
+            std::iter::once(name).chain(beside).collect::<Vec<_>>();
+        cx.build(
+            tile((
+                row(head).gap(space.gap).align(AlignItems::Center),
+                description(detail),
+            ))
+            .appear(hidden)
+            .transition(HamletTheme::expand),
+        )
+    })
+}

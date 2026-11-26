@@ -19,11 +19,15 @@ use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{Appearance, Zoom};
-use hamlet_app::{asking, chrome, menu, select, welcome};
+use hamlet_app::{chrome, menu};
 use hamlet_assets::Tuning;
 use hamlet_core::roll::Roll;
 use hamlet_core::sound::Cue;
 use hamlet_desktop::color_scheme::ColorScheme;
+use hamlet_hub::{
+    asking, chat, hub, links, overview, pictures, select, viewer,
+    wait, world_menu,
+};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::theme::{self, HamletTheme, Measures, Theme, Themes};
 
@@ -102,17 +106,26 @@ impl Plugin for GalleryPlugin {
             // The menus, and what the world asks of them.
             .init_resource::<hamlet_core::pick::Asked>()
             .init_resource::<hamlet_core::pick::AskedGround>()
-            .init_resource::<welcome::projects::Projects>()
+            .init_resource::<hamlet_welcome::projects::Projects>()
             .add_plugins((
-                hamlet_app::world_menu::plugin,
+                world_menu::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_core::plans::plugin,
                 hamlet_app::desk_still,
-                welcome::key_plugin,
+                hamlet_welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_ui::markdown::plugin,
-                hamlet_app::screens::plugin,
+                (
+                    hub::plugin,
+                    overview::plugin,
+                    chat::plugin,
+                    links::plugin,
+                    pictures::plugin,
+                    hamlet_terminal::plugin,
+                    viewer::plugin,
+                    wait::plugin,
+                ),
                 asking::plugin,
                 select::plugin,
             ));
@@ -251,7 +264,7 @@ pub enum Scene {
     /// The Hub's thread with the menu of its "..." open.
     HubMenu,
     /// The first-run screen at one of its steps.
-    Welcome(welcome::Step),
+    Welcome(hamlet_welcome::Step),
     /// The first-run provider step, searched for the words.
     ProviderSearch(&'static str),
     /// The Hub with an agent merged into another.
@@ -270,10 +283,12 @@ pub enum Scene {
 
 impl Scene {
     /// The first-run step the scene shows, if any.
-    pub fn first_run(self) -> Option<welcome::Step> {
+    pub fn first_run(self) -> Option<hamlet_welcome::Step> {
         match self {
             Scene::Welcome(step) => Some(step),
-            Scene::ProviderSearch(_) => Some(welcome::Step::Provider),
+            Scene::ProviderSearch(_) => {
+                Some(hamlet_welcome::Step::Provider)
+            }
             _ => None,
         }
     }
@@ -296,5 +311,5 @@ fn mount_scene(world: &mut World) {
     };
     hamlet_ui::rules::mount(world, view);
     // The menus and questions the app's own root draws over all.
-    hamlet_ui::rules::mount(world, hamlet_app::world_menu::view());
+    hamlet_ui::rules::mount(world, world_menu::view());
 }

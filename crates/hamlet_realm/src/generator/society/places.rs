@@ -2,7 +2,7 @@
 //! founding and moving a town.
 
 use bevy::prelude::*;
-use hamlet_protocol::client::{HouseAt, ProfileId};
+use hamlet_core::protocol::client::{HouseAt, ProfileId};
 
 use super::{Society, Town, TownId};
 use crate::generator::land::{IslandId, Land, Unfit};

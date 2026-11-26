@@ -15,7 +15,8 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{Bevy, Binding, Focused, ScopedExt, View, ViewExt};
-use hamlet_app::{chat, lists, menu};
+use hamlet_app::menu;
+use hamlet_hub::{chat, lists};
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{self, Looks, marked, text_input};
 use hamlet_ui::theme::{HamletTheme, StatusKind};
