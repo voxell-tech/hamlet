@@ -130,9 +130,6 @@ async fn until_shown(
     }
 }
 
-/// A `World` that comes while a read is out, for a commit after the
-/// read's own, is read again once that read ends: the client is shown
-/// the later commit, not left on the read's.
 /// The view of a held realm in `dir`, served to the client 1 once it
 /// is welcomed: the host, the calls to it, the frames the client is
 /// sent and the view's task.
@@ -186,6 +183,9 @@ async fn viewing(
     (host, calls, sent, served)
 }
 
+/// A `World` that comes while a read is out, for a commit after the
+/// read's own, is read again once that read ends: the client is shown
+/// the later commit, not left on the read's.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
     let dir = Scratch::new("view-held-read");
@@ -234,5 +234,96 @@ async fn the_first_state_lists_the_endpoints_before_the_hand_answers()
         }]
     );
     served.abort();
+    host.shutdown().await.unwrap();
+}
+
+/// A Hand whose connection check answers once the test lets it go.
+struct HeldHand;
+
+static CHECK: Mutex<Option<Hold>> = Mutex::new(None);
+
+impl Actor for HeldHand {
+    type Input = ();
+    type Actions = (CheckConnection,);
+    type Events = ();
+    type ConnParams = Option<hamlet_host::Caller>;
+    type Action = ();
+
+    fn create<'ctx, 'made>(
+        _: &'ctx Ctx<Self>,
+    ) -> Pin<Box<dyn Future<Output = Result<Self>> + Send + 'made>>
+    where
+        'ctx: 'made,
+    {
+        Box::pin(async { Ok(Self) })
+    }
+}
+
+impl Handler<CheckConnection> for HeldHand {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: CheckConnection,
+    ) -> Result<Checked> {
+        let held = CHECK.lock().unwrap().take();
+        if let Some((began, release)) = held {
+            let _ = began.send(());
+            let _ = release.await;
+        }
+        Ok(Checked::Answered {
+            words: "The start's check.".into(),
+            models: Some(3),
+        })
+    }
+}
+
+/// A client's check made while the start check is out stays shown
+/// once the start check answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clients_check_stands_over_the_start_check_it_overtook() {
+    let dir = Scratch::new("view-start-check");
+    let mut registry = Registry::new();
+    registry.register_actor_with::<HeldRealm>(
+        Realm::KIND,
+        ActorConfig::default(),
+    );
+    registry.register_actor_with::<HeldHand>(
+        address::Agent::KIND,
+        ActorConfig::default(),
+    );
+    let host = Host::open(&dir, registry.into_factories()).unwrap();
+    host.create(&Realm.address().unwrap(), Vec::new())
+        .await
+        .unwrap();
+    host.create(&address::Agent(HAND).address().unwrap(), Vec::new())
+        .await
+        .unwrap();
+    let own = Arc::new(Own {
+        chief: "Ada".into(),
+        confinement: Confinement::Insecure,
+        root: "/realm".into(),
+        epoch: 0,
+        link: watch::Sender::new(crate::settings::untested()),
+        moving: watch::Sender::new(None),
+        faux: false,
+    });
+    let (began, beginning) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    *CHECK.lock().unwrap() = Some((began, released));
+    let start = tokio::spawn(check_at_start(
+        Calls::new(host.clone()),
+        own.clone(),
+    ));
+    beginning.await.unwrap();
+
+    own.show_check(&Checked::Failed {
+        words: "The client's check.".into(),
+    });
+    release.send(()).unwrap();
+    start.await.unwrap();
+
+    let link = own.link.borrow().clone();
+    assert_eq!(link.state, LinkState::Failed);
+    assert_eq!(link.words.as_deref(), Some("The client's check."));
     host.shutdown().await.unwrap();
 }
