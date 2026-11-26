@@ -202,7 +202,14 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     assert!(!inbox.exists());
     s.chief.choose(&ask.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Sent.").await;
-    assert_eq!(fs::read_dir(&inbox).unwrap().count(), 1001);
+    // The chief's allow does not hold the turn under --actors, so the
+    // files may still be copying when the words that follow show.
+    s.chief
+        .until("the 1001 files", |_| {
+            fs::read_dir(&inbox)
+                .is_ok_and(|files| files.count() == 1001)
+        })
+        .await;
 
     s.chief.tell(ada, "Once more.").await;
     let ask = s
@@ -213,6 +220,19 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
         .choose(&ask.id, Choice::Deny, Some("too much"))
         .await;
     s.chief.shows(&now, "Refused.").await;
+    // Under --actors the refusal reaches the agent as a notice after
+    // its turn went on.
+    if home::serves_actors() {
+        s.chief
+            .until("the refusal", |c| {
+                c.texts(&now)
+                    .iter()
+                    .any(|text| text.contains("too much"))
+            })
+            .await;
+        assert!(!inbox.with_file_name("big-2").exists());
+        return;
+    }
     let refusals = s
         .chief
         .items(&now)
