@@ -45,14 +45,18 @@ fn view() -> View {
             why: None,
         },
     };
-    View {
-        own: Arc::new(Own {
+    View::of(
+        Arc::new(Own {
             chief: "Ada".into(),
             confinement: Confinement::Insecure,
             realm: "/realm".into(),
             epoch: 0,
+            link: tokio::sync::watch::Sender::new(
+                crate::settings::untested(),
+            ),
+            faux: false,
         }),
-        world: Seen {
+        Seen {
             agents: vec![
                 seen(1, Status::Live, false),
                 seen(2, Status::Live, false),
@@ -62,7 +66,7 @@ fn view() -> View {
             ],
             ..Seen::default()
         },
-    }
+    )
 }
 
 fn at(text: &str) -> Target {
@@ -562,5 +566,21 @@ fn move_house_is_worded_as_today() {
                  another house or the city's middle",
             ),
         ],
+    );
+}
+
+#[test]
+fn the_hamlets_are_listed_by_name_then_id_as_today() {
+    let living = [
+        ("yard", "c"),
+        ("tagged", "d"),
+        ("Library", "a"),
+        ("mill", "b"),
+        ("mill", "a"),
+    ];
+    assert_eq!(
+        words::hamlets(living.into_iter()),
+        "- Library (`a`)\n- mill (`a`)\n- mill (`b`)\n- tagged \
+         (`d`)\n- yard (`c`)"
     );
 }

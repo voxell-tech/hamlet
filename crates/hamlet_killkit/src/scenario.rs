@@ -60,7 +60,8 @@ pub enum Demo {
     /// `demo --realm-actor serve`: the realm actor, and the real
     /// agent in a Node host, the Rust host's child, checked as
     /// [`Demo::Linked`] by [`NODE_PID`]. The model answers from the
-    /// faux script `faux` when given.
+    /// faux script `faux`, or as faux.ts's default does when none is
+    /// given.
     RealmActor { faux: Option<&'static str> },
 }
 

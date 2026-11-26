@@ -4,7 +4,9 @@
 use anyhow::Result;
 use base64::Engine as _;
 use hamlet_messages::address::{self, Profile};
-use hamlet_messages::agent::chat::{EditMemory, ReadPapers};
+use hamlet_messages::agent::chat::{
+    EditMemory, ReadModels, ReadPapers,
+};
 use hamlet_messages::agent::copies::Price;
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::profile::{self, ReadAnswer};
@@ -13,7 +15,8 @@ use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::client::ReadState;
 use hamlet_messages::realm::documents::{
     CardSetting, EditCatalogue, EditCharter, EditSettings, Endpoint,
-    ImageLimits, Newcomers, RemoteWorkspace, Setting, SettingRefusal,
+    ImageLimits, Newcomers, ReadCatalogue, RemoteWorkspace, Setting,
+    SettingRefusal,
 };
 use hamlet_messages::realm::profiles::EditProfile;
 use hamlet_messages::realm::{
@@ -27,8 +30,9 @@ use serde_json::Value;
 
 use super::call::Calls;
 use super::commands::{Outcome, ask, derived, done, refused};
+use super::host::HAND;
 use super::uploads::Uploads;
-use super::{route, words};
+use super::{frames, route, words};
 use crate::clients::check::reply;
 use crate::clients::documents::{budget_of, limits_of, memory_path};
 use crate::images::{
@@ -47,6 +51,10 @@ const THUMBNAIL: Bounds = Bounds {
 
 /// A read the door answers from more than one call.
 pub(crate) enum Reading {
+    /// The Hand's models with the realm's cards of them.
+    Models {
+        id: RequestId,
+    },
     Papers {
         id: RequestId,
         of: Keeper,
@@ -61,7 +69,9 @@ pub(crate) enum Reading {
 impl Reading {
     pub(crate) fn id(&self) -> &RequestId {
         match self {
-            Self::Papers { id, .. } | Self::Image { id, .. } => id,
+            Self::Models { id }
+            | Self::Papers { id, .. }
+            | Self::Image { id, .. } => id,
         }
     }
 }
@@ -72,6 +82,13 @@ pub(crate) async fn read(
     reading: Reading,
 ) -> Result<ServerMessage> {
     match reading {
+        Reading::Models { id } => {
+            let (list, cards) = tokio::try_join!(
+                calls.call(&address::Agent(HAND), &ReadModels),
+                calls.call(&address::Realm, &ReadCatalogue),
+            )?;
+            Ok(frames::models(&id, list, cards))
+        }
         Reading::Papers { id, of } => {
             Ok(match papers(calls, of).await? {
                 Ok(papers) => {
@@ -233,13 +250,26 @@ pub(crate) async fn edit(
             done(answer, || words::CHARTER_SAVED.into())
         }
         protocol::Edit::Catalogue { id, model, set } => {
-            let act = EditCatalogue {
-                model: model.clone(),
-                set: card(set),
-            };
-            done(ask(calls, id, act).await?, || {
-                words::CATALOGUE_SAVED.into()
-            })
+            let listed = calls
+                .call(&address::Agent(HAND), &ReadModels)
+                .await?;
+            if listed
+                .models
+                .iter()
+                .any(|listed| listed.name == *model)
+            {
+                let act = EditCatalogue {
+                    model: model.clone(),
+                    set: card(set),
+                };
+                done(ask(calls, id, act).await?, || {
+                    words::CATALOGUE_SAVED.into()
+                })
+            } else {
+                Err(Refusal::NoModel {
+                    model: model.clone(),
+                })
+            }
         }
         protocol::Edit::Character { id, scholar, text } => {
             if text.chars().count() > CHARACTER_MOST {

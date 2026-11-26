@@ -109,9 +109,12 @@ fn dollars<'de, D: Deserializer<'de>>(
     from.deserialize_any(Dollars)
 }
 
-/// The realm's settings an agent's turns read.
+/// The realm's settings an agent's turns read, and the model servers
+/// its models are served from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSettings {
     pub reflect_every: u32,
     pub allow_net: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<crate::realm::documents::Endpoint>,
 }

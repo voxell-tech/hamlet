@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { type Context, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
+import { fauxModels } from "../src/agent/faux.ts";
 import type {
     AgentInput,
     ChatEvent,
@@ -26,6 +30,7 @@ import {
 import { context, fixture } from "./testing.ts";
 
 const ERRAND = fixture("agent/errand.input") as AgentInput;
+const DREAM = fixture("agent/dream.input") as AgentInput;
 const WORKER = fixture("agent/worker.input") as AgentInput;
 
 async function offered(agent: Woken): Promise<string[]> {
@@ -51,6 +56,36 @@ test("an errand answers once and ends", async (t) => {
     assert.deepEqual(named(sent, "worker_done"), []);
     assert.equal(agent.faux.state.callCount, 1);
     assert.deepEqual(agent.reported, []);
+});
+
+test("a dream's errand answers from a faux script's dream steps, as today's dream does, and another errand from its errand steps", async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "faux-dream-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const script = join(dir, "faux.json");
+    writeFileSync(
+        script,
+        JSON.stringify({ kinds: { dream: ["Dreamt."], errand: ["PASS"] } }),
+    );
+    const answers = [];
+    for (const input of [DREAM, ERRAND]) {
+        const { calls, sent } = fakeCalls({
+            realm: { errand_done: () => null },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            input,
+            models: () => fauxModels(script, false).models,
+        });
+        await until(() => named(sent, "errand_done").length === 1);
+        await agent.idle();
+        await agent.stop();
+        answers.push(named(sent, "errand_done")[0]?.message);
+    }
+
+    assert.deepEqual(answers, [
+        { ended: { type: "answered", text: "Dreamt." } },
+        { ended: { type: "answered", text: "PASS" } },
+    ]);
 });
 
 test("a worker's turn ends with worker_done, once after a kill", async (t) => {

@@ -39,6 +39,7 @@ fn brief() -> Brief {
         text: "the chief told hire#3: Plain line.".to_owned(),
         tools: Vec::new(),
         model: None,
+        dream: false,
     }
 }
 

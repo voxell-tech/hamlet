@@ -28,8 +28,8 @@ use hamlet_messages::address;
 use hamlet_messages::agent::chat::{Login, LoginAnswer};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, ClientMessage, Confinement, LoginProgress,
-    LoginReply, LoginStep, RequestId, ServerMessage,
+    self as protocol, ClientMessage, Confinement, Link, LinkState,
+    LoginProgress, LoginReply, LoginStep, RequestId, ServerMessage,
 };
 use hamlet_sandbox::Sandbox;
 use tokio::net::{TcpListener, TcpStream};
@@ -45,6 +45,7 @@ use self::host::HAND;
 use self::hub::{Hub, ended_line};
 use self::route::{After, Asked, Call, Route};
 use self::uploads::Uploads;
+use self::view::Shows;
 use crate::claim::Claim;
 use crate::clients::check::{Protocol, reply};
 use crate::clients::connection::{self, Client, Event, GRACE};
@@ -54,16 +55,8 @@ use crate::providers::no_sign_in;
 use crate::serve::{Options, Signals, announce, chief_name, publish};
 use crate::society::refusal::Refusal;
 
-/// Who a frame is for.
-#[derive(Clone, Copy, Debug)]
-enum To {
-    One(u64),
-    /// Every connection that said hello.
-    Welcomed,
-}
-
-/// A frame for the connections, from a task of the server.
-type Frames = mpsc::UnboundedSender<(To, ServerMessage)>;
+/// A frame for a connection, from a task of the server.
+type Frames = mpsc::UnboundedSender<(u64, ServerMessage)>;
 
 /// A request's work, done after the work of the requests its
 /// connection sent before it.
@@ -133,6 +126,8 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
             confinement: confinement.clone(),
             realm: hamlet_os::fs::path::text(&root),
             epoch: crate::clock::now(),
+            link: watch::Sender::new(crate::settings::untested()),
+            faux: options.faux.is_some(),
         };
         Door::serve(
             host.clone(),
@@ -167,14 +162,13 @@ fn log_host() {
 struct Door {
     calls: Calls,
     hub: Hub,
+    shows: Shows,
     protocol: Protocol,
     credentials: Keys,
     own: Arc<view::Own>,
     uploads: Arc<Uploads>,
     clients: BTreeMap<u64, Client>,
     queues: HashMap<u64, Queue>,
-    /// The revision of the `State` each connection was sent last.
-    shown: HashMap<u64, i64>,
     next: u64,
     sign_ins: SignIns,
     events: mpsc::Sender<Event>,
@@ -209,27 +203,40 @@ impl Door {
         let (frames, mut frame) = mpsc::unbounded_channel();
         let (shutdown, closing) = watch::channel(false);
         let calls = Calls::new(host);
+        let own = Arc::new(own);
+        let (shows, jobs) = Shows::new();
+        let hub = Hub::new(
+            calls.clone(),
+            frames.clone(),
+            credentials.clone(),
+            shows.clone(),
+        );
+        let mut work = JoinSet::new();
+        work.spawn(view::serve(
+            jobs,
+            shows.clone(),
+            calls.clone(),
+            own.clone(),
+            hub.clone(),
+            frames.clone(),
+        ));
         let mut door = Self {
-            hub: Hub::new(
-                calls.clone(),
-                frames.clone(),
-                credentials.clone(),
-            ),
+            hub,
+            shows,
             calls,
             protocol: Protocol::new()?,
             credentials,
-            own: Arc::new(own),
+            own,
             uploads: Arc::new(uploads),
             clients: BTreeMap::new(),
             queues: HashMap::new(),
-            shown: HashMap::new(),
             next: 0,
             sign_ins: SignIns::default(),
             events,
             frames,
             closing,
             connections: JoinSet::new(),
-            work: JoinSet::new(),
+            work,
         };
         let mut agents = std::pin::pin!(agents);
         let mut starting = true;
@@ -238,7 +245,7 @@ impl Door {
                 () = signals.next() => break Ok(()),
                 started = &mut agents, if starting => {
                     starting = false;
-                    started.map(|()| door.show_everyone())
+                    started.map(|()| door.shows.read_providers())
                 }
                 accepted = listener.accept() => {
                     if let Ok((stream, _)) = accepted {
@@ -247,8 +254,8 @@ impl Door {
                     Ok(())
                 }
                 Some(event) = event.recv() => door.connection(event),
-                Some((to, message)) = frame.recv() => {
-                    door.deliver(to, message)
+                Some((client, message)) = frame.recv() => {
+                    door.send(client, message)
                 }
                 Some(_) = door.work.join_next() => Ok(()),
             };
@@ -266,15 +273,6 @@ impl Door {
         let _ = tokio::time::timeout(GRACE, drained).await;
         door.connections.abort_all();
         result
-    }
-
-    /// Shows every client the realm.
-    fn show_everyone(&mut self) {
-        let (calls, own) = (self.calls.clone(), self.own.clone());
-        let frames = self.frames.clone();
-        self.work.spawn(async move {
-            show(&calls, &own, &frames, To::Welcomed).await;
-        });
     }
 
     fn accept(&mut self, stream: TcpStream) {
@@ -311,7 +309,7 @@ impl Door {
             Event::Gone(client) => {
                 self.clients.remove(&client);
                 self.queues.remove(&client);
-                self.shown.remove(&client);
+                self.shows.gone(client);
                 self.hub.forget(client);
                 self.uploads.disconnect(client);
                 for login in self.sign_ins.forget(client) {
@@ -434,6 +432,16 @@ impl Door {
             }
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),
+            Route::Check(call) => {
+                if !self.own.faux {
+                    self.own.link.send_replace(Link {
+                        models: None,
+                        state: LinkState::Testing,
+                        words: None,
+                    });
+                }
+                self.call(client, call);
+            }
             Route::SignIn(login) => self.sign_in(client, login),
             Route::Read(reading) => {
                 let asker = self.ask_in_turn(client);
@@ -450,7 +458,7 @@ impl Door {
                         uploads.take(client, upload).unwrap_or_else(
                             |error| server_failed(Some(&id), &error),
                         );
-                    let _ = frames.send((To::One(client), message));
+                    let _ = frames.send((client, message));
                 });
             }
         }
@@ -487,7 +495,7 @@ impl Door {
     fn answer(&mut self, client: u64, message: ServerMessage) {
         let frames = self.frames.clone();
         self.in_turn(client, async move {
-            let _ = frames.send((To::One(client), message));
+            let _ = frames.send((client, message));
         });
     }
 
@@ -497,6 +505,7 @@ impl Door {
             client,
             calls: self.calls.clone(),
             hub: self.hub.clone(),
+            shows: self.shows.clone(),
             own: self.own.clone(),
             uploads: self.uploads.clone(),
             frames: self.frames.clone(),
@@ -521,9 +530,9 @@ impl Door {
     /// Sends `client`, which said hello, the realm as it is now,
     /// before the answer of anything it asks next.
     fn welcome(&mut self, client: u64) {
-        let asker = self.ask(client);
+        let shows = self.shows.clone();
         self.in_turn(client, async move {
-            asker.show(To::One(client)).await;
+            shows.welcome(client).await;
         });
     }
 
@@ -684,84 +693,20 @@ impl Door {
         }
     }
 
-    fn deliver(
-        &mut self,
-        to: To,
-        message: ServerMessage,
-    ) -> Result<()> {
-        match to {
-            To::One(client) => self.send(client, message),
-            To::Welcomed => {
-                for (&client, found) in &mut self.clients {
-                    if found.welcomed
-                        && news(&mut self.shown, client, &message)
-                    {
-                        connection::send(
-                            found,
-                            &self.credentials.read(),
-                            message.clone(),
-                        )?;
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
-
     fn send(
         &mut self,
         client: u64,
         message: ServerMessage,
     ) -> Result<()> {
         match self.clients.get_mut(&client) {
-            Some(found)
-                if news(&mut self.shown, client, &message) =>
-            {
-                connection::send(
-                    found,
-                    &self.credentials.read(),
-                    message,
-                )
-            }
-            _ => Ok(()),
+            Some(found) => connection::send(
+                found,
+                &self.credentials.read(),
+                message,
+            ),
+            None => Ok(()),
         }
     }
-}
-
-/// Whether `message` is news to `client`: a `State` older than the
-/// one it was sent last is not, since a `State` replaces the last.
-fn news(
-    shown: &mut HashMap<u64, i64>,
-    client: u64,
-    message: &ServerMessage,
-) -> bool {
-    let ServerMessage::State(state) = message else {
-        return true;
-    };
-    let last = shown.entry(client).or_insert(i64::MIN);
-    if state.revision < *last {
-        return false;
-    }
-    *last = state.revision;
-    true
-}
-
-/// Sends `to` the realm as it is now. A connection that said hello
-/// is told why it could not be read.
-async fn show(
-    calls: &Calls,
-    own: &Arc<view::Own>,
-    frames: &Frames,
-    to: To,
-) {
-    let shown = match view::read(calls, own).await {
-        Ok(view) => ServerMessage::State(view::state(&view)),
-        Err(error) if matches!(to, To::One(_)) => {
-            server_failed(None, &error)
-        }
-        Err(_) => return,
-    };
-    let _ = frames.send((to, shown));
 }
 
 /// What a task that answers one client works with.
@@ -770,6 +715,7 @@ struct Asker {
     client: u64,
     calls: Calls,
     hub: Hub,
+    shows: Shows,
     own: Arc<view::Own>,
     uploads: Arc<Uploads>,
     frames: Frames,
@@ -777,11 +723,7 @@ struct Asker {
 
 impl Asker {
     fn send(&self, message: ServerMessage) {
-        let _ = self.frames.send((To::One(self.client), message));
-    }
-
-    async fn show(&self, to: To) {
-        show(&self.calls, &self.own, &self.frames, to).await;
+        let _ = self.frames.send((self.client, message));
     }
 
     /// Does what a request's answer is followed by, before the
@@ -789,11 +731,9 @@ impl Asker {
     async fn after(&self, after: After) {
         match after {
             After::Nothing => {}
-            After::Show | After::Began(_) => {
-                self.show(To::Welcomed).await;
-            }
+            After::Show | After::Began(_) => self.shows.read().await,
             After::Reread(agent) => {
-                self.show(To::Welcomed).await;
+                self.shows.read().await;
                 self.hub.reread(agent).await;
             }
         }

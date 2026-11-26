@@ -620,8 +620,12 @@ async fn a_resumed_lapse_drops_the_conversations_trust() {
     })
     .await;
     let trusted = footing(&realm, HAND).trust;
+    // The trust covers its command, not the network, so it waits.
     realm
-        .call_as_workspace(&asked("c2", Need::Command, None, "c"))
+        .call_as_workspace(&NeedsChief {
+            needs: vec![Need::Command, Need::Network],
+            ..asked("c2", Need::Command, None, "c")
+        })
         .await
         .unwrap();
 
@@ -871,7 +875,7 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
             "The chief did not answer; go on with what you know.",
             "The chief rules: go on with the instruction. The chief \
              says: carry on",
-            "The chief withdrew the instruction. Stop working on it.",
+            "The chief withdrew the instruction: and this",
             "the chief refused it: no reason given",
         ]
     );
@@ -944,6 +948,127 @@ async fn a_request_the_chief_refused_is_refused_again_unasked() {
     );
     let open = waits_of(&realm, HAND).await;
     assert_eq!(open[4], (5, true, None));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ruling_on_the_network_settles_the_other_network_waits_it_covers()
+ {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = chief_task(&realm, HAND).await;
+    let network =
+        |call: &str| asked(call, Need::Network, Some(&task), "c");
+    for call in ["c1", "c2"] {
+        realm.call_as_workspace(&network(call)).await.unwrap();
+    }
+    realm
+        .call_as_workspace(&asked(
+            "c3",
+            Need::Command,
+            Some(&task),
+            "c",
+        ))
+        .await
+        .unwrap();
+    realm
+        .ask(&answer("1", Choice::Deny, Some("stay offline")))
+        .await
+        .unwrap();
+    for call in ["c4", "c5"] {
+        realm
+            .call_as_workspace(&asked(call, Need::Network, None, "d"))
+            .await
+            .unwrap();
+    }
+    realm.ask(&answer("4", Choice::Always, None)).await.unwrap();
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    let answers = chief_answers(&realm);
+    let answer_to = |call: &str| {
+        answers
+            .iter()
+            .find(|answer| answer.call == needs(HAND, call).call)
+            .map(|answer| answer.answer.clone())
+    };
+    assert_eq!(
+        [answer_to("c2"), answer_to("c5")],
+        [
+            Some(
+                refused_unasked(
+                    "c2",
+                    "the chief already refused this in this turn \
+                     (stay offline). Do not ask again: go on \
+                     without it, or report that you could not."
+                )
+                .answer
+            ),
+            Some(workspace::Answer::Allow),
+        ]
+    );
+    let waits = waits_of(&realm, HAND).await;
+    assert_eq!(waits[1], (2, false, Some("unasked".to_owned())));
+    assert_eq!(waits[2], (3, true, None));
+    assert_eq!(waits[4], (5, false, Some("allow".to_owned())));
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A call the workspace weighed before an always, whose wait reaches
+/// the realm after it, is allowed by the grant or trust it made, and
+/// no chief is asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_an_earlier_always_covers_is_allowed_unasked() {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    for (call, need) in [("c1", Need::Network), ("c2", Need::Command)]
+    {
+        realm
+            .call_as_workspace(&asked(call, need, None, "c"))
+            .await
+            .unwrap();
+    }
+    for wait in ["1", "2"] {
+        realm
+            .ask(&answer(wait, Choice::Always, None))
+            .await
+            .unwrap();
+    }
+    until("the workspace has both answers", || {
+        chief_answers(&realm).len() == 2
+    })
+    .await;
+
+    for (call, need) in [("c3", Need::Network), ("c4", Need::Command)]
+    {
+        realm
+            .call_as_workspace(&asked(call, need, None, "c"))
+            .await
+            .unwrap();
+    }
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    let answers = chief_answers(&realm);
+    for call in ["c3", "c4"] {
+        assert!(
+            answers.contains(&ChiefAnswer {
+                agent: HAND,
+                call: needs(HAND, call).call,
+                answer: workspace::Answer::Allow,
+            }),
+            "{call} allowed: {answers:?}"
+        );
+    }
+    let waits = waits_of(&realm, HAND).await;
+    assert!(
+        waits.iter().all(|(_, open, _)| !open),
+        "no wait open: {waits:?}"
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -1278,7 +1403,7 @@ async fn a_ruling_on_an_objection_names_the_call_that_waited_for_it()
         held(),
         [
             ("o1".to_owned(), HeldEnd::Ran),
-            ("o2".to_owned(), HeldEnd::Aborted)
+            ("o2".to_owned(), HeldEnd::Withdrawn)
         ]
     );
     realm.host.shutdown().await.unwrap();

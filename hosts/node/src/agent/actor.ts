@@ -52,6 +52,7 @@ import { stop } from "./commands.ts";
 import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
     copiesOf,
+    type Held,
     keep,
     migrateCopies,
     type ReadCopies,
@@ -64,6 +65,7 @@ import {
     type TurnEnded,
     tellingFailed,
 } from "./failed.ts";
+import { answeringAs } from "./faux.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import { drop_inbox, migrateInbox, read_inbox, take_inbox } from "./inbox.ts";
 import { admissionOf, withdrawnInput } from "./inputs.ts";
@@ -163,6 +165,8 @@ export interface AgentConfig {
      * script.
      */
     readonly faux?: boolean;
+    /** Serves the model servers the copies' settings name. */
+    readonly serve?: (held: Held) => void;
 }
 
 export type AgentContext = PiContext;
@@ -317,7 +321,7 @@ function agentActions(config: AgentConfig): AgentHandlers {
             finished,
             place,
             fill,
-            copies,
+            copies: (c, message) => copies(c, config, message),
             moved,
             remove_path,
             shelves_changed,
@@ -642,10 +646,12 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     const options: PiOptions = {
         registry,
-        models: gated(
-            agentModels(config.models, copies, peers),
-            peers,
-            placing,
+        models: answeringAs(
+            numberOf(c),
+            // A faux script names a dream's steps as today's
+            // conversations name its kind.
+            row.brief?.dream === true ? "dream" : row.kind,
+            gated(agentModels(config.models, copies, peers), peers, placing),
         ),
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
@@ -654,6 +660,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             peers.report(`pi-durable reported ${report.kind}`, report.error),
         settings: {
             ...config.settings,
+            // An answer's calls run one at a time, in call order (C16).
+            toolExecution: "sequential",
             // One follow-up starts each run; a chief's line may join it
             // as a steer.
             followUpMode: "one-at-a-time",
@@ -720,7 +728,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     followEnds(c, harness);
     harness.resume();
     const configuring = () =>
-        configured(c, copies).catch((error: unknown) =>
+        servedAndConfigured(c, config, copies).catch((error: unknown) =>
             peers.report("the model was not configured", error),
         );
     // Done at every wake, so a configure a kill cut off is done again, and
@@ -1049,9 +1057,23 @@ async function shelves_changed(
     await keep(c, { shelves: { version: list.version, value: list.skills } });
 }
 
-async function copies(c: AgentCall, message: Copies): Promise<void> {
+async function copies(
+    c: AgentCall,
+    config: AgentConfig,
+    message: Copies,
+): Promise<void> {
     await keep(c, message);
-    await configured(c, generationOf(c).copies);
+    await servedAndConfigured(c, config, generationOf(c).copies);
+}
+
+/** Serves the copies' model servers, then puts every conversation on the copy's model. */
+async function servedAndConfigured(
+    c: AgentContext,
+    config: AgentConfig,
+    copies: ReadCopies,
+): Promise<void> {
+    config.serve?.(await copies());
+    await configured(c, copies);
 }
 
 async function wakeTimers(c: AgentCall): Promise<void> {

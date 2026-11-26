@@ -13,6 +13,7 @@ import type {
     HarnessSettings,
 } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
+import { entryIdOf } from "../src/agent/chat-items.ts";
 import type { Finished, Input } from "../src/agent/messages/agent.ts";
 import type { OpenTask, TaskOpened } from "../src/agent/messages/realm.ts";
 import type { ReadAnswer } from "../src/agent/messages/workspace.ts";
@@ -838,7 +839,7 @@ test("A6: rewind takes the chat back to before a line", async (t) => {
     // `crates/hamlet_server/src/clients/requests.rs` word them.
     const notALine = "That is not one of your lines in this conversation.";
 
-    assert.deepEqual(await rewind(`${answer.id}:0`), {
+    assert.deepEqual(await rewind(`${entryIdOf(7, answer)}:0`), {
         type: "refused",
         why: { type: "not_a_chief_line" },
         words: notALine,

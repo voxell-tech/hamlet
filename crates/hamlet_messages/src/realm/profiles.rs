@@ -11,12 +11,12 @@ use super::{
     AgentRefusal, ChiefRequest, Done, HamletId, ProfileId,
     SocietyTool, Standing, ToolCall,
 };
-use crate::library::OfferId;
+use crate::library::{NoSkill, OfferId};
 use crate::profile::{
-    BadCommit, BadPath, DreamOpen, EditRefusal, Missing, Protected,
-    PurgeAnswer, PurgeRefusal, ReadAnswer, ReadFileRefusal,
-    RevertAnswer, RevertRefusal, Revision, TagAnswer, TagRefusal,
-    TooLong, VersionName,
+    BadCommit, BadPath, DreamId, DreamOpen, EditRefusal, Missing,
+    PinAnswer, Protected, PurgeAnswer, PurgeRefusal, ReadAnswer,
+    ReadFileRefusal, RevertAnswer, RevertRefusal, Revision,
+    TagAnswer, TagRefusal, TooLong, VersionName,
 };
 use crate::worded;
 use crate::workspace::AgentNumber;
@@ -268,9 +268,17 @@ union!(DreamAskedRefusal {
     Dream(DreamRefusal),
 });
 
+answer!(
+    /// Whether the dream began, or found nothing to dream about.
+    Dreamt<DreamAskedRefusal> {
+        Began { dream: DreamId },
+        Nothing,
+    }
+);
+
 impl ChiefRequest for Dream {
     const NAME: &'static str = "chief_dream";
-    type Answer = Done<DreamAskedRefusal>;
+    type Answer = Dreamt;
 }
 
 /// Takes `path` out of every commit of a profile and out of each of
@@ -507,3 +515,49 @@ answer!(
         Done { label: String },
     }
 );
+
+/// Gives a profile of the city the name `name`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NameProfile {
+    pub profile: ProfileId,
+    pub name: String,
+}
+
+union!(NameProfileRefusal {
+    Profile(ProfileRefusal),
+    Name(CreateRefusal),
+});
+
+impl ChiefRequest for NameProfile {
+    const NAME: &'static str = "chief_name_profile";
+    type Answer = Made<NameProfileRefusal>;
+}
+
+/// Holds the hire `hire` at its profile's version `to`, or lets it
+/// follow `main` again when absent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PinHire {
+    pub hire: AgentNumber,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<VersionName>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ChiefRequest for PinHire {
+    const NAME: &'static str = "chief_pin";
+    type Answer = PinAnswer;
+}
+
+/// Takes the skill `skill` off the library's shelves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnshelveSkill {
+    pub skill: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ChiefRequest for UnshelveSkill {
+    const NAME: &'static str = "chief_unshelve";
+    type Answer = Done<NoSkill>;
+}

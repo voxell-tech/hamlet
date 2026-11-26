@@ -99,7 +99,7 @@ test("an agent's papers are its own files, learned against its profile's main", 
     await agent.stop();
 });
 
-test("on a faux script every check answers that the faux model runs, and no model is listed", async (t) => {
+test("on a faux script every check answers that the faux model runs, and the faux models are listed", async (t) => {
     const agent = await wakeAgent(t, {
         calls: fakeCalls({}).calls,
         faux: true,
@@ -114,7 +114,11 @@ test("on a faux script every check answers that the faux model runs, and no mode
         type: "answered",
         words: FAUX_WORDS,
     });
-    assert.deepEqual(await agent.actions.read_models(client), { models: [] });
+    const { models } = await agent.actions.read_models(client);
+    assert.deepEqual(
+        models.map((model) => model.name),
+        ["faux::faux-1"],
+    );
     await agent.stop();
 });
 

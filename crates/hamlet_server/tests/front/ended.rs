@@ -5,7 +5,7 @@ use hamlet_testing::Server;
 use serde_json::json;
 
 use super::commands::found;
-use super::{look, serve, until};
+use super::{hired_address, look, serve, until};
 
 /// Hires a blank hire into the hamlet `docs` from the Hand, and gives
 /// its address.
@@ -16,11 +16,7 @@ pub(super) async fn hire_blank(
     let hand = chief.hand();
     let hired =
         chief.command(hand, &format!("/hire blank in {docs}")).await;
-    hired
-        .strip_suffix(" is hired.")
-        .unwrap_or_else(|| panic!("{hired}"))
-        .trim_matches('`')
-        .to_owned()
+    hired_address(&hired)
 }
 
 pub(super) async fn ended(server: &Server, address: &str) {

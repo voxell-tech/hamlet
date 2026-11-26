@@ -171,7 +171,7 @@ async fn stop() {
     c.open(HAND).await;
     c.send(json!({"type":"say","to":HAND,"text":"Run until I stop you."}))
         .await;
-    let started = c.home.file("hand/started");
+    let started = c.home.agent_files(1, "hand").join("started");
     let deadline = tokio::time::Instant::now()
         + std::time::Duration::from_secs(20);
     while !started.exists() {

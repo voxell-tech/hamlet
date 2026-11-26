@@ -11,8 +11,8 @@ use hamlet_messages::realm::hamlets::{
 };
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateProfile, EraseProfile, ForkProfile,
-    PurgeProfile, RestoreProfile, Spot, TagProfile, TurnAway,
-    Welcome,
+    NameProfile, PurgeProfile, RestoreProfile, Spot, TagProfile,
+    TurnAway, UnshelveSkill, Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -23,7 +23,7 @@ use hamlet_messages::workspace::reach::Mode;
 use hamlet_protocol::client::{self as protocol, Choice};
 
 use super::super::words;
-use crate::commands::{deeds, usage};
+use crate::commands::usage;
 use crate::oversight::gate;
 use crate::society::addresses::{self, Address};
 use crate::society::agents::Effort as Level;
@@ -173,8 +173,13 @@ pub(super) enum Act {
     },
     Purge(PurgeProfile),
     Dream(Dreamt),
-    /// A command of the table this server does not do.
-    Unsupported(String),
+    Pin {
+        hire: Target,
+        to: Option<VersionName>,
+        reason: Option<String>,
+    },
+    Unshelve(UnshelveSkill),
+    NameProfile(NameProfile),
 }
 
 /// Whose learning `/dream` goes over: a profile's, or a hire's as
@@ -288,13 +293,21 @@ pub(super) fn parse(
         }),
         "move-hamlet" => {
             let number = |at: usize| {
-                words.get(at).and_then(|w| w.parse().ok())
+                words.get(at).and_then(|w| w.parse::<f64>().ok())
             };
             let (Some(hamlet), Some(x), Some(z)) =
                 (words.first(), number(1), number(2))
             else {
                 return Err(usage(name));
             };
+            // An act's numbers are kept as JSON, which holds no NaN
+            // or infinity, so the door refuses them with the realm's
+            // words.
+            if !(x.is_finite() && z.is_finite()) {
+                return Err(Refusal::BadAddress {
+                    address: format!("{x}, {z}"),
+                });
+            }
             Act::MoveHamlet(MoveHamlet {
                 hamlet: HamletId((*hamlet).to_owned()),
                 x,
@@ -575,6 +588,25 @@ pub(super) fn parse(
                 reason: why(2),
             }
         }
+        "pin" => {
+            let [hire, version, ..] = words.as_slice() else {
+                return Err(usage(name));
+            };
+            Act::Pin {
+                hire: at(hire)?,
+                to: (*version != MAIN)
+                    .then(|| VersionName((*version).to_owned())),
+                reason: why(2),
+            }
+        }
+        "unshelve" => Act::Unshelve(UnshelveSkill {
+            skill: first()?.to_owned(),
+            reason: why(1),
+        }),
+        "name-scholar" => Act::NameProfile(NameProfile {
+            profile: profile_of(first()?)?,
+            name: tail(1),
+        }),
         "purge" => {
             let [scholar, path] = words.as_slice() else {
                 return Err(usage(name));
@@ -608,9 +640,6 @@ pub(super) fn parse(
             Ok(hamlet) => Payer::Hamlet { hamlet },
             Err(_) => Payer::Realm,
         }),
-        _ if deeds().iter().any(|deed| deed.name == name) => {
-            Act::Unsupported(format!("`/{name}`"))
-        }
         _ => {
             return Err(Refusal::Usage {
                 words: words::no_command(name),
@@ -730,23 +759,24 @@ fn versioned(
     })
 }
 
-/// The profile a scholar's address names.
+/// The profile a scholar's address names; a number past the realm's
+/// is no scholar, as today.
 fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
     let id = addresses::parse_scholar(text)?;
     u32::try_from(id.0).map(ProfileId).map_err(|_| {
-        Refusal::BadAddress {
+        Refusal::NoScholar {
             address: text.into(),
         }
     })
 }
 
 /// The agent `text` addresses, said in `here`: `mayor` is the
-/// office of `here`.
+/// office of `here`. A number past the realm's is no one, as today.
 pub(super) fn target(
     text: &str,
     here: Option<&HamletId>,
 ) -> Result<Target, Refusal> {
-    let bad = || Refusal::BadAddress {
+    let bad = || Refusal::NoOne {
         address: text.into(),
     };
     let named = match addresses::parse(text)? {

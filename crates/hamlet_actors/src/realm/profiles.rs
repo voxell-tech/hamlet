@@ -7,16 +7,20 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Action, BindParam, ColumnValue, Ctx, Handler};
 use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Profile};
+use hamlet_messages::address::{Agent, Library, Profile};
+use hamlet_messages::library::{NoSkill, Unshelve};
 use hamlet_messages::profile::{
-    By, CommitId, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer,
-    Read, ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
+    By, CommitId, DreamOpen, Edit, NotAHire, Pin, PinAnswer,
+    ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer, Revert,
+    RevertAnswer, Sha1, Tag, TagAnswer,
 };
+use hamlet_messages::realm::documents::Newcomers;
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
-    Made, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
+    Made, PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
     ReadProfile, ReadProfileRefusal, RevertProfile,
     RevertProfileRefusal, TagProfile, TagProfileRefusal,
+    UnshelveSkill,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
@@ -35,7 +39,7 @@ use super::chiefs::hamlet;
 use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
-use super::{Realm, calls, dreams, record, settings};
+use super::{Realm, calls, dreams, hire, record, settings, tree};
 
 pub(super) mod lifecycle;
 
@@ -227,6 +231,7 @@ pub(super) async fn start(
     })?;
     let text = match kept.kind {
         Kind::Shared => {
+            drop(cx.realm.making.write().await);
             return cx.peers().get_or_start(&Profile(profile)).await;
         }
         Kind::Hand => HAND_CHARACTER.to_owned(),
@@ -240,8 +245,12 @@ pub(super) async fn start(
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A shared profile named `name`.
-    Made { profile: ProfileId, name: String },
+    /// A shared profile named `name`, arriving as `arrival`.
+    Made {
+        profile: ProfileId,
+        name: String,
+        arrival: Arrival,
+    },
     /// A shared profile named `name`, making from `from`'s commit
     /// `at`, housed at `house`.
     Fork {
@@ -257,6 +266,8 @@ pub(super) enum Change {
         from: Status,
         to: Status,
     },
+    /// The profile is named `name`.
+    Named { profile: ProfileId, name: String },
     /// The profile is `arrival`, its house at `house` or none.
     Placed {
         profile: ProfileId,
@@ -270,8 +281,15 @@ pub(super) async fn apply(
     change: Change,
 ) -> Result<Affected> {
     match change {
-        Change::Made { profile, name } => {
+        Change::Made {
+            profile,
+            name,
+            arrival,
+        } => {
             insert(writer, profile, Kind::Shared, &name).await?;
+            if arrival != Arrival::Housed {
+                place(writer, profile, arrival, None).await?;
+            }
         }
         Change::Fork {
             profile,
@@ -312,6 +330,14 @@ pub(super) async fn apply(
                         BindParam::Text(change::case_name(&from)?),
                         BindParam::Text(change::case_name(&to)?),
                     ],
+                )
+                .await?;
+        }
+        Change::Named { profile, name } => {
+            writer
+                .execute(
+                    "UPDATE profile SET name = ?2 WHERE id = ?1",
+                    vec![id(profile), BindParam::Text(name)],
                 )
                 .await?;
         }
@@ -434,10 +460,12 @@ fn given(character: Option<&str>) -> Option<&str> {
     character.filter(|text| !text.is_empty())
 }
 
-/// The profile `create` makes as `profile`, or why it is refused.
+/// The profile `create` makes as `profile`, arriving as `arrival`,
+/// or why it is refused.
 fn made(
     create: &CreateProfile,
     profile: ProfileId,
+    arrival: Arrival,
 ) -> Result<Decided<(ProfileId, String)>, CreateRefusal> {
     let Ok(name) = hamlet::checked_name(&create.name) else {
         return Err(CreateRefusal::BadName {
@@ -450,29 +478,40 @@ fn made(
         return Err(CreateRefusal::LongCharacter);
     }
     let name = name.to_owned();
-    Ok(Decided::new((profile, name.clone()))
-        .change(Change::Made { profile, name }))
+    Ok(Decided::new((profile, name.clone())).change(Change::Made {
+        profile,
+        name,
+        arrival,
+    }))
 }
 
+/// A profile an agent other than the Hand makes waits at the harbor,
+/// as today, unless the realm lets newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = ProfileId;
+    type Loaded = (ProfileId, Newcomers);
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
         _by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<ProfileId> {
-        next(rows).await
+    ) -> Result<(ProfileId, Newcomers)> {
+        Ok((next(rows).await?, settings::read(rows).await?.newcomers))
     }
 
     fn decide(
         &self,
-        _by: &Agent,
-        profile: ProfileId,
+        by: &Agent,
+        (profile, newcomers): (ProfileId, Newcomers),
     ) -> Decision<Self::Done, Self::Output> {
-        match made(self, profile) {
+        let arrival =
+            if by.0 == Hand::NUMBER || newcomers == Newcomers::Open {
+                Arrival::Housed
+            } else {
+                Arrival::Harbor
+            };
+        match made(self, profile, arrival) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(
                 AgentRefusal::Act(why),
@@ -510,7 +549,7 @@ impl Act<Client> for CreateProfile {
         _by: &Client,
         profile: ProfileId,
     ) -> Decision<Self::Done, Self::Output> {
-        match made(self, profile) {
+        match made(self, profile, Arrival::Housed) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(why)),
         }
@@ -551,6 +590,7 @@ impl Handler<Create> for Realm {
         Create(tool): Create,
     ) -> Result<<Create as Action>::Output> {
         let character = tool.act.character.clone();
+        let _making = self.making.read().await;
         let made = self.clone().handle(ctx.clone(), tool).await?;
         if let Made::Made { profile, .. } = &made {
             self.start_profile(&ctx, *profile, character).await?;
@@ -582,6 +622,7 @@ impl Handler<ChiefCreate> for Realm {
         ChiefCreate(asked): ChiefCreate,
     ) -> Result<<ChiefCreate as Action>::Output> {
         let character = asked.act.character.clone();
+        let _making = self.making.read().await;
         let made = self.clone().handle(ctx.clone(), asked).await?;
         if let Made::Made { profile, .. } = &made {
             self.start_profile(&ctx, *profile, character).await?;
@@ -811,6 +852,78 @@ impl Handler<Purging> for Realm {
         let _purging =
             self.purging(asked.act.profile).try_read_owned().ok();
         callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
+            .await
+    }
+}
+
+impl Handler<Asked<PinHire>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<PinHire>,
+    ) -> Result<PinAnswer> {
+        let Client = sender(&ctx, &asked)?;
+        let hire = asked.act.hire;
+        self.drives.ended(hire::row(hire), self.answer_within).await;
+        let Some(profile) = Rows::outside(&ctx)?
+            .value::<u32>(
+                "SELECT hire.profile FROM hire JOIN agent ON \
+                 agent.id = hire.agent WHERE hire.agent = ?1 AND \
+                 agent.status = 'live'",
+                vec![change::number(hire)],
+            )
+            .await?
+        else {
+            return Ok(PinAnswer::refused(
+                NotAHire::NoHire { hire }.into(),
+            ));
+        };
+        let pin = Pin {
+            id: asked.id.clone(),
+            hire,
+            to: asked.act.to.clone(),
+            by: By::Chief { chief: CHIEF },
+        };
+        let answer = self
+            .peers
+            .call(
+                &Profile(ProfileId(profile)),
+                &pin,
+                When::BeforeAnswer,
+            )
+            .await?;
+        let version = match &answer {
+            PinAnswer::Pinned { version, .. } => {
+                Some(version.clone())
+            }
+            PinAnswer::FollowsMain => None,
+            PinAnswer::Refused { .. } => return Ok(answer),
+        };
+        change::commit(
+            &self,
+            &ctx,
+            vec![tree::Change::Pin { hire, version }.into()],
+        )
+        .await?;
+        Ok(answer)
+    }
+}
+
+impl Handler<Asked<UnshelveSkill>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<UnshelveSkill>,
+    ) -> Result<Done<NoSkill>> {
+        let Client = sender(&ctx, &asked)?;
+        let unshelve = Unshelve {
+            id: asked.id.clone(),
+            skill: asked.act.skill.clone(),
+            reason: asked.act.reason.clone(),
+            by: By::Chief { chief: CHIEF },
+        };
+        self.peers
+            .call(&Library, &unshelve, When::BeforeAnswer)
             .await
     }
 }

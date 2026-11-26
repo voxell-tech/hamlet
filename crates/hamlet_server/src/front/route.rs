@@ -8,8 +8,8 @@ use hamlet_host::Address;
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    self, CheckConnection, NewSession, ReadHistory, ReadModels,
-    ReadPrompt, Resume, Retry, Rewind,
+    self, CheckConnection, NewSession, ReadHistory, ReadPrompt,
+    Resume, Retry, Rewind,
 };
 use hamlet_messages::realm::documents::ReadCharter;
 use hamlet_messages::workspace::AgentNumber;
@@ -22,7 +22,7 @@ use super::answers::Reading;
 use super::call::Stopping;
 use super::host::HAND;
 use super::view::Own;
-use super::{commands, frames, words};
+use super::{commands, frames};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -44,6 +44,9 @@ pub(crate) enum Route {
     /// it ends.
     Line(protocol::Say, AgentNumber),
     Call(Call),
+    /// A check of the realm's model, whose link is testing until it
+    /// answers, unless every agent runs the faux model.
+    Check(Call),
     SignIn(protocol::Login),
     Read(Reading),
     Upload(Upload),
@@ -205,28 +208,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             )?
         }
         ClientMessage::Login(login) => Route::SignIn(login),
-        ClientMessage::Check(Check::Model {
-            id,
-            model: Some(model),
-        }) => call(
-            &address::Agent(HAND),
-            &id,
-            &chat::Check { model },
-            frames::checked,
-            After::Nothing,
-        )?,
-        ClientMessage::Check(Check::Connection { id }) => call(
-            &address::Agent(HAND),
-            &id,
-            &CheckConnection,
-            frames::checked,
-            After::Nothing,
-        )?,
-        ClientMessage::Check(Check::Model { id, model: None }) => {
-            Route::Now(Box::new(reply(
-                &id,
-                Ok(words::FAUX_MODELS.into()),
-            )))
+        ClientMessage::Check(Check::Model { id, model }) => {
+            check(&id, &chat::Check { model })?
+        }
+        ClientMessage::Check(Check::Connection { id }) => {
+            check(&id, &CheckConnection)?
         }
         ClientMessage::Read(Read::Prompt { agent, id }) => {
             agent_call(
@@ -246,13 +232,9 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
                 |_| After::Nothing,
             )?
         }
-        ClientMessage::Read(Read::Models { id, .. }) => call(
-            &address::Agent(HAND),
-            &id,
-            &ReadModels,
-            frames::models,
-            After::Nothing,
-        )?,
+        ClientMessage::Read(Read::Models { id, .. }) => {
+            Route::Read(Reading::Models { id })
+        }
         ClientMessage::Read(Read::Charter { id }) => call(
             &address::Realm,
             &id,
@@ -331,14 +313,38 @@ fn call<M: Message>(
     answer: Words,
     after: After,
 ) -> Result<Route> {
-    Ok(Route::Call(Call {
+    Ok(Route::Call(made(to, id, message, answer, after)?))
+}
+
+/// The Hand's check of a model, which its link shows.
+fn check<M: Message<To = address::Agent>>(
+    id: &RequestId,
+    message: &M,
+) -> Result<Route> {
+    Ok(Route::Check(made(
+        &address::Agent(HAND),
+        id,
+        message,
+        frames::checked,
+        After::Nothing,
+    )?))
+}
+
+fn made<M: Message>(
+    to: &M::To,
+    id: &RequestId,
+    message: &M,
+    answer: Words,
+    after: After,
+) -> Result<Call> {
+    Ok(Call {
         to: to.address()?,
         action: M::NAME,
         args: encode_positional(message)?,
         request: id.clone(),
         answer,
         after,
-    }))
+    })
 }
 
 #[cfg(test)]
@@ -425,16 +431,15 @@ mod tests {
     #[test]
     fn the_models_are_read_from_the_hand_and_the_charter_from_the_realm()
      {
-        let Route::Call(models) =
+        let Route::Read(Reading::Models { .. }) =
             route(ClientMessage::Read(Read::Models {
                 id: RequestId::new(),
                 refresh: None,
             }))
             .unwrap()
         else {
-            panic!("the models are a call");
+            panic!("the models are a read of the Hand and the realm");
         };
-        assert_eq!(models.to.to_string(), "agent/1");
         let Route::Call(charter) =
             route(ClientMessage::Read(Read::Charter {
                 id: RequestId::new(),

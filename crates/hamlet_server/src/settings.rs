@@ -69,7 +69,7 @@ pub(crate) struct Settings {
     pub picked: bool,
 }
 
-fn untested() -> Link {
+pub(crate) fn untested() -> Link {
     Link {
         models: None,
         state: LinkState::Untested,

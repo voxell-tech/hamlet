@@ -9,13 +9,6 @@ use hamlet_protocol::client::{self as protocol, Choice, WaitDetail};
 use crate::oversight::{self, Ruling};
 use crate::spend;
 
-/// Who did what no agent or chief did.
-pub(crate) const REALM: &str = "the realm";
-
-/// The mode of a hamlet that works on no folder.
-pub(crate) const NO_FOLDER: &str =
-    "Hires work in their lodges; no folder is chosen.";
-
 /// A day's budget period.
 pub(crate) const TODAY: &str = "today";
 
@@ -67,9 +60,6 @@ pub(crate) const LIMITS_UNFIT: &str =
 pub(crate) const NO_WORKSPACE: &str =
     "Choose a remote workspace in the settings first.";
 
-pub(crate) const FAUX_MODELS: &str =
-    "Every agent runs the faux model here.";
-
 /// The reason of a `/merge` said without one.
 pub(crate) const NO_SCHOLAR_YET: &str =
     "The city has no scholar yet.";
@@ -78,6 +68,27 @@ pub(crate) const DREAM_USAGE: &str =
     "Use /dream <scholar#id|address>";
 
 pub(crate) const DREAM_BEGAN: &str = "The dream began.";
+
+pub(crate) const NOTHING_TO_DREAM: &str =
+    "There is nothing to dream about.";
+
+pub(crate) fn pinned(hire: &str, version: &str) -> String {
+    format!(
+        "{hire} takes {version} in once idle, and no later learning."
+    )
+}
+
+pub(crate) fn follows_main(hire: &str) -> String {
+    format!("{hire} follows its scholar's main again.")
+}
+
+pub(crate) fn unshelved(skill: &str) -> String {
+    format!("Took {skill} off the shelves.")
+}
+
+pub(crate) fn profile_named(label: &str) -> String {
+    format!("The scholar is now named `{label}`.")
+}
 
 pub(crate) const MERGED_BY_THE_CHIEF: &str = "merged by the chief";
 
@@ -264,11 +275,15 @@ pub(crate) fn holds_no_grant(name: &str, word: &str) -> String {
     format!("{name} holds no grant of {word}.")
 }
 
-/// The living hamlets, each as its name and id.
+/// The living hamlets, each as its name and id, by name and then id
+/// as today.
 pub(crate) fn hamlets<'a>(
     living: impl Iterator<Item = (&'a str, &'a str)>,
 ) -> String {
+    let mut living = living.collect::<Vec<_>>();
+    living.sort_unstable();
     let list = living
+        .into_iter()
         .map(|(name, id)| format!("- {name} (`{id}`)"))
         .collect::<Vec<_>>()
         .join("\n");

@@ -154,7 +154,8 @@ export type CallEnd =
           readonly created?: boolean;
       }
     | { readonly type: "blocked"; readonly why: string }
-    | { readonly type: "aborted" };
+    // The chief's withdrawal shows its notice, as today's transcript does.
+    | { readonly type: "aborted"; readonly withdrawn?: true };
 
 export type Ended = { readonly call: string; readonly end: CallEnd };
 
@@ -648,11 +649,13 @@ export async function callOut<
         );
     } catch (error) {
         if (context.abortSignal?.aborted) throw error;
-        return stamp.changes
-            ? interrupted(tool)
-            : failed(
-                  `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
-              );
+        if (stamp.changes) {
+            peers.report(`${tool} was interrupted`, error);
+            return interrupted(tool);
+        }
+        return failed(
+            `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
+        );
     }
     if (isRefused(answer)) return refused?.(answer) ?? failed(answer.words);
     return said(answer as Granted<AnswersOf<A>[N]>);

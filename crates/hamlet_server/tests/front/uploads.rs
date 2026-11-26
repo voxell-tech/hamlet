@@ -178,7 +178,7 @@ async fn a_line_with_an_image_to_an_agent_not_there_is_answered_as_one_without()
             chief.say_with(to, "Look.", vec![image.clone()]).await;
         let without = chief.say_with(to, "Look.", Vec::new()).await;
 
-        assert_eq!(with.kind, ReplyKind::Error, "{}", with.text);
+        assert_eq!(with.kind, without.kind, "{}", with.text);
         assert_eq!(with.text, without.text);
     }
     chief.close().await;

@@ -41,6 +41,17 @@ impl Home {
         self.path().join(relative)
     }
 
+    /// The folder of agent `agent`'s own files: `today`, such as
+    /// `hand` or `hamlets/<id>/<n>`, else the agent's filesystem in
+    /// the realm's actor folder when the server serves the actors.
+    pub fn agent_files(&self, agent: u64, today: &str) -> PathBuf {
+        if serves_actors() {
+            self.file(&format!("actors/agent/{agent}.fs"))
+        } else {
+            self.file(today)
+        }
+    }
+
     /// Starts a server on this home answering with `faux`, with
     /// `env` added to its environment.
     pub async fn serve(
@@ -105,6 +116,14 @@ impl Default for Home {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Whether the server under test serves the actors
+/// (`hamlet_server --actors`).
+pub fn serves_actors() -> bool {
+    std::env::var(SERVER_VAR).is_ok_and(|command| {
+        command.split_whitespace().any(|w| w == "--actors")
+    })
 }
 
 /// The command that starts a server, before `--port 0` and
