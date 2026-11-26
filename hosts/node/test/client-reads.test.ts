@@ -118,6 +118,18 @@ test("on a faux script every check answers that the faux model runs, and no mode
     await agent.stop();
 });
 
+test("on a faux script a line gives the model up to twenty images", async (t) => {
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        faux: true,
+    });
+
+    assert.deepEqual(await agent.actions.images_taken(agent.by(from.client)), {
+        per_line: 20,
+    });
+    await agent.stop();
+});
+
 test("the Hand lists its providers in today's order and words", async (t) => {
     const { calls } = fakeCalls({
         realm: {

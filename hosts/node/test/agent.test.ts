@@ -277,6 +277,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "erase",
             "fill",
             "finished",
+            "images_taken",
             "login",
             "moved",
             "new_session",
