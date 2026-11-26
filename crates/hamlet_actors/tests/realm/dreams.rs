@@ -198,6 +198,23 @@ async fn one_dream_is_open_in_the_realm_at_a_time() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_dream_with_nothing_to_dream_has_ended_when_it_is_answered()
+{
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
+
+    let first = chief(&realm, of_hire(THREE)).await;
+    let ended = dream_ends(&realm).len();
+    let next = chief(&realm, of_hire(THREE)).await;
+
+    assert_eq!(
+        (first, ended, next),
+        (Dreamt::Nothing, 1, Dreamt::Nothing)
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_dream_of_no_hire_or_no_shared_profile_is_refused() {
     let (realm, _) = hamlet_with(0).await;
 
