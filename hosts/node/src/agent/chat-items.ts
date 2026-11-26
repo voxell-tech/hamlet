@@ -26,6 +26,7 @@ import type {
     Usage,
 } from "./messages/agent.ts";
 import { u32 } from "./messages/shared.ts";
+import { isHeld } from "./spend.ts";
 import { type CallEnd, type Kept, KIND, NOTE_BREAK } from "./turn.ts";
 
 interface Held {
@@ -304,8 +305,9 @@ function itemsOf(entry: EntryRecord, shownId: string): Shown[] {
             const id = (block: number) => `${shownId}:${block}`;
             const shown = blocksOf(message.content, id, at);
             if (
-                message.stopReason === "error" ||
-                message.stopReason === "aborted"
+                (message.stopReason === "error" ||
+                    message.stopReason === "aborted") &&
+                !isHeld(message)
             ) {
                 const block = message.content.length;
                 shown.push({
