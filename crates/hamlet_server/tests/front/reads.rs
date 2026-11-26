@@ -12,7 +12,6 @@ use serde_json::json;
 use super::commands::found;
 use super::{SERVER, look, serve};
 
-/// No setting changed.
 const NO_SETTING: EditSettingsSet = EditSettingsSet {
     allow_net: None,
     character: None,

@@ -74,8 +74,6 @@ fn usage(words: &str) -> Refusal {
     }
 }
 
-/// The notice `words` answering request `id`, its fields set by
-/// `fill`.
 fn notice(
     id: &RequestId,
     words: &str,
@@ -106,7 +104,6 @@ impl Uploads {
         self.sending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Drops what the connection `client` was sending.
     pub(crate) fn disconnect(&self, client: u64) {
         self.sending().retain(|_, sending| {
             let theirs = sending.client == client;
@@ -117,7 +114,6 @@ impl Uploads {
         });
     }
 
-    /// Takes the start or a part of an upload of `client`.
     pub(crate) fn take(
         &self,
         client: u64,

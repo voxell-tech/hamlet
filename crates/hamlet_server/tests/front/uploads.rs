@@ -15,7 +15,6 @@ use super::commands::found;
 use super::ended::{ended, hire_blank};
 use super::{look, serve};
 
-/// A PNG of `side` by `side` pixels.
 fn png(side: u32) -> Vec<u8> {
     let mut out = Vec::new();
     let pixels = image::RgbImage::from_fn(side, side, |x, y| {

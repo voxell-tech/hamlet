@@ -864,7 +864,6 @@ impl Asker {
         }
     }
 
-    /// Sends the answer to `reading`.
     async fn read(&self, reading: answers::Reading) {
         let id = reading.id().clone();
         let message =

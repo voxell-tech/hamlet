@@ -449,7 +449,6 @@ pub(crate) fn tools_off(hire: &str, off: &[String]) -> String {
     }
 }
 
-/// The scholars of the city, each with its label.
 pub(crate) fn scholars<'a>(
     shown: impl Iterator<Item = (String, bool)> + 'a,
 ) -> String {
@@ -469,7 +468,6 @@ pub(crate) fn scholars<'a>(
     }
 }
 
-/// A commit's id as a chief reads it.
 pub(crate) fn short(commit: &CommitId) -> String {
     commit.0.to_string().chars().take(8).collect()
 }

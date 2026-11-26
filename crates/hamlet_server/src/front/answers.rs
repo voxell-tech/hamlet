@@ -39,7 +39,6 @@ use crate::society::city::CHARACTER_MOST;
 use crate::society::refusal::Refusal;
 use crate::spend;
 
-/// The bounds of an image's thumbnail.
 const THUMBNAIL: Bounds = Bounds {
     width: THUMBNAIL_SIDE,
     height: THUMBNAIL_SIDE,
@@ -67,7 +66,6 @@ impl Reading {
     }
 }
 
-/// The answer to `reading`.
 pub(crate) async fn read(
     calls: &Calls,
     uploads: &Uploads,
@@ -172,12 +170,10 @@ async fn papers(
     }))
 }
 
-/// `path` under the folder `folder`.
 fn under<'a>(path: &'a str, folder: &str) -> &'a str {
     path.strip_prefix(folder).unwrap_or(path)
 }
 
-/// The uploaded image `image` as `size` says, for request `id`.
 async fn image_read(
     uploads: &Uploads,
     id: RequestId,
@@ -225,7 +221,6 @@ async fn image_read(
     }))
 }
 
-/// Makes the edit `edit` asks for.
 pub(crate) async fn edit(
     calls: &Calls,
     edit: &protocol::Edit,
@@ -426,7 +421,6 @@ async fn limits(
     Ok(done(ask(calls, &id, model).await?, || saved))
 }
 
-/// A budget as the realm sets it.
 fn budget(shown: &protocol::LimitsBudget) -> Vec<BudgetLimit> {
     let cost = shown.cost.map_or(BudgetLimit::NoCost, |dollars| {
         BudgetLimit::Cost {
@@ -490,7 +484,6 @@ fn hamlet_limits(shown: &protocol::Limits) -> Option<Vec<Limit>> {
     ])
 }
 
-/// Sets what `set` names of the realm's settings.
 async fn settings(
     calls: &Calls,
     id: &RequestId,
