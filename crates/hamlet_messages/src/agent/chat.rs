@@ -584,6 +584,12 @@ pub struct ProviderList {
     pub providers: Vec<hamlet_protocol::client::ProviderView>,
 }
 
+/// Answers once each login the agent's host began rotating is handed
+/// to the realm, so a closing server keeps the rotated one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settle;
+from_client!(Settle, "settle", ());
+
 /// Reads what the agent knows: the character and the papers of its
 /// own filesystem, and the paths it changed against its profile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

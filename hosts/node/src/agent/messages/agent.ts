@@ -665,6 +665,7 @@ export interface ClientActions {
     read_prompt(): { readonly sections: readonly PromptSection[] };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
+    settle(): null;
     read_models(message: ReadModels): ModelList;
     images_taken(): { readonly per_line?: number };
     check(message: Check): Checked;
@@ -1017,6 +1018,7 @@ export const readClient: {
     read_prompt: () => [],
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
+    settle: () => [],
     read_models: first(obj({ refresh: opt(bool()) }, OPEN), ({ refresh }) =>
         refresh === true ? { refresh } : {},
     ),

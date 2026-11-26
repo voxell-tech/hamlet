@@ -326,6 +326,9 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
     file(&fixture.join("refresh-started")).await;
     server.terminate();
     stopped_listening(&server).await;
+    // Past the second the connections are given to close, so the
+    // rotation outlasts them.
+    tokio::time::sleep(Duration::from_secs(2)).await;
     assert!(
         server.is_running(),
         "shutdown abandoned a started rotation"

@@ -10,7 +10,7 @@ import {
     wrongCaller,
 } from "./actor.ts";
 import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
-import { secretsLoaded } from "./credentials.ts";
+import { rotationsKept, secretsLoaded } from "./credentials.ts";
 import {
     type Checked,
     type ClientActions,
@@ -50,7 +50,10 @@ export type ChatHandlers = {
  * Actions that answer only fixed words or the realm's, so they do not wait
  * on the realm's secret list and are taken in the order they come.
  */
-const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set(["retry"]);
+const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set([
+    "retry",
+    "settle",
+]);
 
 export function askedBy<N extends keyof ClientActions>(
     action: N,
@@ -93,6 +96,10 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 login,
                 generationOf(c).peers.reach.keep_credential,
             );
+        }),
+        settle: askedBy("settle", async () => {
+            await rotationsKept();
+            return null;
         }),
         read_models: askedBy("read_models", async (c, { refresh }) => {
             if (config.faux) return { models: modelList(config.models) };

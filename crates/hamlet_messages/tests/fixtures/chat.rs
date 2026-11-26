@@ -9,7 +9,7 @@ use hamlet_messages::agent::chat::{
     ModelList, NewSession, Prompt, PromptSection, ReadChat,
     ReadHistory, ReadModels, ReadPrompt, Reflect, Reflecting, Resume,
     ResumeAnswer, ResumeRefusal, Retry, RetryRefusal, Rewind,
-    RewindAnswer, RewindRefusal, Session, ToolChange, Usage,
+    RewindAnswer, RewindRefusal, Session, Settle, ToolChange, Usage,
 };
 use hamlet_messages::agent::copies::{
     AgentSettings, Copies, CopyVersion, ModelChoice, Price, Versioned,
@@ -353,6 +353,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     ] {
         fixtures.answer(&format!("agent/login.{arm}"), &answer);
     }
+    fixtures.args("agent/settle", &Settle);
     fixtures.args("agent/read_models", &ReadModels { refresh: true });
     fixtures.answer(
         "agent/read_models",
