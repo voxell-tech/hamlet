@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Message;
 use crate::address::{Agent, Realm};
+use crate::realm::documents::ImageLimits;
 
 /// The parts that changed, each with its version. The agent keeps a
 /// part when its version is newer than the one it holds.
@@ -66,6 +67,10 @@ pub struct ModelChoice {
     /// The catalogue card's price; absent when the card has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price: Option<Price>,
+    /// The images the catalogue card says the model takes, over what
+    /// its listing says; absent when the card says none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<ImageLimits>,
 }
 
 /// Dollars per million tokens.

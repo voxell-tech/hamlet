@@ -525,6 +525,7 @@ fn running(
         effort,
         fast,
         price,
+        images: None,
     })
 }
 

@@ -16,7 +16,7 @@ use hamlet_messages::agent::copies::{
 };
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::Done;
-use hamlet_messages::realm::documents::Endpoint;
+use hamlet_messages::realm::documents::{Endpoint, ImageLimits};
 use hamlet_messages::realm::models::{
     Cause, Credential, CredentialAnswer, CredentialRefusal,
     KeepCredential, Kept, OauthLogin, Settings, TurnFailed,
@@ -552,6 +552,12 @@ pub(super) fn copies() -> Copies {
                     cache_read: 1.5,
                     cache_write: 18.75,
                 }),
+                images: Some(ImageLimits {
+                    max_bytes: Some(5_242_880),
+                    max_height: None,
+                    max_width: Some(1568),
+                    per_line: Some(2),
+                }),
             },
         }),
         settings: Some(Versioned {
@@ -583,6 +589,7 @@ fn the_copies(fixtures: &mut Fixtures) {
                         effort: Some(effort),
                         fast: false,
                         price: None,
+                        images: None,
                     },
                 }),
                 ..Copies::default()
