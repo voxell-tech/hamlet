@@ -3,6 +3,7 @@
 //! library, and sent to each client as the changes since the last.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -35,12 +36,15 @@ use crate::talk::activity::{self, Activity};
 pub(crate) struct Own {
     pub(crate) chief: String,
     pub(crate) confinement: Confinement,
-    /// The realm's folder, as a client shows it.
-    pub(crate) realm: String,
+    /// The realm's folder.
+    pub(crate) root: PathBuf,
     /// When this server started, in milliseconds since the epoch.
     pub(crate) epoch: i64,
     /// The last check of the realm's model.
     pub(crate) link: watch::Sender<Link>,
+    /// How far the copy to the chosen remote workspace got.
+    pub(crate) moving:
+        watch::Sender<Option<protocol::SettingsViewWorkspaceMove>>,
     /// Every agent runs the faux model.
     pub(crate) faux: bool,
 }
@@ -293,6 +297,7 @@ pub(crate) async fn serve(
     let mut shelves =
         subscribe(&hub, &calls, Library, Shelved::NAME).await;
     let mut link = own.link.subscribe();
+    let mut moving = own.moving.subscribe();
     let epoch = own.epoch;
     let mut shown = Shown {
         shows,
@@ -337,6 +342,7 @@ pub(crate) async fn serve(
                 shown.publish();
             }
             Ok(()) = link.changed() => shown.publish(),
+            Ok(()) = moving.changed() => shown.publish(),
         }
     }
 }
@@ -583,10 +589,11 @@ impl Shown {
             hand: wire(HAND),
             library: self.library.clone(),
             providers: self.providers.clone(),
-            realm: own.realm.clone(),
+            realm: hamlet_os::fs::path::text(&own.root),
             ..self.realm.clone()?
         };
         state.settings.link = own.link.borrow().clone();
+        state.settings.workspace.moving = own.moving.borrow().clone();
         for agent in &mut state.agents {
             match super::route::number(agent.id)
                 .and_then(|number| self.hub.activity(number))

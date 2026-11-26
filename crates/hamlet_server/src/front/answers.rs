@@ -1,8 +1,11 @@
 //! The answers to the reads and edits a client asks of the profiles,
 //! the library and the agents.
 
+use std::path::Path;
+
 use anyhow::Result;
 use base64::Engine as _;
+use hamlet_actors::workspace::RealmFolder;
 use hamlet_messages::address::{self, Profile};
 use hamlet_messages::agent::chat::{
     EditMemory, ReadModels, ReadPapers,
@@ -22,6 +25,7 @@ use hamlet_messages::realm::profiles::EditProfile;
 use hamlet_messages::realm::{
     Done, HamletId, Limit, ProfileId, ReservedAct, Review, SetLimits,
 };
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, EditLimits, ImageBytes, ImageId, ImageSize,
     Keeper, ReadResult, RequestId, ScholarId, ServerMessage,
@@ -32,9 +36,11 @@ use super::call::Calls;
 use super::commands::{Outcome, ask, derived, done, refused};
 use super::host::HAND;
 use super::uploads::Uploads;
+use super::view::Own;
 use super::{frames, route, words};
 use crate::clients::check::reply;
 use crate::clients::documents::{budget_of, limits_of, memory_path};
+use crate::credentials::Credentials;
 use crate::images::{
     Bounds, Format, THUMBNAIL_BYTES, THUMBNAIL_SIDE, capitalised, fit,
 };
@@ -42,6 +48,7 @@ use crate::knowledge::CHARACTER;
 use crate::society::city::CHARACTER_MOST;
 use crate::society::refusal::Refusal;
 use crate::spend;
+use crate::workspace::{Policy, Transport, lodges, workspace_of};
 
 const THUMBNAIL: Bounds = Bounds {
     width: THUMBNAIL_SIDE,
@@ -584,18 +591,107 @@ async fn settings(
     })
 }
 
-/// Answers a move of the agents' files to a remote workspace, which
-/// has nothing to move until one is chosen.
-pub(crate) async fn move_lodges(calls: &Calls) -> Result<Outcome> {
-    let state = calls.call(&address::Realm, &ReadState).await?;
-    Ok(Outcome::said(Err(match state.settings.workspace.url {
-        None => Refusal::Usage {
+/// Copies each agent's filesystem to the remote workspace chosen in
+/// the settings, replacing what is there, and shows in the settings
+/// how far it got.
+pub(crate) async fn move_lodges(
+    calls: &Calls,
+    own: &Own,
+) -> Result<Outcome> {
+    let credentials = Credentials::open_beside_actors(&own.root)?;
+    let Some(chosen) = credentials.workspace().cloned() else {
+        return Ok(Outcome::said(Err(Refusal::Usage {
             words: words::NO_WORKSPACE.into(),
+        })));
+    };
+    let transport = Transport::new(chosen)?;
+    let state = calls.call(&address::Realm, &ReadState).await?;
+    let copied: Vec<_> = state
+        .agents
+        .iter()
+        .filter(|agent| {
+            agent.left.is_none()
+                && agent.kind != protocol::AgentKind::Worker
+        })
+        .collect();
+    let of = i64::try_from(copied.len())?;
+    let mut failed = None;
+    for (done, agent) in copied.into_iter().enumerate() {
+        own.moving.send_replace(Some(
+            protocol::SettingsViewWorkspaceMove {
+                done: i64::try_from(done)?,
+                of,
+                state:
+                    protocol::SettingsViewWorkspaceMoveState::Moving,
+                text: "Copying the lodges.".into(),
+            },
+        ));
+        if let Err(error) =
+            copy_filesystem(&transport, &state, agent, &own.root)
+                .await
+        {
+            failed =
+                Some(credentials.scrub_text(&format!("{error:#}")));
+            break;
+        }
+    }
+    let (moved, text) = match &failed {
+        None => (
+            protocol::SettingsViewWorkspaceMoveState::Moved,
+            "Every lodge is in the chosen workspace; the realm \
+             works there from its next start."
+                .to_owned(),
+        ),
+        Some(error) => (
+            protocol::SettingsViewWorkspaceMoveState::Failed,
+            format!("Moving the lodges failed: {error}"),
+        ),
+    };
+    own.moving.send_replace(Some(
+        protocol::SettingsViewWorkspaceMove {
+            done: of,
+            of,
+            state: moved,
+            text: text.clone(),
         },
-        Some(_) => Refusal::Unsupported {
-            what: "`move-lodges` to a remote workspace".into(),
+    ));
+    Ok(Outcome::said(match failed {
+        None => Ok(text),
+        Some(_) => Err(Refusal::Usage { words: text }),
+    }))
+}
+
+/// Sends all of `agent`'s filesystem under the realm's folder `root`
+/// to its session in the remote workspace `transport` reaches.
+async fn copy_filesystem(
+    transport: &Transport,
+    state: &protocol::State,
+    agent: &protocol::Agent,
+    root: &Path,
+) -> Result<()> {
+    let filesystem = RealmFolder::new(root)?
+        .filesystem(AgentNumber(u32::try_from(agent.id.0)?));
+    if !filesystem.is_dir() {
+        return Ok(());
+    }
+    let hamlet =
+        agent.hamlet.clone().map(hamlet_store::ids::HamletId);
+    let project = hamlet.as_ref().is_some_and(|hamlet| {
+        state.hamlets.iter().any(|shown| {
+            shown.id == hamlet.0 && shown.folder.is_some()
+        })
+    });
+    let session = transport.session(
+        hamlet_store::ids::AgentId(i64::try_from(agent.id.0)?),
+        &workspace_of(hamlet.as_ref()),
+        Policy {
+            project,
+            network: false,
+            read_only: false,
         },
-    })))
+    )?;
+    lodges::push(&session, &filesystem, None).await?;
+    Ok(())
 }
 
 /// The parts of a model's card a catalogue edit sets.

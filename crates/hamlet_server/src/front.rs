@@ -124,9 +124,10 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
         let own = view::Own {
             chief: chief_name(),
             confinement: confinement.clone(),
-            realm: hamlet_os::fs::path::text(&root),
+            root: root.clone(),
             epoch: crate::clock::now(),
             link: watch::Sender::new(crate::settings::untested()),
+            moving: watch::Sender::new(None),
             faux: options.faux.is_some(),
         };
         Door::serve(
@@ -764,7 +765,7 @@ impl Asker {
                         .map(Outcome::said)
                 }
                 Asked::MoveLodges(_) => {
-                    answers::move_lodges(&self.calls).await
+                    answers::move_lodges(&self.calls, &self.own).await
                 }
                 Asked::StopAll(_) => {
                     commands::stop_all(&self.calls, &view).await.map(

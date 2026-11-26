@@ -6,6 +6,8 @@
 #![cfg(unix)]
 
 mod remote;
+#[path = "../worker/mod.rs"]
+mod worker;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

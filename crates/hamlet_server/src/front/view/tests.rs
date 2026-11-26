@@ -149,9 +149,10 @@ async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
     let own = Arc::new(Own {
         chief: "Ada".into(),
         confinement: Confinement::Insecure,
-        realm: "/realm".into(),
+        root: "/realm".into(),
         epoch: 0,
         link: watch::Sender::new(crate::settings::untested()),
+        moving: watch::Sender::new(None),
         faux: false,
     });
     let served = tokio::spawn(serve(

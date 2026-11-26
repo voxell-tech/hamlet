@@ -526,11 +526,12 @@ mod tests {
             confinement: Confinement::Sandbox {
                 name: "bubblewrap".to_owned(),
             },
-            realm: "/realm".to_owned(),
+            root: "/realm".into(),
             epoch: 0,
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            moving: tokio::sync::watch::Sender::new(None),
             faux: false,
         }
     }
