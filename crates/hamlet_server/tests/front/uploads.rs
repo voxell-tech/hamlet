@@ -147,7 +147,8 @@ async fn a_line_with_images_to_a_model_that_takes_none_is_refused() {
         (refused.kind, refused.text.as_str()),
         (
             ReplyKind::Error,
-            "the model `faux::unlisted` takes no images; choose \
+            // Under faux every agent runs the faux model, as today.
+            "the model `faux::faux-1` takes no images; choose \
              another model or leave the images out"
         )
     );
