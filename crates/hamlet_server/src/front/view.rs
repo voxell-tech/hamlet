@@ -1,35 +1,35 @@
-//! The realm a client is shown.
+//! The realm a client is shown: the realm's own `State` with the
+//! door's fields, read again on each change of the realm and the
+//! library, and sent to each client as the changes since the last.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_messages::address::Realm;
+use hamlet_actor::Event;
+use hamlet_host::{Item, Subscription};
+use hamlet_messages::address::{self, Library, Party, Realm};
+use hamlet_messages::agent::chat::ReadProviders;
+use hamlet_messages::library::{ReadShelves, Shelved};
 use hamlet_messages::realm::budget::Payer;
-use hamlet_messages::realm::client::ReadWorld;
-use hamlet_messages::realm::oversight::Permission;
+use hamlet_messages::realm::client::{ReadState, ReadWorld, World};
 use hamlet_messages::realm::world::{
-    AgentSeen, GrantSeen, HamletSeen, Seen, Spend, Starter, Status,
-    WaitKind, WaitSeen,
+    AgentSeen, Revision, Seen, Spend, Status, WaitSeen,
 };
-use hamlet_messages::realm::{HowEnded, Left, Tier};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, Choice, Confinement, Doing, Link, LinkState,
-    Newcomers, SettingsView, SettingsViewWorkspace, WaitDanger,
-    WaitDetail,
+    self as protocol, Confinement, Doing, Link, ServerMessage,
 };
 use hamlet_store::ids::AgentId;
+use tokio::sync::{mpsc, oneshot, watch};
 
-use super::call::Calls;
+use super::call::{Calls, server_failed};
 use super::host::HAND;
-use super::words;
-use crate::clients::state::{hamlet_limits, realm_limits};
-use crate::oversight::Danger;
+use super::hub::Hub;
+use super::{Frames, words};
+use crate::clients::changes;
 use crate::society::addresses::Address;
-use crate::society::agents::EndHow;
-use crate::society::limits::{Limits, RealmLimits};
-use crate::spend;
-use crate::talk::activity;
+use crate::talk::activity::{self, Activity};
 
 /// What the server knows of itself, shown in every `State`.
 pub(crate) struct Own {
@@ -39,15 +39,32 @@ pub(crate) struct Own {
     pub(crate) realm: String,
     /// When this server started, in milliseconds since the epoch.
     pub(crate) epoch: i64,
+    /// The last check of the realm's model.
+    pub(crate) link: watch::Sender<Link>,
 }
 
 /// The realm as the door last read it, with the server's own fields.
 pub(crate) struct View {
     pub(crate) own: Arc<Own>,
     pub(crate) world: Seen,
+    /// The name of each hire's profile.
+    profiles: BTreeMap<AgentNumber, String>,
+    /// The waits as a client is shown them.
+    waits: Vec<protocol::Wait>,
 }
 
 impl View {
+    /// The view of `world`, which shows no profile and no wait.
+    #[cfg(test)]
+    pub(crate) fn of(own: Arc<Own>, world: Seen) -> Self {
+        Self {
+            own,
+            world,
+            profiles: BTreeMap::new(),
+            waits: Vec::new(),
+        }
+    }
+
     /// The agent numbered `number`, ended ones too.
     pub(crate) fn agent(
         &self,
@@ -69,16 +86,31 @@ impl View {
     }
 
     /// How the agent numbered `number` is shown to a chief: its
-    /// address, and its nickname beside it when it has one.
+    /// address, with beside it a worker's nickname, or a hire's
+    /// nickname else the name of its profile.
     pub(crate) fn name(&self, number: AgentNumber) -> String {
         let address = self.address(number);
-        match self
-            .agent(number)
-            .and_then(|seen| seen.nickname.as_ref())
-        {
-            Some(nickname) => format!("{address} ({nickname})"),
+        let nickname =
+            self.agent(number).and_then(|seen| seen.nickname.clone());
+        let beside = match self.kind(number) {
+            protocol::AgentKind::Hand => None,
+            protocol::AgentKind::Worker => nickname,
+            protocol::AgentKind::Hire => nickname
+                .or_else(|| self.profiles.get(&number).cloned()),
+        };
+        match beside {
+            Some(beside) => format!("{address} ({beside})"),
             None => address,
         }
+    }
+
+    /// The wait `seen` as a client is shown it; none once it closed.
+    pub(crate) fn wait(
+        &self,
+        seen: &WaitSeen,
+    ) -> Option<&protocol::Wait> {
+        let id = seen.wait.0.to_string();
+        self.waits.iter().find(|shown| shown.id == id)
     }
 
     /// What `payer` spent in its period, as the world holds it.
@@ -121,233 +153,35 @@ pub(crate) async fn read(
     calls: &Calls,
     own: &Arc<Own>,
 ) -> Result<View> {
+    let (world, state) = tokio::try_join!(
+        calls.call(&Realm, &ReadWorld),
+        calls.call(&Realm, &ReadState),
+    )?;
+    let profiles = state
+        .agents
+        .iter()
+        .filter_map(|agent| {
+            let profile = state
+                .scholars
+                .iter()
+                .find(|shown| Some(shown.id) == agent.scholar)?;
+            Some((
+                super::route::number(agent.id)?,
+                profile.name.clone(),
+            ))
+        })
+        .collect();
     Ok(View {
         own: own.clone(),
-        world: calls.call(&Realm, &ReadWorld).await?,
+        world,
+        profiles,
+        waits: state.waits,
     })
-}
-
-/// The realm as a client is shown it: the server's own fields, and
-/// of the agents, hamlets, waits and grants what the world holds.
-pub(crate) fn state(view: &View) -> protocol::State {
-    let own = &view.own;
-    let world = &view.world;
-    protocol::State {
-        agents: world
-            .agents
-            .iter()
-            .map(|seen| agent(view, seen))
-            .collect(),
-        chief: own.chief.clone(),
-        closed: Vec::new(),
-        confinement: own.confinement.clone(),
-        deeds: crate::commands::deeds(),
-        epoch: own.epoch,
-        grants: world
-            .grants
-            .iter()
-            .map(|seen| grant(view, seen))
-            .collect(),
-        hamlets: world
-            .hamlets
-            .iter()
-            .map(|seen| hamlet(view, seen))
-            .collect(),
-        hand: wire(HAND),
-        library: Vec::new(),
-        limits: realm_limits(&RealmLimits::default()),
-        providers: Vec::new(),
-        realm: own.realm.clone(),
-        revision: i64::try_from(world.revision.0).unwrap_or(i64::MAX),
-        scholars: Vec::new(),
-        settings: SettingsView {
-            allow_net: false,
-            character: String::new(),
-            effort: None,
-            endpoints: Vec::new(),
-            link: Link {
-                models: None,
-                state: LinkState::Untested,
-                words: None,
-            },
-            model: String::new(),
-            newcomers: Newcomers::default(),
-            reflect_every: 0,
-            unset: true,
-            workspace: SettingsViewWorkspace {
-                moving: None,
-                running: None,
-                url: None,
-            },
-        },
-        waits: world
-            .waits
-            .iter()
-            .map(|seen| wait(view, seen))
-            .collect(),
-    }
 }
 
 /// The agent numbered `number` as the protocol names it.
 pub(crate) fn wire(number: AgentNumber) -> protocol::AgentId {
     protocol::AgentId(u64::from(number.0))
-}
-
-fn agent(view: &View, seen: &AgentSeen) -> protocol::Agent {
-    let number = seen.agent;
-    let kind = view.kind(number);
-    let left = match &seen.status {
-        Status::Ended { left } => Some(gone(view, left)),
-        _ => None,
-    };
-    let mayor = left.is_none()
-        && view
-            .world
-            .hamlets
-            .iter()
-            .any(|place| place.mayor == number);
-    let parent = match kind {
-        protocol::AgentKind::Hand => None,
-        protocol::AgentKind::Hire => Some(seen.lead.unwrap_or(HAND)),
-        protocol::AgentKind::Worker => match &seen.worker {
-            Some(Starter::Agent { agent }) => Some(*agent),
-            _ => None,
-        },
-    };
-    let doing = Doing::Rest;
-    protocol::Agent {
-        activity: protocol::AgentActivity {
-            doing_words: activity::words(&doing).into(),
-            doing,
-            failures: 0,
-            step: 0,
-        },
-        allowance: seen
-            .allowance_micros
-            .map(|micros| micros as f64 / 1_000_000.0),
-        busy: false,
-        consulting: false,
-        conversations: Vec::new(),
-        effort: seen.effort,
-        faulted: false,
-        fast: seen.fast.unwrap_or(false),
-        hamlet: seen.hamlet.as_ref().map(|hamlet| hamlet.0.clone()),
-        id: wire(number),
-        kind,
-        left,
-        mayor,
-        model: seen.model.clone().unwrap_or_default(),
-        name: view.address(number),
-        nickname: seen.nickname.clone(),
-        own_model: seen.model.clone(),
-        parent: parent.map(wire),
-        pin: None,
-        purpose: String::new(),
-        saying: protocol::AgentSaying {
-            text: String::new(),
-            thought: false,
-        },
-        scholar: None,
-        since: 0,
-        skills: Vec::new(),
-        spent: protocol::AgentSpent {
-            cost: spend::money(0),
-            micros: 0,
-            ms: 0,
-            tokens: 0,
-        },
-        tools_off: Vec::new(),
-    }
-}
-
-/// How an agent left, as the protocol shows it.
-fn gone(view: &View, left: &Left) -> protocol::Left {
-    let realm = || words::REALM.to_owned();
-    let (end, by, how) = match &left.how {
-        HowEnded::ByTheChief => (
-            EndHow::Ended,
-            view.own.chief.clone(),
-            protocol::LeftHow::Ended,
-        ),
-        HowEnded::ByALead { lead } => (
-            EndHow::Ended,
-            view.address(lead.agent),
-            protocol::LeftHow::Ended,
-        ),
-        HowEnded::ByTheHand => (
-            EndHow::Ended,
-            view.address(HAND),
-            protocol::LeftHow::Ended,
-        ),
-        HowEnded::Answered => {
-            (EndHow::Answered, realm(), protocol::LeftHow::Answered)
-        }
-        HowEnded::Failed => {
-            (EndHow::Failed, realm(), protocol::LeftHow::Failed)
-        }
-        HowEnded::Stopped => {
-            (EndHow::Stopped, realm(), protocol::LeftHow::Stopped)
-        }
-        HowEnded::Merged { by, .. } => (
-            EndHow::Merged,
-            by.as_ref().map_or_else(
-                || view.own.chief.clone(),
-                |by| view.address(by.agent),
-            ),
-            protocol::LeftHow::Merged,
-        ),
-        HowEnded::ProfileArchived => (
-            EndHow::Scholar,
-            view.own.chief.clone(),
-            protocol::LeftHow::Scholar,
-        ),
-        HowEnded::HamletRemoved { by } => (
-            EndHow::Hamlet,
-            by.as_ref().map_or_else(
-                || view.own.chief.clone(),
-                |by| view.address(by.agent),
-            ),
-            protocol::LeftHow::Hamlet,
-        ),
-    };
-    let into = match &left.how {
-        HowEnded::Merged { into, .. } => Some(wire(into.agent)),
-        _ => None,
-    };
-    protocol::Left {
-        at: 0,
-        by,
-        how,
-        into,
-        reason: left.why.clone().unwrap_or_default(),
-        words: end.words().into(),
-    }
-}
-
-fn hamlet(view: &View, seen: &HamletSeen) -> protocol::Hamlet {
-    let payer = Payer::Hamlet {
-        hamlet: seen.hamlet.clone(),
-    };
-    protocol::Hamlet {
-        at: None,
-        before: Vec::new(),
-        budget: report(view.spend(&payer), "Hamlet"),
-        chiefs: Vec::new(),
-        folder: None,
-        id: seen.hamlet.0.clone(),
-        limits: hamlet_limits(&Limits::default()),
-        mayor: wire(seen.mayor),
-        mode: protocol::HamletMode::Manual,
-        mode_words: words::NO_FOLDER.into(),
-        name: seen.name.clone(),
-        roads: Vec::new(),
-        tier: match seen.tier {
-            Tier::Fifty => 50,
-            Tier::Hundred => 100,
-            Tier::TwoHundred => 200,
-            Tier::FiveHundred => 500,
-        },
-    }
 }
 
 /// The budget report of a payer, `Hamlet` or `Realm` by `whose`,
@@ -381,90 +215,403 @@ pub(crate) fn report(
     }
 }
 
-fn grant(view: &View, seen: &GrantSeen) -> protocol::Grant {
-    protocol::Grant {
-        agent: Some(wire(seen.agent)),
-        by: None,
-        name: view.address(seen.agent),
-        permission: match seen.permission {
-            Permission::Network => protocol::Permission::Network,
-        },
-        source: protocol::GrantSource::Grant,
+/// The door's means to show its clients the realm, served by
+/// [`serve`].
+#[derive(Clone)]
+pub(crate) struct Shows {
+    jobs: mpsc::UnboundedSender<Job>,
+}
+
+pub(crate) type Jobs = mpsc::UnboundedReceiver<Job>;
+
+pub(crate) enum Job {
+    /// Reads the realm again and shows what changed, then tells.
+    Read(oneshot::Sender<()>),
+    /// Shows a client that said hello the realm as it is now, then
+    /// tells.
+    Welcome(u64, oneshot::Sender<()>),
+    /// Forgets a client whose connection closed.
+    Gone(u64),
+    /// Shows what the agents do now.
+    Activity,
+    /// Reads the providers the Hand can sign in to.
+    ReadProviders,
+    /// The providers read, or none when they could not be.
+    Providers(Option<Vec<protocol::ProviderView>>),
+}
+
+impl Shows {
+    pub(crate) fn new() -> (Self, Jobs) {
+        let (jobs, taken) = mpsc::unbounded_channel();
+        (Self { jobs }, taken)
+    }
+
+    /// Shows every client what changed in the realm, and reads the
+    /// providers again after.
+    pub(crate) async fn read(&self) {
+        let (told, tells) = oneshot::channel();
+        let _ = self.jobs.send(Job::Read(told));
+        let _ = tells.await;
+        self.read_providers();
+    }
+
+    /// Shows `client`, which said hello, the realm as it is now; from
+    /// then on it is sent each change.
+    pub(crate) async fn welcome(&self, client: u64) {
+        let (told, tells) = oneshot::channel();
+        let _ = self.jobs.send(Job::Welcome(client, told));
+        let _ = tells.await;
+    }
+
+    pub(crate) fn gone(&self, client: u64) {
+        let _ = self.jobs.send(Job::Gone(client));
+    }
+
+    pub(crate) fn activity(&self) {
+        let _ = self.jobs.send(Job::Activity);
+    }
+
+    pub(crate) fn read_providers(&self) {
+        let _ = self.jobs.send(Job::ReadProviders);
     }
 }
 
-/// A wait as the protocol shows it, with the answers the realm
-/// takes for its kind.
-pub(crate) fn wait(view: &View, seen: &WaitSeen) -> protocol::Wait {
-    let approval = |danger: Danger, wire: WaitDanger| {
-        (
-            vec![Choice::Allow, Choice::Deny],
-            WaitDetail::Approval {
-                always: None,
-                danger: wire,
-                says: danger.says().into(),
-            },
-        )
+/// Shows the clients the realm until the door closes: reads it again
+/// on each change the realm and the library tell, and after an event
+/// was missed.
+pub(crate) async fn serve(
+    mut jobs: Jobs,
+    shows: Shows,
+    calls: Calls,
+    own: Arc<Own>,
+    hub: Hub,
+    frames: Frames,
+) {
+    let mut world = subscribe(&hub, &calls, Realm, World::NAME).await;
+    let mut shelves =
+        subscribe(&hub, &calls, Library, Shelved::NAME).await;
+    let mut link = own.link.subscribe();
+    let epoch = own.epoch;
+    let mut shown = Shown {
+        shows,
+        calls,
+        own,
+        hub,
+        frames,
+        realm: None,
+        library: Vec::new(),
+        providers: Vec::new(),
+        sent: None,
+        epoch,
+        revision: 0,
+        clients: BTreeSet::new(),
+        read: Revision::default(),
+        providers_read: Reading::Idle,
     };
-    let (answers, detail) = match &seen.kind {
-        WaitKind::Question {
-            message, questions, ..
-        } => (
-            vec![Choice::Reply, Choice::Dismiss],
-            WaitDetail::Question {
-                questions: protocol::Questions {
-                    message: message.clone().unwrap_or_default(),
-                    questions: questions
-                        .iter()
-                        .map(|asked| protocol::Question {
-                            description: asked
-                                .description
-                                .clone()
-                                .unwrap_or_default(),
-                            options: asked
-                                .options
-                                .iter()
-                                .map(|offer| protocol::Offer {
-                                    description: offer
-                                        .description
-                                        .clone()
-                                        .unwrap_or_default(),
-                                    title: offer.title.clone(),
-                                })
-                                .collect(),
-                            question: asked.question.clone(),
-                            text_input: asked.text_input,
-                        })
-                        .collect(),
-                },
+    shown.shelves().await;
+    let _ = shown.reread().await;
+    loop {
+        tokio::select! {
+            job = jobs.recv() => match job {
+                Some(job) => shown.job(job).await,
+                None => return,
             },
-        ),
-        WaitKind::Objection { .. } => (
-            vec![Choice::Go, Choice::Withdraw],
-            WaitDetail::Objection {},
-        ),
-        WaitKind::Fault => {
-            (vec![Choice::Dismiss], WaitDetail::Fault {})
+            item = next(&mut world) => {
+                if let Err(error) = &item {
+                    world =
+                        shown.follow_again(Realm, World::NAME, error).await;
+                }
+                if shown.newer(&item) {
+                    let _ = shown.reread().await;
+                }
+            }
+            item = next(&mut shelves) => {
+                if let Err(error) = &item {
+                    shelves = shown
+                        .follow_again(Library, Shelved::NAME, error)
+                        .await;
+                }
+                shown.shelves().await;
+                shown.publish();
+            }
+            Ok(()) = link.changed() => shown.publish(),
         }
-        WaitKind::Reserved => {
-            approval(Danger::Reserved, WaitDanger::Reserved)
-        }
-        WaitKind::Send { .. } => {
-            approval(Danger::Send, WaitDanger::Send)
-        }
-        _ => approval(Danger::Command, WaitDanger::Command),
-    };
-    protocol::Wait {
-        about: seen.subject.clone(),
-        agent: Some(wire(seen.agent)),
-        answers,
-        asked: 0,
-        by: view.address(seen.agent),
-        change: None,
-        chat: None,
-        detail,
-        id: seen.wait.0.to_string(),
-        since: 0,
-        subject: seen.subject.clone(),
     }
+}
+
+/// Follows the event `event` of `party`; none when it cannot be.
+async fn subscribe(
+    hub: &Hub,
+    calls: &Calls,
+    party: impl Party,
+    event: &str,
+) -> Option<Subscription> {
+    let followed = async {
+        let at = party.address()?;
+        calls.subscribe(&at, event).await
+    };
+    followed
+        .await
+        .inspect_err(|error| {
+            hub.tell(format!("cannot follow {event}: {error:#}"));
+        })
+        .ok()
+}
+
+/// The next item of `followed`, never while there is none.
+async fn next(followed: &mut Option<Subscription>) -> Result<Item> {
+    match followed {
+        Some(followed) => followed.next().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// What [`serve`] keeps: the realm as read last, the door's own parts
+/// of it, and the `State` the clients were sent with the changes
+/// since.
+struct Shown {
+    shows: Shows,
+    calls: Calls,
+    own: Arc<Own>,
+    hub: Hub,
+    frames: Frames,
+    realm: Option<protocol::State>,
+    library: Vec<protocol::LibrarySkill>,
+    providers: Vec<protocol::ProviderView>,
+    sent: Option<protocol::State>,
+    epoch: i64,
+    revision: i64,
+    /// The clients sent a `State`, which each change goes to.
+    clients: BTreeSet<u64>,
+    /// The revision of the last change the realm told, read since.
+    read: Revision,
+    providers_read: Reading,
+}
+
+/// Whether the providers are being read, and again after.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    Idle,
+    Once,
+    Again,
+}
+
+impl Shown {
+    async fn job(&mut self, job: Job) {
+        match job {
+            Job::Read(told) => {
+                let _ = self.reread().await;
+                let _ = told.send(());
+            }
+            Job::Welcome(client, told) => {
+                self.welcome(client).await;
+                let _ = told.send(());
+            }
+            Job::Gone(client) => {
+                self.clients.remove(&client);
+            }
+            Job::Activity => self.publish(),
+            Job::ReadProviders => match self.providers_read {
+                Reading::Idle => self.read_providers(),
+                Reading::Once | Reading::Again => {
+                    self.providers_read = Reading::Again;
+                }
+            },
+            Job::Providers(read) => {
+                if let Some(providers) = read {
+                    self.providers = providers;
+                    self.publish();
+                }
+                if std::mem::replace(
+                    &mut self.providers_read,
+                    Reading::Idle,
+                ) == Reading::Again
+                {
+                    self.read_providers();
+                }
+            }
+        }
+    }
+
+    /// Whether `item` of the realm's changes tells one not read yet.
+    fn newer(&mut self, item: &Result<Item>) -> bool {
+        let Ok(Item::Event(args)) = item else {
+            return true;
+        };
+        match ciborium::from_reader::<(World,), _>(args.as_slice()) {
+            Ok((event,)) if event.revision <= self.read => false,
+            Ok((event,)) => {
+                self.read = event.revision;
+                true
+            }
+            Err(_) => true,
+        }
+    }
+
+    /// Follows `event` of `party` again, after it ended with `error`.
+    async fn follow_again(
+        &self,
+        party: impl Party,
+        event: &str,
+        error: &anyhow::Error,
+    ) -> Option<Subscription> {
+        self.hub.tell(format!("{event} ended: {error:#}"));
+        subscribe(&self.hub, &self.calls, party, event).await
+    }
+
+    /// Reads the providers from the Hand outside the jobs, which a
+    /// Hand not yet up would hold.
+    fn read_providers(&mut self) {
+        self.providers_read = Reading::Once;
+        let (calls, shows) = (self.calls.clone(), self.shows.clone());
+        tokio::spawn(async move {
+            let read = calls
+                .call(&address::Agent(HAND), &ReadProviders)
+                .await
+                .ok()
+                .map(|list| list.providers);
+            let _ = shows.jobs.send(Job::Providers(read));
+        });
+    }
+
+    async fn shelves(&mut self) {
+        if let Ok(shelves) =
+            self.calls.call(&Library, &ReadShelves).await
+        {
+            self.library = shelves
+                .skills
+                .into_iter()
+                .map(|skill| protocol::LibrarySkill {
+                    by: String::new(),
+                    description: skill.description,
+                    name: skill.name,
+                })
+                .collect();
+        }
+    }
+
+    /// Reads the realm, follows the agents it shows at work, and
+    /// shows the clients what changed.
+    async fn reread(&mut self) -> Result<()> {
+        let state = self.calls.call(&Realm, &ReadState).await?;
+        let busy = state
+            .agents
+            .iter()
+            .filter(|agent| agent.busy)
+            .filter_map(|agent| super::route::number(agent.id))
+            .collect();
+        self.hub.busy(&busy);
+        self.realm = Some(state);
+        self.publish();
+        Ok(())
+    }
+
+    async fn welcome(&mut self, client: u64) {
+        if let Err(error) = self.reread().await {
+            let _ = self
+                .frames
+                .send((client, server_failed(None, &error)));
+            return;
+        }
+        let Some(sent) = self.sent.clone().or_else(|| self.compose())
+        else {
+            return;
+        };
+        if self.sent.is_none() {
+            self.revision = 0;
+            self.sent = Some(sent.clone());
+        }
+        let whole = protocol::State {
+            epoch: self.epoch,
+            revision: self.revision,
+            ..sent
+        };
+        let _ =
+            self.frames.send((client, ServerMessage::State(whole)));
+        self.clients.insert(client);
+    }
+
+    /// Sends each client what changed since the `State` it holds.
+    fn publish(&mut self) {
+        if self.clients.is_empty() {
+            self.sent = None;
+            return;
+        }
+        let Some(state) = self.compose() else {
+            return;
+        };
+        let message = match self
+            .sent
+            .as_ref()
+            .and_then(|old| changes(old, &state))
+        {
+            Some(updates) if updates.is_empty() => return,
+            Some(updates) => {
+                self.revision += 1;
+                ServerMessage::Change(protocol::Changes {
+                    changes: updates,
+                    epoch: self.epoch,
+                    revision: self.revision,
+                })
+            }
+            None => {
+                self.epoch = crate::clock::now();
+                self.revision = 0;
+                ServerMessage::State(protocol::State {
+                    epoch: self.epoch,
+                    revision: 0,
+                    ..state.clone()
+                })
+            }
+        };
+        self.sent = Some(state);
+        for &client in &self.clients {
+            let _ = self.frames.send((client, message.clone()));
+        }
+    }
+
+    /// The realm as read last with the door's own fields, and what
+    /// each agent does now.
+    fn compose(&self) -> Option<protocol::State> {
+        let own = &self.own;
+        let mut state = protocol::State {
+            chief: own.chief.clone(),
+            confinement: own.confinement.clone(),
+            deeds: crate::commands::deeds(),
+            hand: wire(HAND),
+            library: self.library.clone(),
+            providers: self.providers.clone(),
+            realm: own.realm.clone(),
+            ..self.realm.clone()?
+        };
+        state.settings.link = own.link.borrow().clone();
+        for agent in &mut state.agents {
+            if let Some(shown) = super::route::number(agent.id)
+                .and_then(|number| self.hub.activity(number))
+            {
+                show(agent, &shown);
+            }
+        }
+        Some(state)
+    }
+}
+
+/// Shows on `agent` what `shown` says it does and says.
+fn show(agent: &mut protocol::Agent, shown: &Activity) {
+    let doing = if agent.busy && shown.working {
+        shown.doing.clone()
+    } else {
+        Doing::Rest
+    };
+    agent.activity = protocol::AgentActivity {
+        doing_words: activity::words(&doing).into(),
+        doing,
+        failures: u64::try_from(shown.failures).unwrap_or(0),
+        step: u64::try_from(shown.step).unwrap_or(0),
+    };
+    agent.saying = protocol::AgentSaying {
+        text: shown.saying.clone(),
+        thought: shown.thought,
+    };
+    agent.faulted = shown.faulted;
 }

@@ -395,8 +395,11 @@ async fn perform(
                 .world
                 .waits
                 .iter()
-                .map(|seen| {
-                    (view::wait(view, seen), view.name(seen.agent))
+                .filter_map(|seen| {
+                    Some((
+                        view.wait(seen)?.clone(),
+                        view.name(seen.agent),
+                    ))
                 })
                 .collect::<Vec<_>>();
             Ok(words::queue(&waits))
@@ -448,7 +451,9 @@ async fn perform(
                     Ok(words::founded(
                         &shown,
                         &hamlet.0,
-                        &view.address(mayor),
+                        &view::read(calls, &view.own)
+                            .await?
+                            .name(mayor),
                     ))
                 }
                 FoundAnswer::Refused { why } => Err(refused(why)),
@@ -476,9 +481,11 @@ async fn perform(
             done(ask(calls, id, act).await?, || said)
         }
         Act::Hire(act) => match ask(calls, id, act).await? {
-            HireAnswer::Hired { agent } => {
-                Ok(words::hired(&view.address(agent.agent)))
-            }
+            HireAnswer::Hired { agent } => Ok(words::hired(
+                &view::read(calls, &view.own)
+                    .await?
+                    .name(agent.agent),
+            )),
             HireAnswer::Refused { why } => Err(refused(why)),
         },
         Act::End { hire, .. }
@@ -779,11 +786,11 @@ pub(crate) async fn answer(
         .waits
         .iter()
         .find(|seen| seen.wait.0.to_string() == number)
-        .map(|seen| {
-            words::wait_line(
-                &view::wait(view, seen),
+        .and_then(|seen| {
+            Some(words::wait_line(
+                view.wait(seen)?,
                 &view.name(seen.agent),
-            )
+            ))
         });
     let choice = answer.choice.clone();
     Ok(done(calls.call(&Realm, &Answer(answer)).await?, || {

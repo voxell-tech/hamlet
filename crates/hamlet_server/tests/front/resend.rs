@@ -10,7 +10,7 @@ use serde_json::json;
 
 use super::commands::found;
 use super::ended::{ended, hire_blank};
-use super::{look, serve, until};
+use super::{hired_address, look, serve, until};
 
 /// Sends `line` from a connection of its own and gives its answer.
 async fn sent(server: &Server, line: &Say) -> (ReplyKind, String) {
@@ -40,11 +40,7 @@ async fn hire_of(
     let hired = chief
         .command(hand, &format!("/hire {profile} in {docs}"))
         .await;
-    hired
-        .strip_suffix(" is hired.")
-        .unwrap_or_else(|| panic!("{hired}"))
-        .trim_matches('`')
-        .to_owned()
+    hired_address(&hired)
 }
 
 #[tokio::test(flavor = "multi_thread")]

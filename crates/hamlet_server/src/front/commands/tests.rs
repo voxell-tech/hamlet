@@ -45,14 +45,17 @@ fn view() -> View {
             why: None,
         },
     };
-    View {
-        own: Arc::new(Own {
+    View::of(
+        Arc::new(Own {
             chief: "Ada".into(),
             confinement: Confinement::Insecure,
             realm: "/realm".into(),
             epoch: 0,
+            link: tokio::sync::watch::Sender::new(
+                crate::settings::untested(),
+            ),
         }),
-        world: Seen {
+        Seen {
             agents: vec![
                 seen(1, Status::Live, false),
                 seen(2, Status::Live, false),
@@ -62,7 +65,7 @@ fn view() -> View {
             ],
             ..Seen::default()
         },
-    }
+    )
 }
 
 fn at(text: &str) -> Target {

@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Login,
-    LoginMethod, LoginReply, LoginStart, LoginStep, New, Open, Read,
-    ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
+    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, LinkState,
+    Login, LoginMethod, LoginReply, LoginStart, LoginStep, New, Open,
+    Read, ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
     ServerMessage, Stop, TranscriptOperation,
 };
 use hamlet_testing::{Scratch, Server};
@@ -447,8 +447,7 @@ async fn an_open_after_its_follow_ended_follows_again() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// Each request the door answers from the actors, with what changed
-/// shown to every client before the reply.
+/// Each request the door answers from the actors.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_request_is_answered_in_todays_words() {
     let (mut server, _home, _side) =
@@ -471,6 +470,14 @@ async fn each_request_is_answered_in_todays_words() {
         })
         .await;
     assert_eq!(checked.kind, ReplyKind::Notice, "{}", checked.text);
+    chief
+        .until("the model link the check set", |chief| {
+            let link = chief.realm().settings.link;
+            link.state == LinkState::Connected
+                && link.words.as_deref()
+                    == Some(checked.text.as_str())
+        })
+        .await;
     let unnamed = chief
         .request(|id| {
             ClientMessage::Check(Check::Model { id, model: None })
@@ -518,26 +525,12 @@ async fn each_request_is_answered_in_todays_words() {
     );
 
     let seen = other.messages().len();
-    let asked = chief.messages().len();
     let began = chief
         .request(|id| ClientMessage::New(New { id, to: hand }))
         .await;
     assert_eq!(
         (began.kind, began.text.as_str()),
         (ReplyKind::Notice, "Session 2 began.")
-    );
-    let answered = chief
-        .messages()
-        .iter()
-        .rposition(|message| {
-            matches!(message, ServerMessage::Reply(_))
-        })
-        .unwrap();
-    assert!(
-        chief.messages()[asked..answered].iter().any(
-            |message| matches!(message, ServerMessage::State(_))
-        ),
-        "the asker is shown the realm before the reply"
     );
     let reread = |message: &ServerMessage| {
         matches!(
@@ -549,13 +542,6 @@ async fn each_request_is_answered_in_todays_words() {
     other
         .until("the watcher's session read again", |other| {
             other.messages()[seen..].iter().any(reread)
-        })
-        .await;
-    other
-        .until("the watcher shown the realm", |other| {
-            other.messages()[seen..].iter().any(|message| {
-                matches!(message, ServerMessage::State(_))
-            })
         })
         .await;
     let back = chief
