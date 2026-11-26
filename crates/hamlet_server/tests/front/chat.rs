@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, LinkState,
-    Login, LoginMethod, LoginReply, LoginStart, LoginStep, New, Open,
-    Read, ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
-    ServerMessage, Stop, TranscriptOperation,
+    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Keeper,
+    LinkState, Login, LoginMethod, LoginReply, LoginStart, LoginStep,
+    New, Open, Read, ReadResult, ReplyKind, RequestId, Resume, Retry,
+    Say, ServerMessage, Stop, TranscriptOperation,
 };
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
@@ -797,6 +797,32 @@ async fn the_items_of_two_agents_chats_never_share_an_id() {
             assert!(ids.insert(item.id.clone()), "{} twice", item.id);
         }
     }
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scholar_made_and_founded_under_in_one_answer_has_its_papers()
+ {
+    let (mut server, _home, _side) = serve(json!([
+        {"calls": [
+            {"name": "create_scholar",
+             "arguments": {"name": "bo", "character": "Careful."}},
+            {"name": "found_hamlet",
+             "arguments": {"name": "bog", "scholar": "scholar#2",
+                           "purpose": "drain"}}
+        ]},
+        "Founded."
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.open(&chat(hand)).await;
+    chief.tell(hand, "Found a hamlet.").await;
+    chief.shows(&chat(hand), "Founded.").await;
+    let scholar = chief.scholar("bo").unwrap().id;
+    let papers = chief.papers(Keeper::Scholar(scholar)).await;
+    assert_eq!(papers.character, "Careful.");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

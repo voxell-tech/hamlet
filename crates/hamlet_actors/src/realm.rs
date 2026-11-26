@@ -205,6 +205,10 @@ struct Realm {
     /// Per profile, held shared by each purge of it in flight, and
     /// alone while a dream's folders are checked out of it.
     purging: Mutex<HashMap<ProfileId, Arc<tokio::sync::RwLock<()>>>>,
+    /// Held shared by each profile made in flight, from before its
+    /// row is kept until its actor is made, so that nothing starts
+    /// that actor empty meanwhile.
+    making: tokio::sync::RwLock<()>,
 }
 
 impl Realm {
@@ -356,6 +360,7 @@ impl Actor for Realm {
                 lanes: lanes::Lanes::default(),
                 lines: lines::Lines::default(),
                 purging: Mutex::default(),
+                making: tokio::sync::RwLock::default(),
             })
         }
         .await

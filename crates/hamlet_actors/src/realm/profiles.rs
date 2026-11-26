@@ -230,6 +230,7 @@ pub(super) async fn start(
     })?;
     let text = match kept.kind {
         Kind::Shared => {
+            drop(cx.realm.making.write().await);
             return cx.peers().get_or_start(&Profile(profile)).await;
         }
         Kind::Hand => HAND_CHARACTER.to_owned(),
@@ -564,6 +565,7 @@ impl Handler<Create> for Realm {
         Create(tool): Create,
     ) -> Result<<Create as Action>::Output> {
         let character = tool.act.character.clone();
+        let _making = self.making.read().await;
         let made = self.clone().handle(ctx.clone(), tool).await?;
         if let Made::Made { profile, .. } = &made {
             self.start_profile(&ctx, *profile, character).await?;
@@ -595,6 +597,7 @@ impl Handler<ChiefCreate> for Realm {
         ChiefCreate(asked): ChiefCreate,
     ) -> Result<<ChiefCreate as Action>::Output> {
         let character = asked.act.character.clone();
+        let _making = self.making.read().await;
         let made = self.clone().handle(ctx.clone(), asked).await?;
         if let Made::Made { profile, .. } = &made {
             self.start_profile(&ctx, *profile, character).await?;
