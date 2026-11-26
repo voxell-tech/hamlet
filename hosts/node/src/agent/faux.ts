@@ -392,6 +392,11 @@ function measured(
                     used.cacheRead = 0;
                     used.cacheWrite = 0;
                     used.totalTokens = usage.input + usage.output;
+                } else {
+                    // A prompt token the cache did not read is input, written
+                    // to the cache or not.
+                    used.input += used.cacheWrite;
+                    used.totalTokens += used.cacheWrite;
                 }
                 used.cost = calculateCost(model, used);
             }
@@ -496,7 +501,7 @@ export function fauxModels(
     const script: Script =
         path === undefined ? { steps: [], lists: new Map() } : scriptOf(path);
     const core = createFauxCore({
-        ...(script.models === undefined ? {} : { models: [...script.models] }),
+        models: [...(script.models ?? [{ id: FAUX_MODEL }])],
         ...(script.tokensPerSecond === undefined
             ? {}
             : { tokensPerSecond: script.tokensPerSecond }),

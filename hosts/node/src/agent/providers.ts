@@ -19,7 +19,20 @@ import { ANSWER_SHARE, DEFAULT_WINDOW } from "./compaction.ts";
 import type { Held } from "./copies.ts";
 import type { Endpoint } from "./messages/agent.ts";
 
-/** The built-in providers with today's sign-in methods. */
+/**
+ * The built-in providers this host's pi-ai lists and today's harness, on the
+ * pi-ai of `harnesses/pi/package.json`, does not.
+ */
+const NOT_TODAYS: ReadonlySet<string> = new Set([
+    "qwen-token-plan-individual-cn",
+]);
+
+/** The names today's harness gives the built-in providers that pi-ai renamed since. */
+const TODAYS_NAMES: Readonly<Record<string, string>> = {
+    "openai-codex": "OpenAI Codex (legacy)",
+};
+
+/** The built-in providers with today's names and sign-in methods. */
 export function hostProviders(): Provider[] {
     const openai: Provider = openaiProvider();
     const served = new Set(
@@ -28,9 +41,15 @@ export function hostProviders(): Provider[] {
             .map((m) => m.id),
     );
     const result = builtinProviders()
-        .filter((p) => p.id !== "zai" && p.id !== "zai-coding-cn")
+        .filter(
+            (p) =>
+                p.id !== "zai" &&
+                p.id !== "zai-coding-cn" &&
+                !NOT_TODAYS.has(p.id),
+        )
         .map((p) => ({
             ...p,
+            name: TODAYS_NAMES[p.id] ?? p.name,
             auth: {
                 ...(p.auth.apiKey === undefined
                     ? {}

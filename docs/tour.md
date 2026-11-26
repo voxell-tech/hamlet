@@ -752,9 +752,11 @@ other agent answers `login` with `not_the_hand`.
 - `failed.ts` writes a failed turn's notice and tells the realm
   `turn_failed`.
 - `models.ts` gives each model call the realm's `credential` and the
-  copy's price (`agentModels`). The host keeps a list of the secrets it
-  holds, the realm's secret list among them, and `models.ts` scrubs them
-  from what a client reads. `modelList` answers a client's
+  copy's price (`agentModels`). `credentials.ts` asks the realm for each
+  provider's credential and rotates a sign-in's login (`keysOf`), and
+  keeps a list of the secrets the host holds, the realm's secret list
+  among them, which it scrubs from what a client reads (`scrub`).
+  `modelList` answers a client's
   `read_models`, and `checkModel` its `check`, which asks a model for a
   hello outside any conversation and charges nothing.
   `login.ts` runs a sign-in step by step and gives the credential to the
@@ -1148,7 +1150,7 @@ built-in ones.
 | A message the agent takes or sends | `hosts/node/src/agent/messages/`, one file per actor; `hosts/node/test/messages.test.ts` checks them against `hamlet_messages/fixtures/` |
 | The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `entry.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
 | The demo's real realm and agent: its kinds, route table, verbs and faux model | `hamlet_host/examples/demo/realm_actor.rs`, `agent_host.rs`; `hosts/node/src/agent/demo-host.ts` |
-| A model request: its key, its price and its scrub; a client's model list and model check | `hosts/node/src/agent/models.ts` (`agentModels`, `modelList`, `checkModel`), `chat.ts` (`askedBy`, `read_models`, `check`) |
+| A model request: its key, its price and its scrub; a client's model list and model check | `hosts/node/src/agent/models.ts` (`agentModels`, `modelList`, `checkModel`), `credentials.ts` (`keysOf`, `scrub`), `chat.ts` (`askedBy`, `read_models`, `check`) |
 | What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
 | The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |

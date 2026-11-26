@@ -13,8 +13,8 @@ use hamlet_messages::agent::chat::{
 use hamlet_messages::realm::documents::{CardRead, CharterRead};
 use hamlet_protocol::client::{
     self as protocol, AgentId, AttachedFile, AttachedImage,
-    ImageInput, ItemKind, LastActivity, Link, LinkState, Listed,
-    ListedPriced, ReadResult, RequestId, ServerMessage, Transcript,
+    ImageInput, ItemKind, LastActivity, Listed, ListedPriced,
+    ReadResult, RequestId, ServerMessage, Transcript,
     TranscriptOperation, Turn,
 };
 use serde::Deserialize;
@@ -192,30 +192,17 @@ pub(crate) fn rewound(
 }
 
 /// A check of a model: its hello is the reply's words, and its
-/// failure or refusal the error's. A hello or a failure is the
-/// realm's model link from then on.
+/// failure or refusal the error's.
 pub(crate) fn checked(
     id: &RequestId,
     answer: &[u8],
     own: &Own,
 ) -> Result<ServerMessage> {
-    let link = |state, models: Option<u32>, words: &str| {
-        own.link.send_replace(Link {
-            models: models.map(i64::from),
-            state,
-            words: Some(words.to_owned()),
-        });
-    };
-    Ok(match ciborium::from_reader(answer)? {
-        Checked::Answered { words, models } => {
-            link(LinkState::Connected, models, &words);
-            notice(id, words)
-        }
-        Checked::Failed { words } => {
-            link(LinkState::Failed, None, &words);
-            reply(id, Err(Refusal::Usage { words }))
-        }
-        Checked::Refused { words } => {
+    let checked = ciborium::from_reader(answer)?;
+    own.show_check(&checked);
+    Ok(match checked {
+        Checked::Answered { words, .. } => notice(id, words),
+        Checked::Failed { words } | Checked::Refused { words } => {
             reply(id, Err(Refusal::Usage { words }))
         }
     })
@@ -312,11 +299,11 @@ pub(crate) fn models(
                         max_width: limits.max_width,
                         per_line: limits.per_line,
                     }),
-                    None => model.images.map(|per_line| ImageInput {
-                        max_bytes: None,
-                        max_height: None,
-                        max_width: None,
-                        per_line: Some(per_line),
+                    None => model.images.map(|listed| ImageInput {
+                        max_bytes: listed.max_bytes.map(u64::from),
+                        max_height: listed.max_height,
+                        max_width: listed.max_width,
+                        per_line: listed.per_line,
                     }),
                 };
             Listed {
@@ -511,7 +498,8 @@ fn usage(usage: Usage) -> protocol::UsageView {
 #[cfg(test)]
 mod tests {
     use hamlet_messages::agent::chat::{
-        Count, ListedModel, PromptSection, ResumeRefusal, Session,
+        Count, ListedImages, ListedModel, PromptSection,
+        ResumeRefusal, Session,
     };
     use hamlet_messages::agent::copies::Price;
     use hamlet_messages::workspace::AgentNumber;
@@ -526,11 +514,12 @@ mod tests {
             confinement: Confinement::Sandbox {
                 name: "bubblewrap".to_owned(),
             },
-            realm: "/realm".to_owned(),
+            root: "/realm".into(),
             epoch: 0,
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            moving: tokio::sync::watch::Sender::new(None),
             faux: false,
         }
     }
@@ -907,6 +896,51 @@ mod tests {
                     "Preferred.",
                     off
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_listed_models_images_are_shown_with_the_limits_it_names() {
+        let listed = |name: &str, images| ListedModel {
+            name: name.to_owned(),
+            title: name.to_owned(),
+            context: 8_000,
+            price: None,
+            images,
+            efforts: Vec::new(),
+            fast: false,
+        };
+        let limits = ListedImages {
+            max_bytes: Some(5_242_880),
+            max_height: Some(8000),
+            max_width: None,
+            per_line: Some(50),
+        };
+        let list = ModelList {
+            models: vec![
+                listed("local::plain", None),
+                listed("local::sees", Some(ListedImages::default())),
+                listed("local::few", Some(limits)),
+            ],
+        };
+        let ServerMessage::Read(ReadResult::Models {
+            models, ..
+        }) = models(&RequestId::new(), list, Vec::new())
+        else {
+            panic!("a read of the models");
+        };
+        assert_eq!(
+            models.into_iter().map(|m| m.images).collect::<Vec<_>>(),
+            [
+                None,
+                Some(ImageInput::default()),
+                Some(ImageInput {
+                    max_bytes: Some(5_242_880),
+                    max_height: Some(8000),
+                    max_width: None,
+                    per_line: Some(50),
+                }),
             ]
         );
     }

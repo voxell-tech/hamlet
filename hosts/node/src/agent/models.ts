@@ -1,7 +1,7 @@
 /**
- * The agent's model access: the model its copy names, the credential the
- * realm gives for it, held in memory only, and the price each call is
- * charged at. Also the host's scrub list.
+ * The agent's model access: the model its copy names, each call made with
+ * the realm's credential for it and scrubbed, and the price each call is
+ * charged at.
  */
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -9,14 +9,10 @@ import {
     type ApiKeyAuth,
     type AssistantMessage,
     type AssistantMessageEvent,
-    type Credential,
     createModels,
     type Model,
     type Models,
     type ModelsSimpleStreamOptions,
-    type OAuthAuth,
-    type OAuthCredential,
-    type ProviderEnv,
 } from "@earendil-works/pi-ai";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
@@ -31,333 +27,41 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
-import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
+import {
+    FAUX,
+    type Given,
+    type Keys,
+    keysOf,
+    scrub,
+    scrubbedError,
+    secretsLoaded,
+    withheld,
+} from "./credentials.ts";
 import {
     type Checked,
     EFFORTS,
     type Effort,
+    type ListedImages,
     type ListedModel,
     type Price,
     type ProviderView,
 } from "./messages/agent.ts";
-import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
-import { u32 } from "./messages/shared.ts";
+import { U32_MAX } from "./messages/shared.ts";
 import type { ImageLimits } from "./messages/workspace.ts";
 import { isEndpoint } from "./providers.ts";
-import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
+import type { BareRealm, Peers } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
 const RATE = 1;
 /** {@link RATE} for a model served on this machine. */
 const LOCAL_RATE = 0.1;
 
-/** The provider of the faux models, which take no credential. */
-const FAUX = "faux";
-
 /** The APIs whose requests carry a `service_tier`. */
 const FAST_APIS: readonly Api[] = [
     "openai-responses",
     "openai-codex-responses",
 ];
-
-/**
- * Every key, token and typed sign-in answer this host was given, and every
- * value of the realm's secret list, retired ones included, as today's server
- * keeps them for its scrub
- * (`crates/hamlet_server/src/credentials.rs`, `remember`). They live only
- * here, for the host's life.
- */
-const SECRETS = new Set<string>();
-
-export function remember(...secrets: readonly string[]): void {
-    for (const secret of secrets) if (secret !== "") SECRETS.add(secret);
-}
-
-/** The host's first load of the realm's secret list. */
-let listLoaded: Promise<void> | undefined;
-
-/**
- * The realm's whole secret list taken into the scrub, once in the host's
- * life; every read a client or a model makes waits for it. A load that
- * fails is tried again by the next read, so nothing leaves unscrubbed.
- */
-export function secretsLoaded(
-    realm: Pick<BareRealm, "secrets">,
-): Promise<void> {
-    listLoaded ??= realm.secrets().then(
-        ({ values }) => remember(...values),
-        (error: unknown) => {
-            listLoaded = undefined;
-            throw error;
-        },
-    );
-    return listLoaded;
-}
-
-/** Takes the realm's secret list again after its first load. */
-export async function secretsRefreshed(
-    realm: Pick<BareRealm, "secrets">,
-): Promise<void> {
-    const first = listLoaded;
-    await secretsLoaded(realm);
-    if (first !== undefined) remember(...(await realm.secrets()).values);
-}
-
-/** Remembers the secrets of `kept`, as today's `remember_model` does. */
-export function rememberKept(kept: Kept): void {
-    if (kept.type === "key") remember(kept.key);
-    else remember(kept.login.access, kept.login.refresh);
-}
-
-/**
- * `value` with every secret the host holds, and each of `also`, replaced
- * from the left: at each place the longest secret that begins there, as
- * `crates/hamlet_sandbox/src/scrub.rs` replaces them.
- */
-export function scrub<T>(value: T, also: readonly string[] = []): T {
-    const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
-        (a, b) => b.length - a.length,
-    );
-    if (secrets.length === 0) return value;
-    const clean = (text: string) => {
-        let out = "";
-        let at = 0;
-        while (at < text.length) {
-            const secret = secrets.find((word) => text.startsWith(word, at));
-            if (secret === undefined) {
-                out += text[at];
-                at += 1;
-            } else {
-                out += "[REDACTED]";
-                at += secret.length;
-            }
-        }
-        return out;
-    };
-    return JSON.parse(
-        JSON.stringify(value, (_key, item: unknown) => {
-            if (typeof item === "string") return clean(item);
-            if (
-                typeof item === "object" &&
-                item !== null &&
-                !Array.isArray(item)
-            ) {
-                return Object.fromEntries(
-                    Object.entries(item).map(([key, inner]) => [
-                        clean(key),
-                        inner,
-                    ]),
-                );
-            }
-            return item;
-        }),
-    ) as T;
-}
-
-/** `text` without a tail that begins a secret the host holds. */
-export function withheld(text: string): string {
-    let cut = 0;
-    for (const secret of SECRETS) {
-        for (let length = secret.length - 1; length > cut; length -= 1) {
-            if (text.endsWith(secret.slice(0, length))) cut = length;
-        }
-    }
-    return text.slice(0, text.length - cut);
-}
-
-/** The credential the realm gave this wake, per provider. */
-export interface Keys {
-    /**
-     * The key and the settings a request to `provider` carries, neither for
-     * the faux models and for `claude`. Without either it throws, so no key
-     * from the host's environment is used.
-     */
-    of(provider: string): Promise<Given>;
-}
-
-/** The part of its credential a request carries, as pi-ai's request options. */
-export interface Given {
-    readonly apiKey?: string;
-    readonly env?: ProviderEnv;
-}
-
-/**
- * What an OAuth sign-in needs to serve requests: the listing's sign-in for
- * its provider, and the realm's keep for a rotated login. Without it, only
- * keys are used.
- */
-export interface Subscriptions {
-    readonly listed: Pick<Models, "getProvider">;
-    readonly keep: BareRealm["keep_credential"];
-}
-
-/**
- * As pi-ai's `Models.getAuth` (`auth/resolve.js`): a login with less left
- * than this is refreshed before a request.
- */
-const REFRESH_WITHIN_MS = 5 * 60_000;
-
-export function keysOf(
-    realm: Pick<BareRealm, "credential">,
-    report: Peers["report"],
-    subscriptions?: Subscriptions,
-): Keys {
-    const asked = new Map<string, Promise<CredentialAnswer>>();
-    const ask = async (provider: string): Promise<CredentialAnswer> => {
-        let answer: CredentialAnswer;
-        try {
-            answer = await realm.credential({ provider });
-        } catch (error) {
-            const words = `the realm's credential for ${provider} was not read`;
-            report(words, error);
-            throw new Error(`${words}: ${reasonOf(error)}`);
-        }
-        if (answer.type !== "refused") rememberKept(answer);
-        return answer;
-    };
-    const givenOf = async (provider: string, kept: Kept): Promise<Given> => {
-        if (
-            kept.type === "key" &&
-            (kept.key !== "" || kept.env !== undefined)
-        ) {
-            // An empty key would stand over the one pi-ai resolves from the settings.
-            return {
-                ...(kept.key === "" ? {} : { apiKey: kept.key }),
-                ...(kept.env === undefined ? {} : { env: kept.env }),
-            };
-        }
-        const oauth = subscriptions?.listed.getProvider(provider)?.auth.oauth;
-        if (
-            kept.type === "oauth" &&
-            oauth !== undefined &&
-            subscriptions !== undefined
-        ) {
-            let login = kept.login;
-            if (login.expires * 1000 <= Date.now() + REFRESH_WITHIN_MS) {
-                login = await rotated(provider, login, oauth, {
-                    keep: subscriptions.keep,
-                    report,
-                });
-                asked.set(provider, Promise.resolve({ type: "oauth", login }));
-            }
-            const { apiKey } = await oauth.toAuth(credentialOf(login));
-            if (apiKey !== undefined) return { apiKey };
-        }
-        throw new Error(
-            `The sign-in for ${provider} gives no key, and only a key is used yet.`,
-        );
-    };
-    return {
-        of: async (provider) => {
-            if (provider === FAUX) return {};
-            let asking = asked.get(provider);
-            if (asking === undefined) {
-                asking = ask(provider);
-                asked.set(provider, asking);
-                // A refusal or a failed call is asked again at the next request.
-                const forget = () => asked.delete(provider);
-                asking.then((answer) => {
-                    if (answer.type === "refused") forget();
-                }, forget);
-            }
-            const kept = await asking;
-            if (kept.type === "refused") {
-                // An endpoint no one signed in to is called without a key, as today's.
-                const listed = subscriptions?.listed.getProvider(provider);
-                if (listed !== undefined && isEndpoint(listed)) return {};
-                throw new Error(kept.words);
-            }
-            // The Claude program signs in itself; the realm's credential only marks that it did.
-            if (provider === CLAUDE) return {};
-            return givenOf(provider, kept);
-        },
-    };
-}
-
-/**
- * Each rotation by the login it retires, so one refresh runs per login in
- * the host and every agent still holding the old one takes the new.
- */
-const ROTATIONS = new Map<string, Promise<OauthLogin>>();
-
-/**
- * `login` refreshed, once in the host, and handed to the realm before it
- * is used, as today's server saves a rotation before acknowledging it
- * (`docs/realm.md`).
- */
-function rotated(
-    provider: string,
-    login: OauthLogin,
-    oauth: OAuthAuth,
-    to: { keep: BareRealm["keep_credential"]; report: Peers["report"] },
-): Promise<OauthLogin> {
-    const retired = `${provider}\n${login.refresh}`;
-    let rotation = ROTATIONS.get(retired);
-    if (rotation === undefined) {
-        rotation = (async () => {
-            // Not the request's signal: a rotation started is finished.
-            const fresh = loginOf(
-                await oauth.refresh(
-                    credentialOf(login),
-                    new AbortController().signal,
-                ),
-            );
-            const value: Kept = { type: "oauth", login: fresh };
-            rememberKept(value);
-            try {
-                await to.keep({ provider, value });
-            } catch (error) {
-                // This host keeps using it; the realm still holds the old one.
-                to.report(
-                    `the rotated login for ${provider} was not kept`,
-                    scrubbedError(error),
-                );
-            }
-            return fresh;
-        })();
-        ROTATIONS.set(retired, rotation);
-        rotation.catch(() => ROTATIONS.delete(retired));
-    }
-    return rotation;
-}
-
-/** pi-ai's credential as the realm keeps it: an OAuth expiry in whole seconds. */
-export function keptOf(credential: Credential): Kept {
-    if (credential.type === "api_key") {
-        const { key = "", env = {} } = credential;
-        return {
-            type: "key",
-            key,
-            ...(Object.keys(env).length === 0 ? {} : { env }),
-        };
-    }
-    return { type: "oauth", login: loginOf(credential) };
-}
-
-function loginOf(credential: OAuthCredential): OauthLogin {
-    const { type: _, access, refresh, expires, ...extra } = credential;
-    return {
-        access,
-        refresh,
-        expires: u32(Math.floor(expires / 1000)),
-        ...(Object.keys(extra).length === 0
-            ? {}
-            : { extra: JSON.stringify(extra) }),
-    };
-}
-
-function credentialOf(login: OauthLogin): OAuthCredential {
-    return {
-        ...(login.extra === undefined
-            ? {}
-            : (JSON.parse(login.extra) as Record<string, unknown>)),
-        type: "oauth",
-        access: login.access,
-        refresh: login.refresh,
-        expires: login.expires * 1000,
-    };
-}
 
 /**
  * `listed` with each request made with the realm's key, priced in today's
@@ -629,11 +333,6 @@ function withheldIn(message: AssistantMessage, ended?: number): void {
     }
 }
 
-/** The spend gate keeps a thrown error's words as the answer. */
-function scrubbedError(error: unknown): Error {
-    return new Error(scrub(reasonOf(error)));
-}
-
 function nameOf(model: Pick<Model<Api>, "provider" | "id">): string {
     return `${model.provider}::${model.id}`;
 }
@@ -721,12 +420,12 @@ export function modelList(
         .filter((model) => providers?.has(model.provider) ?? true);
     return models.map((model) => {
         const cost = listedCost(model);
-        const images = imagesOf(model);
+        const images = listedImages(model);
         return {
             name: nameOf(model),
             title: model.name,
             context: model.contextWindow,
-            ...(images === undefined ? {} : { images: images.perLine }),
+            ...(images === undefined ? {} : { images }),
             efforts: effortsOf(model),
             ...(FAST_APIS.includes(model.api) ? { fast: true } : {}),
             ...(cost === undefined
@@ -926,25 +625,40 @@ export interface ImagesTaken extends ImageLimits {
 
 /**
  * The images `model` takes, as `listed_images` in
- * `crates/hamlet_server/src/providers.rs` reads its listing and `Limits::of`
- * fills in what it leaves out; a faux model takes them at the defaults.
+ * `crates/hamlet_server/src/providers.rs` reads its listing; a faux model
+ * takes them with no limit named, as `Providers::images` there gives.
  * `undefined` when it takes none.
  */
-function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+function listedImages(model: Model<Api>): ListedImages | undefined {
     if (model.provider !== FAUX && !model.input.includes("image")) {
         return undefined;
     }
     const images = model.inputLimits?.images;
-    const size = (value: number | undefined, otherwise: number) =>
-        value !== undefined && value > 0 ? value : otherwise;
+    const named = (key: keyof ListedImages, value: number | undefined) =>
+        value !== undefined && value > 0 && value <= U32_MAX
+            ? { [key]: Math.floor(value) }
+            : {};
     return {
-        width: size(images?.resize?.maxWidth, IMAGE_WIDTH),
-        height: size(images?.resize?.maxHeight, IMAGE_HEIGHT),
-        bytes: size(images?.resize?.maxBytes, IMAGE_BYTES),
-        perLine: Math.min(
-            size(images?.maxPerMessage, IMAGES_PER_LINE),
-            IMAGES_PER_LINE,
-        ),
+        ...named("max_bytes", images?.resize?.maxBytes),
+        ...named("max_height", images?.resize?.maxHeight),
+        ...named("max_width", images?.resize?.maxWidth),
+        ...named("per_line", images?.maxPerMessage),
+    };
+}
+
+/**
+ * The images `model` takes, as `Limits::of` in
+ * `crates/hamlet_server/src/images.rs` fills in what its listing leaves
+ * out and caps the most of them in one line. `undefined` when it takes none.
+ */
+function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+    const listed = listedImages(model);
+    if (listed === undefined) return undefined;
+    return {
+        width: listed.max_width ?? IMAGE_WIDTH,
+        height: listed.max_height ?? IMAGE_HEIGHT,
+        bytes: listed.max_bytes ?? IMAGE_BYTES,
+        perLine: Math.min(listed.per_line ?? IMAGES_PER_LINE, IMAGES_PER_LINE),
     };
 }
 

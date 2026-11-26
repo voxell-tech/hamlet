@@ -13,6 +13,7 @@ import {
     generateDiffString,
     generateUnifiedPatch,
 } from "../pi/coding-agent.ts";
+import { scrub } from "./credentials.ts";
 import {
     type AgentFilesystem,
     FOUND,
@@ -21,7 +22,6 @@ import {
 } from "./filesystem.ts";
 import type { Refused } from "./messages/shared.ts";
 import type { Note, ReadAnswer } from "./messages/workspace.ts";
-import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,

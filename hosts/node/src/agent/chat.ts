@@ -10,6 +10,7 @@ import {
     wrongCaller,
 } from "./actor.ts";
 import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
+import { secretsLoaded } from "./credentials.ts";
 import {
     type Checked,
     type ClientActions,
@@ -24,7 +25,6 @@ import {
     reached,
     runningImages,
     runningModel,
-    secretsLoaded,
     signedInTo,
 } from "./models.ts";
 import { editMemory, readPapers } from "./papers.ts";
