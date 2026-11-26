@@ -167,26 +167,28 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         "curl --noproxy '*' -sS --max-time 2 '{}/models' > fetched",
         endpoint.url
     );
-    let home = Home::new();
-    let mut s = Session::start_in(
-        home,
-        Faux::new().agent(
-            2,
-            [
-                command("sh fetch.sh"),
-                words("Blocked."),
-                call(
-                    "bash",
-                    json!({"command": "sh fetch.sh", "network": true}),
-                ),
-                words("Fetched."),
-                command("sh fetch.sh"),
-                words("Done."),
-            ],
+    let mut script = vec![
+        command("sh fetch.sh"),
+        words("Blocked."),
+        call(
+            "bash",
+            json!({"command": "sh fetch.sh", "network": true}),
         ),
-        QUIET,
-    )
-    .await;
+    ];
+    // Under --actors the call does not hold the turn: the turn ends
+    // on these words, and the call's end starts the next one.
+    if home::serves_actors() {
+        script.push(words("Asked."));
+    }
+    script.extend([
+        words("Fetched."),
+        command("sh fetch.sh"),
+        words("Done."),
+    ]);
+    let home = Home::new();
+    let mut s =
+        Session::start_in(home, Faux::new().agent(2, script), QUIET)
+            .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let lodge = s.home.agent_files(
         2,
@@ -228,14 +230,11 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         .await;
     s.chief.choose(&wait.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Fetched.").await;
-    // An approval does not hold the turn under --actors, so the
-    // command may end after the words that follow it.
-    s.chief
-        .until("the fetch", |_| {
-            fs::read_to_string(lodge.join("fetched"))
-                .is_ok_and(|fetched| fetched.contains("org/large"))
-        })
-        .await;
+    assert!(
+        fs::read_to_string(lodge.join("fetched"))
+            .unwrap()
+            .contains("org/large")
+    );
     assert!(s.chief.realm().grants.is_empty());
 
     // The leave was for that call alone.
