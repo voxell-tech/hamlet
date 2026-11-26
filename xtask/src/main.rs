@@ -468,10 +468,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "shutdown_waits_for_a_model_calls_started_rotation_to_persist",
         "tests/oauth.rs:266",
     ),
-    (
-        "concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_reach_either_store",
-        "tests/oauth.rs:298",
-    ),
 ];
 
 fn actors(root: &Path) -> Result<(), Failure> {
