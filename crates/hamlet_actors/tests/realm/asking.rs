@@ -270,6 +270,14 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
         let ruled = realm.ask(&picked(picks)).await.unwrap();
         assert_eq!(ruled, Done::Refused { why });
     }
+    let mut dismissed = picked(vec![Pick::Offer { index: 0 }]);
+    dismissed.0.choice = Choice::Dismiss;
+    assert_eq!(
+        realm.ask(&dismissed).await.unwrap(),
+        Done::Refused {
+            why: AnswerRefusal::PicksWithText
+        }
+    );
     let in_words = realm
         .ask(&answer("1", Choice::Reply, Some("paper, 30")))
         .await

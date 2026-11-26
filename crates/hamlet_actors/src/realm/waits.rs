@@ -19,6 +19,7 @@ use hamlet_messages::workspace::refusal::WaitEnd;
 use hamlet_messages::workspace::{
     self, AgentNumber, CallId, ChiefAnswer, ConversationId,
 };
+use hamlet_protocol::client as protocol;
 use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
@@ -50,6 +51,28 @@ pub(super) enum Kind {
     Reserved,
     Send,
     Fault,
+}
+
+impl Kind {
+    /// The answers a chief may give a wait of this kind, in today's
+    /// order: an always only where allowing always keeps something.
+    pub(super) fn answers(
+        self,
+        keeps: bool,
+    ) -> Vec<protocol::Choice> {
+        use protocol::Choice as Chief;
+        match self {
+            Self::Tool if keeps => {
+                vec![Chief::Allow, Chief::Always, Chief::Deny]
+            }
+            Self::Tool | Self::Reserved | Self::Send => {
+                vec![Chief::Allow, Chief::Deny]
+            }
+            Self::Question => vec![Chief::Reply, Chief::Dismiss],
+            Self::Objection => vec![Chief::Go, Chief::Withdraw],
+            Self::Fault => vec![Chief::Dismiss],
+        }
+    }
 }
 
 #[derive(

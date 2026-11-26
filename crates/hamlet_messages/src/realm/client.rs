@@ -106,8 +106,13 @@ impl Message for Answer {
 pub enum AnswerRefusal {
     #[error("nothing waits here with that id")]
     NothingWaits { wait: String },
-    #[error("that is not an answer to this wait")]
-    NotOffered,
+    /// `answers` names each answer the wait takes, as `/allow /deny`.
+    #[error(
+        "That cannot be answered that way; answer with {answers}."
+    )]
+    NotThatWay { answers: String },
+    #[error("Use picks only for a reply, without text.")]
+    PicksWithText,
     #[error("Say what to reply.")]
     BlankReply,
     #[error("every question needs an answer")]

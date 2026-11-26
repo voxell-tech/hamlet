@@ -176,7 +176,7 @@ async fn opens(realm: &Realm, wait: &str) {
             .unwrap();
         match tried {
             Done::Refused {
-                why: AnswerRefusal::NotOffered,
+                why: AnswerRefusal::NotThatWay { .. },
             } => return,
             Done::Refused {
                 why: AnswerRefusal::NothingWaits { .. },

@@ -18,13 +18,14 @@ use hamlet_messages::sender::{Client, Hand};
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
 use hamlet_protocol::client::{
-    self as protocol, Choice, WaitDanger, WaitDetail,
+    self as protocol, WaitDanger, WaitDetail,
 };
 
 use super::act::Look;
 use super::change::{self, Column as _, Rows, number};
 use super::chiefs::limits;
 use super::tree::HAND_PROFILE;
+use super::waits::Kind;
 use super::{Realm, budget, chiefs, profiles, record, settings};
 
 mod hamlets;
@@ -583,12 +584,7 @@ fn wait_shown(
             Lasting::Session => protocol::Lasting::Session,
             Lasting::Grant => protocol::Lasting::Grant,
         });
-        let answers = match always {
-            Some(_) => {
-                vec![Choice::Allow, Choice::Always, Choice::Deny]
-            }
-            None => vec![Choice::Allow, Choice::Deny],
-        };
+        let answers = Kind::Tool.answers(always.is_some());
         let says = says(&danger).to_owned();
         (
             answers,
@@ -611,7 +607,7 @@ fn wait_shown(
         WaitKind::Question {
             message, questions, ..
         } => (
-            vec![Choice::Reply, Choice::Dismiss],
+            Kind::Question.answers(false),
             WaitDetail::Question {
                 questions: protocol::Questions {
                     message: message.clone().unwrap_or_default(),
@@ -640,12 +636,11 @@ fn wait_shown(
                 },
             },
         ),
-        WaitKind::Objection { .. } => (
-            vec![Choice::Go, Choice::Withdraw],
-            WaitDetail::Objection {},
-        ),
+        WaitKind::Objection { .. } => {
+            (Kind::Objection.answers(false), WaitDetail::Objection {})
+        }
         WaitKind::Fault => {
-            (vec![Choice::Dismiss], WaitDetail::Fault {})
+            (Kind::Fault.answers(false), WaitDetail::Fault {})
         }
         WaitKind::Reserved => approval(WaitDanger::Reserved, None),
         WaitKind::Send { .. } => approval(WaitDanger::Send, None),

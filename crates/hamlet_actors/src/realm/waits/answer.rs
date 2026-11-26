@@ -39,6 +39,21 @@ pub(in crate::realm) struct Ruling {
     pub(in crate::realm) deferred: bool,
 }
 
+/// The command a chief answers with `choice`.
+fn command(choice: &protocol::Choice) -> &'static str {
+    use protocol::Choice as Chief;
+    match choice {
+        Chief::Allow => "allow",
+        Chief::Always => "always",
+        Chief::Deny => "deny",
+        Chief::Go => "go",
+        Chief::Withdraw => "withdraw",
+        Chief::Reply => "reply",
+        Chief::Dismiss => "dismiss",
+        Chief::Welcome => "welcome",
+    }
+}
+
 /// The open wait a chief answers.
 pub(in crate::realm) struct Waiting {
     wait: WaitId,
@@ -62,28 +77,29 @@ impl Waiting {
         text: Option<&str>,
     ) -> Result<Choice, AnswerRefusal> {
         use protocol::Choice as Chief;
-        Ok(match (self.kind, choice) {
-            (
-                Kind::Tool | Kind::Reserved | Kind::Send,
-                Chief::Allow,
-            ) => Choice::Allow(Scope::Once),
-            (Kind::Tool, Chief::Always) if !self.needs.is_empty() => {
-                Choice::Allow(Scope::Always)
-            }
-            (
-                Kind::Tool | Kind::Reserved | Kind::Send,
-                Chief::Deny,
-            ) => Choice::Refuse,
-            (Kind::Question, Chief::Reply) => match text {
+        let answers = self.kind.answers(!self.needs.is_empty());
+        let not_that_way = || AnswerRefusal::NotThatWay {
+            answers: answers
+                .iter()
+                .map(|answer| format!("/{}", command(answer)))
+                .collect::<Vec<_>>()
+                .join(" "),
+        };
+        if !answers.contains(choice) {
+            return Err(not_that_way());
+        }
+        Ok(match choice {
+            Chief::Allow => Choice::Allow(Scope::Once),
+            Chief::Always => Choice::Allow(Scope::Always),
+            Chief::Deny => Choice::Refuse,
+            Chief::Reply => match text {
                 Some(_) => Choice::Reply,
                 None => return Err(AnswerRefusal::BlankReply),
             },
-            (Kind::Question | Kind::Fault, Chief::Dismiss) => {
-                Choice::Dismiss
-            }
-            (Kind::Objection, Chief::Go) => Choice::Go,
-            (Kind::Objection, Chief::Withdraw) => Choice::Withdraw,
-            _ => return Err(AnswerRefusal::NotOffered),
+            Chief::Dismiss => Choice::Dismiss,
+            Chief::Go => Choice::Go,
+            Chief::Withdraw => Choice::Withdraw,
+            Chief::Welcome => return Err(not_that_way()),
         })
     }
 
@@ -243,7 +259,9 @@ impl Act<Client> for Answer {
             .filter(|text| !text.is_empty());
         let choice = match (&self.0.picks, &ruling.picked) {
             (_, Some(_)) => Ok(Choice::Picked),
-            (Some(_), None) => Err(AnswerRefusal::NotOffered),
+            (Some(_), None) => open
+                .takes(&self.0.choice, text)
+                .and(Err(AnswerRefusal::PicksWithText)),
             (None, None) => open.takes(&self.0.choice, text),
         };
         let text = ruling.picked.as_deref().or(text);
