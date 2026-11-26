@@ -6,14 +6,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
-use hamlet_messages::workspace::{AgentNumber, CallId};
+use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
 
 /// One row per call. A command's id is its row's. A change records
 /// the path of the new file it is about to make in `temp` until it
 /// ends. A call that waits for a chief is `waiting`, its `answer` the
 /// CBOR list of what it needs, and its request is in `waits`; one
 /// that a chief refused, or whose wait lapsed, is `refused`, its
-/// `answer` the CBOR refusal.
+/// `answer` the CBOR refusal. `task` is the realm's task the call was
+/// made under, which an end told after a restart or a reach's end
+/// carries.
 pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	agent INTEGER NOT NULL,
@@ -23,6 +25,7 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
 	state TEXT NOT NULL,
 	answer BLOB,
 	temp TEXT,
+	task TEXT,
 	ended_at INTEGER,
 	UNIQUE (agent, call)) STRICT";
 
@@ -118,13 +121,14 @@ fn read_row(row: &[ColumnValue]) -> Result<Call> {
     })
 }
 
-/// Records `agent`'s call `call` of `op`, in `state`, in `tx`.
-/// Returns its row's id.
+/// Records `agent`'s call `call` of `op` under `task`, in `state`,
+/// in `tx`. Returns its row's id.
 #[expect(clippy::too_many_arguments, reason = "a row's columns")]
 pub(super) async fn insert(
     tx: &SqliteTransaction,
     agent: AgentNumber,
     call: &CallId,
+    task: Option<&RealmTask>,
     op: &str,
     request_hash: Vec<u8>,
     state: &str,
@@ -134,8 +138,8 @@ pub(super) async fn insert(
     let inserted = tx
         .execute(
             "INSERT INTO calls (agent, call, op, request_hash, \
-             state, answer, temp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
-             ?7)",
+             state, answer, temp, task) VALUES (?1, ?2, ?3, ?4, ?5, \
+             ?6, ?7, ?8)",
             Some(vec![
                 BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
@@ -146,12 +150,26 @@ pub(super) async fn insert(
                 temp.map_or(BindParam::Null, |temp| {
                     BindParam::Text(temp.to_owned())
                 }),
+                task.map_or(BindParam::Null, |task| {
+                    BindParam::Text(task.0.clone())
+                }),
             ]),
         )
         .await?;
     inserted
         .last_insert_row_id
         .context("the insert of a call gave no id")
+}
+
+/// A row's `task` column.
+pub(super) fn task_of(
+    column: &ColumnValue,
+) -> Result<Option<RealmTask>> {
+    match column {
+        ColumnValue::Text(task) => Ok(Some(RealmTask(task.clone()))),
+        ColumnValue::Null => Ok(None),
+        other => bail!("a call's task is {other:?}"),
+    }
 }
 
 pub(crate) fn now_ms() -> Result<i64> {
