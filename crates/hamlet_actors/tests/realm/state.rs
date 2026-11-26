@@ -325,3 +325,16 @@ async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
     );
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
+    let (realm, _) = hamlet_with(1).await;
+    keep(&realm, "t").await;
+
+    let state = realm.ask(&ReadState).await;
+    let world = realm.ask(&ReadWorld).await;
+
+    assert!(state.is_err(), "the state is withheld: {state:?}");
+    assert!(world.is_err(), "the world is withheld: {world:?}");
+    realm.host.shutdown().await.unwrap();
+}

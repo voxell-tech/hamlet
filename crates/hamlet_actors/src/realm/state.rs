@@ -55,7 +55,11 @@ pub(super) struct Shown {
 impl Look<Client> for ReadState {
     type Output = protocol::State;
 
-    fn look(&self, _by: &Client, realm: &Realm) -> protocol::State {
+    fn look(
+        &self,
+        _by: &Client,
+        realm: &Realm,
+    ) -> Result<protocol::State> {
         let kept = realm.world.current();
         let shown = &kept.shown;
         let now = now();

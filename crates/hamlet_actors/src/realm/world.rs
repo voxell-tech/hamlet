@@ -445,7 +445,7 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
 impl Look<Client> for ReadWorld {
     type Output = Seen;
 
-    fn look(&self, _by: &Client, realm: &Realm) -> Seen {
+    fn look(&self, _by: &Client, realm: &Realm) -> Result<Seen> {
         realm.secrets.scrubbed_value(&realm.world.current().seen)
     }
 }
