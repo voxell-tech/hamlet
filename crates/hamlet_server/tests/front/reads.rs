@@ -8,8 +8,6 @@ use serde_json::json;
 
 use super::SERVER;
 
-/// A script in today's form, its models named by id and priced as
-/// one and a step that thinks, is what the Node host answers from.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_product_entry_answers_from_a_faux_script() {
     let home = Scratch::new("front-home");

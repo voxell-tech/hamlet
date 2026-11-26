@@ -205,7 +205,6 @@ export const readFiles = reader(
               },
 );
 
-/** The profile's answer to `learned`. */
 export const readLearned = reader(
     obj({ character: str(), paths: arr(obj({ path: str() }, OPEN)) }, OPEN),
     ({ character, paths }): LearnedList => ({

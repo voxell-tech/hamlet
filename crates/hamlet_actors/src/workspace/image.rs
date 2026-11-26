@@ -1,5 +1,4 @@
-//! The making of an image to fit a model's limits (S29, S30), for
-//! the realm and for an agent that asks the workspace.
+//! The making of an image to fit a model's limits (S29, S30).
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -129,8 +128,6 @@ pub struct Fitted {
     pub size: (u32, u32),
 }
 
-/// The decoder of `bytes`, an image of `format` with no more pixels
-/// than one that is opened.
 fn opened(
     bytes: &[u8],
     format: Format,
@@ -223,8 +220,6 @@ pub fn fit(
     }
 }
 
-/// `image` as a PNG when it has transparency, else a JPEG of
-/// `quality`.
 fn encode(
     image: &DynamicImage,
     quality: u8,
@@ -370,8 +365,6 @@ mod tests {
         );
     }
 
-    /// An image is told by its first bytes, and only a whole header
-    /// counts.
     #[test]
     fn an_image_is_told_by_its_first_bytes() {
         let mut png =

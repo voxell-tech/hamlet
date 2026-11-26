@@ -1,5 +1,4 @@
-//! The making of an image to fit a model's limits, which the agent
-//! asks of the workspace before it gives the model a chief's image.
+//! The making of an image to fit a model's limits.
 
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};

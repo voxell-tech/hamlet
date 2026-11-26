@@ -12,7 +12,6 @@ const MEMORY = "memory/";
 
 const SKILL = /^skills\/([^/]+)\/SKILL\.md$/;
 
-/** The text of every file at or below `folder`, by path, in path order. */
 async function texts(
     files: AgentFilesystem,
     folder: string,
@@ -54,7 +53,6 @@ export async function readPapers(c: AgentCall): Promise<Papers> {
     };
 }
 
-/** Whether `path` is a plain relative path under `memory/`. */
 function inMemory(path: string): boolean {
     return (
         path.startsWith(MEMORY) &&

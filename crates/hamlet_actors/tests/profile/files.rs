@@ -852,8 +852,6 @@ async fn a_hire_made_at_a_version_starts_there_and_stays_there() {
     host.shutdown().await.unwrap();
 }
 
-/// What a hire learned is where its branch differs from `main`: a
-/// file it wrote and a file it removed, and not a file it kept.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_learned_what_its_branch_holds_apart_from_main() {
     let dir = Scratch::new("profile-learned");

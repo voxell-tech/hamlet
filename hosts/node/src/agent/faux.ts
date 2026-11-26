@@ -158,7 +158,6 @@ interface Script {
     readonly steps: Step[];
 }
 
-/** A script as its file holds it; the tests write it, so it is trusted. */
 interface ScriptFile {
     readonly models?: readonly (
         | string

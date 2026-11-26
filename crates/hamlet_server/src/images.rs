@@ -73,7 +73,6 @@ impl Limits {
         }
     }
 
-    /// The size and bytes an image is made to fit.
     pub fn bounds(self) -> Bounds {
         Bounds {
             width: self.width,

@@ -15,7 +15,6 @@ export function nameOf(author: Author, kind: "hire" | "worker"): string {
     return author.name ?? `${kind}#${author.agent}`;
 }
 
-/** `received` is what was saved of a line's, a letter's or a question's files. */
 export function admissionOf(
     message: Submit,
     received: Received = NOTHING_RECEIVED,
@@ -161,7 +160,6 @@ function placed(text: string, captions: readonly Caption[]): string {
     return content === "" ? last : `${content}\n\n${last}`;
 }
 
-/** `words`, with `images` after them when there are any. */
 function given(words: string, images: readonly ImageContent[]): UserInput {
     return images.length === 0
         ? words

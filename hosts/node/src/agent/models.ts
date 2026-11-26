@@ -758,7 +758,6 @@ export function signedInTo(listed: Models, name: string): boolean {
     return auth?.apiKey?.login !== undefined || auth?.oauth !== undefined;
 }
 
-/** The model the agent runs: its copy's, else `host`'s, given as `provider/model`. */
 async function runningRef(copies: ReadCopies, host: string): Promise<ModelRef> {
     return (await copiedAgent(copies))?.model ?? hostRef(host);
 }

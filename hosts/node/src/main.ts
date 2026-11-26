@@ -48,7 +48,6 @@ async function agent() {
     };
 }
 
-/** The kinds of `demo.ts` that `named` names. */
 async function demoKinds(named: readonly string[]) {
     const { kinds } = await import("./demo.ts");
     return Object.fromEntries(

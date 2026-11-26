@@ -43,7 +43,6 @@ interface Saved {
     folder: boolean;
 }
 
-/** A file to save at `path` under `folder`, its caption at `at`. */
 interface Placed {
     readonly file: ParcelFile;
     readonly folder: string;
@@ -127,7 +126,6 @@ function placeOf(at: number | undefined): number {
     return at ?? Number.POSITIVE_INFINITY;
 }
 
-/** The file's bytes, saved at `path`; `undefined` when it is not, reported. */
 async function savedWhole(
     peers: Peers,
     file: ParcelFile,

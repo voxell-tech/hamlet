@@ -160,8 +160,7 @@ export interface AgentConfig {
     readonly signIns?: SignIns;
     /**
      * Every agent runs the faux model, as on a server started with a faux
-     * script: a check of a model no chief signs in to says so, and the
-     * listing lists no model.
+     * script.
      */
     readonly faux?: boolean;
 }
@@ -861,7 +860,6 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
 }
 
-/** Saves what `input` carries besides its words; `undefined` when it carries nothing. */
 function receiverOf(
     input: Input,
     { peers, images }: Generation,

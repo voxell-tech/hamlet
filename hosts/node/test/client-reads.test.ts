@@ -11,7 +11,6 @@ import {
     saves,
 } from "./branch-testing.ts";
 
-/** Made up; no provider has ever issued it. */
 const KEY = "sk-made-up-0d1e-papers";
 
 const FAUX_WORDS = "Every agent runs the faux model here.";

@@ -451,8 +451,6 @@ async fn a_read_reaches_the_realms_shared_folders() {
     assert_eq!(text(read_spill).text, "all it printed\n");
 }
 
-/// An agent's image is made to fit its model's limits: smaller in the
-/// same shape, and encoded again; bytes that are no image are not.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_image_is_made_to_fit_its_model() {
     let dir = Scratch::new("workspace-fit-image");

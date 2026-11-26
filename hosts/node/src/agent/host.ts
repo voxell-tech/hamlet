@@ -11,7 +11,6 @@ import type { AgentFilesystem } from "./filesystem.ts";
 import { signIns } from "./login.ts";
 import { openAgentFilesystem } from "./native-filesystem.ts";
 
-/** A kill test reads it to tell this process from the next one. */
 const PID_FILE = "demo-node.pid";
 
 export interface HostedAgent {
@@ -21,7 +20,6 @@ export interface HostedAgent {
     readonly signIn: boolean;
     /** Adds the Claude program's models, where it is installed. */
     readonly claude: boolean;
-    /** The agent's filesystem as the host gives it. */
     readonly files?: (files: AgentFilesystem) => AgentFilesystem;
 }
 
