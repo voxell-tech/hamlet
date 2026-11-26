@@ -4,13 +4,13 @@
  * where it has no faux script and lists no sign-in on loopback. It writes the
  * process's pid in the folder.
  */
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type AgentDefinition, agentActor } from "./actor.ts";
+import { type AgentConfig, type AgentDefinition, agentActor } from "./actor.ts";
 import { claudeExecutable, withClaude } from "./claude.ts";
 import { fauxModels } from "./faux.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import { signIns } from "./login.ts";
+import { type SignInOptions, signIns } from "./login.ts";
 import { openAgentFilesystem } from "./native-filesystem.ts";
 import { hostProviders, servingEndpoints } from "./providers.ts";
 
@@ -28,6 +28,11 @@ export interface HostedAgent {
 
 export function hostedAgent(home: string, host: HostedAgent): AgentDefinition {
     writeFileSync(join(home, PID_FILE), `${process.pid}\n`);
+    return agentActor(hostedConfig(home, host));
+}
+
+/** The agent's config on the realm folder `home`. */
+export function hostedConfig(home: string, host: HostedAgent): AgentConfig {
     const { models, model } = fauxModels(host.faux, host.signIn);
     const real = host.faux === undefined && !host.signIn;
     if (real) {
@@ -40,14 +45,32 @@ export function hostedAgent(home: string, host: HostedAgent): AgentDefinition {
     if (executable !== undefined)
         withClaude(models, { executable, folder: join(home, "claude") });
     const given = host.files ?? ((files) => files);
-    return agentActor({
+    return {
         models,
         model,
         listed: () => models.getModels(),
         files: (n) => given(openAgentFilesystem(home, n)),
         library: join(home, "library"),
-        signIns: signIns(models),
+        signIns: signIns(models, installationOf(home)),
         faux: host.faux !== undefined,
         ...(real ? { serve: servingEndpoints(models) } : {}),
-    });
+    };
+}
+
+/**
+ * The installation's id, which today's server gives a subscription's
+ * sign-in (`crates/hamlet_server/src/providers.rs:341`), from the realm
+ * folder's `credentials.json`; the server writes it before the host starts.
+ */
+function installationOf(home: string): SignInOptions {
+    let stored: unknown;
+    try {
+        stored = JSON.parse(
+            readFileSync(join(home, "credentials.json"), "utf8"),
+        );
+    } catch {
+        return {};
+    }
+    const id = (stored as { installationId?: unknown } | null)?.installationId;
+    return typeof id === "string" && id !== "" ? { deviceId: id } : {};
 }
