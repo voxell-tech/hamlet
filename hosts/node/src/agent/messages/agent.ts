@@ -146,6 +146,8 @@ export type Outcome =
 
 export interface Finished {
     readonly call: string;
+    /** The realm's task the call was made under, which the turn its end starts is charged to. */
+    readonly task?: RealmTask;
     readonly outcome: Outcome;
 }
 

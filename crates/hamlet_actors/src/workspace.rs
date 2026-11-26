@@ -522,8 +522,7 @@ impl Workspace {
         let running = run::Running::new(
             command,
             agent,
-            run.call.clone(),
-            run.conversation.clone(),
+            run,
             ends_by,
             run::Waiters::given_up(),
         );
@@ -583,7 +582,8 @@ impl Workspace {
         spec: run::Spec,
     ) {
         let (command, agent) = (running.command, running.agent);
-        let call = running.call.clone();
+        let (call, task) =
+            (running.call.clone(), running.task.clone());
         let abort = ctx.abort_signal();
         let ended = run::start(spec, abort.clone());
         // The actor stays awake while a command runs, so its end is
@@ -628,8 +628,19 @@ impl Workspace {
             // wait for that call.
             self.ran(command);
             if let Some(end) = unheard {
-                let end = RunEnd::Ran(end);
-                tell(&ctx, agent, call, Outcome::Run { end }).await;
+                let outcome = Outcome::Run {
+                    end: RunEnd::Ran(end),
+                };
+                tell(
+                    &ctx,
+                    agent,
+                    Finished {
+                        call,
+                        task,
+                        outcome,
+                    },
+                )
+                .await;
             }
         });
     }
@@ -778,42 +789,39 @@ async fn remove_folder(folder: PathBuf) {
     );
 }
 
-/// Calls `agent` with how its call `id` ended. While the link to its
-/// host is down, a task of its own tells it again. A call that fails
+/// Calls `agent` with how its call ended. While the link to its host
+/// is down, a task of its own tells it again. A call that fails
 /// otherwise, as to an agent that no longer exists, is logged and
 /// dropped.
 async fn tell(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
-    id: CallId,
-    outcome: Outcome,
+    ended: Finished,
 ) {
-    match finished(ctx, agent, id.clone(), outcome.clone()).await {
+    match finished(ctx, agent, &ended).await {
         Ok(()) => {}
         Err(error) if is_link_down(&error) => {
             let task_ctx = ctx.clone();
             ctx.register_task(async move {
-                told(&task_ctx, agent, id, outcome).await;
+                told(&task_ctx, agent, ended).await;
             });
         }
-        Err(error) => dropped(&error, agent, &id.0),
+        Err(error) => dropped(&error, agent, &ended.call.0),
     }
 }
 
-/// Calls `agent` with how its call `id` ended, again while the link
-/// to its host is down, for up to `RETELL_WHILE_LINK_DOWN`. Whether
-/// it was told.
+/// Calls `agent` with how its call ended, again while the link to
+/// its host is down, for up to `RETELL_WHILE_LINK_DOWN`. Whether it
+/// was told.
 async fn told(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
-    id: CallId,
-    outcome: Outcome,
+    ended: Finished,
 ) -> bool {
     let since = Instant::now();
     let abort = ctx.abort_signal();
     loop {
-        match finished(ctx, agent, id.clone(), outcome.clone()).await
-        {
+        match finished(ctx, agent, &ended).await {
             Ok(()) => return true,
             Err(error)
                 if is_link_down(&error)
@@ -825,7 +833,7 @@ async fn told(
                 }
             }
             Err(error) => {
-                dropped(&error, agent, &id.0);
+                dropped(&error, agent, &ended.call.0);
                 return false;
             }
         }
@@ -842,10 +850,14 @@ async fn tell_cut_off(
         command,
     } = untold;
     let end = run::without_output(command, Exit::CutOff);
-    let outcome = Outcome::Run {
-        end: RunEnd::Ran(end),
+    let ended = Finished {
+        call,
+        task: None,
+        outcome: Outcome::Run {
+            end: RunEnd::Ran(end),
+        },
     };
-    if !told(ctx, agent, call, outcome).await {
+    if !told(ctx, agent, ended).await {
         return;
     }
     if let Err(error) =
@@ -862,13 +874,12 @@ async fn tell_cut_off(
 async fn finished(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
-    id: CallId,
-    outcome: Outcome,
+    ended: &Finished,
 ) -> Result<()> {
     call(
         &HostRef::of(ctx.inner())?,
         &address::Agent(agent),
-        &Finished { call: id, outcome },
+        ended,
         CALL_WITHIN,
     )
     .await
@@ -997,8 +1008,7 @@ impl Workspace {
         let running = run::Running::new(
             command,
             agent,
-            run.call.clone(),
-            run.conversation.clone(),
+            run,
             run::ends_by(exec.1)?,
             run::Waiters::new(self.answer_within),
         );
@@ -1136,7 +1146,12 @@ impl Workspace {
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
             for (call, why) in closed {
-                tell(&task_ctx, agent, call, why.outcome()).await;
+                let ended = Finished {
+                    call,
+                    task: None,
+                    outcome: why.outcome(),
+                };
+                tell(&task_ctx, agent, ended).await;
             }
         });
         Ok(())

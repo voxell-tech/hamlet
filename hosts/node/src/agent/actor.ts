@@ -981,8 +981,13 @@ async function finished(c: AgentCall, message: Finished): Promise<void> {
             kind: "finished",
             id: message.call,
             content: words,
+            ...(message.task === undefined ? {} : { task: message.task }),
             ended: { call: message.call, end: endOf(message.outcome) },
         };
+        // Kept before the admission, so its end always finds it.
+        if (message.task !== undefined) {
+            await given(c, conversation.id, message.call, message.task);
+        }
         await conversation.submit(
             admission.ended?.end.type === "aborted"
                 ? await endedWithoutRun(harness, admission, words, context)

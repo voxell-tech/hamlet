@@ -465,8 +465,7 @@ impl Workspace {
                 tell(
                     ctx,
                     wait.agent,
-                    wait.call.clone(),
-                    Outcome::Change { end },
+                    wait.ended(Outcome::Change { end }),
                 )
                 .await;
                 return Ok(AnswerTaken::Taken);
@@ -499,13 +498,8 @@ impl Workspace {
                 held,
             )
             .await?;
-        tell(
-            ctx,
-            wait.agent,
-            wait.call.clone(),
-            Outcome::Change { end },
-        )
-        .await;
+        tell(ctx, wait.agent, wait.ended(Outcome::Change { end }))
+            .await;
         Ok(AnswerTaken::Taken)
     }
 

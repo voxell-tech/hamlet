@@ -358,6 +358,50 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
     assert!(s.chief.waits().is_empty());
 }
 
+/// Under --actors an approval does not hold the turn: the chief
+/// allows once the turn ends, and the command's end starts a turn of
+/// its own, under the chief's task.
+#[tokio::test]
+async fn the_turn_after_an_approved_command_asks_its_chief() {
+    let asks = call(
+        "ask_chief",
+        json!({"questions": [{"question": "Next?"}]}),
+    );
+    let script = if home::serves_actors() {
+        vec![
+            bash("echo curl one > one"),
+            words("Waiting."),
+            asks,
+            words("Done."),
+        ]
+    } else {
+        vec![bash("echo curl one > one"), asks, words("Done.")]
+    };
+    let mut s = Session::start(Faux::new().responses(script)).await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "Try the network.").await;
+    let approval = s
+        .chief
+        .wait_for("the approval", |w| w.subject.contains("one"))
+        .await;
+    if home::serves_actors() {
+        s.chief.shows(&now, "Waiting.").await;
+    }
+
+    s.chief.choose(&approval.id, Choice::Allow, None).await;
+    let asked = s
+        .chief
+        .wait_for("the question", |w| {
+            matches!(w.detail, WaitDetail::Question { .. })
+        })
+        .await;
+
+    assert_eq!(asked.agent, Some(hand));
+    assert!(s.home.agent_files(1, "hand").join("one").exists());
+}
+
 #[tokio::test]
 async fn an_objection_holds_the_turn_until_the_chief_rules() {
     let mut s = Session::start(Faux::new().responses([
