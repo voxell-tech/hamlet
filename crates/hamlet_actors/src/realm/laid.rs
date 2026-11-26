@@ -200,23 +200,30 @@ const LIVE_ROADS: &str = "road JOIN agent AS one ON one.id = road.a \
                           WHERE road.up_at IS NULL AND one.status \
                           != 'ended' AND other.status != 'ended'";
 
-/// The roads a client sees: an agreed one only while the chief
-/// allows roads between hamlets.
+/// The roads a client sees, each with its kind: between two agents
+/// that have not ended, an agreed one only while the chief allows
+/// roads between hamlets.
+pub(super) async fn shown(
+    rows: &Rows<'_>,
+) -> Result<Vec<(u32, u32, String)>> {
+    let between = limits::roads_between(rows).await?;
+    rows.rows(
+        &format!(
+            "SELECT road.a, road.b, road.kind FROM {LIVE_ROADS} AND \
+             (road.kind = 'tree' OR ?1) ORDER BY road.a, road.b"
+        ),
+        vec![BindParam::Integer(i64::from(between))],
+    )
+    .await
+}
+
 pub(super) async fn live_roads(
     rows: &Rows<'_>,
 ) -> Result<Vec<RoadSeen>> {
-    let between = limits::roads_between(rows).await?;
-    Ok(rows
-        .rows::<(u32, u32)>(
-            &format!(
-                "SELECT road.a, road.b FROM {LIVE_ROADS} AND \
-                 (road.kind = 'tree' OR ?1) ORDER BY road.a, road.b"
-            ),
-            vec![BindParam::Integer(i64::from(between))],
-        )
+    Ok(shown(rows)
         .await?
         .into_iter()
-        .map(|(a, b)| RoadSeen {
+        .map(|(a, b, _)| RoadSeen {
             a: AgentNumber(a),
             b: AgentNumber(b),
         })

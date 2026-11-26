@@ -295,6 +295,7 @@ fn the_budget_read(fixtures: &mut Fixtures) {
                     spend: Spend {
                         payer: Payer::Hamlet { hamlet: hamlet() },
                         spent_micros: 250_000,
+                        spent_tokens: 4_200,
                         budget_micros: Some(5_000_000),
                         spent_ms: 12_000,
                         budget_ms: None,
@@ -310,6 +311,7 @@ fn the_budget_read(fixtures: &mut Fixtures) {
                     spend: Spend {
                         payer: Payer::Realm,
                         spent_micros: 1_250_000,
+                        spent_tokens: 4_200,
                         budget_micros: None,
                         spent_ms: 90_000,
                         budget_ms: None,

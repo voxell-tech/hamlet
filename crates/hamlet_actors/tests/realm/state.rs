@@ -6,6 +6,7 @@ use hamlet_actors::realm;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::profile::VersionName;
+use hamlet_messages::realm::budget::Charge;
 use hamlet_messages::realm::client::{
     ReadState, ReadWorld, RememberSecret, World,
 };
@@ -32,8 +33,8 @@ use super::profiles::create;
 use super::stand_ins::{Callee, Seen};
 use super::world::seen_until;
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, founded, hamlet_with, hires,
-    needs, say, seen_submits, tell, to, tool,
+    DEADLINE, MAYOR, Realm, THREE, charge, founded, hamlet_with,
+    hires, needs, say, seen_submits, standing, tell, to, tool,
 };
 
 const KEY: &str = "sk-made-up-0461";
@@ -507,6 +508,30 @@ async fn a_profile_shows_the_skills_and_versions_its_repository_holds()
             name: HELD_VERSION.to_owned(),
             note: String::new(),
         }]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hamlets_budget_counts_the_tokens_its_hires_spent() {
+    let (realm, hamlet) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    let spent = Charge {
+        tokens: Some(120),
+        ..charge("c1", &task, 8, 1)
+    };
+    realm.tool(THREE, &spent).await.unwrap();
+
+    let state = state(&realm).await;
+    let shown = state
+        .hamlets
+        .iter()
+        .find(|shown| shown.id == hamlet.0)
+        .expect("the hamlet is shown");
+
+    assert_eq!(
+        (shown.budget.spent.micros, shown.budget.spent.tokens),
+        (8, 120)
     );
     realm.host.shutdown().await.unwrap();
 }

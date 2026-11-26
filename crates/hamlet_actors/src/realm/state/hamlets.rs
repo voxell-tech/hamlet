@@ -16,6 +16,7 @@ use hamlet_protocol::client as protocol;
 use super::{count, wire};
 use crate::realm::change::{Rows, number};
 use crate::realm::chiefs::{self, limits};
+use crate::realm::laid;
 
 /// A living hamlet, its budget's spending and its roads with when
 /// each last carried a letter.
@@ -201,13 +202,7 @@ async fn roads(
         .iter()
         .map(|place| place.mayor)
         .collect::<BTreeSet<_>>();
-    let laid = rows
-        .rows::<(u32, u32, String)>(
-            "SELECT a, b, kind FROM road WHERE up_at IS NULL ORDER \
-             BY a, b",
-            Vec::new(),
-        )
-        .await?;
+    let laid = laid::shown(rows).await?;
     let mut ways = Vec::new();
     for hire in seen.agents.iter().filter(|agent| {
         !matches!(agent.status, Status::Ended { .. })

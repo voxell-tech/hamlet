@@ -130,7 +130,13 @@ async fn road(
     let laid = laid::laid_at(&writer.rows(), a, b)
         .await?
         .context("a charged road is laid first")?;
-    let laying = format!("{}-{}@{}", a.min(b).0, a.max(b).0, laid.0);
+    let laying = format!(
+        "{}-{}@{}/{}",
+        a.min(b).0,
+        a.max(b).0,
+        laid.0,
+        hamlet.0
+    );
     let cost = Cost {
         micros: price,
         took_ms: 0,
@@ -165,6 +171,7 @@ pub(super) struct Spent {
     pub payer: Payer,
     pub micros: u64,
     pub took_ms: u64,
+    pub tokens: u64,
     pub budget: limits::Budget,
 }
 
@@ -197,6 +204,7 @@ impl From<Spent> for Spend {
         Self {
             payer: spent.payer,
             spent_micros: spent.micros,
+            spent_tokens: spent.tokens,
             budget_micros: spent.budget.micros,
             spent_ms: spent.took_ms,
             budget_ms: spent.budget.ms,
@@ -209,13 +217,13 @@ pub(super) async fn spent(
     payer: &Payer,
 ) -> Result<Spent> {
     let budget = limits::budget(rows, payer).await?;
-    let (micros, took_ms) = rows
-        .row::<(u64, u64)>(
+    let (micros, took_ms, tokens) = rows
+        .row::<(u64, u64, u64)>(
             "SELECT COALESCE(SUM(micros), 0), \
-             COALESCE(SUM(took_ms), 0) FROM charge WHERE payer = ?1 \
-             AND at >= ?2 AND rowid > COALESCE((SELECT \
-             MAX(last_charge) FROM budget_reset WHERE payer = ?1), \
-             0)",
+             COALESCE(SUM(took_ms), 0), COALESCE(SUM(tokens), 0) \
+             FROM charge WHERE payer = ?1 AND at >= ?2 AND rowid > \
+             COALESCE((SELECT MAX(last_charge) FROM budget_reset \
+             WHERE payer = ?1), 0)",
             vec![
                 BindParam::Text(serde_json::to_string(payer)?),
                 BindParam::Integer(began(rows, budget.period).await?),
@@ -227,6 +235,7 @@ pub(super) async fn spent(
         payer: payer.clone(),
         micros,
         took_ms,
+        tokens,
         budget,
     })
 }

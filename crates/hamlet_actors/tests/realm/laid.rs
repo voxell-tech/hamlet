@@ -87,7 +87,7 @@ async fn roads_seen(realm: &Realm, roads: &[(u32, u32)]) -> Seen {
     .await
 }
 
-const ROAD_PRICE: u64 = 10_000;
+pub(super) const ROAD_PRICE: u64 = 10_000;
 
 async fn spent(realm: &Realm, hamlet: &HamletId, micros: u64) {
     let pays = Payer::Hamlet {
