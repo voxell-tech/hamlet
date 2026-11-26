@@ -650,8 +650,7 @@ export async function callOut<
     } catch (error) {
         if (context.abortSignal?.aborted) throw error;
         if (stamp.changes) {
-            // The chief reads today's words; the log keeps why.
-            console.error(`${tool} was interrupted: ${reasonOf(error)}`);
+            peers.report(`${tool} was interrupted`, error);
             return interrupted(tool);
         }
         return failed(
