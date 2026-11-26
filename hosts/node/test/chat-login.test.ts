@@ -13,8 +13,8 @@ import {
 } from "@earendil-works/pi-ai";
 import { chatActions } from "../src/agent/chat.ts";
 import { keysOf } from "../src/agent/credentials.ts";
-import { hostedConfig } from "../src/agent/host.ts";
-import { type SignIns, signIns } from "../src/agent/login.ts";
+import { fauxModels } from "../src/agent/faux.ts";
+import { installationOf, type SignIns, signIns } from "../src/agent/login.ts";
 import type {
     ChatPage,
     Login,
@@ -480,11 +480,10 @@ test("a host signs in to a subscription as its installation, the id in its realm
         join(home, "credentials.json"),
         JSON.stringify({ installationId: "stable-installation" }),
     );
-    const config = hostedConfig(home, { signIn: true, claude: false });
+    const { models } = fauxModels(undefined, true);
     const { file, calls } = credentialsFile();
-    const agent = await wakeAgent(t, { calls, models: () => config.models });
-    assert.ok(config.signIns !== undefined);
-    const hand = client(agent, config.signIns);
+    const agent = await wakeAgent(t, { calls, models: () => models });
+    const hand = client(agent, signIns(models, installationOf(home)));
 
     let step = await hand.start("chatgpt", "subscription");
     const { login } = step;
