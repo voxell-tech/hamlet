@@ -376,6 +376,7 @@ async fn the_shelves_are_listed_with_their_version() {
         usage: "python3 skills/weather/scripts/weather.py \
                 \"Toronto\" [metric|us]"
             .into(),
+        shelved_by: None,
     };
     assert!(list.skills.contains(&weather));
     let memory = &list.skills[1];
@@ -449,7 +450,13 @@ async fn an_accepted_offer_is_shelved_and_its_offerer_drops_its_copy()
     assert_eq!(paper.unwrap(), PAPER);
     let list = read_shelves(&host).await;
     assert_eq!(list.version, 2);
-    assert!(names(&list).contains(&"tidy"));
+    let tidy = list.skills.iter().find(|skill| skill.name == "tidy");
+    assert_eq!(
+        tidy.and_then(|skill| skill.shelved_by),
+        Some(By::Agent {
+            agent: AgentNumber(7)
+        })
+    );
 
     until("the listener and the offerer told", || {
         !told.shelves.lock().unwrap().is_empty()

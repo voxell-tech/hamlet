@@ -11,14 +11,13 @@ mod offers;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hamlet_actor::{
     Actor, BindParam, ColumnValue, Ctx, Handler, Registry,
 };
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_git::{Change, MAIN};
 use hamlet_host::{Caller, HostRef};
-use hamlet_messages::Message;
 use hamlet_messages::address::{self, Agent, Party, Realm};
 use hamlet_messages::library::{
     DropOfferParts, NoSkill, Offer, ReadOffer, ReadShelves,
@@ -28,6 +27,7 @@ use hamlet_messages::library::{
 use hamlet_messages::realm::Done;
 use hamlet_messages::sender::Reader;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::{Message, profile};
 use tokio::sync::Mutex;
 
 use crate::repo::git::{By, Git, Held, Reads};
@@ -249,8 +249,12 @@ fn version(git: &Reads) -> Result<u32> {
     Ok(u32::try_from(git.history(main(git)?, usize::MAX)?.len())?)
 }
 
-/// The shelves as `main` holds them, with their version.
-fn shelf_list(git: &Reads) -> Result<ShelfList> {
+/// The shelves as `main` holds them, with their version and who
+/// shelved each last, from `events`.
+fn shelf_list(
+    git: &Reads,
+    events: &store::Rows<'_, Events>,
+) -> Result<ShelfList> {
     let main = main(git)?;
     let version = version(git)?;
     let mut skills = Vec::new();
@@ -267,10 +271,39 @@ fn shelf_list(git: &Reads) -> Result<ShelfList> {
             name: name.to_owned(),
             description: text("description"),
             usage: text("usage"),
+            shelved_by: shelved_by(events, name)?,
         });
     }
     skills.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(ShelfList { version, skills })
+}
+
+/// Who shelved `skill` last, as its last `shelved` event names them;
+/// none for a starter.
+fn shelved_by(
+    events: &store::Rows<'_, Events>,
+    skill: &str,
+) -> Result<Option<profile::By>> {
+    let last = events.select(
+        "SELECT by FROM shelf_event WHERE skill = ?1 AND kind = \
+         'shelved' ORDER BY id DESC LIMIT 1",
+        vec![BindParam::Text(skill.to_owned())],
+    )?;
+    let Some([ColumnValue::Text(by)]) =
+        last.first().map(Vec::as_slice)
+    else {
+        return Ok(None);
+    };
+    let Some((kind, n)) = by.split_once(':') else {
+        bail!("a shelf event by `{by}`");
+    };
+    Ok(Some(match kind {
+        "agent" => profile::By::Agent {
+            agent: AgentNumber(n.parse()?),
+        },
+        "chief" => profile::By::Chief { chief: n.parse()? },
+        _ => bail!("a shelf event by `{by}`"),
+    }))
 }
 
 fn skill_paths(
@@ -293,7 +326,7 @@ where
     Library: Admits<M::From>,
 {
     w.check_out(main(w.git()?)?, Path::new(CHECKOUT), &|_| false)?;
-    let list = shelf_list(w.git()?)?;
+    let list = shelf_list(w.git()?, &w.table(Events(())).rows())?;
     let listeners = w
         .table(Listeners(()))
         .rows()
@@ -359,7 +392,7 @@ impl Takes<Shelves> for Library {
 fn shelves(
     unit: Before<'_, Library, Shelves>,
 ) -> Result<Ended<Shelves>> {
-    let list = shelf_list(unit.git()?)?;
+    let list = shelf_list(unit.git()?, &unit.rows(Events(())))?;
     let agent = BindParam::Integer(i64::from(unit.from().0.0));
     let listening = !unit
         .rows(Listeners(()))
@@ -383,7 +416,10 @@ impl Takes<ReadShelves> for Library {
     async fn take(
         call: Call<Self, ReadShelves>,
     ) -> Result<Reply<ReadShelves>> {
-        call.read(|look| shelf_list(look.git()?)).await
+        call.read(|look| {
+            shelf_list(look.git()?, &look.rows(Events(())))
+        })
+        .await
     }
 }
 
