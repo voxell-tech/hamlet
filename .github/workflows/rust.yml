@@ -138,8 +138,8 @@ jobs:
       - run: cargo xtask node
 
   # The acceptance suite on `hamlet_server --actors`. `cargo xtask
-  # actors` skips the scenarios the acceptance ledger records as failing
-  # there, each named in its list.
+  # actors` skips the scenarios that fail there, each named in its
+  # list.
   test-actors:
     runs-on: ubuntu-latest
     steps:

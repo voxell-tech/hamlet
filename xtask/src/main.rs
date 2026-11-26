@@ -35,7 +35,7 @@ Usage: cargo xtask <task> [args]
   acceptance       the acceptance suite, on the plain CLI and server
   actors           the acceptance suite on `hamlet_server --actors`, \
      with the Node host and its native module, but the scenarios \
-     the acceptance ledger records as failing there
+     that fail there
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
@@ -449,9 +449,8 @@ fn acceptance(root: &Path) -> Result<(), Failure> {
     ))
 }
 
-/// The scenarios `actors` skips, each with the place of its test, by
-/// which the acceptance ledger's row records why it fails on
-/// `hamlet_server --actors`.
+/// The scenarios `actors` skips, each with the place of its test:
+/// they fail on `hamlet_server --actors`.
 const ACTORS_SKIP: &[(&str, &str)] = &[
     (
         "chats_with_answers_on_stdout_and_the_rest_on_stderr",
