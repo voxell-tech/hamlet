@@ -199,6 +199,9 @@ pub(super) async fn apply(
     };
     let moved = settings.moved(&before);
     let mut seen = BTreeSet::new();
+    if settings != before {
+        seen.insert(world::Part::State);
+    }
     if !reaches.is_empty() {
         seen.insert(world::Part::Reaches);
     }

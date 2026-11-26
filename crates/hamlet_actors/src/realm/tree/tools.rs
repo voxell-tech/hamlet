@@ -14,6 +14,7 @@ use super::super::callers::Lead;
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer, number};
 use super::super::record;
+use super::super::world::Part;
 use super::Lineage;
 
 pub(in crate::realm) async fn off_for(
@@ -117,6 +118,7 @@ pub(in crate::realm) async fn set(
     let mut affected = Affected::default();
     if changed > 0 {
         affected.places.insert(hire);
+        affected.seen.insert(Part::Agents);
     }
     Ok(affected)
 }

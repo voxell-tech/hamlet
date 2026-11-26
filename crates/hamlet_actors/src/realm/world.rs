@@ -6,7 +6,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::Ctx;
 use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
-use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::client::{ReadWorld, World};
 use hamlet_messages::realm::world::{
     AgentSeen, GrantSeen, GrantSource, HamletSeen, Lasting,
     ReachSeen, Revision, Seen, Spend, Starter, Status, WaitId,
@@ -21,8 +21,8 @@ use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
 use super::tree::choices;
 use super::{
-    Realm, budget, chiefs, documents, laid, parcels, tree, versions,
-    waits,
+    Realm, budget, chiefs, documents, laid, parcels, state, tree,
+    versions, waits,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,50 +33,86 @@ pub(super) enum Part {
     Waits,
     Spend,
     Reaches,
+    /// What only a client's whole state shows: the profiles, the
+    /// settings and the limits, an agent's consulting, and the
+    /// letters along the roads.
+    State,
+    /// Whether an agent is working, which no row holds.
+    Working,
 }
 
 impl Part {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Agents,
         Self::Hamlets,
         Self::Roads,
         Self::Waits,
         Self::Spend,
         Self::Reaches,
+        Self::State,
     ];
 }
 
-pub(super) type World = Seen;
+/// The copy of the world the realm answers clients from.
+#[derive(Clone, Default)]
+pub(super) struct Kept {
+    pub seen: Seen,
+    pub shown: state::Shown,
+}
 
 pub(super) struct Held {
-    current: RwLock<Arc<World>>,
+    current: RwLock<Arc<Kept>>,
     rebuilding: Mutex<()>,
+}
+
+/// A change that moves the revision alone, for what a client is
+/// shown that no row holds.
+#[derive(Debug, PartialEq)]
+pub(super) enum Change {
+    Moved,
+}
+
+pub(super) fn apply(change: Change) -> Affected {
+    match change {
+        Change::Moved => Affected::seen([Part::Working]),
+    }
+}
+
+/// Moves the revision, so each client reads the world again.
+pub(super) async fn moved(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+) -> Result<()> {
+    change::commit(realm, ctx, vec![Change::Moved.into()]).await?;
+    Ok(())
 }
 
 impl Held {
     pub async fn load(ctx: &Ctx<Realm>) -> Result<Self> {
         let rows = Rows::outside(ctx)?;
         let revision = versions::revision(&rows).await?;
-        let world = rebuilt(
+        let kept = rebuilt(
             &rows,
-            World::default(),
+            Kept::default(),
             revision,
             &BTreeSet::from(Part::ALL),
         )
         .await?;
         Ok(Self {
-            current: RwLock::new(Arc::new(world)),
+            current: RwLock::new(Arc::new(kept)),
             rebuilding: Mutex::new(()),
         })
     }
 
-    pub fn current(&self) -> Arc<World> {
+    pub fn current(&self) -> Arc<Kept> {
         self.current
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
+    /// Rebuilds the parts `affected` moved at `revision`, and tells
+    /// each subscriber the world moved.
     pub async fn refresh(
         &self,
         ctx: &Ctx<Realm>,
@@ -85,30 +121,36 @@ impl Held {
     ) {
         let _rebuilding = self.rebuilding.lock().await;
         let held = self.current();
-        if revision <= held.revision {
+        if revision <= held.seen.revision {
             return;
         }
-        let parts = if revision.0 == held.revision.0 + 1 {
+        let parts = if revision.0 == held.seen.revision.0 + 1 {
             affected.seen.clone()
         } else {
             BTreeSet::from(Part::ALL)
         };
         let built = async {
             let rows = Rows::outside(ctx)?;
-            rebuilt(&rows, World::clone(&held), revision, &parts)
-                .await
+            rebuilt(&rows, Kept::clone(&held), revision, &parts).await
         }
         .await;
         match built {
-            Ok(world) => {
-                let world = Arc::new(world);
+            Ok(kept) => {
+                let kept = Arc::new(kept);
                 let _old = mem::replace(
                     &mut *self
                         .current
                         .write()
                         .unwrap_or_else(PoisonError::into_inner),
-                    world,
+                    kept,
                 );
+                if let Err(error) = ctx.emit(World { revision }) {
+                    tracing::warn!(
+                        "the world's event for revision {} was not \
+                         sent: {error:#}",
+                        revision.0
+                    );
+                }
             }
             Err(error) => tracing::warn!(
                 "the world's copy missed revision {}: {error:#}",
@@ -120,10 +162,11 @@ impl Held {
 
 async fn rebuilt(
     rows: &Rows<'_>,
-    mut world: World,
+    mut kept: Kept,
     revision: Revision,
     parts: &BTreeSet<Part>,
-) -> Result<World> {
+) -> Result<Kept> {
+    let world = &mut kept.seen;
     world.revision = revision;
     if parts.contains(&Part::Agents) || parts.contains(&Part::Reaches)
     {
@@ -142,7 +185,10 @@ async fn rebuilt(
     if parts.contains(&Part::Spend) {
         world.spend = spend(rows).await?;
     }
-    Ok(world)
+    if parts.iter().any(|part| *part != Part::Working) {
+        kept.shown = state::read(rows, &kept.seen).await?;
+    }
+    Ok(kept)
 }
 
 async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
@@ -189,6 +235,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
             bail!("an agent's row of another form: {row:?}");
         };
         let agent = AgentNumber(u32::of(id)?);
+        let tools_off = tree::tools::off_for(rows, agent).await?;
         let status = match tree::Status::of_row(
             rows,
             agent,
@@ -228,7 +275,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
                 .transpose()?,
             fast: Option::of(fast)?,
             allowance_micros: Option::of(allowance)?,
-            tools_off: Vec::new(),
+            tools_off,
         });
     }
     Ok(agents)
@@ -399,7 +446,7 @@ impl Look<Client> for ReadWorld {
     type Output = Seen;
 
     fn look(&self, _by: &Client, realm: &Realm) -> Seen {
-        World::clone(&realm.world.current())
+        realm.secrets.scrubbed_value(&realm.world.current().seen)
     }
 }
 
@@ -456,12 +503,12 @@ mod tests {
             )
             .await;
 
-        assert_eq!(rebuilt, started.realm.world.current());
+        assert_eq!(rebuilt.seen, started.realm.world.current().seen);
         assert_eq!(
             (
-                rebuilt.agents.len(),
-                rebuilt.hamlets.len(),
-                rebuilt.waits.len()
+                rebuilt.seen.agents.len(),
+                rebuilt.seen.hamlets.len(),
+                rebuilt.seen.waits.len()
             ),
             (2, 1, 1)
         );

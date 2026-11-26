@@ -23,8 +23,9 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::oversight::asking;
 use super::peer::When;
 use super::roads::{self, End, Ends, Way};
-use super::tasks::TaskId;
+use super::tasks::{self, TaskId};
 use super::tree::{self, Status};
+use super::world::Part;
 use super::{Realm, hire, laid, parcels, record};
 
 #[derive(
@@ -137,7 +138,7 @@ async fn keep(
             ],
         )
         .await?;
-    Ok(Affected::default())
+    Ok(Affected::seen([Part::State]))
 }
 
 async fn keep_answer(
@@ -356,6 +357,8 @@ pub(super) struct Letter {
     held: Option<asking::Holding>,
     /// The changes that send its files.
     parcel: Option<Vec<change::Change>>,
+    /// The task it names, when that task is its sender's.
+    task: Option<TaskId>,
 }
 
 impl Letter {
@@ -368,9 +371,12 @@ impl Letter {
     ) -> Result<Self> {
         let ends = roads::ends(rows, by, to).await?;
         let id = fresh(rows).await?;
+        let task = match task {
+            Some(task) => tasks::named(rows, by.0, task).await?,
+            None => None,
+        };
         let held = match &ends.to {
             Some(to) => {
-                let task = task.and_then(TaskId::of);
                 let letter = Delivery::Letter(id);
                 asking::holds(rows, by.0, to.agent, task, letter)
                     .await?
@@ -390,6 +396,7 @@ impl Letter {
             id,
             held,
             parcel,
+            task,
         })
     }
 }
@@ -397,7 +404,6 @@ impl Letter {
 pub(super) struct Written<'a> {
     pub kind: Kind,
     pub text: &'a str,
-    pub task: Option<&'a RealmTask>,
     pub conversation: Option<&'a ConversationId>,
 }
 
@@ -415,6 +421,7 @@ impl Written<'_> {
             id,
             held,
             parcel,
+            task,
         } = letter;
         if held == Some(asking::Holding::Dropped) {
             return refuse(LetterRefusal::Withdrawn);
@@ -443,7 +450,7 @@ impl Written<'_> {
                 )),
             };
         }
-        let kept = self.keep(id, ends.from.agent, to, way);
+        let kept = self.keep(id, ends.from.agent, to, way, task);
         let Decided {
             done: route,
             changes,
@@ -465,6 +472,7 @@ impl Written<'_> {
         from: AgentNumber,
         to: &End,
         way: Way,
+        task: Option<TaskId>,
     ) -> Decided<LetterId> {
         let mut decided = Decided::new(id).change(Change::Keep {
             letter: id,
@@ -473,7 +481,7 @@ impl Written<'_> {
             to: to.agent,
             way,
             text: self.text.to_owned(),
-            task: self.task.and_then(TaskId::of),
+            task,
             conversation: self.conversation.cloned(),
         });
         if to.can_take_purpose
@@ -519,7 +527,6 @@ impl Act<Agent> for Paid<Tell> {
         let written = Written {
             kind: Kind::Letter,
             text: &self.act.text,
-            task: self.task.as_ref(),
             conversation: None,
         };
         written.decide(letter)
@@ -573,7 +580,6 @@ impl Act<Agent> for Paid<Ask> {
         let written = Written {
             kind: Kind::Question,
             text: &self.act.text,
-            task: self.task.as_ref(),
             conversation: Some(&self.act.conversation),
         };
         written.decide(letter)
@@ -720,6 +726,7 @@ mod tests {
             id: LetterId(1),
             held: None,
             parcel: None,
+            task: None,
         };
         assert_eq!(
             Paid {
@@ -749,6 +756,7 @@ mod tests {
             id: LetterId(1),
             held: None,
             parcel: None,
+            task: None,
         };
         let ask = Ask {
             to: Named::Agent {
@@ -791,6 +799,7 @@ mod tests {
             id: LetterId(1),
             held: None,
             parcel: None,
+            task: None,
         };
         assert!(matches!(
             Paid { task: None, act: tell(4) }.decide(&sender(), letter),

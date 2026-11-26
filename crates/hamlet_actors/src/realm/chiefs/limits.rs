@@ -9,6 +9,7 @@ use hamlet_messages::realm::{
     Review, SetLimits,
 };
 use hamlet_messages::sender::Client;
+use hamlet_protocol::client as protocol;
 use serde::{Deserialize, Serialize};
 
 use super::super::act::{Act, Decided, Decision};
@@ -49,6 +50,40 @@ impl Limits {
     /// A hamlet's limits from its row's `limits` column.
     pub(super) fn of_row(text: &str) -> Result<Self> {
         Ok(serde_json::from_str(text)?)
+    }
+
+    /// The limits as a client is shown them, with the hamlet's
+    /// `model`.
+    pub(in crate::realm) fn shown(
+        &self,
+        model: Option<String>,
+    ) -> protocol::Limits {
+        protocol::Limits {
+            asking: protocol::LimitsAsking {
+                questions: self.asking.questions.into(),
+                refusals: self.asking.refusals.into(),
+                review: match self.asking.review {
+                    Review::Always => protocol::LimitsReview::Always,
+                    Review::Remote => protocol::LimitsReview::Remote,
+                    Review::Never => protocol::LimitsReview::Never,
+                },
+            },
+            budget: self.budget.shown(),
+            model,
+            protected_minutes: self.protected_minutes.into(),
+            reserved: protocol::LimitsReserved {
+                end: self.reserved.end,
+                hire: self.reserved.hire,
+                merge: self.reserved.merge,
+                roads: self.reserved.roads,
+            },
+            road: protocol::LimitsRoad {
+                grows_over_days: self.road.grows_over_days.into(),
+                most: self.road.most.into(),
+                price: dollars(self.road.price),
+            },
+            told_days: self.told_days.into(),
+        }
     }
 
     fn set(&mut self, limit: &Limit) -> Result<(), HamletRefusal> {
@@ -162,6 +197,16 @@ impl Default for Budget {
 }
 
 impl Budget {
+    fn shown(&self) -> protocol::LimitsBudget {
+        protocol::LimitsBudget {
+            cost: self.micros.map(dollars),
+            minutes: self.ms.map(|ms| {
+                i64::try_from(ms / 60_000).unwrap_or(i64::MAX)
+            }),
+            period: self.period.shown(),
+        }
+    }
+
     fn set(&mut self, limit: &BudgetLimit) {
         match *limit {
             BudgetLimit::Cost { micros } => {
@@ -189,6 +234,23 @@ impl Budget {
 pub(in crate::realm) enum Period {
     Day,
     Month,
+}
+
+impl Period {
+    pub(in crate::realm) fn shown(self) -> protocol::Period {
+        match self {
+            Self::Day => protocol::Period::Day,
+            Self::Month => protocol::Period::Month,
+        }
+    }
+
+    /// The words of the period as a budget's report reads them.
+    pub(in crate::realm) fn words(self) -> &'static str {
+        match self {
+            Self::Day => "today",
+            Self::Month => "this month",
+        }
+    }
 }
 
 /// The price of a laid road and how many a hamlet holds (H3).
@@ -248,6 +310,27 @@ pub(in crate::realm) async fn roads_between(
     rows: &Rows<'_>,
 ) -> Result<bool> {
     Ok(stored(rows).await?.unwrap_or_default().roads_between)
+}
+
+/// The realm's own limits as a client is shown them. Before the
+/// realm's first start writes its row, the defaults.
+pub(in crate::realm) async fn realm_shown(
+    rows: &Rows<'_>,
+) -> Result<protocol::RealmLimits> {
+    let limits = stored(rows).await?.unwrap_or_default();
+    Ok(protocol::RealmLimits {
+        budget: limits.budget.shown(),
+        roads_between: limits.roads_between,
+    })
+}
+
+/// `micros` in dollars.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a client is shown dollars as a float"
+)]
+pub(in crate::realm) fn dollars(micros: u64) -> f64 {
+    micros as f64 / 1_000_000.0
 }
 
 async fn realm(rows: &Rows<'_>) -> Result<RealmLimits> {
@@ -366,6 +449,9 @@ pub(super) async fn set(
     let (budget_moved, sql, params) = match kept.0 {
         Row::Realm(limits) => {
             let was = stored(&rows).await?.unwrap_or_default();
+            if was != limits {
+                affected.seen.insert(Part::State);
+            }
             if was.roads_between != limits.roads_between {
                 affected.places = documents::living(&rows)
                     .await?
@@ -384,9 +470,13 @@ pub(super) async fn set(
         Row::Hamlet(id, limits) => {
             let was = super::hamlet(&rows, &id)
                 .await?
-                .map(|hamlet| hamlet.limits.budget);
+                .map(|hamlet| hamlet.limits);
+            if was.as_ref() != Some(&limits) {
+                affected.seen.insert(Part::State);
+            }
             (
-                was.as_ref() != Some(&limits.budget),
+                was.map(|was| was.budget).as_ref()
+                    != Some(&limits.budget),
                 "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
                 vec![
                     BindParam::Text(id.0),

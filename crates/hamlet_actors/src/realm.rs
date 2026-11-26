@@ -61,7 +61,7 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::choices::{SetModel, SetNickname};
 use hamlet_messages::realm::client::{
-    Answer, ReadState, ReadWorld, Say, World,
+    Answer, ReadState, ReadWorld, RememberSecret, Say, World,
 };
 use hamlet_messages::realm::documents::{
     EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
@@ -93,6 +93,7 @@ use hamlet_messages::realm::{
     ProfileId, ReadOwnPlace, Reply, RequestRoad, Seat, Secrets,
     SetLimits, SetTier, SetTools, TakeUpRoad, Tell, Tool,
 };
+pub use parcels::store::Store as ParcelStore;
 use serde::Serialize;
 
 use self::callers::{
@@ -221,8 +222,8 @@ impl Realm {
 impl Actor for Realm {
     type Input = ();
     type Actions = (
-        Asked<Found>,
-        ByHand<Tool<Found>>,
+        tree::Pinning<Asked<Found>>,
+        tree::Pinning<ByHand<Tool<Found>>>,
         tree::Pinning<Asked<Hire>>,
         tree::Pinning<Tool<Hire>>,
         Asked<End>,
@@ -244,6 +245,7 @@ impl Actor for Realm {
         Secrets,
         Looks<ReadWorld>,
         Looks<ReadState>,
+        RememberSecret,
         Asked<LayRoad>,
         Tool<LayRoad>,
         Asked<TakeUpRoad>,

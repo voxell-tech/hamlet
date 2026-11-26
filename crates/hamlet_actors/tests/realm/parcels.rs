@@ -16,9 +16,9 @@ use hamlet_messages::realm::{Done, DoneTo, Enclosed, End};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::Choice;
 
-use super::asking::{chief_task, held_rows, objection, on};
+use super::asking::{held_rows, objection, on, shared_task};
 use super::parcel_files::{
-    Files, hash, killed_while_held, restart, sending,
+    Files, aged, hash, killed_while_held, restart, sending,
 };
 use super::stand_ins::Callee;
 use super::{
@@ -76,7 +76,10 @@ async fn fetch(
 }
 
 /// The bytes of `file` as 3 fetches it, part by part.
-async fn fetched(realm: &Realm, file: &ParcelFile) -> Vec<u8> {
+pub(super) async fn fetched(
+    realm: &Realm,
+    file: &ParcelFile,
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     for part in 0.. {
         match fetch(realm, THREE, file.parcel, file.file, part).await
@@ -173,7 +176,7 @@ async fn opens(realm: &Realm, wait: &str) {
             .unwrap();
         match tried {
             Done::Refused {
-                why: AnswerRefusal::NotOffered,
+                why: AnswerRefusal::NotThatWay { .. },
             } => return,
             Done::Refused {
                 why: AnswerRefusal::NothingWaits { .. },
@@ -378,6 +381,7 @@ async fn the_sweep_keeps_open_parcels() {
     let store = realm.scratch.join("actors/realm/local.files");
     let orphan = hash(b"no one").to_string();
     std::fs::write(store.join(&orphan), "no one").unwrap();
+    aged(&store.join(&orphan));
     std::fs::write(store.join("99.0.part"), "stale").unwrap();
     files.hold_from(1);
 
@@ -399,9 +403,11 @@ async fn the_sweep_keeps_open_parcels() {
     let slow_file = letter_files(&realm, 3).await.remove(0);
     let slow_got = fetched(&realm, &slow_file).await;
     std::fs::write(store.join(&orphan), "no one").unwrap();
+    aged(&store.join(&orphan));
     let realm = restart(realm, &files).await;
     let after_restart = stored(&realm);
     let a_after_restart = fetched(&realm, &a).await;
+    aged(&store.join(hash(b"aaa").to_string()));
     realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     let a_old = fetch(&realm, THREE, a.parcel, 0, 0).await;
 
@@ -522,10 +528,11 @@ async fn sends_on(
     assert_eq!(answer, self::sent(THREE), "tell answers at once");
 }
 
-/// 3 objects to a chief's new line, and the mayor sends it a file
-/// on that line's task. Returns the objection's wait.
+/// 3 objects to a chief's new line it shared with the mayor, and the
+/// mayor sends it a file on that line's task. Returns the objection's
+/// wait.
 async fn held_with_a_file(realm: &Realm) -> String {
-    let task = chief_task(realm, THREE).await;
+    let task = shared_task(realm).await;
     let objected = realm
         .tool(THREE, &tool("o1", objection(&task, "no")))
         .await
@@ -535,7 +542,6 @@ async fn held_with_a_file(realm: &Realm) -> String {
     "1".to_owned()
 }
 
-/// The rows of the `held` table.
 async fn go(realm: &Realm, wait: &str) {
     let ruled =
         realm.ask(&answer(wait, Choice::Go, None)).await.unwrap();
@@ -586,7 +592,7 @@ async fn a_held_letters_files_outlive_a_day() {
 async fn a_kill_after_ready_keeps_a_held_letter() {
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
-    let task = chief_task(&realm, THREE).await;
+    let task = shared_task(&realm).await;
     sends_on(&realm, "t1", &task, &["/project/a"]).await;
     letter_files(&realm, 1).await;
     realm

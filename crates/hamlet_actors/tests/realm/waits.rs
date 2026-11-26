@@ -379,9 +379,11 @@ async fn notices(
         .collect()
 }
 
-fn not_offered() -> Done<AnswerRefusal> {
-    Done::Refused {
-        why: AnswerRefusal::NotOffered,
+/// The words of `done`'s refusal.
+fn refused(done: &Done<AnswerRefusal>) -> String {
+    match done {
+        Done::Refused { why } => why.to_string(),
+        Done::Done => panic!("the answer is taken"),
     }
 }
 
@@ -453,7 +455,14 @@ async fn an_always_is_refused_where_today_refuses_it() {
         .await
         .unwrap();
 
-    assert_eq!((fault, question), (not_offered(), not_offered()));
+    assert_eq!(
+        [refused(&fault), refused(&question)],
+        [
+            "That cannot be answered that way; answer with /dismiss.",
+            "That cannot be answered that way; answer with /reply \
+             /dismiss.",
+        ]
+    );
     assert_eq!(open, [(1, true, None), (2, true, None)]);
     assert_eq!(dismissed, Done::Done);
     assert_eq!(

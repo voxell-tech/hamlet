@@ -299,8 +299,9 @@ CREATE TABLE IF NOT EXISTS settings (
 -- parcels.rs
 CREATE TABLE IF NOT EXISTS parcel (
 	id INTEGER PRIMARY KEY,
-	letter INTEGER NOT NULL,
-	sender INTEGER NOT NULL,
+	-- the letter it sends, and its sender: none for a chief's line
+	letter INTEGER,
+	sender INTEGER,
 	receiver INTEGER NOT NULL,
 	paths TEXT NOT NULL,
 	state TEXT NOT NULL,

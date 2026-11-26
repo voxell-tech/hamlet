@@ -27,7 +27,7 @@ use super::change::Rows;
 use super::peer::When;
 use super::tree::{self, Life, Lineage};
 use super::workers::errands;
-use super::{Realm, marker, record};
+use super::{Realm, marker, record, say};
 
 /// A sender the realm takes calls from.
 pub(super) trait Witness:
@@ -498,12 +498,14 @@ impl Handler<Say> for Realm {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        mut say: Say,
+        say: Say,
     ) -> Result<<Say as Action>::Output> {
         let by = sender(&ctx, &say)?;
-        say.0.text = self.secrets.scrubbed(&say.0.text);
         let id = marker::Id::Request(say.0.id.clone());
-        act::run(&self, &ctx, by, Some(id), Say::NAME, say).await
+        let key = marker::Key::of(&by, id, Say::NAME, &say)?;
+        let lined = say::Lined::of(&self, &ctx, &key, say).await?;
+        act::run_keyed(&self, &ctx, by, Some(key), Say::NAME, lined)
+            .await
     }
 }
 

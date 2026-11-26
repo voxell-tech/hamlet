@@ -4,20 +4,20 @@
 //! under a temporary name before its rename, so a kill leaves at most
 //! a temporary file; a parcel's steps driven again at the realm's
 //! start copy what is missing; at the start and after each parcel's
-//! steps, the realm removes the files no unswept parcel names and the
-//! temporary files no copy is writing. No file changes after its
-//! rename.
+//! steps, the realm removes the files no unswept parcel names, once a
+//! day old, and the temporary files no copy is writing. No file
+//! changes after its rename.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use hamlet_actor::Ctx;
 use hamlet_host::HostRef;
 use hamlet_messages::address::{self, Party as _, Workspace};
 use hamlet_messages::bytes::Sha256;
-use hamlet_messages::realm::LetterId;
 use hamlet_messages::realm::parcels::{ParcelId, Part};
 use hamlet_messages::workspace::{
     AgentNumber, ParcelEntry, ParcelFault, ParcelPart, ParcelRefusal,
@@ -27,12 +27,15 @@ use tokio::io::AsyncWriteExt as _;
 
 use super::super::Realm;
 use super::super::change::{self, Rows};
-use super::super::oversight::asking;
 use super::super::peer::When;
 use super::super::steps::Cx;
 use super::{
-    Change, KEPT_MS, Sent, State, either_left, hash_of, state,
+    Change, KEPT_MS, Sent, State, either_left, hash_of, held, state,
 };
+
+/// How long the store keeps a file no parcel names from its last
+/// write: an upload a line has not carried yet.
+const GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Copies each file the store lacks from the sender's workspace,
 /// part by part, checking its hash before its rename.
@@ -66,7 +69,7 @@ async fn copy_file(
     cx: &Cx<'_>,
     sender: AgentNumber,
     entry: &ParcelEntry,
-    temporary: &std::path::Path,
+    temporary: &Path,
 ) -> Result<Option<ParcelRefusal>> {
     let mut out = tokio::fs::File::create(temporary).await?;
     let mut hash = sha2::Sha256::new();
@@ -165,9 +168,10 @@ pub(in crate::realm) async fn sweep(
         .await?
         .into_iter()
         .collect::<HashSet<_>>();
-    for name in names {
+    let fresh = SystemTime::now() - GRACE;
+    for (name, modified) in names {
         let stays = match Store::kept_as(&name) {
-            Kept::File => named.contains(&name),
+            Kept::File => named.contains(&name) || modified > fresh,
             Kept::Temporary(parcel) => copying.contains(&parcel),
             Kept::Other => true,
         };
@@ -191,7 +195,7 @@ pub(in crate::realm) async fn sweep(
 /// refused, or delivered a day ago and not held, is swept.
 async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
     let unswept = rows
-        .rows::<(u32, u32, u32, u32, String, i64)>(
+        .rows::<(u32, Option<u32>, Option<u32>, u32, String, i64)>(
             "SELECT id, letter, sender, receiver, state, at FROM \
              parcel WHERE swept_at IS NULL AND state IN (?1, ?2, ?3)",
             vec![
@@ -208,12 +212,14 @@ async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
         let parcel = ParcelId(parcel);
         let sweeps = match change::from_case_name(was)? {
             State::Refused => true,
-            State::Ready => {
-                at < old
-                    && !asking::still_held(rows, LetterId(letter))
-                        .await?
-            }
+            State::Ready => at < old && !held(rows, letter).await?,
             State::Waiting => {
+                let sender = sender.with_context(|| {
+                    format!(
+                        "parcel {} waits with no sender",
+                        parcel.0
+                    )
+                })?;
                 let left = either_left(
                     rows,
                     AgentNumber(sender),
@@ -237,13 +243,14 @@ async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
     Ok(changes)
 }
 
+/// Each name in `listed`, with when its file was last written.
 async fn names_in(
     mut listed: tokio::fs::ReadDir,
-) -> Result<Vec<String>> {
+) -> Result<Vec<(String, SystemTime)>> {
     let mut names = Vec::new();
     while let Some(entry) = listed.next_entry().await? {
         if let Ok(name) = entry.file_name().into_string() {
-            names.push(name);
+            names.push((name, entry.metadata().await?.modified()?));
         }
     }
     Ok(names)
@@ -251,7 +258,7 @@ async fn names_in(
 
 /// The realm's folder of parcels' files, `local.files` beside its
 /// database.
-pub(super) struct Store(PathBuf);
+pub struct Store(PathBuf);
 
 enum Kept {
     /// A file named by its hash.
@@ -262,18 +269,28 @@ enum Kept {
 }
 
 impl Store {
-    pub(super) fn of(ctx: &Ctx<Realm>) -> Result<Self> {
+    pub(in crate::realm) fn of(ctx: &Ctx<Realm>) -> Result<Self> {
+        Self::at(HostRef::of(ctx.inner())?.folder())
+    }
+
+    /// The store of the realm whose host keeps its actors under
+    /// `folder`.
+    pub fn at(folder: &Path) -> Result<Self> {
         let realm = address::Realm.address()?;
         Ok(Self(
-            HostRef::of(ctx.inner())?
-                .folder()
+            folder
                 .join("actors")
                 .join(realm.kind())
                 .join(format!("{}.files", realm.key())),
         ))
     }
 
-    pub(super) fn file(&self, sha256: &Sha256) -> PathBuf {
+    pub fn folder(&self) -> &Path {
+        &self.0
+    }
+
+    /// Where the file of the bytes hashed `sha256` is kept.
+    pub fn file(&self, sha256: &Sha256) -> PathBuf {
         self.0.join(sha256.to_string())
     }
 

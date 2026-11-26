@@ -445,3 +445,27 @@ async fn two_letters_to_one_hire_reach_it_in_the_order_told() {
     assert!(dig.is_some() && dig < rest, "{seen}");
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_names_only_a_task_of_its_sender() {
+    let (realm, _) = hamlet_with(2).await;
+    let own = standing(&realm, MAYOR);
+    let others = standing(&realm, FOUR);
+
+    realm
+        .tool(MAYOR, &paid("t1", &others, tell(to(THREE), "one")))
+        .await
+        .unwrap();
+    realm
+        .tool(MAYOR, &paid("t2", &own, tell(to(THREE), "two")))
+        .await
+        .unwrap();
+    let submits = seen_submits(&realm, THREE, 2).await;
+
+    let tasks = submits
+        .iter()
+        .map(|submit| submit.task.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(tasks, [None, Some(own)]);
+    realm.host.shutdown().await.unwrap();
+}

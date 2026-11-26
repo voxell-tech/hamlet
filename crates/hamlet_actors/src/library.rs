@@ -28,6 +28,7 @@ use hamlet_messages::library::{
 use hamlet_messages::realm::Done;
 use hamlet_messages::sender::Reader;
 use hamlet_messages::workspace::AgentNumber;
+use tokio::sync::Mutex;
 
 use crate::repo::git::{By, Git, Held, Reads};
 use crate::repo::store::{self, Store, Writes};
@@ -103,6 +104,8 @@ pub fn factory() -> ActorFactory {
 
 pub(crate) struct Library {
     repo: Repo,
+    /// The shelves' version last told to subscribers.
+    shelved: Mutex<u32>,
 }
 
 #[async_trait::async_trait]
@@ -127,7 +130,8 @@ impl Actor for Library {
         let repo =
             Repo::start(ctx, SCHEMA, path, starters, check_out)
                 .await?;
-        Ok(Self { repo })
+        let shelved = Mutex::new(repo.reads(version).await?);
+        Ok(Self { repo, shelved })
     }
 }
 
@@ -166,7 +170,26 @@ where
         ctx: Ctx<Self>,
         message: M,
     ) -> Result<M::Output> {
-        repo::admit(self, ctx, message).await
+        let answer =
+            repo::admit(self.clone(), ctx.clone(), message).await?;
+        if let Err(error) = self.tell_shelved(&ctx).await {
+            tracing::warn!(
+                "the shelves' event was not sent: {error:#}"
+            );
+        }
+        Ok(answer)
+    }
+}
+
+impl Library {
+    async fn tell_shelved(&self, ctx: &Ctx<Self>) -> Result<()> {
+        let mut shelved = self.shelved.lock().await;
+        let version = self.repo.reads(version).await?;
+        if version > *shelved {
+            ctx.emit(Shelved { version })?;
+            *shelved = version;
+        }
+        Ok(())
     }
 }
 
@@ -221,13 +244,15 @@ pub(crate) fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
-/// The shelves as `main` holds them. The version is the number of
-/// commits on `main`, so it counts up with every skill shelved or
-/// taken off.
+/// The shelves' version.
+fn version(git: &Reads) -> Result<u32> {
+    Ok(u32::try_from(git.history(main(git)?, usize::MAX)?.len())?)
+}
+
+/// The shelves as `main` holds them, with their version.
 fn shelf_list(git: &Reads) -> Result<ShelfList> {
     let main = main(git)?;
-    let version =
-        u32::try_from(git.history(main, usize::MAX)?.len())?;
+    let version = version(git)?;
     let mut skills = Vec::new();
     for entry in git.entries(main)? {
         let Some((name, SKILL_FILE)) = entry.path.split_once('/')

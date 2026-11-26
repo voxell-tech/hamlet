@@ -60,6 +60,21 @@ pub enum SayRefusal {
     NoSuchAgent { address: String },
     #[error("`{agent}` has left: {left}")]
     Left { agent: AgentName, left: Left },
+    #[error(
+        "An attachment's place, {at}, is not a byte offset on a \
+         character boundary of the line, which is {length} bytes."
+    )]
+    NotAPlace { at: u64, length: u64 },
+    #[error("The file `{name}` was not sent first.")]
+    FileNotSent { name: String },
+    #[error("The file `{name}` is not the size it was sent as.")]
+    NotItsSize { name: String },
+    #[error("A line takes at most 1 GiB of files.")]
+    TooManyBytes,
+    #[error("no image `{image}` was sent first")]
+    NoImage { image: String },
+    #[error("`{name}` is not a name of a file.")]
+    NotAFileName { name: String },
 }
 
 /// A chief's answer to a wait.
@@ -90,8 +105,13 @@ impl Message for Answer {
 pub enum AnswerRefusal {
     #[error("nothing waits here with that id")]
     NothingWaits { wait: String },
-    #[error("that is not an answer to this wait")]
-    NotOffered,
+    /// `answers` names each answer the wait takes, as `/allow /deny`.
+    #[error(
+        "That cannot be answered that way; answer with {answers}."
+    )]
+    NotThatWay { answers: String },
+    #[error("Use picks only for a reply, without text.")]
+    PicksWithText,
     #[error("Say what to reply.")]
     BlankReply,
     #[error("every question needs an answer")]
@@ -147,4 +167,21 @@ pub struct World {
 
 impl hamlet_actor::Event for World {
     const NAME: &'static str = "world";
+}
+
+/// A secret a chief typed at a sign-in. The realm scrubs it from
+/// everything it shows, as it scrubs a kept key, until it stops.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RememberSecret {
+    pub secret: String,
+}
+
+impl Action for RememberSecret {
+    type Output = ();
+    const NAME: &'static str = "remember_secret";
+}
+
+impl Message for RememberSecret {
+    type To = Realm;
+    type From = Client;
 }

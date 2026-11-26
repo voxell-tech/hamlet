@@ -40,12 +40,14 @@ const WRITERS: &[(&str, &[&str])] = &[
 /// something other than rows.
 const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "KeepCredential"),
+    ("secrets.rs", "RememberSecret"),
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
     ("profiles.rs", "Create"),
     ("profiles.rs", "Purging"),
     ("librarian.rs", "Submitting"),
     ("tree/lead.rs", "Pinning"),
+    ("chiefs.rs", "Pinning"),
     ("lines.rs", "Working"),
     ("stop.rs", "StopAgents"),
     ("on_task.rs", "Asking"),

@@ -12,7 +12,7 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Library};
 use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::library::{
-    OfferId, OfferRead, ReadOffer, ReadShelves, Verdict,
+    NoOffer, OfferId, OfferRead, ReadOffer, ReadShelves, Verdict,
     VerdictRefusal,
 };
 use hamlet_messages::realm::profiles::{AskLibrarian, SubmitSkill};
@@ -33,6 +33,7 @@ use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, TaskId};
 use super::workers::errands::{self, ErrandInput, Purpose};
+use super::world::Part;
 use super::{Realm, callers, documents, profiles, record, tree};
 
 /// The librarian's part before every errand, in today's words.
@@ -119,10 +120,12 @@ pub(super) async fn apply(
                     ],
                 )
                 .await?;
-            Ok(Affected::default())
+            Ok(Affected::seen([Part::State]))
         }
         Change::Ended { errand, ended } => {
-            end(writer, errand, &ended).await
+            let mut affected = end(writer, errand, &ended).await?;
+            affected.seen.insert(Part::State);
+            Ok(affected)
         }
         Change::Judged { errand, refused } => {
             let (skill, words) = writer
@@ -581,13 +584,10 @@ impl Act<Agent> for Carried<Submitted> {
                 skill_md,
             } if *agent == by.0 => (skill, reason, paths, skill_md),
             OfferRead::Offered { .. } => {
-                let why = format!(
-                    "the offer {} is not yours",
-                    asked.offer.0
-                );
+                let why = NoOffer::NoSuchOffer { offer: asked.offer };
                 return Ok(Judging::Unjudged(unjudged(
                     &asked.skill,
-                    &why,
+                    &why.to_string(),
                 )));
             }
             OfferRead::Refused { why } => {

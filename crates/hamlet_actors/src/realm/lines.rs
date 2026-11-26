@@ -17,9 +17,9 @@ use hamlet_protocol::client::RequestId;
 use tokio::sync::Notify;
 use tokio::sync::futures::Notified;
 
-use super::Realm;
 use super::act::Look;
 use super::calls::{Calls, Delivery};
+use super::{Realm, world};
 
 /// How long the realm keeps what became of a line no one read.
 const KEPT: Duration = Duration::from_secs(600);
@@ -274,14 +274,27 @@ impl Lines {
         }
     }
 
-    pub fn working(&self, agent: AgentNumber, open: bool) {
-        self.held().reports.insert(
+    pub fn changes_working(
+        &self,
+        agent: AgentNumber,
+        open: bool,
+    ) -> bool {
+        let was = self.held().reports.insert(
             agent,
             Report {
                 open,
                 given_since: false,
             },
         );
+        was.is_some_and(|was| was.open) != open
+    }
+
+    /// Whether `agent` last told it was working.
+    pub fn busy(&self, agent: AgentNumber) -> bool {
+        self.held()
+            .reports
+            .get(&agent)
+            .is_some_and(|report| report.open)
     }
 
     /// The realm's count of the turns the stop `number` of `agent`
@@ -359,7 +372,9 @@ impl Handler<Working> for Realm {
         working: Working,
     ) -> Result<()> {
         let agent = sender(&ctx, &working)?;
-        self.lines.working(agent.0, working.open);
+        if self.lines.changes_working(agent.0, working.open) {
+            world::moved(&self, &ctx).await?;
+        }
         Ok(())
     }
 }
