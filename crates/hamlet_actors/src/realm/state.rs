@@ -399,8 +399,8 @@ async fn closed(
     let mut closed = Vec::new();
     for (id, name) in rows
         .rows::<(String, String)>(
-            "SELECT id, name FROM hamlet WHERE status != 'living' \
-             ORDER BY at, id",
+            "SELECT id, name FROM hamlet WHERE status = 'removed' \
+             ORDER BY name, id",
             Vec::new(),
         )
         .await?
@@ -436,8 +436,8 @@ async fn scholars(
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
-             house_z, house_turn FROM profile WHERE status IN \
-             ('living', 'archived') ORDER BY id",
+             house_z, house_turn FROM profile WHERE kind != 'hand' \
+             AND status IN ('living', 'archived') ORDER BY id",
             Vec::new(),
         )
         .await?
@@ -463,9 +463,10 @@ async fn scholars(
             .await?;
         scholars.push(protocol::Scholar {
             arrival: match (kind, arrival) {
-                (profiles::Kind::Blank, _) => {
-                    protocol::Arrival::Apart
-                }
+                (
+                    profiles::Kind::Blank | profiles::Kind::Empty,
+                    _,
+                ) => protocol::Arrival::Apart,
                 (_, profiles::Arrival::Harbor) => {
                     protocol::Arrival::Waiting
                 }
