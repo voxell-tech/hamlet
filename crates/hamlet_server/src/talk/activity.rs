@@ -191,13 +191,28 @@ impl Activity {
         name: &str,
         arguments: &BTreeMap<String, Value>,
     ) {
-        self.doing = doing_of(name, arguments);
+        let text =
+            serde_json::to_string(arguments).unwrap_or_default();
+        self.called(name, &text);
+    }
+
+    /// A call of the tool `name` begins, its arguments written as
+    /// `arguments`.
+    pub fn called(&mut self, name: &str, arguments: &str) {
+        self.doing = doing_of(name, &arguments.to_lowercase());
         self.step += 1;
         self.saying.clear();
         self.thought = true;
     }
 
-    fn ended(&mut self, failed: bool) {
+    /// The agent writes `text`, a thought or not.
+    pub fn said(&mut self, text: &str, thought: bool) {
+        self.think();
+        self.speak(text, thought);
+    }
+
+    /// A tool call ended, `failed` or not.
+    pub fn ended(&mut self, failed: bool) {
         if failed {
             self.failures += 1;
         }
@@ -233,14 +248,9 @@ impl Activity {
     }
 }
 
-/// What a call of `name` with `arguments` has its agent doing.
-fn doing_of(
-    name: &str,
-    arguments: &BTreeMap<String, Value>,
-) -> Doing {
-    let text = serde_json::to_string(arguments)
-        .unwrap_or_default()
-        .to_lowercase();
+/// What a call of `name` has its agent doing, with `text` its
+/// arguments written in lower case.
+fn doing_of(name: &str, text: &str) -> Doing {
     let (read, write) = if text.contains("memory/") {
         (Doing::ReadMemory, Doing::WriteMemory)
     } else if text.contains("skills/") || text.contains("skill.md") {

@@ -10,7 +10,7 @@ use hamlet_testing::Server;
 use serde_json::json;
 
 use super::ended::{ended, hire_blank};
-use super::{look, said_once_hired, serve, until};
+use super::{hired_address, look, said_once_hired, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
 pub(super) async fn found(
@@ -257,8 +257,10 @@ async fn an_answer_names_the_wait_it_answered() {
     assert_eq!(
         said,
         [
-            "Answered /deny: hand wants to run `curl https://one.example`",
-            "Answered /deny: hand wants to run `curl https://two.example`",
+            "Answered /deny: hand wants network access to run `curl \
+             https://one.example`",
+            "Answered /deny: hand wants network access to run `curl \
+             https://two.example`",
         ]
     );
     chief.close().await;
@@ -348,11 +350,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
         let hired = chief
             .command(hand, &format!("/hire {hire} in {docs}"))
             .await;
-        let name = hired
-            .strip_suffix(" is hired.")
-            .unwrap_or_else(|| panic!("{hire}: {hired}"))
-            .trim_matches('`')
-            .to_owned();
+        let name = hired_address(&hired);
         let agent = until(&server, "the hire", |realm| {
             realm.agents.iter().any(|agent| agent.name == name)
         })

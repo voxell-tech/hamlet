@@ -8,13 +8,6 @@ use hamlet_protocol::client::{self as protocol, Choice, WaitDetail};
 use crate::oversight::{self, Ruling};
 use crate::spend;
 
-/// Who did what no agent or chief did.
-pub(crate) const REALM: &str = "the realm";
-
-/// The mode of a hamlet that works on no folder.
-pub(crate) const NO_FOLDER: &str =
-    "Hires work in their lodges; no folder is chosen.";
-
 /// A day's budget period.
 pub(crate) const TODAY: &str = "today";
 

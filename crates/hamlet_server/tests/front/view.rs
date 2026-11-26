@@ -5,13 +5,15 @@ use std::os::unix::fs::PermissionsExt;
 
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
-    AgentKind, ClientMessage, ItemKind, ReplyKind, RequestId, Say,
-    ServerMessage,
+    Agent, AgentId, AgentKind, Choice, ClientMessage, Doing,
+    ItemKind, ReplyKind, RequestId, Say, ServerMessage, WaitDetail,
 };
 use hamlet_testing::Scratch;
 use serde_json::json;
 
-use super::{look, said_once_hired, serve, serve_with, until};
+use super::{
+    kill_node, look, said_once_hired, serve, serve_with, until,
+};
 
 /// What the faux Hand says once it founded the hamlet.
 const FOUNDED: &str = "Docs is founded.";
@@ -182,4 +184,168 @@ async fn a_new_realm_starts_the_hand_and_its_library() {
         !log.contains("shelves were not read"),
         "the Hand could not read its shelves: {log}"
     );
+}
+
+/// The faux model's turn that asks the chief a question, which holds
+/// its agent at work until the chief answers.
+fn asks_the_chief() -> serde_json::Value {
+    json!({
+        "calls": [{
+            "name": "ask_chief",
+            "arguments": {"questions": [{"question": "Which grain?"}]},
+        }],
+    })
+}
+
+/// The agent `id` as `client` was last shown it.
+fn shown(client: &Client, id: AgentId) -> Option<Agent> {
+    client
+        .realm()
+        .agents
+        .into_iter()
+        .find(|agent| agent.id == id)
+}
+
+/// Whether `client` was sent a `Change` frame.
+fn changed(client: &Client) -> bool {
+    client
+        .messages()
+        .iter()
+        .any(|message| matches!(message, ServerMessage::Change(_)))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_client_sees_the_hire_the_first_made() {
+    let (mut server, _home, _side) = serve(json!([
+        {
+            "calls": [{
+                "name": "found_hamlet",
+                "arguments": {
+                    "name": "Docs",
+                    "purpose": "Keep the docs.",
+                },
+            }],
+        },
+        FOUNDED,
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let mut second = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.say(hand, "Found a hamlet for the docs.").await;
+    second
+        .until("the mayor the first chief's Hand hired", |second| {
+            second.hamlet("Docs").is_some_and(|docs| {
+                shown(second, docs.mayor).is_some()
+            })
+        })
+        .await;
+    assert!(changed(&second), "the hire came as a change");
+    second.close().await;
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// The Hand works on a line nobody follows, then rests. A chat the
+/// door still followed would end when the Node host is killed, and
+/// say so in the log before the host is back to answer a line.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_realm_holds_no_agents_subscription() {
+    let (mut server, home, _side) =
+        serve(json!(["Here.", "Back."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let reply = chief.say(hand, "Are you there?").await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    chief
+        .until("the Hand at rest", |chief| {
+            shown(chief, hand).is_some_and(|hand| !hand.busy)
+        })
+        .await;
+    kill_node(&home).await;
+    let reply = chief.say(hand, "Are you back?").await;
+    assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    let log = server.log();
+    assert!(
+        !log.contains("chat ended"),
+        "the door followed an idle agent's chat: {log}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watcher_sees_activity_while_the_agent_works() {
+    let (mut server, _home, _side) =
+        serve(json!([asks_the_chief(), "Planted."])).await;
+    let mut chief = Client::join(&server).await;
+    let mut watcher = Client::join(&server).await;
+    let hand = chief.hand();
+    let line = chief.tell(hand, "Plant something.").await;
+    watcher
+        .until("the Hand at work", |watcher| {
+            shown(watcher, hand).is_some_and(|hand| {
+                hand.busy && hand.activity.doing != Doing::Rest
+            })
+        })
+        .await;
+    let working = shown(&watcher, hand).unwrap();
+    assert_ne!(working.activity.doing_words, "At rest");
+    let asked = chief
+        .wait_for("the question", |wait| {
+            matches!(wait.detail, WaitDetail::Question { .. })
+        })
+        .await;
+    chief.choose(&asked.id, Choice::Dismiss, None).await;
+    chief.reply(&line).await;
+    watcher
+        .until("the Hand at rest", |watcher| {
+            shown(watcher, hand).is_some_and(|hand| {
+                !hand.busy && hand.activity.doing == Doing::Rest
+            })
+        })
+        .await;
+    watcher.close().await;
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_is_shown_a_wait_as_it_opens() {
+    let (mut server, _home, _side) =
+        serve(json!([asks_the_chief(), "Planted."])).await;
+    let mut chief = Client::join(&server).await;
+    let mut watcher = Client::join(&server).await;
+    let hand = chief.hand();
+    let line = chief.tell(hand, "Plant something.").await;
+    let asked = watcher
+        .wait_for("the question", |wait| {
+            matches!(wait.detail, WaitDetail::Question { .. })
+        })
+        .await;
+    assert!(changed(&watcher), "the wait came as a change");
+    chief.choose(&asked.id, Choice::Dismiss, None).await;
+    chief.reply(&line).await;
+    watcher
+        .until("the wait closed", |watcher| {
+            watcher.waits().is_empty()
+        })
+        .await;
+    watcher.close().await;
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_is_named_by_its_address_and_its_profile() {
+    let (mut server, _home, _side) = serve(json!(["Here."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let founded = chief.command(hand, "/create-hamlet Docs").await;
+    assert!(
+        founded.ends_with("under its mayor `hire#2 (Mayor)`."),
+        "{founded}"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

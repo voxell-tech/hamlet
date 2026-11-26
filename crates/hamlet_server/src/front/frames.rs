@@ -10,9 +10,9 @@ use hamlet_messages::agent::chat::{
 };
 use hamlet_messages::realm::documents::CharterRead;
 use hamlet_protocol::client::{
-    self as protocol, AgentId, AttachedFile, AttachedImage, Listed,
-    ListedPriced, ReadResult, RequestId, ServerMessage, Transcript,
-    TranscriptOperation, Turn,
+    self as protocol, AgentId, AttachedFile, AttachedImage, ItemKind,
+    LastActivity, Link, LinkState, Listed, ListedPriced, ReadResult,
+    RequestId, ServerMessage, Transcript, TranscriptOperation, Turn,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -28,6 +28,11 @@ pub(crate) fn transcript(
     chat: protocol::ChatRef,
     to: Option<RequestId>,
 ) -> Result<Transcript> {
+    let items = page
+        .items
+        .into_iter()
+        .map(item)
+        .collect::<Result<Vec<_>>>()?;
     Ok(Transcript {
         number: chat
             .from
@@ -37,12 +42,8 @@ pub(crate) fn transcript(
             .map(i64::from),
         chat,
         earlier: page.earlier,
-        items: page
-            .items
-            .into_iter()
-            .map(item)
-            .collect::<Result<_>>()?,
-        last: None,
+        last: items.iter().rev().find_map(last_of),
+        items,
         pending: u64::from(page.pending),
         to,
         usage: usage(page.usage),
@@ -51,23 +52,49 @@ pub(crate) fn transcript(
 }
 
 /// `event` as a turn of the watched chat `chat`, or none when the
-/// event is of another chat.
+/// event is of another chat. `last` is what the chat showed the agent
+/// did last, which each item the event adds may change.
 pub(crate) fn turn(
     event: ChatEvent,
     chat: &protocol::ChatRef,
+    last: &mut Option<LastActivity>,
 ) -> Result<Option<Turn>> {
     if chat_ref(&event.chat) != *chat {
         return Ok(None);
     }
+    let mut operations = Vec::with_capacity(event.ops.len());
+    for op in event.ops {
+        let mut op = operation(op)?;
+        match &mut op {
+            TranscriptOperation::Add { item, .. } => {
+                if let Some(did) = last_of(item) {
+                    *last = Some(did);
+                }
+            }
+            TranscriptOperation::Status { last: shown, .. } => {
+                shown.clone_from(last);
+            }
+            _ => {}
+        }
+        operations.push(op);
+    }
     Ok(Some(Turn {
         chat: chat.clone(),
         number: chat.from.is_none().then_some(chat.past).flatten(),
-        operations: event
-            .ops
-            .into_iter()
-            .map(operation)
-            .collect::<Result<_>>()?,
+        operations,
     }))
+}
+
+/// What `item` shows the agent did, as a chat's status tells it: a
+/// tool it called, a reply or an error.
+fn last_of(item: &protocol::Item) -> Option<LastActivity> {
+    let what = match (&item.tool, &item.kind) {
+        (Some(tool), _) => format!("tool {}", tool.name),
+        (None, ItemKind::Assistant) => "replied".into(),
+        (None, ItemKind::Error) => "error".into(),
+        _ => return None,
+    };
+    Some(LastActivity { at: item.at, what })
 }
 
 /// The words of an answer that is a refusal, which carries them
@@ -161,15 +188,30 @@ pub(crate) fn rewound(
 }
 
 /// A check of a model: its hello is the reply's words, and its
-/// failure or refusal the error's.
+/// failure or refusal the error's. A hello or a failure is the
+/// realm's model link from then on.
 pub(crate) fn checked(
     id: &RequestId,
     answer: &[u8],
-    _: &Own,
+    own: &Own,
 ) -> Result<ServerMessage> {
+    let link = |state, words: &str| {
+        own.link.send_replace(Link {
+            models: None,
+            state,
+            words: Some(words.to_owned()),
+        });
+    };
     Ok(match ciborium::from_reader(answer)? {
-        Checked::Answered { words } => notice(id, words),
-        Checked::Failed { words } | Checked::Refused { words } => {
+        Checked::Answered { words } => {
+            link(LinkState::Connected, &words);
+            notice(id, words)
+        }
+        Checked::Failed { words } => {
+            link(LinkState::Failed, &words);
+            reply(id, Err(Refusal::Usage { words }))
+        }
+        Checked::Refused { words } => {
             reply(id, Err(Refusal::Usage { words }))
         }
     })
@@ -444,6 +486,9 @@ mod tests {
             },
             realm: "/realm".to_owned(),
             epoch: 0,
+            link: tokio::sync::watch::Sender::new(
+                crate::settings::untested(),
+            ),
         }
     }
 
@@ -531,7 +576,7 @@ mod tests {
                 item: Box::new(ChatItem {
                     id: "3:0".to_owned(),
                     at: Count(1_763_200_000_123),
-                    kind: protocol::ItemKind::User,
+                    kind: ItemKind::User,
                     text: "Go on.".to_owned(),
                     author: None,
                     chief: None,
@@ -544,7 +589,7 @@ mod tests {
             }],
         };
         let chat = chat_ref(&event.chat);
-        let turn = turn(event, &chat).unwrap().unwrap();
+        let turn = turn(event, &chat, &mut None).unwrap().unwrap();
         let [TranscriptOperation::Add { item, .. }] =
             turn.operations.as_slice()
         else {
@@ -560,7 +605,7 @@ mod tests {
                 item: Box::new(ChatItem {
                     id: "11:0".to_owned(),
                     at: Count(1_763_200_000_123),
-                    kind: protocol::ItemKind::Tool,
+                    kind: ItemKind::Tool,
                     text: String::new(),
                     author: None,
                     chief: None,
@@ -599,7 +644,7 @@ mod tests {
             ops: vec![call(open, None), call(ended, Some("11:0"))],
         };
         let chat = chat_ref(&event.chat);
-        let turn = turn(event, &chat).unwrap().unwrap();
+        let turn = turn(event, &chat, &mut None).unwrap().unwrap();
         assert!(
             matches!(
                 turn.operations.as_slice(),
@@ -626,7 +671,7 @@ mod tests {
         let line = item(ChatItem {
             id: "10:0".to_owned(),
             at: Count(1_795_521_338_667),
-            kind: protocol::ItemKind::User,
+            kind: ItemKind::User,
             text: "run it".to_owned(),
             author: None,
             chief: Some("Ada".to_owned()),
