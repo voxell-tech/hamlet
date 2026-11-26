@@ -30,6 +30,7 @@ use super::{
     Realm, budget, chiefs, letters, profiles, record, settings,
 };
 
+mod change_shown;
 mod hamlets;
 
 use hamlets::{Period, Place, Spending, place};
@@ -699,7 +700,12 @@ fn wait_shown(
         answers,
         asked: at,
         by: by.to_owned(),
-        change: None,
+        change: match &wait.kind {
+            WaitKind::Tool {
+                change: Some(diff), ..
+            } => Some(change_shown::shown(diff, &wait.subject)),
+            _ => None,
+        },
         chat: in_chat.then(|| protocol::ChatRef {
             from: None,
             kind: None,

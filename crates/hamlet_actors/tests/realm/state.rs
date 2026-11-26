@@ -247,3 +247,81 @@ async fn a_hire_still_being_hired_shows_its_road_to_its_lead() {
     );
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
+    let (realm, _) = hamlet_with(1).await;
+    let edit = |call: &str, subject: &str, patch: &str| NeedsChief {
+        needs: vec![hamlet_messages::workspace::reach::Need::Edit],
+        subject: subject.to_owned(),
+        change: Some(hamlet_messages::workspace::files::EditDiff {
+            diff: String::new(),
+            patch: patch.to_owned(),
+            first_changed_line: Some(1),
+        }),
+        ..needs(THREE, call)
+    };
+    for asked in [
+        edit(
+            "c1",
+            "notes.txt\nA new file:\nhello",
+            "--- notes.txt\n+++ notes.txt\n@@ -0,0 +1,1 @@\n+hello\n",
+        ),
+        edit(
+            "c2",
+            "a.rs\nReplace:\nb\nWith:\nB",
+            "--- a.rs\n+++ a.rs\n@@ -1,9 +1,9 @@\n 1\n 2\n 3\n \
+             4\n-b\n+B\n 5\n 6\n 7\n 8\n",
+        ),
+    ] {
+        realm.call_as_workspace(&asked).await.unwrap();
+    }
+
+    let changes = state(&realm)
+        .await
+        .waits
+        .into_iter()
+        .map(|wait| wait.change)
+        .collect::<Vec<_>>();
+
+    let line = |mark: protocol::ChangeLinesMark, text: &str| {
+        protocol::ChangeLines {
+            mark,
+            text: text.to_owned(),
+        }
+    };
+    use protocol::ChangeLinesMark::{Minus, Plus, Space};
+    assert_eq!(
+        changes,
+        [
+            Some(protocol::Change {
+                added: 1,
+                count: "New file, 1 line".to_owned(),
+                created: true,
+                lines: vec![line(Plus, "hello")],
+                path: "notes.txt".to_owned(),
+                removed: 0,
+                total: 1,
+            }),
+            Some(protocol::Change {
+                added: 1,
+                count: "1 line added, 1 removed".to_owned(),
+                created: false,
+                lines: vec![
+                    line(Space, "2"),
+                    line(Space, "3"),
+                    line(Space, "4"),
+                    line(Minus, "b"),
+                    line(Plus, "B"),
+                    line(Space, "5"),
+                    line(Space, "6"),
+                    line(Space, "7"),
+                ],
+                path: "a.rs".to_owned(),
+                removed: 1,
+                total: 8,
+            }),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
