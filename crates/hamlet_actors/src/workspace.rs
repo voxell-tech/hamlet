@@ -777,17 +777,57 @@ async fn remove_folder(folder: PathBuf) {
     );
 }
 
-/// Calls `agent` with how its call `id` ended, once. A failed call,
-/// as to an agent that no longer exists, is logged and dropped.
+/// Calls `agent` with how its call `id` ended. While the link to its
+/// host is down, a task of its own tells it again. A call that fails
+/// otherwise, as to an agent that no longer exists, is logged and
+/// dropped.
 async fn tell(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
     id: CallId,
     outcome: Outcome,
 ) {
-    let shown = id.0.clone();
-    if let Err(error) = finished(ctx, agent, id, outcome).await {
-        dropped(&error, agent, &shown);
+    match finished(ctx, agent, id.clone(), outcome.clone()).await {
+        Ok(()) => {}
+        Err(error) if is_link_down(&error) => {
+            let task_ctx = ctx.clone();
+            ctx.register_task(async move {
+                told(&task_ctx, agent, id, outcome).await;
+            });
+        }
+        Err(error) => dropped(&error, agent, &id.0),
+    }
+}
+
+/// Calls `agent` with how its call `id` ended, again while the link
+/// to its host is down, for up to `RETELL_WHILE_LINK_DOWN`. Whether
+/// it was told.
+async fn told(
+    ctx: &Ctx<Workspace>,
+    agent: AgentNumber,
+    id: CallId,
+    outcome: Outcome,
+) -> bool {
+    let since = Instant::now();
+    let abort = ctx.abort_signal();
+    loop {
+        match finished(ctx, agent, id.clone(), outcome.clone()).await
+        {
+            Ok(()) => return true,
+            Err(error)
+                if is_link_down(&error)
+                    && since.elapsed() < RETELL_WHILE_LINK_DOWN =>
+            {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    () = abort.cancelled() => return false,
+                }
+            }
+            Err(error) => {
+                dropped(&error, agent, &id.0);
+                return false;
+            }
+        }
     }
 }
 
@@ -801,25 +841,11 @@ async fn tell_cut_off(
         command,
     } = untold;
     let end = run::without_output(command, Exit::CutOff);
-    let since = Instant::now();
-    let abort = ctx.abort_signal();
-    loop {
-        let outcome = Outcome::Run {
-            end: RunEnd::Ran(end.clone()),
-        };
-        match finished(ctx, agent, call.clone(), outcome).await {
-            Ok(()) => break,
-            Err(error)
-                if is_link_down(&error)
-                    && since.elapsed() < RETELL_WHILE_LINK_DOWN =>
-            {
-                tokio::select! {
-                    () = tokio::time::sleep(Duration::from_millis(500)) => {}
-                    () = abort.cancelled() => return,
-                }
-            }
-            Err(error) => return dropped(&error, agent, &call.0),
-        }
+    let outcome = Outcome::Run {
+        end: RunEnd::Ran(end),
+    };
+    if !told(ctx, agent, call, outcome).await {
+        return;
     }
     if let Err(error) =
         transact(ctx, async |tx| run::told(tx, command).await).await
