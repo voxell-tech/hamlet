@@ -1601,6 +1601,13 @@ fn waits() -> Vec<WaitSeen> {
             },
         ),
         wait(9, "the model failed: overloaded", WaitKind::Fault),
+        wait(
+            10,
+            "scholar#3 (Newbie)",
+            WaitKind::Newcomer {
+                profile: ProfileId(3),
+            },
+        ),
     ]
 }
 

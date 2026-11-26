@@ -89,6 +89,8 @@ mod living;
 mod merges;
 #[path = "realm/names.rs"]
 mod names;
+#[path = "realm/newcomers.rs"]
+mod newcomers;
 #[path = "realm/on_task.rs"]
 mod on_task;
 #[path = "realm/oversight.rs"]

@@ -133,6 +133,15 @@ for (const [name, hold] of [
             ),
             ["task-2"],
         );
+        const { items } = await agent.actions.read_chat(agent.by(from.client), {
+            id: "11111111-1111-4111-8111-111111111111",
+            chat: { with: 7 },
+        });
+        assert.deepEqual(
+            items.filter((item) => item.text.includes(hold.words)),
+            [],
+            "today shows no item for a held call",
+        );
         assert.deepEqual(agent.reported, []);
         await agent.stop();
     });
@@ -649,7 +658,7 @@ for (const [what, given] of [
     });
 }
 
-test("a held call's item is the realm's words, never tried again", async (t) => {
+test("a held call ends with the realm's words, never tried again", async (t) => {
     // `503` is a status code pi-ai tries again.
     const hold = {
         type: "refused",
@@ -673,14 +682,14 @@ test("a held call's item is the realm's words, never tried again", async (t) => 
         undefined,
         context,
     );
-    const items = page.items
+    const answers = page.items
         .filter((entry) => entry.kind === "pi.assistant")
         .map(
             (entry) =>
                 (entry.model?.[0] as AssistantMessage | undefined)
                     ?.errorMessage,
         );
-    assert.deepEqual(items, [hold.words]);
+    assert.deepEqual(answers, [hold.words]);
     assert.deepEqual(named(sent, "turn_failed"), []);
     await agent.stop();
 });

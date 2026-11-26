@@ -658,6 +658,7 @@ fn shelved() -> Skill {
         name: "dig".to_owned(),
         description: "Digs a well.".to_owned(),
         usage: "dig <depth>".to_owned(),
+        shelved_by: None,
     }
 }
 

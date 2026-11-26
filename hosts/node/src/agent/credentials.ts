@@ -279,6 +279,11 @@ function rotated(
     return rotation;
 }
 
+/** Resolves once each rotation begun in the host has been handed to the realm. */
+export async function rotationsKept(): Promise<void> {
+    await Promise.allSettled(ROTATIONS.values());
+}
+
 /** pi-ai's credential as the realm keeps it: an OAuth expiry in whole seconds. */
 export function keptOf(credential: Credential): Kept {
     if (credential.type === "api_key") {

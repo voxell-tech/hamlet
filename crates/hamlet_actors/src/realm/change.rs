@@ -20,9 +20,9 @@ use super::tree::choices;
 use super::workers::errands;
 use super::{
     Realm, allowance, budget, chiefs, documents, dreams, laid,
-    letters, librarian, marker, merges, oversight, parcels, profiles,
-    record, reviews, secrets, settings, society, steps, tasks, tree,
-    versions, waits, workers, world,
+    letters, librarian, marker, merges, newcomers, oversight,
+    parcels, profiles, record, reviews, secrets, settings, society,
+    steps, tasks, tree, versions, waits, workers, world,
 };
 
 #[derive(Debug, PartialEq)]
@@ -52,6 +52,7 @@ pub(super) enum Change {
     Dreams(dreams::Change),
     Librarian(librarian::Change),
     Merges(merges::Change),
+    Newcomers(newcomers::Change),
     Record(record::Change),
     World(world::Change),
 }
@@ -92,6 +93,7 @@ change_from!(
     dreams => Dreams,
     librarian => Librarian,
     merges => Merges,
+    newcomers => Newcomers,
     record => Record,
     world => World,
 );
@@ -612,6 +614,9 @@ impl Transaction {
                     }
                     Change::Merges(change) => {
                         merges::apply(&writer, change).await?
+                    }
+                    Change::Newcomers(change) => {
+                        newcomers::apply(&writer, change).await?
                     }
                     Change::Record(change) => {
                         record::apply(&writer, change).await?

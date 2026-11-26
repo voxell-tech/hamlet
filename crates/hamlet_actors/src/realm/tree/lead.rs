@@ -918,6 +918,7 @@ mod tests {
                     profile: ProfileId(6),
                     name: "Hire 4".to_owned(),
                     kind: profiles::Kind::Blank,
+                    by: record::By::Agent(AgentNumber(5)),
                 },
                 record::new_hire(AgentNumber(6), "Hire 4"),
             )),

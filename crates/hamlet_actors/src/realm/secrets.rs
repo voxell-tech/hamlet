@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use hamlet_actor::{Action as _, Ctx, Handler};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::client::RememberSecret;
@@ -163,20 +163,18 @@ impl Held {
     }
 
     /// `value` with every secret the realm holds removed from each
-    /// of its texts.
-    pub fn scrubbed_value<T: Serialize + DeserializeOwned + Clone>(
+    /// of its texts and keys, or an error, which withholds it, when
+    /// the scrubbed value is no longer one.
+    pub fn scrubbed_value<T: Serialize + DeserializeOwned>(
         &self,
         value: &T,
-    ) -> T {
-        let scrubbed =
-            serde_json::to_value(value).and_then(|mut json| {
-                scrub_value(&self.secrets(), &mut json);
-                serde_json::from_value(json)
-            });
-        scrubbed.unwrap_or_else(|error| {
-            tracing::warn!("a value was shown unscrubbed: {error}");
-            value.clone()
-        })
+    ) -> Result<T> {
+        let mut json = serde_json::to_value(value)?;
+        scrub_value(&self.secrets(), &mut json);
+        serde_json::from_value(json).context(
+            "a secret the realm holds cannot be scrubbed from it, \
+             so it is withheld",
+        )
     }
 
     /// Keeps `secret`, typed at a sign-in, among the secrets until
@@ -433,16 +431,24 @@ fn write_whole(folder: &Path, stored: &Stored) -> Result<()> {
 impl Look<Scrubber> for Secrets {
     type Output = SecretList;
 
-    fn look(&self, _by: &Scrubber, realm: &Realm) -> SecretList {
-        realm.secrets.list()
+    fn look(
+        &self,
+        _by: &Scrubber,
+        realm: &Realm,
+    ) -> Result<SecretList> {
+        Ok(realm.secrets.list())
     }
 }
 
 impl Look<Agent> for Credential {
     type Output = CredentialAnswer;
 
-    fn look(&self, _by: &Agent, realm: &Realm) -> CredentialAnswer {
-        realm
+    fn look(
+        &self,
+        _by: &Agent,
+        realm: &Realm,
+    ) -> Result<CredentialAnswer> {
+        Ok(realm
             .secrets
             .held()
             .stored
@@ -453,7 +459,7 @@ impl Look<Agent> for Credential {
                 why: CredentialRefusal::NotSignedIn {
                     provider: self.provider.clone(),
                 },
-            })
+            }))
     }
 }
 

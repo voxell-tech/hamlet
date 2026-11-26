@@ -58,9 +58,11 @@ const THUMBNAIL: Bounds = Bounds {
 
 /// A read the door answers from more than one call.
 pub(crate) enum Reading {
-    /// The Hand's models with the realm's cards of them.
+    /// The Hand's models with the realm's cards of them, each
+    /// endpoint asked for its list again first with `refresh`.
     Models {
         id: RequestId,
+        refresh: bool,
     },
     Papers {
         id: RequestId,
@@ -76,7 +78,7 @@ pub(crate) enum Reading {
 impl Reading {
     pub(crate) fn id(&self) -> &RequestId {
         match self {
-            Self::Models { id }
+            Self::Models { id, .. }
             | Self::Papers { id, .. }
             | Self::Image { id, .. } => id,
         }
@@ -89,9 +91,10 @@ pub(crate) async fn read(
     reading: Reading,
 ) -> Result<ServerMessage> {
     match reading {
-        Reading::Models { id } => {
+        Reading::Models { id, refresh } => {
+            let asked = ReadModels { refresh };
             let (list, cards) = tokio::try_join!(
-                calls.call(&address::Agent(HAND), &ReadModels),
+                calls.call(&address::Agent(HAND), &asked),
                 calls.call(&address::Realm, &ReadCatalogue),
             )?;
             Ok(frames::models(&id, list, cards))
@@ -258,7 +261,7 @@ pub(crate) async fn edit(
         }
         protocol::Edit::Catalogue { id, model, set } => {
             let listed = calls
-                .call(&address::Agent(HAND), &ReadModels)
+                .call(&address::Agent(HAND), &ReadModels::default())
                 .await?;
             if listed
                 .models

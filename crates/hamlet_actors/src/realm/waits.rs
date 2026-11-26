@@ -51,6 +51,7 @@ pub(super) enum Kind {
     Reserved,
     Send,
     Fault,
+    Newcomer,
 }
 
 impl Kind {
@@ -71,6 +72,7 @@ impl Kind {
             Self::Question => vec![Chief::Reply, Chief::Dismiss],
             Self::Objection => vec![Chief::Go, Chief::Withdraw],
             Self::Fault => vec![Chief::Dismiss],
+            Self::Newcomer => vec![Chief::Welcome, Chief::Dismiss],
         }
     }
 }
@@ -94,6 +96,7 @@ pub(super) enum Choice {
     Dismiss,
     Go,
     Withdraw,
+    Welcome,
     /// Refused with no chief asked, with the words its asker is
     /// told.
     Unasked(String),
@@ -113,6 +116,7 @@ impl Choice {
             Self::Dismiss => ("dismiss", None, None),
             Self::Go => ("go", None, None),
             Self::Withdraw => ("withdraw", None, None),
+            Self::Welcome => ("welcome", None, None),
             Self::Unasked(words) => {
                 ("unasked", None, Some(words.clone()))
             }
@@ -143,6 +147,7 @@ impl Choice {
             ("dismiss", ..) => Self::Dismiss,
             ("go", ..) => Self::Go,
             ("withdraw", ..) => Self::Withdraw,
+            ("welcome", ..) => Self::Welcome,
             ("unasked", _, Some(words)) => Self::Unasked(words),
             ("lapsed", _, Some(lapse)) => {
                 Self::Lapsed(change::from_case_name(lapse)?)
@@ -544,14 +549,7 @@ async fn line_of(
     let Some(task) = task else {
         return Ok(String::new());
     };
-    Ok(Rows::outside(ctx)?
-        .value::<Option<String>>(
-            "SELECT text FROM task WHERE id = ?1",
-            vec![task.column()?],
-        )
-        .await?
-        .flatten()
-        .unwrap_or_default())
+    tasks::line(&Rows::outside(ctx)?, task).await
 }
 
 /// Delivers the notice that closed `wait` to its agent, under the

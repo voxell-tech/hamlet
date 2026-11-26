@@ -195,6 +195,7 @@ async fn a_hire_is_made_of_a_shared_profile_named_else_a_blank_one() {
             profile: ProfileId(2),
             name: "Mayor".to_owned(),
             kind: profiles::Kind::Empty,
+            by: record::By::Chief,
         })
     );
     assert_eq!(of(Some(HAND_PROFILE)).await, Err(no_such(1)));

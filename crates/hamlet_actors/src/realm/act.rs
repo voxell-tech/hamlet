@@ -79,7 +79,7 @@ pub(super) trait Look<By>:
 {
     type Output: Send + 'static;
 
-    fn look(&self, by: &By, realm: &Realm) -> Self::Output;
+    fn look(&self, by: &By, realm: &Realm) -> Result<Self::Output>;
 }
 
 /// The outcome of an act that only reads: there is none, so it
@@ -569,7 +569,7 @@ pub(super) fn look<By, L>(
     realm: &Realm,
     by: &By,
     look: &L,
-) -> L::Output
+) -> Result<L::Output>
 where
     By: Witness,
     L: Look<By>,

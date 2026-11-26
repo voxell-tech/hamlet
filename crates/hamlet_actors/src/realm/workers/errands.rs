@@ -21,7 +21,9 @@ use super::super::change::{
 };
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
-use super::super::{callers, documents, dreams, librarian, reviews};
+use super::super::{
+    callers, documents, dreams, librarian, newcomers, reviews,
+};
 
 const ANSWERED: &str = "answered";
 
@@ -43,6 +45,8 @@ pub(in crate::realm) enum Purpose {
     Librarian,
     /// The dream whose `dream` row names it.
     Dream,
+    /// The Hand's verdict on the newcomer its `newcomer` row names.
+    Newcomer,
 }
 
 impl Purpose {
@@ -52,6 +56,7 @@ impl Purpose {
             Self::Review { task } => ("review", Some(*task)),
             Self::Librarian => ("librarian", None),
             Self::Dream => ("dream", None),
+            Self::Newcomer => ("newcomer", None),
         }
     }
 
@@ -60,6 +65,7 @@ impl Purpose {
             ("review", Some(task)) => Ok(Self::Review { task }),
             ("librarian", None) => Ok(Self::Librarian),
             ("dream", None) => Ok(Self::Dream),
+            ("newcomer", None) => Ok(Self::Newcomer),
             _ => bail!("an errand for `{purpose}` on {subject:?}"),
         }
     }
@@ -208,6 +214,7 @@ fn ending(
         Purpose::Review { task } => reviews::ended(task, &ended),
         Purpose::Librarian => librarian::ended(n, &ended),
         Purpose::Dream => dreams::ended(n, &ended),
+        Purpose::Newcomer => newcomers::ended(n, &ended),
     };
     [
         Change::End { n, ended }.into(),
@@ -403,7 +410,7 @@ pub(in crate::realm) async fn run(
                             .await?;
                     cx.want_reach(n.agent()).await?;
                 }
-                Purpose::Review { .. } => {}
+                Purpose::Review { .. } | Purpose::Newcomer => {}
             }
             let input = AgentInput {
                 kind: AgentKind::Errand,

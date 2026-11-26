@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use hamlet_actors::realm;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::realm::client::{
@@ -12,6 +13,7 @@ use hamlet_messages::realm::lines::Working;
 use hamlet_messages::realm::models::{
     KeepCredential, Kept, Settings,
 };
+use hamlet_messages::realm::profiles::CreateProfile;
 use hamlet_messages::realm::world::Revision;
 use hamlet_messages::realm::{HamletId, NeedsChief};
 use hamlet_messages::sender::Hand;
@@ -19,7 +21,8 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::chiefs::chief;
-use super::stand_ins::Callee;
+use super::profiles::create;
+use super::stand_ins::{Callee, Seen};
 use super::world::seen_until;
 use super::{
     DEADLINE, MAYOR, Realm, THREE, founded, hamlet_with, hires,
@@ -323,5 +326,66 @@ async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
             }),
         ]
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
+    let (realm, _) = hamlet_with(1).await;
+    keep(&realm, "t").await;
+
+    let state = realm.ask(&ReadState).await;
+    let world = realm.ask(&ReadWorld).await;
+
+    assert!(state.is_err(), "the state is withheld: {state:?}");
+    assert!(world.is_err(), "the world is withheld: {world:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn each_agent_of_a_faux_realm_runs_the_faux_model() {
+    let options = realm::Options {
+        faux: true,
+        ..realm::Options::default()
+    };
+    let realm =
+        Realm::start_with(Some(options), Seen::default()).await;
+    realm.live(Hand::NUMBER).await;
+
+    let state = state(&realm).await;
+
+    assert_eq!(agent(&state, Hand::NUMBER).model, "faux::faux-1");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_shows_its_house_who_brought_it_and_since() {
+    let (realm, _) = hamlet_with(0).await;
+    chief(
+        &realm,
+        CreateProfile {
+            name: "Newbie".to_owned(),
+            character: None,
+        },
+    )
+    .await;
+    create(&realm, Hand::NUMBER, "c1", "Helper", None).await;
+
+    let state = state(&realm).await;
+    let shown = |name: &str| {
+        state
+            .scholars
+            .iter()
+            .find(|scholar| scholar.name == name)
+            .expect("the profile is shown")
+            .clone()
+    };
+
+    let (newbie, helper) = (shown("Newbie"), shown("Helper"));
+    assert!(newbie.house.is_some() && helper.house.is_some());
+    assert_ne!(newbie.house, helper.house);
+    assert_eq!(newbie.arrival_by.as_deref(), Some("chief"));
+    assert_eq!(helper.arrival_by.as_deref(), Some("hand"));
+    assert!(newbie.since > 0 && helper.since >= newbie.since);
     realm.host.shutdown().await.unwrap();
 }

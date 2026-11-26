@@ -23,7 +23,7 @@ use crate::talk::process::Pi;
 /// How long a closing realm waits for its runtimes to stop.
 const STOPPING: Duration = Duration::from_secs(30);
 /// How long a closing realm waits for a credential rotation begun.
-const ROTATING: Duration = Duration::from_secs(15);
+pub(crate) const ROTATING: Duration = Duration::from_secs(15);
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>] [--insecure] [--actors]";

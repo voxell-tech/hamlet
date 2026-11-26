@@ -8,7 +8,7 @@ use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::profile::{
     CommitId, Missing, ProfileInput, Sha1, VersionName,
 };
-use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::client::{ReadState, ReadWorld};
 use hamlet_messages::realm::hamlets::{
     EraseHamlet, RemoveHamlet, RestoreHamlet,
 };
@@ -25,7 +25,7 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::Choice;
+use hamlet_protocol::client::{self as protocol, Choice};
 
 use super::chiefs::chief;
 use super::profiles::create;
@@ -747,6 +747,12 @@ async fn a_profile_forked_at_a_version_hires_with_that_versions_files()
     let forked = chief(&realm, fork(Some("v1"), "Mason two")).await;
     let hired = mayor_hires(&realm, "h1", of(ProfileId(4))).await;
     realm.live(THREE).await;
+    let state: protocol::State = realm.ask(&ReadState).await.unwrap();
+    let mason_two = state
+        .scholars
+        .iter()
+        .find(|scholar| scholar.name == "Mason two")
+        .unwrap();
 
     assert_eq!(
         forked,
@@ -756,6 +762,8 @@ async fn a_profile_forked_at_a_version_hires_with_that_versions_files()
         }
     );
     assert!(made_profiles(&realm).contains(&forked_from(4)));
+    assert!(mason_two.since > 0);
+    assert_eq!(mason_two.arrival_by.as_deref(), Some("chief"));
     assert_eq!(
         hired,
         HireAnswer::Hired {

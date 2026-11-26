@@ -14,8 +14,8 @@ use hamlet_messages::profile::{
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateRefusal, EraseProfile, ForkFailure,
     ForkProfile, Forked, LifeRefusal, Lifecycle, LifecycleRefusal,
-    Made as Named, MoveHouse, NameProfile, NameProfileRefusal,
-    ProfileRefusal, RestoreProfile, Site, Spot, TurnAway, Welcome,
+    Made as Named, NameProfile, NameProfileRefusal, ProfileRefusal,
+    RestoreProfile,
 };
 use hamlet_messages::realm::{
     Asked, Done, HamletId, HowEnded, ProfileId, Refusable,
@@ -35,7 +35,11 @@ use super::super::peer::{self, When};
 use super::super::steps::{self, Cx, StepId, Steps};
 use super::super::tree::{self, Life};
 use super::super::{Realm, erase, marker, record, retire};
-use super::{Arrival, Kind, Status};
+use super::{Kind, Status};
+
+mod city;
+
+pub(in crate::realm) use city::newcomer_ruling;
 
 /// A profile of the city, not the Hand's and made, with its label.
 struct Found {
@@ -390,214 +394,6 @@ impl Act<Client> for EraseProfile {
         _failed: &steps::Failed,
     ) -> Lifecycle {
         refused(LifeRefusal::NotErased { label })
-    }
-}
-
-pub(in crate::realm) struct Placing {
-    found: Result<Found, ProfileRefusal>,
-    /// The spots of every other house.
-    taken: Vec<(f64, f64)>,
-}
-
-async fn placing(
-    rows: &Rows<'_>,
-    profile: ProfileId,
-) -> Result<Placing> {
-    Ok(Placing {
-        found: living(rows, profile).await?,
-        taken: super::houses(rows, Some(profile)).await?,
-    })
-}
-
-/// A living profile of the city's own: not a blank hire's.
-fn of_the_city(
-    found: Result<Found, ProfileRefusal>,
-) -> Result<Found, Lifecycle> {
-    let found = found.map_err(refused)?;
-    if found.row.kind != Kind::Shared {
-        return Err(refused(ProfileRefusal::Apart {
-            label: found.label,
-        }));
-    }
-    Ok(found)
-}
-
-fn placed(
-    profile: ProfileId,
-    label: String,
-    arrival: Arrival,
-    house: Option<HouseAt>,
-    entry: record::Entry,
-) -> Decision<String, Lifecycle> {
-    Decision::Change(
-        Decided::new(label)
-            .change(super::Change::Placed {
-                profile,
-                arrival,
-                house,
-            })
-            .record(entry),
-    )
-}
-
-impl Act<Client> for Welcome {
-    type Output = Lifecycle;
-    type Loaded = Placing;
-    type Done = String;
-
-    async fn load(
-        &self,
-        _by: &Client,
-        rows: &Rows<'_>,
-    ) -> Result<Placing> {
-        placing(rows, self.profile).await
-    }
-
-    fn decide(
-        &self,
-        _by: &Client,
-        placing: Placing,
-    ) -> Decision<String, Lifecycle> {
-        let found = match of_the_city(placing.found) {
-            Ok(found) => found,
-            Err(answer) => return Decision::Answer(answer),
-        };
-        if found.row.arrival == Arrival::Housed {
-            return Decision::Answer(refused(LifeRefusal::Housed {
-                label: found.label,
-            }));
-        }
-        let house = match super::free_spot(&placing.taken) {
-            Ok(house) => house,
-            Err(full) => {
-                tracing::warn!("{full:#}");
-                return Decision::Answer(refused(
-                    LifeRefusal::Crowded { label: found.label },
-                ));
-            }
-        };
-        placed(
-            self.profile,
-            found.label,
-            Arrival::Housed,
-            Some(house),
-            record::Entry::Welcomed {
-                by: record::By::Chief,
-                why: self.why.clone(),
-            },
-        )
-    }
-
-    fn answer(&self, label: String, _made: &Made) -> Lifecycle {
-        Lifecycle::Done { label }
-    }
-}
-
-impl Act<Client> for TurnAway {
-    type Output = Lifecycle;
-    type Loaded = Placing;
-    type Done = String;
-
-    async fn load(
-        &self,
-        _by: &Client,
-        rows: &Rows<'_>,
-    ) -> Result<Placing> {
-        placing(rows, self.profile).await
-    }
-
-    fn decide(
-        &self,
-        _by: &Client,
-        placing: Placing,
-    ) -> Decision<String, Lifecycle> {
-        let found = match of_the_city(placing.found) {
-            Ok(found) => found,
-            Err(answer) => return Decision::Answer(answer),
-        };
-        if found.row.arrival == Arrival::Turned {
-            return Decision::Answer(refused(
-                LifeRefusal::TurnedAway { label: found.label },
-            ));
-        }
-        placed(
-            self.profile,
-            found.label,
-            Arrival::Turned,
-            None,
-            record::Entry::TurnedAway {
-                by: record::By::Chief,
-                why: self.why.clone(),
-            },
-        )
-    }
-
-    fn answer(&self, label: String, _made: &Made) -> Lifecycle {
-        Lifecycle::Done { label }
-    }
-}
-
-impl Act<Client> for MoveHouse {
-    type Output = Lifecycle;
-    type Loaded = Placing;
-    type Done = String;
-
-    async fn load(
-        &self,
-        _by: &Client,
-        rows: &Rows<'_>,
-    ) -> Result<Placing> {
-        placing(rows, self.profile).await
-    }
-
-    fn decide(
-        &self,
-        _by: &Client,
-        placing: Placing,
-    ) -> Decision<String, Lifecycle> {
-        let found = match of_the_city(placing.found) {
-            Ok(found) => found,
-            Err(answer) => return Decision::Answer(answer),
-        };
-        let spot = match &self.site {
-            Site::Spot(spot) => Ok(*spot),
-            Site::NotFinite { site } => {
-                Err(LifeRefusal::BadSite { site: site.clone() })
-            }
-            Site::Unread => {
-                return Decision::Answer(refused(
-                    LifeRefusal::NoSpot { label: found.label },
-                ));
-            }
-        };
-        if found.row.arrival != Arrival::Housed {
-            return Decision::Answer(refused(
-                LifeRefusal::AtHarbor { label: found.label },
-            ));
-        }
-        let Spot { x, z, degrees } = match spot {
-            Ok(spot) => spot,
-            Err(why) => return Decision::Answer(refused(why)),
-        };
-        if !HouseAt::is_clear(placing.taken, x, z) {
-            return Decision::Answer(refused(LifeRefusal::Crowded {
-                label: found.label,
-            }));
-        }
-        let turn = degrees.map(f64::to_radians);
-        placed(
-            self.profile,
-            found.label,
-            Arrival::Housed,
-            Some(super::house(x, z, turn)),
-            record::Entry::HouseMoved {
-                by: record::By::Chief,
-            },
-        )
-    }
-
-    fn answer(&self, label: String, _made: &Made) -> Lifecycle {
-        Lifecycle::Done { label }
     }
 }
 

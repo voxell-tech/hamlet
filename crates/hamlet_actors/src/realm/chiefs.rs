@@ -503,6 +503,7 @@ mod tests {
                 profile: ProfileId(2),
                 name: "Mayor".to_owned(),
                 kind: profiles::Kind::Empty,
+                by: record::By::Chief,
             }),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),
