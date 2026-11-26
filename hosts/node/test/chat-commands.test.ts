@@ -1188,7 +1188,14 @@ test("a rewind while a question has no answer goes ahead, and the answer lands i
     ]);
 });
 
-test("a line steered into a running turn is charged to its own task", async (t) => {
+/** The task each realm call `name` was sent under, in order. */
+function tasksOf(sent: Parameters<typeof named>[0], name: string): string[] {
+    return named(sent, name).map(
+        (call) => (call.message as { task: string }).task,
+    );
+}
+
+test("a line steered into a running turn is asked for and charged under the turn's first task, as today", async (t) => {
     const workspace = slowRead();
     const { calls, sent } = fakes({ workspace });
     const agent = await wake(t, calls, [
@@ -1209,10 +1216,48 @@ test("a line steered into a running turn is charged to its own task", async (t) 
     workspace.answer();
     await agent.idle();
 
-    const tasks = (name: string) =>
-        named(sent, name).map(
-            (call) => (call.message as { task: string }).task,
-        );
-    assert.deepEqual(tasks("may_spend"), ["task-a", "task-b"]);
-    assert.deepEqual(tasks("charge"), ["task-a", "task-b"]);
+    assert.deepEqual(tasksOf(sent, "may_spend"), ["task-a", "task-a"]);
+    assert.deepEqual(tasksOf(sent, "charge"), ["task-a", "task-a"]);
+});
+
+test("a line steered into a call's end's run moves the run to the line's task", async (t) => {
+    const workspace = slowRead();
+    const { calls, sent } = fakes({
+        workspace: {
+            ...workspace,
+            run: () => ({ type: "running", command: 4 }),
+        },
+    });
+    const agent = await wake(t, calls, [
+        toolCall("bash", { command: "cargo test", timeout: 60 }),
+        fauxAssistantMessage("It runs."),
+        toolCall("read", { path: "/work/project/notes.md" }),
+        fauxAssistantMessage("Both heard."),
+    ]);
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-a",
+        task: "task-a",
+        input: line("Run the tests"),
+    });
+    await agent.idle();
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOfRun(sent),
+        outcome: TESTS_FAILED,
+        task: "task-c",
+    });
+    await workspace.reading;
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-b",
+        task: "task-b",
+        input: line("And add a title"),
+    });
+    workspace.answer();
+    await agent.idle();
+
+    assert.deepEqual(tasksOf(sent, "may_spend"), [
+        "task-a",
+        "task-a",
+        "task-c",
+        "task-b",
+    ]);
 });
