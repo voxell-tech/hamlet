@@ -41,6 +41,8 @@ pub(crate) struct Own {
     pub(crate) epoch: i64,
     /// The last check of the realm's model.
     pub(crate) link: watch::Sender<Link>,
+    /// Every agent runs the faux model.
+    pub(crate) faux: bool,
 }
 
 /// The realm as the door last read it, with the server's own fields.

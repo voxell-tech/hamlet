@@ -54,6 +54,7 @@ fn view() -> View {
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            faux: false,
         }),
         Seen {
             agents: vec![

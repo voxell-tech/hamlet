@@ -195,20 +195,20 @@ pub(crate) fn checked(
     answer: &[u8],
     own: &Own,
 ) -> Result<ServerMessage> {
-    let link = |state, words: &str| {
+    let link = |state, models: Option<u32>, words: &str| {
         own.link.send_replace(Link {
-            models: None,
+            models: models.map(i64::from),
             state,
             words: Some(words.to_owned()),
         });
     };
     Ok(match ciborium::from_reader(answer)? {
-        Checked::Answered { words } => {
-            link(LinkState::Connected, &words);
+        Checked::Answered { words, models } => {
+            link(LinkState::Connected, models, &words);
             notice(id, words)
         }
         Checked::Failed { words } => {
-            link(LinkState::Failed, &words);
+            link(LinkState::Failed, None, &words);
             reply(id, Err(Refusal::Usage { words }))
         }
         Checked::Refused { words } => {
@@ -489,6 +489,7 @@ mod tests {
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            faux: false,
         }
     }
 

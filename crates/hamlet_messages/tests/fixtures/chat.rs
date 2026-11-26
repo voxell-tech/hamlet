@@ -16,6 +16,7 @@ use hamlet_messages::agent::copies::{
 };
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::Done;
+use hamlet_messages::realm::documents::Endpoint;
 use hamlet_messages::realm::models::{
     Cause, Credential, CredentialAnswer, CredentialRefusal,
     KeepCredential, Kept, OauthLogin, Settings, TurnFailed,
@@ -382,14 +383,23 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
     fixtures.args(
         "agent/check",
         &Check {
-            model: "anthropic::claude-sonnet-4-5".into(),
+            model: Some("anthropic::claude-sonnet-4-5".into()),
         },
     );
+    fixtures.args("agent/check.running", &Check { model: None });
     for (arm, answer) in [
+        (
+            "connected",
+            Checked::Answered {
+                words: "Connected, 1 model(s)".into(),
+                models: Some(1),
+            },
+        ),
         (
             "answered",
             Checked::Answered {
                 words: "Hello.".into(),
+                models: None,
             },
         ),
         (
@@ -539,6 +549,10 @@ pub(super) fn copies() -> Copies {
             value: AgentSettings {
                 reflect_every: 20,
                 allow_net: false,
+                endpoints: vec![Endpoint {
+                    name: "local".into(),
+                    base_url: "http://127.0.0.1:8080/v1".into(),
+                }],
             },
         }),
     }

@@ -60,9 +60,6 @@ pub(crate) const LIMITS_UNFIT: &str =
 pub(crate) const NO_WORKSPACE: &str =
     "Choose a remote workspace in the settings first.";
 
-pub(crate) const FAUX_MODELS: &str =
-    "Every agent runs the faux model here.";
-
 /// The reason of a `/merge` said without one.
 pub(crate) const NO_SCHOLAR_YET: &str =
     "The city has no scholar yet.";

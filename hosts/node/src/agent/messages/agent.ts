@@ -217,9 +217,16 @@ export interface ModelChoice {
     readonly price?: Price;
 }
 
+/** A model server the realm's settings name, serving `name::model`. */
+export interface Endpoint {
+    readonly name: string;
+    readonly base_url: string;
+}
+
 export interface AgentSettings {
     readonly reflect_every: number;
     readonly allow_net: boolean;
+    readonly endpoints?: readonly Endpoint[];
 }
 
 /** The parts the realm owns that the agent keeps a copy of. */
@@ -577,7 +584,8 @@ export interface ModelList {
 }
 
 export interface Check {
-    readonly model: string;
+    /** The model the agent runs when absent. */
+    readonly model?: string;
 }
 
 /** The model's hello, its failure, or a refusal of its name. */
@@ -617,6 +625,8 @@ export interface EditMemory {
 export interface Checked {
     readonly type: "answered" | "failed" | "refused";
     readonly words: string;
+    /** The models its endpoint lists, after a connection check. */
+    readonly models?: number;
 }
 
 /** A client's calls of an agent, each answered with a value. */
@@ -702,7 +712,14 @@ const BRIEF = obj(
     OPEN,
 );
 
-const SETTINGS = obj({ reflect_every: U32, allow_net: bool() }, OPEN);
+const SETTINGS = obj(
+    {
+        reflect_every: U32,
+        allow_net: bool(),
+        endpoints: opt(arr(obj({ name: str(), base_url: str() }, OPEN))),
+    },
+    OPEN,
+);
 
 function versioned<S extends Schema>(value: S) {
     return obj({ version: U32, value }, OPEN);
@@ -975,7 +992,9 @@ export const readClient: {
     login: first(LOGIN, (login) => login as Login),
     read_models: () => [],
     images_taken: () => [],
-    check: first(obj({ model: str() }, OPEN), ({ model }) => ({ model })),
+    check: first(obj({ model: opt(str()) }, OPEN), ({ model }) =>
+        model === undefined ? {} : { model },
+    ),
     check_connection: () => [],
     read_providers: () => [],
     read_papers: () => [],
@@ -1035,10 +1054,21 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
                   },
               }),
     }));
-    const settings = part(raw.settings, ({ reflect_every, allow_net }) => ({
-        reflect_every,
-        allow_net,
-    }));
+    const settings = part(
+        raw.settings,
+        ({ reflect_every, allow_net, endpoints }) => ({
+            reflect_every,
+            allow_net,
+            ...(endpoints === undefined
+                ? {}
+                : {
+                      endpoints: endpoints.map(({ name, base_url }) => ({
+                          name,
+                          base_url,
+                      })),
+                  }),
+        }),
+    );
     return {
         ...(raw.charter === undefined ? {} : { charter: raw.charter }),
         ...(model === undefined ? {} : { model }),

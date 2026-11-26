@@ -103,24 +103,25 @@ export function chatActions(config: AgentConfig): ChatHandlers {
             );
             return taken === undefined ? {} : { per_line: taken.perLine };
         }),
-        check: askedBy("check", async (c, { model }) =>
-            config.faux && !signedInTo(config.models, model)
+        check: askedBy("check", async (c, { model }) => {
+            const { peers, copies } = generationOf(c);
+            const name = model ?? (await runningModel(copies, config.model));
+            return config.faux && !signedInTo(config.models, name)
                 ? FAUX_CHECKED
                 : checkModel(
                       config.models,
-                      agentKeys(config.models, generationOf(c).peers),
-                      model,
+                      agentKeys(config.models, peers),
+                      name,
+                  );
+        }),
+        check_connection: askedBy("check_connection", async (c) =>
+            config.faux
+                ? FAUX_CHECKED
+                : checkConnection(
+                      config.models,
+                      await runningModel(generationOf(c).copies, config.model),
                   ),
         ),
-        check_connection: askedBy("check_connection", async (c) => {
-            if (config.faux) return FAUX_CHECKED;
-            const { peers, copies } = generationOf(c);
-            return checkConnection(
-                config.models,
-                agentKeys(config.models, peers),
-                await runningModel(copies, config.model),
-            );
-        }),
         read_providers: askedBy("read_providers", async (c) => ({
             providers: await providerViews(
                 config.models,

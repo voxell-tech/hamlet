@@ -43,6 +43,7 @@ import type {
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
 import type { ImageLimits } from "./messages/workspace.ts";
+import { isEndpoint } from "./providers.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
@@ -201,8 +202,8 @@ export function keysOf(
     report: Peers["report"],
     subscriptions?: Subscriptions,
 ): Keys {
-    const asked = new Map<string, Promise<Kept>>();
-    const ask = async (provider: string): Promise<Kept> => {
+    const asked = new Map<string, Promise<CredentialAnswer>>();
+    const ask = async (provider: string): Promise<CredentialAnswer> => {
         let answer: CredentialAnswer;
         try {
             answer = await realm.credential({ provider });
@@ -211,8 +212,7 @@ export function keysOf(
             report(words, error);
             throw new Error(`${words}: ${reasonOf(error)}`);
         }
-        if (answer.type === "refused") throw new Error(answer.words);
-        rememberKept(answer);
+        if (answer.type !== "refused") rememberKept(answer);
         return answer;
     };
     const givenOf = async (provider: string, kept: Kept): Promise<Given> => {
@@ -255,9 +255,18 @@ export function keysOf(
                 asking = ask(provider);
                 asked.set(provider, asking);
                 // A refusal or a failed call is asked again at the next request.
-                asking.catch(() => asked.delete(provider));
+                const forget = () => asked.delete(provider);
+                asking.then((answer) => {
+                    if (answer.type === "refused") forget();
+                }, forget);
             }
             const kept = await asking;
+            if (kept.type === "refused") {
+                // An endpoint no one signed in to is called without a key, as today's.
+                const listed = subscriptions?.listed.getProvider(provider);
+                if (listed !== undefined && isEndpoint(listed)) return {};
+                throw new Error(kept.words);
+            }
             // The Claude program signs in itself; the realm's credential only marks that it did.
             if (provider === CLAUDE) return {};
             return givenOf(provider, kept);
@@ -680,20 +689,9 @@ export async function checkModel(
     keys: Keys,
     name: string,
 ): Promise<Checked> {
-    const ref = refOf(name);
-    if (ref === undefined) {
-        return {
-            type: "refused",
-            words: `\`${name}\` names no endpoint. A model is named \`endpoint::model\`.`,
-        };
-    }
+    const ref = named(listed, name);
+    if ("type" in ref) return ref;
     const { provider, modelId } = ref;
-    if (listed.getProvider(provider) === undefined) {
-        return {
-            type: "refused",
-            words: `\`${name}\` is served by the endpoint \`${provider}\`, which the settings do not have.`,
-        };
-    }
     const model = listed.getModel(provider, modelId);
     if (model === undefined) {
         return { type: "refused", words: `no model is named \`${name}\`` };
@@ -733,23 +731,57 @@ export async function checkModel(
         return { type: "answered", words: scrub(text) };
     } catch (error) {
         // Scrubbed before `plainly` cuts it, so no part of a key is left.
-        return { type: "failed", words: plainly(scrub(String(error))) };
+        return { type: "failed", words: plainly(scrub(String(error)), true) };
     }
 }
 
 /**
- * Asks the model `name` for a hello, and answers with the count of the
- * models its provider lists, as today's connection check does.
+ * Asks the provider of the model `name` for its list again, and answers with
+ * the count of the models it lists, as today's connection check does.
  */
 export async function checkConnection(
     listed: Models,
-    keys: Keys,
     name: string,
 ): Promise<Checked> {
-    const checked = await checkModel(listed, keys, name);
-    if (checked.type !== "answered") return checked;
-    const count = listed.getModels(refOf(name)?.provider).length;
-    return { type: "answered", words: `Connected, ${count} model(s)` };
+    const ref = named(listed, name);
+    if ("type" in ref) return ref;
+    const { provider } = ref;
+    const { errors } = await listed.refresh({
+        providers: [provider],
+        force: true,
+        signal: AbortSignal.timeout(90_000),
+    });
+    const error = errors.get(provider);
+    if (error !== undefined) {
+        return {
+            type: "failed",
+            words: plainly(scrub(String(error)), false),
+        };
+    }
+    const count = listed.getModels(provider).length;
+    return {
+        type: "answered",
+        words: `Connected, ${count} model(s)`,
+        models: count,
+    };
+}
+
+/** The provider and model `name` names, or its refusal, as today's `named_model`. */
+function named(listed: Models, name: string): ModelRef | Checked {
+    const ref = refOf(name);
+    if (ref === undefined) {
+        return {
+            type: "refused",
+            words: `\`${name}\` names no endpoint. A model is named \`endpoint::model\`.`,
+        };
+    }
+    if (listed.getProvider(ref.provider) === undefined) {
+        return {
+            type: "refused",
+            words: `\`${name}\` is served by the endpoint \`${ref.provider}\`, which the settings do not have.`,
+        };
+    }
+    return ref;
 }
 
 /** Whether the model `name` is served by a provider a chief signs in to. */
@@ -872,8 +904,8 @@ export async function providerViews(
     );
 }
 
-/** A failed hello in words a chief can act on, as today's `plainly` gives them. */
-function plainly(error: string): string {
+/** A failed hello or list in words a chief can act on, as today's `plainly` gives them. */
+function plainly(error: string, hello: boolean): string {
     const lower = error.toLowerCase();
     const says = (...words: string[]) =>
         words.some((word) => lower.includes(word));
@@ -890,7 +922,13 @@ function plainly(error: string): string {
         return "It took too long to answer. Try again, or pick a smaller model.";
     }
     const detail = [...error].slice(0, 160).join("");
-    return `That model did not answer a hello. Pick another one. (${detail})`;
+    if (hello) {
+        return `That model did not answer a hello. Pick another one. (${detail})`;
+    }
+    if (says("http 404")) {
+        return "That address did not answer as a model provider. It usually ends in /v1.";
+    }
+    return `It answered with an error. Try again. (${detail})`;
 }
 
 export function agentKeys(listed: Models, peers: Peers): Keys {

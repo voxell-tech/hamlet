@@ -22,7 +22,7 @@ use super::answers::Reading;
 use super::call::Stopping;
 use super::host::HAND;
 use super::view::Own;
-use super::{commands, frames, words};
+use super::{commands, frames};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -44,6 +44,9 @@ pub(crate) enum Route {
     /// it ends.
     Line(protocol::Say, AgentNumber),
     Call(Call),
+    /// A check of the realm's model, whose link is testing until it
+    /// answers, unless every agent runs the faux model.
+    Check(Call),
     SignIn(protocol::Login),
     Read(Reading),
     Upload(Upload),
@@ -205,28 +208,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             )?
         }
         ClientMessage::Login(login) => Route::SignIn(login),
-        ClientMessage::Check(Check::Model {
-            id,
-            model: Some(model),
-        }) => call(
-            &address::Agent(HAND),
-            &id,
-            &chat::Check { model },
-            frames::checked,
-            After::Nothing,
-        )?,
-        ClientMessage::Check(Check::Connection { id }) => call(
-            &address::Agent(HAND),
-            &id,
-            &CheckConnection,
-            frames::checked,
-            After::Nothing,
-        )?,
-        ClientMessage::Check(Check::Model { id, model: None }) => {
-            Route::Now(Box::new(reply(
-                &id,
-                Ok(words::FAUX_MODELS.into()),
-            )))
+        ClientMessage::Check(Check::Model { id, model }) => {
+            check(&id, &chat::Check { model })?
+        }
+        ClientMessage::Check(Check::Connection { id }) => {
+            check(&id, &CheckConnection)?
         }
         ClientMessage::Read(Read::Prompt { agent, id }) => {
             agent_call(
@@ -331,14 +317,38 @@ fn call<M: Message>(
     answer: Words,
     after: After,
 ) -> Result<Route> {
-    Ok(Route::Call(Call {
+    Ok(Route::Call(made(to, id, message, answer, after)?))
+}
+
+/// The Hand's check of a model, which its link shows.
+fn check<M: Message<To = address::Agent>>(
+    id: &RequestId,
+    message: &M,
+) -> Result<Route> {
+    Ok(Route::Check(made(
+        &address::Agent(HAND),
+        id,
+        message,
+        frames::checked,
+        After::Nothing,
+    )?))
+}
+
+fn made<M: Message>(
+    to: &M::To,
+    id: &RequestId,
+    message: &M,
+    answer: Words,
+    after: After,
+) -> Result<Call> {
+    Ok(Call {
         to: to.address()?,
         action: M::NAME,
         args: encode_positional(message)?,
         request: id.clone(),
         answer,
         after,
-    }))
+    })
 }
 
 #[cfg(test)]
