@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use hamlet_actors::realm;
 use hamlet_host::{Item, Subscription};
 use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::realm::client::{
@@ -19,7 +20,7 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::chiefs::chief;
-use super::stand_ins::Callee;
+use super::stand_ins::{Callee, Seen};
 use super::world::seen_until;
 use super::{
     DEADLINE, MAYOR, Realm, THREE, founded, hamlet_with, hires,
@@ -336,5 +337,21 @@ async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
 
     assert!(state.is_err(), "the state is withheld: {state:?}");
     assert!(world.is_err(), "the world is withheld: {world:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn each_agent_of_a_faux_realm_runs_the_faux_model() {
+    let options = realm::Options {
+        faux: true,
+        ..realm::Options::default()
+    };
+    let realm =
+        Realm::start_with(Some(options), Seen::default()).await;
+    realm.live(Hand::NUMBER).await;
+
+    let state = state(&realm).await;
+
+    assert_eq!(agent(&state, Hand::NUMBER).model, "faux::faux-1");
     realm.host.shutdown().await.unwrap();
 }
