@@ -17,15 +17,10 @@ import {
     type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
+import { keysOf, scrub } from "../src/agent/credentials.ts";
 import type { Copies, ModelChoice } from "../src/agent/messages/agent.ts";
 import { u32 } from "../src/agent/messages/shared.ts";
-import {
-    agentModels,
-    checkModel,
-    keysOf,
-    modelList,
-    scrub,
-} from "../src/agent/models.ts";
+import { agentModels, checkModel, modelList } from "../src/agent/models.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import type { BareRealm, Peers } from "../src/agent/turn.ts";
 import {

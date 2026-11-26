@@ -30,8 +30,8 @@ import {
 } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { remember, scrub } from "./credentials.ts";
 import { STEP_WAIT_MS } from "./login.ts";
-import { remember, scrub } from "./models.ts";
 import { emptyAnswer } from "./spend.ts";
 import { reasonOf } from "./turn.ts";
 

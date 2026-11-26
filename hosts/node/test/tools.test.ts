@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
+import { remember } from "../src/agent/credentials.ts";
 import type { Exit } from "../src/agent/messages/workspace.ts";
-import { remember } from "../src/agent/models.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
