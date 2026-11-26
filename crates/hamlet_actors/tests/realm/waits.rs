@@ -948,6 +948,71 @@ async fn a_request_the_chief_refused_is_refused_again_unasked() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_ruling_on_the_network_settles_the_other_network_waits_it_covers()
+ {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = chief_task(&realm, HAND).await;
+    let network =
+        |call: &str| asked(call, Need::Network, Some(&task), "c");
+    for call in ["c1", "c2"] {
+        realm.call_as_workspace(&network(call)).await.unwrap();
+    }
+    realm
+        .call_as_workspace(&asked(
+            "c3",
+            Need::Command,
+            Some(&task),
+            "c",
+        ))
+        .await
+        .unwrap();
+    realm
+        .ask(&answer("1", Choice::Deny, Some("stay offline")))
+        .await
+        .unwrap();
+    for call in ["c4", "c5"] {
+        realm
+            .call_as_workspace(&asked(call, Need::Network, None, "d"))
+            .await
+            .unwrap();
+    }
+    realm.ask(&answer("4", Choice::Always, None)).await.unwrap();
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    let answers = chief_answers(&realm);
+    let answer_to = |call: &str| {
+        answers
+            .iter()
+            .find(|answer| answer.call == needs(HAND, call).call)
+            .map(|answer| answer.answer.clone())
+    };
+    assert_eq!(
+        [answer_to("c2"), answer_to("c5")],
+        [
+            Some(
+                refused_unasked(
+                    "c2",
+                    "the chief already refused this in this turn \
+                     (stay offline). Do not ask again: go on \
+                     without it, or report that you could not."
+                )
+                .answer
+            ),
+            Some(workspace::Answer::Allow),
+        ]
+    );
+    let waits = waits_of(&realm, HAND).await;
+    assert_eq!(waits[1], (2, false, Some("unasked".to_owned())));
+    assert_eq!(waits[2], (3, true, None));
+    assert_eq!(waits[4], (5, false, Some("allow".to_owned())));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
  {
     let realm = Realm::start().await;

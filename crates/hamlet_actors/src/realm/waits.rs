@@ -688,6 +688,16 @@ impl Refused {
             !network(&self.needs) && self.subject == subject
         }
     }
+
+    /// The refusal of a call this one covers.
+    fn again(&self) -> Gate {
+        Gate::AlreadyRefused {
+            reason: self
+                .ruling
+                .clone()
+                .unwrap_or_else(|| "no reason given".to_owned()),
+        }
+    }
 }
 
 /// The tool calls and reserved acts a chief refused `agent` on
@@ -708,14 +718,19 @@ async fn refusals(
     .map(|(subject, needs, ruling)| {
         Ok(Refused {
             subject,
-            needs: needs
-                .map(|needs| serde_json::from_str(&needs))
-                .transpose()?
-                .unwrap_or_default(),
+            needs: needs_of(needs)?,
             ruling,
         })
     })
     .collect()
+}
+
+/// A wait's `needs` column.
+fn needs_of(needs: Option<String>) -> Result<Vec<Need>> {
+    Ok(needs
+        .map(|needs| serde_json::from_str(&needs))
+        .transpose()?
+        .unwrap_or_default())
 }
 
 /// Why a call of `agent`'s for `needs` on `subject` is refused
@@ -733,12 +748,7 @@ pub(super) async fn refused_unasked(
         .iter()
         .find(|refused| refused.covers(needs, subject))
     {
-        return Ok(Some(Gate::AlreadyRefused {
-            reason: earlier
-                .ruling
-                .clone()
-                .unwrap_or_else(|| "no reason given".to_owned()),
-        }));
+        return Ok(Some(earlier.again()));
     }
     Ok(past_the_count(
         refused.len(),

@@ -73,9 +73,13 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .await;
     s.chief.choose(&fourth.id, Choice::Always, None).await;
     s.chief.shows(&now, "Done again.").await;
-    assert!(
-        lodge.join("four").exists() && lodge.join("five").exists()
-    );
+    // An approval does not hold the turn under --actors, so the
+    // commands may end after the words that follow them.
+    s.chief
+        .until("four and five", |_| {
+            lodge.join("four").exists() && lodge.join("five").exists()
+        })
+        .await;
     assert!(s.chief.waits().is_empty());
     let grants = s.chief.realm().grants;
     assert_eq!(grants.len(), 1);
