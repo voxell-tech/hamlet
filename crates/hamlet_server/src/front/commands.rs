@@ -810,7 +810,6 @@ async fn perform(
             }
             Made::Refused { why } => Err(refused(why)),
         },
-        Act::Unsupported(what) => Err(Refusal::Unsupported { what }),
     };
     Ok(Outcome::said(reply))
 }

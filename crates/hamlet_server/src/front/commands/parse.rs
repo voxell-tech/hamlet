@@ -23,7 +23,7 @@ use hamlet_messages::workspace::reach::Mode;
 use hamlet_protocol::client::{self as protocol, Choice};
 
 use super::super::words;
-use crate::commands::{deeds, usage};
+use crate::commands::usage;
 use crate::oversight::gate;
 use crate::society::addresses::{self, Address};
 use crate::society::agents::Effort as Level;
@@ -180,8 +180,6 @@ pub(super) enum Act {
     },
     Unshelve(UnshelveSkill),
     NameProfile(NameProfile),
-    /// A command of the table this server does not do.
-    Unsupported(String),
 }
 
 /// Whose learning `/dream` goes over: a profile's, or a hire's as
@@ -634,9 +632,6 @@ pub(super) fn parse(
             Ok(hamlet) => Payer::Hamlet { hamlet },
             Err(_) => Payer::Realm,
         }),
-        _ if deeds().iter().any(|deed| deed.name == name) => {
-            Act::Unsupported(format!("`/{name}`"))
-        }
         _ => {
             return Err(Refusal::Usage {
                 words: words::no_command(name),

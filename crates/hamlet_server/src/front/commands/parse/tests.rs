@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::deeds;
 
 /// A hamlet's id, in the one form an address writes it.
 const OTHER: &str = "0b9e2c4a-6f1d-4e8b-9a3c-5d7f1e2a4b6c";
@@ -168,84 +169,19 @@ fn a_hire_goes_into_the_hamlet_here_unless_one_is_named() {
 }
 
 #[test]
-fn every_command_served_is_parsed_into_its_act() {
-    for name in [
-        "hand",
-        "hamlet",
-        "agent",
-        "new",
-        "resume",
-        "retry",
-        "stop",
-        "to",
-        "reflect",
-        "worker",
-        "queue",
-        "allow",
-        "always",
-        "deny",
-        "go",
-        "withdraw",
-        "reply",
-        "dismiss",
-        "grants",
-        "revoke",
-        "hamlets",
-        "create-hamlet",
-        "name-hamlet",
-        "move-hamlet",
-        "tier",
-        "mayor",
-        "hire",
-        "end",
-        "model",
-        "effort",
-        "fast",
-        "nickname",
-        "tools",
-        "allowance",
-        "road",
-        "unroad",
-        "folder",
-        "mode",
-        "budget",
-        "reset-budget",
-        "merge",
-        "restore",
-        "erase",
-        "remove-hamlet",
-        "restore-hamlet",
-        "erase-hamlet",
-        "fork",
-        "remove-scholar",
-        "restore-scholar",
-        "erase-scholar",
-        "welcome",
-        "turn-away",
-        "move-house",
-    ] {
-        let parsed = parse(&format!("/{name}"), Some(&docs()));
-        assert_ne!(
-            parsed,
-            Ok(Act::Unsupported(format!("`/{name}`"))),
-            "/{name}"
-        );
-        if let Err(refusal) = parsed {
+fn every_command_of_the_table_is_parsed_into_its_act() {
+    for deed in deeds() {
+        let name = deed.name;
+        if let Err(refusal) =
+            parse(&format!("/{name}"), Some(&docs()))
+        {
             assert_ne!(
                 refusal.to_string(),
-                words::no_command(name),
+                words::no_command(&name),
                 "/{name}"
             );
         }
     }
-}
-
-#[test]
-fn a_command_of_the_table_not_done_yet_is_unsupported() {
-    assert_eq!(
-        parse("/pin mayor v1", Some(&docs())),
-        Ok(Act::Unsupported("`/pin`".into()))
-    );
     assert_eq!(
         parse("/dance", None).unwrap_err().to_string(),
         "There is no command /dance; the client lists the commands."
