@@ -533,6 +533,24 @@ pub(super) async fn deliver(
     Ok(())
 }
 
+/// The text of `task`'s line, empty for none.
+async fn line_of(
+    ctx: &Ctx<Realm>,
+    task: Option<TaskId>,
+) -> Result<String> {
+    let Some(task) = task else {
+        return Ok(String::new());
+    };
+    Ok(Rows::outside(ctx)?
+        .value::<Option<String>>(
+            "SELECT text FROM task WHERE id = ?1",
+            vec![task.column()?],
+        )
+        .await?
+        .flatten()
+        .unwrap_or_default())
+}
+
 /// Delivers the notice that closed `wait` to its agent, under the
 /// wait's task.
 pub(super) async fn notice(
@@ -552,7 +570,8 @@ pub(super) async fn notice(
     let held = call.map(|call| HeldCall {
         call: CallId(call),
         end: match choice {
-            Choice::Lapsed(_) | Choice::Withdraw => HeldEnd::Aborted,
+            Choice::Lapsed(_) => HeldEnd::Aborted,
+            Choice::Withdraw => HeldEnd::Withdrawn,
             Choice::Refuse => HeldEnd::Blocked,
             _ => HeldEnd::Ran,
         },
@@ -579,8 +598,8 @@ pub(super) async fn notice(
             )
         }
         (Kind::Objection, Choice::Withdraw) => format!(
-            "The chief withdrew the instruction. Stop working on \
-             it.{says}"
+            "The chief withdrew the instruction: {}",
+            line_of(ctx, task).await?
         ),
         (Kind::Reserved | Kind::Send, Choice::Refuse) => format!(
             "the chief refused it: {}",

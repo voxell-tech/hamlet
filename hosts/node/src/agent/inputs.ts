@@ -119,6 +119,8 @@ function heldEnd(end: HeldCall["end"], why: string): CallEnd {
             return { type: "blocked", why };
         case "aborted":
             return { type: "aborted" };
+        case "withdrawn":
+            return { type: "aborted", withdrawn: true };
     }
 }
 

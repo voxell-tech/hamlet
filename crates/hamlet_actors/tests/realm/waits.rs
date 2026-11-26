@@ -871,7 +871,7 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
             "The chief did not answer; go on with what you know.",
             "The chief rules: go on with the instruction. The chief \
              says: carry on",
-            "The chief withdrew the instruction. Stop working on it.",
+            "The chief withdrew the instruction: and this",
             "the chief refused it: no reason given",
         ]
     );
@@ -1343,7 +1343,7 @@ async fn a_ruling_on_an_objection_names_the_call_that_waited_for_it()
         held(),
         [
             ("o1".to_owned(), HeldEnd::Ran),
-            ("o2".to_owned(), HeldEnd::Aborted)
+            ("o2".to_owned(), HeldEnd::Withdrawn)
         ]
     );
     realm.host.shutdown().await.unwrap();

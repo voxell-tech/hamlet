@@ -1776,6 +1776,20 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
             },
         ),
         (
+            "notice.withdrawn",
+            task(),
+            Input::Notice {
+                text: "The chief withdrew the instruction: Make the \
+                       file."
+                    .into(),
+                conversation: Some(ConversationId("c1".into())),
+                held: Some(HeldCall {
+                    call: CallId("t10".into()),
+                    end: HeldEnd::Withdrawn,
+                }),
+            },
+        ),
+        (
             "worker_answer",
             task(),
             Input::WorkerAnswer {

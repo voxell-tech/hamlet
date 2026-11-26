@@ -1530,6 +1530,7 @@ const TAKEN = [
     "agent/submit.notice",
     "agent/submit.notice.aborted",
     "agent/submit.notice.blocked",
+    "agent/submit.notice.withdrawn",
     "agent/submit.question",
     "agent/submit.question.files",
     "agent/submit.worker_answer",
@@ -1979,7 +1980,8 @@ for (const name of answersTo("realm/may_spend")) {
             assert.equal(agent.faux.state.callCount, 0);
             const detail = String(submission?.detail);
             assert.ok(
-                given.why?.type === "objection"
+                given.why?.type === "objection" ||
+                    given.why?.type === "withdrawn"
                     ? detail === given.words
                     : detail.endsWith(`: ${given.words}`),
                 detail,

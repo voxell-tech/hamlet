@@ -154,7 +154,8 @@ export type CallEnd =
           readonly created?: boolean;
       }
     | { readonly type: "blocked"; readonly why: string }
-    | { readonly type: "aborted" };
+    // The chief's withdrawal shows its notice, as today's transcript does.
+    | { readonly type: "aborted"; readonly withdrawn?: true };
 
 export type Ended = { readonly call: string; readonly end: CallEnd };
 

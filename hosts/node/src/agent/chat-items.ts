@@ -198,13 +198,18 @@ export class Fold {
         const ops = [closed(shownAt(held.item, end), endingOf(held, end))];
         const said =
             name === "ask_chief" ? chiefSaid(textOf(entry)) : undefined;
-        if (said !== undefined) {
+        const shown =
+            said !== undefined
+                ? { kind: "answered" as const, text: said }
+                : end.type === "aborted" && end.withdrawn === true
+                  ? { kind: "notice" as const, text: textOf(entry) }
+                  : undefined;
+        if (shown !== undefined) {
             ops.push(
                 added({
                     id: `${entryIdOf(this.#agent, entry)}:0`,
                     at: `${timeOf(entry)}`,
-                    kind: "answered",
-                    text: said,
+                    ...shown,
                 }),
             );
         }

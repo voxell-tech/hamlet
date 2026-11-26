@@ -216,8 +216,10 @@ pub enum HeldEnd {
     Ran,
     /// It did not run; the notice says why.
     Blocked,
-    /// A stop or the chief's withdrawal of the instruction ended it.
+    /// A stop ended it.
     Aborted,
+    /// The chief withdrew the instruction, as the notice says.
+    Withdrawn,
 }
 
 /// The writer of a letter, as the receiver is shown it (C30).

@@ -130,7 +130,7 @@ export interface PromptSection {
 /** A society call the realm kept for a chief, which a ruling or a stop ends. */
 export interface HeldCall {
     readonly call: CallId;
-    readonly end: "ran" | "blocked" | "aborted";
+    readonly end: "ran" | "blocked" | "aborted" | "withdrawn";
 }
 
 export interface Submit {
@@ -787,7 +787,10 @@ const INPUT = union([
             conversation: opt(str()),
             held: opt(
                 obj(
-                    { call: str(), end: oneOf(["ran", "blocked", "aborted"]) },
+                    {
+                        call: str(),
+                        end: oneOf(["ran", "blocked", "aborted", "withdrawn"]),
+                    },
                     OPEN,
                 ),
             ),
