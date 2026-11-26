@@ -434,6 +434,26 @@ fn given(character: Option<&str>) -> Option<&str> {
     character.filter(|text| !text.is_empty())
 }
 
+/// The profile `create` makes as `profile`, or why it is refused.
+fn made(
+    create: &CreateProfile,
+    profile: ProfileId,
+) -> Result<Decided<(ProfileId, String)>, CreateRefusal> {
+    let Ok(name) = hamlet::checked_name(&create.name) else {
+        return Err(CreateRefusal::BadName {
+            name: create.name.trim().to_owned(),
+        });
+    };
+    if given(create.character.as_deref()).is_some_and(|text| {
+        text.chars().count() > settings::CHARACTER_MOST
+    }) {
+        return Err(CreateRefusal::LongCharacter);
+    }
+    let name = name.to_owned();
+    Ok(Decided::new((profile, name.clone()))
+        .change(Change::Made { profile, name }))
+}
+
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
     type Loaded = ProfileId;
@@ -452,24 +472,48 @@ impl Act<Agent> for CreateProfile {
         _by: &Agent,
         profile: ProfileId,
     ) -> Decision<Self::Done, Self::Output> {
-        let refuse = |why| {
-            Decision::Answer(Made::refused(AgentRefusal::Act(why)))
-        };
-        let Ok(name) = hamlet::checked_name(&self.name) else {
-            return refuse(CreateRefusal::BadName {
-                name: self.name.trim().to_owned(),
-            });
-        };
-        if given(self.character.as_deref()).is_some_and(|text| {
-            text.chars().count() > settings::CHARACTER_MOST
-        }) {
-            return refuse(CreateRefusal::LongCharacter);
+        match made(self, profile) {
+            Ok(decided) => Decision::Change(decided),
+            Err(why) => Decision::Answer(Made::refused(
+                AgentRefusal::Act(why),
+            )),
         }
-        let name = name.to_owned();
-        Decision::Change(
-            Decided::new((profile, name.clone()))
-                .change(Change::Made { profile, name }),
-        )
+    }
+
+    fn answer(
+        &self,
+        (profile, name): Self::Done,
+        _made: &calls::Made,
+    ) -> Self::Output {
+        Made::Made {
+            profile,
+            label: label(profile, &name),
+        }
+    }
+}
+
+impl Act<Client> for CreateProfile {
+    type Output = Made<CreateRefusal>;
+    type Loaded = ProfileId;
+    type Done = (ProfileId, String);
+
+    async fn load(
+        &self,
+        _by: &Client,
+        rows: &Rows<'_>,
+    ) -> Result<ProfileId> {
+        next(rows).await
+    }
+
+    fn decide(
+        &self,
+        _by: &Client,
+        profile: ProfileId,
+    ) -> Decision<Self::Done, Self::Output> {
+        match made(self, profile) {
+            Ok(decided) => Decision::Change(decided),
+            Err(why) => Decision::Answer(Made::refused(why)),
+        }
     }
 
     fn answer(
@@ -506,26 +550,67 @@ impl Handler<Create> for Realm {
         ctx: Ctx<Self>,
         Create(tool): Create,
     ) -> Result<<Create as Action>::Output> {
-        let character =
-            given(tool.act.character.as_deref()).map(str::to_owned);
+        let character = tool.act.character.clone();
         let made = self.clone().handle(ctx.clone(), tool).await?;
         if let Made::Made { profile, .. } = &made {
-            let text = match character {
-                Some(text) => text,
-                None => {
-                    settings::read(&Rows::outside(&ctx)?)
-                        .await?
-                        .character
-                }
-            };
-            self.peers
-                .create(
-                    &Profile(*profile),
-                    &ProfileInput::Character { text },
-                )
-                .await?;
+            self.start_profile(&ctx, *profile, character).await?;
         }
         Ok(made)
+    }
+}
+
+/// `chief_create_profile`, which makes the profile's actor from its
+/// character before it answers.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct ChiefCreate(pub Asked<CreateProfile>);
+
+impl Action for ChiefCreate {
+    type Output = <Asked<CreateProfile> as Action>::Output;
+    const NAME: &'static str = <Asked<CreateProfile> as Action>::NAME;
+}
+
+impl Message for ChiefCreate {
+    type To = <Asked<CreateProfile> as Message>::To;
+    type From = <Asked<CreateProfile> as Message>::From;
+}
+
+impl Handler<ChiefCreate> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        ChiefCreate(asked): ChiefCreate,
+    ) -> Result<<ChiefCreate as Action>::Output> {
+        let character = asked.act.character.clone();
+        let made = self.clone().handle(ctx.clone(), asked).await?;
+        if let Made::Made { profile, .. } = &made {
+            self.start_profile(&ctx, *profile, character).await?;
+        }
+        Ok(made)
+    }
+}
+
+impl Realm {
+    /// Makes the actor of the new `profile` from `character`, or from
+    /// the realm's character when none is given.
+    async fn start_profile(
+        &self,
+        ctx: &Ctx<Self>,
+        profile: ProfileId,
+        character: Option<String>,
+    ) -> Result<()> {
+        let text = match given(character.as_deref()) {
+            Some(text) => text.to_owned(),
+            None => {
+                settings::read(&Rows::outside(ctx)?).await?.character
+            }
+        };
+        self.peers
+            .create(
+                &Profile(profile),
+                &ProfileInput::Character { text },
+            )
+            .await
     }
 }
 

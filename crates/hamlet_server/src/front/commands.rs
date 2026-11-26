@@ -29,8 +29,8 @@ use hamlet_messages::realm::oversight::{
     Permission, Revoke, Revoked,
 };
 use hamlet_messages::realm::profiles::{
-    Dream, Dreamer, Forked, Lifecycle, LifecycleRefusal, MoveHouse,
-    RevertProfile, Site,
+    Dream, Dreamer, Forked, Lifecycle, LifecycleRefusal, Made,
+    MoveHouse, RevertProfile, Site,
 };
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
@@ -688,6 +688,12 @@ async fn perform(
                     }),
             ))
         }
+        Act::CreateProfile(act) => match ask(calls, id, act).await? {
+            Made::Made { label, .. } => {
+                Ok(words::profile_made(&label))
+            }
+            Made::Refused { why } => Err(refused(why)),
+        },
         Act::ToolsOff(hire) => number(view, &hire, Reach::Living)
             .map(|agent| {
                 let off = view

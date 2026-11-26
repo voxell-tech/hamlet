@@ -161,6 +161,33 @@ fn the_making_and_the_reading(fixtures: &mut Fixtures) {
         }),
     );
     fixtures.args(
+        "realm/chief_create_profile",
+        &asked(CreateProfile {
+            name: "Ada".into(),
+            character: None,
+        }),
+    );
+    answers(
+        fixtures,
+        "realm/chief_create_profile",
+        [(
+            "made",
+            Made::Made {
+                profile: PROFILE,
+                label: label(),
+            },
+        )],
+        vec![
+            (
+                "bad_name",
+                CreateRefusal::BadName {
+                    name: "a: b".into(),
+                },
+            ),
+            ("long_character", CreateRefusal::LongCharacter),
+        ],
+    );
+    fixtures.args(
         "realm/create_profile.realms_character",
         &tool(CreateProfile {
             name: "Ada".into(),

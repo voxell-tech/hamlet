@@ -10,8 +10,9 @@ use hamlet_messages::realm::hamlets::{
     SetFolder, SetMode,
 };
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, EraseProfile, ForkProfile, PurgeProfile,
-    RestoreProfile, Spot, TagProfile, TurnAway, Welcome,
+    ArchiveProfile, CreateProfile, EraseProfile, ForkProfile,
+    PurgeProfile, RestoreProfile, Spot, TagProfile, TurnAway,
+    Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -161,6 +162,7 @@ pub(super) enum Act {
     ResetBudget(Payer),
     History(HamletId),
     Scholars,
+    CreateProfile(CreateProfile),
     ToolsOff(Target),
     Versions(ProfileId),
     Tag(TagProfile),
@@ -529,6 +531,20 @@ pub(super) fn parse(
         "budget" => Act::Budget(hamlet_here().ok()),
         "history" => Act::History(hamlet_here()?),
         "scholars" => Act::Scholars,
+        "scholar" => {
+            let Some(&"new") = words.first() else {
+                return Err(usage(name));
+            };
+            let rest = tail(1);
+            let (profile, character) =
+                rest.split_once(':').unwrap_or((rest.as_str(), ""));
+            let character = character.trim();
+            Act::CreateProfile(CreateProfile {
+                name: profile.to_owned(),
+                character: (!character.is_empty())
+                    .then(|| character.to_owned()),
+            })
+        }
         "versions" => match words.as_slice() {
             [scholar] => Act::Versions(profile_of(scholar)?),
             _ => return Err(usage(name)),

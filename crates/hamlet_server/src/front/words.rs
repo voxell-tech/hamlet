@@ -506,6 +506,10 @@ pub(crate) fn versions(list: &VersionList) -> String {
     lines.join("\n")
 }
 
+pub(crate) fn profile_made(profile: &str) -> String {
+    format!("The scholar `{profile}` lives in the city.")
+}
+
 pub(crate) fn tagged(profile: &str, version: &str) -> String {
     format!("Tagged {profile} as {version}.")
 }

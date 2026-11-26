@@ -766,3 +766,23 @@ async fn dream_names_one_profile_or_hire() {
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn scholar_new_makes_a_profile_from_its_character() {
+    let (mut server, _home, _side) = serve(json!([])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let made =
+        chief.command(hand, "/scholar new bea: Careful.").await;
+    let bare = chief.refused(hand, "/scholar").await;
+    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+
+    assert_eq!(
+        made,
+        "The scholar `scholar#2 (bea)` lives in the city."
+    );
+    assert_eq!(bare, "Use /scholar new <name>[: <character>]");
+    assert_eq!(papers.character, "Careful.");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}

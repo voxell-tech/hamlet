@@ -44,6 +44,7 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
     ("profiles.rs", "Create"),
+    ("profiles.rs", "ChiefCreate"),
     ("profiles.rs", "Purging"),
     ("librarian.rs", "Submitting"),
     ("tree/lead.rs", "Pinning"),

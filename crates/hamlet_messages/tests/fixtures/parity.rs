@@ -2,8 +2,8 @@
 //! profile and an agent, and of a chief's line with attachments.
 
 use hamlet_messages::agent::chat::{
-    CheckConnection, EditMemory, ImagesTaken, ProviderList, ReadPapers,
-    ReadProviders, TakenImages,
+    CheckConnection, EditMemory, ImagesTaken, ProviderList,
+    ReadPapers, ReadProviders, TakenImages,
 };
 use hamlet_messages::agent::{LineFile, LineImage};
 use hamlet_messages::library::Shelved;

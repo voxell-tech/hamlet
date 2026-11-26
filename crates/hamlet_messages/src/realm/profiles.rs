@@ -78,6 +78,11 @@ impl ToolCall for CreateProfile {
     type Answer = Made<AgentRefusal<CreateRefusal>>;
 }
 
+impl ChiefRequest for CreateProfile {
+    const NAME: &'static str = "chief_create_profile";
+    type Answer = Made<CreateRefusal>;
+}
+
 /// Lists the files of a profile at `main`, or at the commit `at`
 /// names, or reads its file `path` there.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
