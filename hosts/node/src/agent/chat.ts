@@ -98,7 +98,7 @@ export function chatActions(config: AgentConfig): ChatHandlers {
             );
         }),
         settle: askedBy("settle", async () => {
-            await rotationsKept();
+            await Promise.all([rotationsKept(), config.signIns?.close()]);
             return null;
         }),
         read_models: askedBy("read_models", async (c, { refresh }) => {
