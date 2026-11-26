@@ -215,7 +215,7 @@ test("a faux model is titled by its id and takes images, as today's listing show
     ]);
 });
 
-test("a faux answer books as input every prompt token the cache did not read", async () => {
+test("a faux answer books as input every prompt token the cache did not read, and counts it once", async () => {
     const { models, model } = fauxModels(undefined, false);
     const [provider = "", id = ""] = model.split("/");
     const faux = models.getModel(provider, id);
@@ -240,15 +240,20 @@ test("a faux answer books as input every prompt token the cache did not read", a
         ).usage;
     const first = asked("Read the papers.");
     const second = asked("Read the papers.", "Now the notes.");
-    const alone = [(await usage(first)).input, (await usage(second)).input];
+    const alone = [await usage(first), await usage(second)];
     const once = await usage(first, "session-1");
     const again = await usage(second, "session-1");
-    assert.ok(alone[0] !== undefined && alone[0] > 0);
+    assert.ok(alone[0] !== undefined && alone[0].input > 0);
     assert.deepEqual(
         [once.input + once.cacheRead, again.input + again.cacheRead],
-        alone,
+        alone.map(({ input }) => input),
     );
     assert.ok(again.cacheRead > 0);
+    // Each prompt token is counted once, as with no cache.
+    assert.deepEqual(
+        [once.totalTokens, again.totalTokens],
+        alone.map(({ totalTokens }) => totalTokens),
+    );
 });
 
 test("a read of the models with refresh asks each endpoint for its list again first", async (t) => {

@@ -393,7 +393,7 @@ function measured(
                     used.totalTokens = usage.input + usage.output;
                 } else {
                     used.input += used.cacheWrite;
-                    used.totalTokens += used.cacheWrite;
+                    used.cacheWrite = 0;
                 }
                 used.cost = calculateCost(model, used);
             }
