@@ -2,7 +2,9 @@ use hamlet_messages::profile::{
     BadPath, By, Edit, Path, ProfileInput, ReadAnswer, RevertAnswer,
     Revision, TagAnswer, TagRefusal, VersionName,
 };
-use hamlet_messages::realm::documents::{EditSettings, Setting};
+use hamlet_messages::realm::documents::{
+    EditSettings, Newcomers, Setting,
+};
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
     Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
@@ -233,6 +235,41 @@ async fn set_character(realm: &Realm) {
         }],
     };
     assert_eq!(chief(realm, set).await, Done::Done);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_a_lead_makes_waits_at_the_harbor_unless_the_hand_makes_it_or_the_city_is_open()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, MAYOR, "c1", "Mason", None).await;
+    create(&realm, Hand::NUMBER, "c2", "Digger", None).await;
+    let open = EditSettings {
+        set: vec![Setting::Newcomers {
+            newcomers: Newcomers::Open,
+        }],
+    };
+    assert_eq!(chief(&realm, open).await, Done::Done);
+    create(&realm, MAYOR, "c3", "Smith", None).await;
+
+    let arrivals = realm
+        .stopped_rows(|db| {
+            db.prepare(
+                "SELECT id, arrival FROM profile WHERE id >= 3 \
+                 ORDER BY id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<(u32, String)>>>()
+        })
+        .await;
+    assert_eq!(
+        arrivals,
+        [
+            (3, "harbor".to_owned()),
+            (4, "housed".to_owned()),
+            (5, "housed".to_owned())
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

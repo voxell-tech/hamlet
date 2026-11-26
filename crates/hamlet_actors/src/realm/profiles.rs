@@ -14,6 +14,7 @@ use hamlet_messages::profile::{
     ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer, Revert,
     RevertAnswer, Sha1, Tag, TagAnswer,
 };
+use hamlet_messages::realm::documents::Newcomers;
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
     Made, PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
@@ -244,8 +245,12 @@ pub(super) async fn start(
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A shared profile named `name`.
-    Made { profile: ProfileId, name: String },
+    /// A shared profile named `name`, arriving as `arrival`.
+    Made {
+        profile: ProfileId,
+        name: String,
+        arrival: Arrival,
+    },
     /// A shared profile named `name`, making from `from`'s commit
     /// `at`, housed at `house`.
     Fork {
@@ -276,8 +281,15 @@ pub(super) async fn apply(
     change: Change,
 ) -> Result<Affected> {
     match change {
-        Change::Made { profile, name } => {
+        Change::Made {
+            profile,
+            name,
+            arrival,
+        } => {
             insert(writer, profile, Kind::Shared, &name).await?;
+            if arrival != Arrival::Housed {
+                place(writer, profile, arrival, None).await?;
+            }
         }
         Change::Fork {
             profile,
@@ -448,10 +460,12 @@ fn given(character: Option<&str>) -> Option<&str> {
     character.filter(|text| !text.is_empty())
 }
 
-/// The profile `create` makes as `profile`, or why it is refused.
+/// The profile `create` makes as `profile`, arriving as `arrival`,
+/// or why it is refused.
 fn made(
     create: &CreateProfile,
     profile: ProfileId,
+    arrival: Arrival,
 ) -> Result<Decided<(ProfileId, String)>, CreateRefusal> {
     let Ok(name) = hamlet::checked_name(&create.name) else {
         return Err(CreateRefusal::BadName {
@@ -464,29 +478,40 @@ fn made(
         return Err(CreateRefusal::LongCharacter);
     }
     let name = name.to_owned();
-    Ok(Decided::new((profile, name.clone()))
-        .change(Change::Made { profile, name }))
+    Ok(Decided::new((profile, name.clone())).change(Change::Made {
+        profile,
+        name,
+        arrival,
+    }))
 }
 
+/// A profile an agent other than the Hand makes waits at the harbor,
+/// as today, unless the realm lets newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = ProfileId;
+    type Loaded = (ProfileId, Newcomers);
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
         _by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<ProfileId> {
-        next(rows).await
+    ) -> Result<(ProfileId, Newcomers)> {
+        Ok((next(rows).await?, settings::read(rows).await?.newcomers))
     }
 
     fn decide(
         &self,
-        _by: &Agent,
-        profile: ProfileId,
+        by: &Agent,
+        (profile, newcomers): (ProfileId, Newcomers),
     ) -> Decision<Self::Done, Self::Output> {
-        match made(self, profile) {
+        let arrival =
+            if by.0 == Hand::NUMBER || newcomers == Newcomers::Open {
+                Arrival::Housed
+            } else {
+                Arrival::Harbor
+            };
+        match made(self, profile, arrival) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(
                 AgentRefusal::Act(why),
@@ -524,7 +549,7 @@ impl Act<Client> for CreateProfile {
         _by: &Client,
         profile: ProfileId,
     ) -> Decision<Self::Done, Self::Output> {
-        match made(self, profile) {
+        match made(self, profile, Arrival::Housed) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(why)),
         }
