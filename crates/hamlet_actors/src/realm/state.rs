@@ -708,7 +708,8 @@ fn wait_shown(
         about: wait.subject.clone(),
         agent: Some(wire(wait.agent)),
         answers,
-        asked: at,
+        // Each raise opens its own wait, so each is asked once.
+        asked: 1,
         by: by.to_owned(),
         change: match &wait.kind {
             WaitKind::Tool {

@@ -331,6 +331,22 @@ async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_wait_shows_it_was_asked_once() {
+    let (realm, _) = hamlet_with(1).await;
+    asks(&realm, "c1", "echo hi").await;
+
+    let asked = state(&realm)
+        .await
+        .waits
+        .into_iter()
+        .map(|wait| wait.asked)
+        .collect::<Vec<_>>();
+
+    assert_eq!(asked, [1]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_state_a_key_cannot_be_scrubbed_from_is_withheld() {
     let (realm, _) = hamlet_with(1).await;
     keep(&realm, "t").await;
