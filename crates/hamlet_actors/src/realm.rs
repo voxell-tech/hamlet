@@ -221,8 +221,8 @@ impl Realm {
 impl Actor for Realm {
     type Input = ();
     type Actions = (
-        Asked<Found>,
-        ByHand<Tool<Found>>,
+        tree::Pinning<Asked<Found>>,
+        tree::Pinning<ByHand<Tool<Found>>>,
         tree::Pinning<Asked<Hire>>,
         tree::Pinning<Tool<Hire>>,
         Asked<End>,

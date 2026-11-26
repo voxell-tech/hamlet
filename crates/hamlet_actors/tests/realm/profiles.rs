@@ -11,7 +11,8 @@ use hamlet_messages::realm::profiles::{
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Found, FoundAnswer,
-    Gate, Hire, HireAnswer, HireRefusal, LeadRefusal, ProfileId,
+    FoundRefusal, Gate, Hire, HireAnswer, HireRefusal, LeadRefusal,
+    ProfileId,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -357,6 +358,80 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
             agent: named_as(3, "hire#3 (Mason)")
         }
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The profile `Mason`, made by the Hand, as the mayor of a hamlet
+/// founded at `version`.
+fn quay_at(version: &str) -> Found {
+    Found {
+        mayor: Some(ProfileId(3)),
+        version: Some(VersionName(version.to_owned())),
+        purpose: Some("Mind the boats".to_owned()),
+        ..found("Quay")
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_found_at_a_version_seats_its_mayor_at_it() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+
+    let FoundAnswer::Founded { mayor, .. } = realm
+        .tool(Hand::NUMBER, &tool("f1", quay_at("v1")))
+        .await
+        .unwrap()
+    else {
+        panic!("the Hand founds Quay");
+    };
+    realm.live(mayor).await;
+
+    let branched = realm.seen.branches.lock().unwrap().clone();
+    assert!(
+        branched.iter().any(|(profile, branch)| {
+            *profile == ProfileId(3)
+                && branch.name == format!("hires/{}", mayor.0)
+                && branch.from == Some(VersionName("v1".to_owned()))
+        }),
+        "{branched:?}"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_found_at_a_version_its_profile_lacks_is_refused_by_name() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let branched = || realm.seen.branches.lock().unwrap().len();
+    let before = branched();
+    let refusal = |answer: FoundAnswer<FoundRefusal>| match answer {
+        FoundAnswer::Refused { why } => why.to_string(),
+        FoundAnswer::Founded { hamlet, .. } => {
+            format!("founded {}", hamlet.0)
+        }
+    };
+
+    let by_the_hand = realm
+        .tool(Hand::NUMBER, &tool("f1", quay_at("main")))
+        .await
+        .unwrap();
+    let by_the_chief = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: quay_at("v9"),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        refusal(by_the_hand),
+        "`scholar#3 (Mason)` has no version `main`"
+    );
+    assert_eq!(
+        refusal(by_the_chief),
+        "`scholar#3 (Mason)` has no version `v9`"
+    );
+    assert_eq!(branched(), before);
     realm.host.shutdown().await.unwrap();
 }
 

@@ -417,6 +417,20 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                     },
                 ),
                 ("no_purpose", FoundRefusal::NoPurpose),
+                (
+                    "no_version",
+                    FoundRefusal::NoVersion {
+                        label: profiles::label(),
+                        version: VersionName("v9".to_owned()),
+                    },
+                ),
+                (
+                    "unanswered",
+                    FoundRefusal::Unanswered {
+                        label: profiles::label(),
+                        version: VersionName("v9".to_owned()),
+                    },
+                ),
             ],
         );
     }

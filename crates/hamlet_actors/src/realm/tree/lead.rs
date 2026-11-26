@@ -16,7 +16,7 @@ use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
     AgentName, Asked, End, EndRefusal, HamletId, Hire, HireAnswer,
     HireRefusal, HowEnded, LeadRefusal, Left, Named, OnlyAHire,
-    Refusable, Seat, Tool, ToolCall,
+    ProfileId, Refusable, Seat, Tool, ToolCall,
 };
 use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
@@ -61,31 +61,52 @@ pub(in crate::realm) struct Hiring {
     agent: AgentNumber,
 }
 
+/// An act that seats a hire of a profile, with the version it names
+/// when the profile lacks it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(in crate::realm) struct Pinned {
-    pub hire: Hire,
+pub(in crate::realm) struct Pinned<A> {
+    pub act: A,
     pub lacked: Option<VersionName>,
 }
 
-impl Pinned {
+/// An act that names a profile and a version of it.
+pub(in crate::realm) trait Versioned {
+    fn pin(&self) -> Option<(ProfileId, &VersionName)>;
+}
+
+impl Versioned for Hire {
+    fn pin(&self) -> Option<(ProfileId, &VersionName)> {
+        self.profile.zip(self.version.as_ref())
+    }
+}
+
+/// A profile that did not answer in time to show a version.
+pub(in crate::realm) struct Unanswered {
+    pub label: String,
+    pub version: VersionName,
+}
+
+impl<A: Versioned> Pinned<A> {
+    /// `act`, with the version it names when its profile lacks it.
+    /// An act already answered under `key`, or naming no profile of
+    /// the city, is not checked again.
     pub(in crate::realm) async fn asked(
         realm: &Realm,
         ctx: &Ctx<Realm>,
         key: &marker::Key,
-        hire: Hire,
-    ) -> Result<Result<Self, HireRefusal>> {
+        act: A,
+    ) -> Result<Result<Self, Unanswered>> {
         let rows = Rows::outside(ctx)?;
-        let (Some(version), Some(named)) =
-            (&hire.version, hire.profile)
-        else {
-            return Ok(Ok(Self { hire, lacked: None }));
+        let Some((named, version)) = act.pin() else {
+            return Ok(Ok(Self { act, lacked: None }));
         };
+        let version = version.clone();
         if marker::find::<IgnoredAny>(&rows, key).await?.is_some() {
-            return Ok(Ok(Self { hire, lacked: None }));
+            return Ok(Ok(Self { act, lacked: None }));
         }
         let Ok(profile) = profiles::shared(&rows, named).await?
         else {
-            return Ok(Ok(Self { hire, lacked: None }));
+            return Ok(Ok(Self { act, lacked: None }));
         };
         let at = Read {
             at: Some(Revision::Version {
@@ -100,17 +121,23 @@ impl Pinned {
         {
             Ok(read) => read,
             Err(error) if !peer::refused(&error) => {
-                return Ok(Err(HireRefusal::Unanswered {
+                return Ok(Err(Unanswered {
                     label: profiles::label_of(&rows, profile).await?,
-                    version: version.clone(),
+                    version,
                 }));
             }
             Err(error) => return Err(error),
         };
         let lacked = (version.0 == hamlet_git::MAIN
             || matches!(read, ReadAnswer::Refused { .. }))
-        .then(|| version.clone());
-        Ok(Ok(Self { hire, lacked }))
+        .then_some(version);
+        Ok(Ok(Self { act, lacked }))
+    }
+}
+
+impl From<Unanswered> for HireRefusal {
+    fn from(Unanswered { label, version }: Unanswered) -> Self {
+        Self::Unanswered { label, version }
     }
 }
 
@@ -142,7 +169,7 @@ impl Handler<Pinning<Asked<Hire>>> for Realm {
             .await?
         {
             Ok(pinned) => pinned,
-            Err(why) => return Ok(HireAnswer::refused(why)),
+            Err(why) => return Ok(HireAnswer::refused(why.into())),
         };
         act::run_keyed(&self, &ctx, by, Some(key), name, pinned).await
     }
@@ -162,7 +189,7 @@ impl Handler<Pinning<Tool<Hire>>> for Realm {
                 Ok(pinned) => pinned,
                 Err(why) => {
                     return Ok(HireAnswer::refused(
-                        LeadRefusal::Act(why),
+                        LeadRefusal::Act(why.into()),
                     ));
                 }
             };
@@ -180,13 +207,13 @@ impl Handler<Pinning<Tool<Hire>>> for Realm {
     }
 }
 
-impl<By: Lead> Act<By> for Pinned {
+impl<By: Lead> Act<By> for Pinned<Hire> {
     type Output = HireAnswer<By::Why<HireRefusal>>;
     type Loaded = Hiring;
     type Done = AgentName;
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Hiring> {
-        let hire = &self.hire;
+        let hire = &self.act;
         let caller = super::caller(by);
         let own = super::own_hamlet(rows, caller).await?;
         let hamlet =
@@ -285,7 +312,7 @@ impl<By: Lead> Act<By> for Pinned {
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,
         };
-        let hire = &self.hire;
+        let hire = &self.act;
         let lead_named = hire.under.as_ref().unwrap_or(&Named::Mayor);
         let Some(under) = hiring.under else {
             return refuse(
@@ -898,9 +925,9 @@ mod tests {
         }
     }
 
-    fn hire_for(purpose: Option<&str>) -> Pinned {
+    fn hire_for(purpose: Option<&str>) -> Pinned<Hire> {
         Pinned {
-            hire: Hire {
+            act: Hire {
                 hamlet: None,
                 under: None,
                 profile: None,

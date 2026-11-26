@@ -658,6 +658,16 @@ pub enum FoundRefusal {
     NoSuchProfile { profile: ProfileId },
     #[error("say what it is for")]
     NoPurpose,
+    /// `label` is `scholar#<id> (<name>)`.
+    #[error("`{label}` has no version `{}`", version.0)]
+    NoVersion { label: String, version: VersionName },
+    /// `label` is `scholar#<id> (<name>)`.
+    #[error(
+        "`{label}` did not answer in time to show its version `{}`; \
+         try again",
+        version.0
+    )]
+    Unanswered { label: String, version: VersionName },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
