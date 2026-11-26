@@ -11,8 +11,8 @@ use hamlet_messages::realm::hamlets::{
 };
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateProfile, EraseProfile, ForkProfile,
-    PurgeProfile, RestoreProfile, Spot, TagProfile, TurnAway,
-    Welcome,
+    NameProfile, PurgeProfile, RestoreProfile, Spot, TagProfile,
+    TurnAway, UnshelveSkill, Welcome,
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
@@ -173,6 +173,13 @@ pub(super) enum Act {
     },
     Purge(PurgeProfile),
     Dream(Dreamt),
+    Pin {
+        hire: Target,
+        to: Option<VersionName>,
+        reason: Option<String>,
+    },
+    Unshelve(UnshelveSkill),
+    NameProfile(NameProfile),
     /// A command of the table this server does not do.
     Unsupported(String),
 }
@@ -575,6 +582,25 @@ pub(super) fn parse(
                 reason: why(2),
             }
         }
+        "pin" => {
+            let [hire, version, ..] = words.as_slice() else {
+                return Err(usage(name));
+            };
+            Act::Pin {
+                hire: at(hire)?,
+                to: (*version != MAIN)
+                    .then(|| VersionName((*version).to_owned())),
+                reason: why(2),
+            }
+        }
+        "unshelve" => Act::Unshelve(UnshelveSkill {
+            skill: first()?.to_owned(),
+            reason: why(1),
+        }),
+        "name-scholar" => Act::NameProfile(NameProfile {
+            profile: profile_of(first()?)?,
+            name: tail(1),
+        }),
         "purge" => {
             let [scholar, path] = words.as_slice() else {
                 return Err(usage(name));

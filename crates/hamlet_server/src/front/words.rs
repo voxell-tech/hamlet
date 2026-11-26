@@ -72,6 +72,27 @@ pub(crate) const DREAM_USAGE: &str =
 
 pub(crate) const DREAM_BEGAN: &str = "The dream began.";
 
+pub(crate) const NOTHING_TO_DREAM: &str =
+    "There is nothing to dream about.";
+
+pub(crate) fn pinned(hire: &str, version: &str) -> String {
+    format!(
+        "{hire} takes {version} in once idle, and no later learning."
+    )
+}
+
+pub(crate) fn follows_main(hire: &str) -> String {
+    format!("{hire} follows its scholar's main again.")
+}
+
+pub(crate) fn unshelved(skill: &str) -> String {
+    format!("Took {skill} off the shelves.")
+}
+
+pub(crate) fn profile_named(label: &str) -> String {
+    format!("The scholar is now named `{label}`.")
+}
+
 pub(crate) const MERGED_BY_THE_CHIEF: &str = "merged by the chief";
 
 /// The reason of a `/remove-hamlet` said without one.

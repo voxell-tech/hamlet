@@ -80,9 +80,10 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, AskLibrarian, Dream, EditProfile, EraseProfile,
-    ForkProfile, MoveHouse, ReadProfile, RestoreProfile,
-    RevertProfile, TagProfile, TurnAway, Welcome,
+    ArchiveProfile, AskLibrarian, EditProfile, EraseProfile,
+    ForkProfile, MoveHouse, NameProfile, PinHire, ReadProfile,
+    RestoreProfile, RevertProfile, TagProfile, TurnAway,
+    UnshelveSkill, Welcome,
 };
 use hamlet_messages::realm::prompt::ReadPlace;
 use hamlet_messages::realm::workers::{
@@ -297,7 +298,7 @@ impl Actor for Realm {
         Relays<Asked<TagProfile>>,
         Relays<Asked<RevertProfile>>,
         profiles::Purging,
-        Asked<Dream>,
+        dreams::ChiefDream,
         Unreserved<Tool<AskLibrarian>>,
         librarian::Submitting,
         ReadPlace,
@@ -317,6 +318,9 @@ impl Actor for Realm {
         Asked<Welcome>,
         Asked<TurnAway>,
         Asked<MoveHouse>,
+        Asked<NameProfile>,
+        Asked<PinHire>,
+        Asked<UnshelveSkill>,
     );
     type Events = (World,);
     type ConnParams = Option<Caller>;

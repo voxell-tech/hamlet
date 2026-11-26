@@ -7,16 +7,19 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Action, BindParam, ColumnValue, Ctx, Handler};
 use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Profile};
+use hamlet_messages::address::{Agent, Library, Profile};
+use hamlet_messages::library::{NoSkill, Unshelve};
 use hamlet_messages::profile::{
-    By, CommitId, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer,
-    Read, ReadAnswer, Revert, RevertAnswer, Sha1, Tag, TagAnswer,
+    By, CommitId, DreamOpen, Edit, NotAHire, Pin, PinAnswer,
+    ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer, Revert,
+    RevertAnswer, Sha1, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
-    Made, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
+    Made, PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
     ReadProfile, ReadProfileRefusal, RevertProfile,
     RevertProfileRefusal, TagProfile, TagProfileRefusal,
+    UnshelveSkill,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
@@ -35,7 +38,7 @@ use super::chiefs::hamlet;
 use super::peer::When;
 use super::steps::Cx;
 use super::world::Part;
-use super::{Realm, calls, dreams, record, settings};
+use super::{Realm, calls, dreams, hire, record, settings, tree};
 
 pub(super) mod lifecycle;
 
@@ -257,6 +260,8 @@ pub(super) enum Change {
         from: Status,
         to: Status,
     },
+    /// The profile is named `name`.
+    Named { profile: ProfileId, name: String },
     /// The profile is `arrival`, its house at `house` or none.
     Placed {
         profile: ProfileId,
@@ -312,6 +317,14 @@ pub(super) async fn apply(
                         BindParam::Text(change::case_name(&from)?),
                         BindParam::Text(change::case_name(&to)?),
                     ],
+                )
+                .await?;
+        }
+        Change::Named { profile, name } => {
+            writer
+                .execute(
+                    "UPDATE profile SET name = ?2 WHERE id = ?1",
+                    vec![id(profile), BindParam::Text(name)],
                 )
                 .await?;
         }
@@ -811,6 +824,78 @@ impl Handler<Purging> for Realm {
         let _purging =
             self.purging(asked.act.profile).try_read_owned().ok();
         callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
+            .await
+    }
+}
+
+impl Handler<Asked<PinHire>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<PinHire>,
+    ) -> Result<PinAnswer> {
+        let Client = sender(&ctx, &asked)?;
+        let hire = asked.act.hire;
+        self.drives.ended(hire::row(hire), self.answer_within).await;
+        let Some(profile) = Rows::outside(&ctx)?
+            .value::<u32>(
+                "SELECT hire.profile FROM hire JOIN agent ON \
+                 agent.id = hire.agent WHERE hire.agent = ?1 AND \
+                 agent.status = 'live'",
+                vec![change::number(hire)],
+            )
+            .await?
+        else {
+            return Ok(PinAnswer::refused(
+                NotAHire::NoHire { hire }.into(),
+            ));
+        };
+        let pin = Pin {
+            id: asked.id.clone(),
+            hire,
+            to: asked.act.to.clone(),
+            by: By::Chief { chief: CHIEF },
+        };
+        let answer = self
+            .peers
+            .call(
+                &Profile(ProfileId(profile)),
+                &pin,
+                When::BeforeAnswer,
+            )
+            .await?;
+        let version = match &answer {
+            PinAnswer::Pinned { version, .. } => {
+                Some(version.clone())
+            }
+            PinAnswer::FollowsMain => None,
+            PinAnswer::Refused { .. } => return Ok(answer),
+        };
+        change::commit(
+            &self,
+            &ctx,
+            vec![tree::Change::Pin { hire, version }.into()],
+        )
+        .await?;
+        Ok(answer)
+    }
+}
+
+impl Handler<Asked<UnshelveSkill>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<UnshelveSkill>,
+    ) -> Result<Done<NoSkill>> {
+        let Client = sender(&ctx, &asked)?;
+        let unshelve = Unshelve {
+            id: asked.id.clone(),
+            skill: asked.act.skill.clone(),
+            reason: asked.act.reason.clone(),
+            by: By::Chief { chief: CHIEF },
+        };
+        self.peers
+            .call(&Library, &unshelve, When::BeforeAnswer)
             .await
     }
 }

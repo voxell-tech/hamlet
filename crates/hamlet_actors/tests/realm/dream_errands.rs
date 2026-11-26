@@ -7,7 +7,8 @@ use hamlet_messages::profile::{
 };
 use hamlet_messages::realm::budget::{Budget, Payer, SpendRefusal};
 use hamlet_messages::realm::profiles::{
-    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, PurgeProfile,
+    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt,
+    PurgeProfile,
 };
 use hamlet_messages::realm::workers::{
     BUILT_IN, Ended, ErrandDone, SetAllowance,
@@ -78,7 +79,10 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
         )
         .await;
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     let made = made_until(&realm, errand(0)).await;
     let folder = realm.scratch.join("dreams/1");
     let set_before_made = reaches(&realm, errand(0));
@@ -142,7 +146,10 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
 async fn a_failed_dream_errand_ends_the_dream_not_done() {
     let (realm, _) = hamlet_with(1).await;
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     made_until(&realm, errand(0)).await;
     errand_ends(
         &realm,
@@ -162,7 +169,7 @@ async fn a_dream_with_nothing_to_go_over_runs_no_errand() {
     let (realm, _) = hamlet_with(1).await;
     realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert_eq!(chief(&realm, of_hire(THREE)).await, Dreamt::Nothing);
 
     assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
     assert!(made(&realm, errand(0)).is_none());
@@ -179,7 +186,10 @@ async fn a_profiles_dream_tidies_its_main_in_todays_words() {
             profile: ProfileId(3),
         },
     };
-    assert_eq!(chief(&realm, asked).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, asked).await,
+        Dreamt::Began { .. }
+    ));
     let AgentInput { brief, .. } =
         made_until(&realm, errand(0)).await;
 
@@ -205,7 +215,10 @@ async fn a_profiles_dream_tidies_its_main_in_todays_words() {
 async fn a_dreams_errand_spends_no_more_than_a_dream_may() {
     let (realm, hamlet) = hamlet_with(1).await;
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     let task = made_until(&realm, errand(0)).await.task;
     let before = may_spend(&realm, errand(0), &task).await;
     realm
@@ -250,7 +263,10 @@ async fn a_hire_whose_allowance_is_spent_dreams_no_further() {
     assert_eq!(chief(&realm, allowance).await, Done::Done);
     realm.tool(THREE, &charge("c1", &own, 10, 1)).await.unwrap();
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     let task = made_until(&realm, errand(0)).await.task;
     let dreamt = may_spend(&realm, errand(0), &task).await;
 
@@ -279,7 +295,10 @@ async fn a_dream_stays_open_while_its_errand_runs() {
             profile: ProfileId(3),
         },
     };
-    assert_eq!(chief(&realm, of_mason()).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_mason()).await,
+        Dreamt::Began { .. }
+    ));
     made_until(&realm, errand(0)).await;
 
     let second = chief(&realm, of_mason()).await;
@@ -301,7 +320,7 @@ async fn a_dream_stays_open_while_its_errand_runs() {
 
     assert_eq!(
         second,
-        Done::Refused {
+        Dreamt::Refused {
             why: DreamAskedRefusal::Dream(DreamRefusal::Running),
         }
     );
@@ -311,7 +330,7 @@ async fn a_dream_stays_open_while_its_errand_runs() {
             DreamOpen::Dreaming { dream: DreamId(1) }.into()
         )
     );
-    assert_eq!(third, Done::Done);
+    assert!(matches!(third, Dreamt::Began { .. }));
     made_until(&realm, errand(1)).await;
     realm.host.shutdown().await.unwrap();
 }
@@ -325,11 +344,14 @@ async fn a_dream_that_cannot_be_prepared_ends_not_done() {
         .seen
         .fail_for_good(Callee::PrepareDream, AgentNumber(3));
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     assert_eq!(ends(&realm).await, [hire_3_ends(1, false, "")]);
     let next = chief(&realm, of_hire(THREE)).await;
 
-    assert_eq!(next, Done::Done);
+    assert!(matches!(next, Dreamt::Began { .. }));
     assert!(made(&realm, errand(0)).is_none());
     realm.host.shutdown().await.unwrap();
 }
@@ -347,7 +369,10 @@ async fn a_dreams_errand_has_no_tool_its_hires_lead_turned_off() {
     };
     assert_eq!(chief(&realm, off).await, Done::Done);
 
-    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert!(matches!(
+        chief(&realm, of_hire(THREE)).await,
+        Dreamt::Began { .. }
+    ));
     let brief = made_until(&realm, errand(0)).await.brief.unwrap();
 
     let mut kept = built_ins();

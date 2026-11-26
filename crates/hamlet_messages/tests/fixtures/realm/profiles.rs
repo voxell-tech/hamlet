@@ -1,19 +1,21 @@
 //! The fixtures of the acts that make, read and change a profile, and
 //! of an agent's question to the librarian.
 
-use hamlet_messages::library::OfferId;
+use hamlet_messages::library::{NoSkill, OfferId};
 use hamlet_messages::profile::{
-    BadCommit, BadPath, CommitId, DreamId, DreamOpen, Missing, Path,
-    Protected, PurgeAnswer, ReadAnswer, RevertAnswer, Revision, Sha1,
-    TagAnswer, TagRefusal, TooLong, VersionName,
+    BadCommit, BadPath, CommitId, DreamId, DreamOpen, Missing,
+    NotAHire, Path, PinAnswer, Protected, PurgeAnswer, ReadAnswer,
+    RevertAnswer, Revision, Sha1, TagAnswer, TagRefusal, TooLong,
+    VersionName,
 };
 use hamlet_messages::realm::profiles::{
     AskLibrarian, CreateProfile, CreateRefusal, Dream,
-    DreamAskedRefusal, DreamRefusal, Dreamer, EditProfile,
-    EditProfileRefusal, Made, ProfileRefusal, PurgeProfile,
-    PurgeProfileRefusal, ReadProfile, ReadProfileRefusal,
-    RevertProfile, RevertProfileRefusal, SubmitSkill, TagProfile,
-    TagProfileRefusal,
+    DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt, EditProfile,
+    EditProfileRefusal, Made, NameProfile, NameProfileRefusal,
+    PinHire, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
+    ReadProfile, ReadProfileRefusal, RevertProfile,
+    RevertProfileRefusal, SubmitSkill, TagProfile, TagProfileRefusal,
+    UnshelveSkill,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Gate, ProfileId, Standing,
@@ -35,6 +37,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<Made<CreateRefusal>>(),
         tagged::<Dreamer>(),
         tagged::<DreamRefusal>(),
+        tagged::<Dreamt>(),
     ]
 }
 
@@ -49,6 +52,10 @@ pub fn unions() -> Vec<Union> {
         union!(TagProfileRefusal {
             Profile: ProfileRefusal,
             Tag: TagRefusal,
+        }),
+        union!(NameProfileRefusal {
+            Profile: ProfileRefusal,
+            Name: CreateRefusal,
         }),
         union!(RevertProfileRefusal {
             Profile: ProfileRefusal,
@@ -103,6 +110,7 @@ pub fn the_profiles_through_the_realm(fixtures: &mut Fixtures) {
     the_librarian(fixtures);
     the_dreams_and_the_purge(fixtures);
     the_hire_at_a_version(fixtures);
+    the_chiefs_pins_names_and_shelves(fixtures);
 }
 
 fn version() -> VersionName {
@@ -427,7 +435,15 @@ fn the_dreams_and_the_purge(fixtures: &mut Fixtures) {
             .into(),
         ),
     ]);
-    done(fixtures, "realm/chief_dream", dreams);
+    answers(
+        fixtures,
+        "realm/chief_dream",
+        [
+            ("began", Dreamt::Began { dream: DreamId(3) }),
+            ("nothing", Dreamt::Nothing),
+        ],
+        dreams,
+    );
     fixtures.args(
         "realm/chief_purge_profile",
         &asked(PurgeProfile {
@@ -468,5 +484,90 @@ fn the_hire_at_a_version(fixtures: &mut Fixtures) {
             purpose: Some("Check the links".into()),
             name: None,
         }),
+    );
+}
+
+fn the_chiefs_pins_names_and_shelves(fixtures: &mut Fixtures) {
+    let hire = AgentNumber(12);
+    fixtures.args(
+        "realm/chief_pin",
+        &asked(PinHire {
+            hire,
+            to: Some(version()),
+            reason: Some("Before the refactor".into()),
+        }),
+    );
+    fixtures.args(
+        "realm/chief_pin.main",
+        &asked(PinHire {
+            hire,
+            to: None,
+            reason: None,
+        }),
+    );
+    answers(
+        fixtures,
+        "realm/chief_pin",
+        [
+            (
+                "pinned",
+                PinAnswer::Pinned {
+                    version: version(),
+                    commit: commit(),
+                },
+            ),
+            ("follows_main", PinAnswer::FollowsMain),
+        ],
+        vec![
+            ("no_version", no_version().into()),
+            ("no_hire", NotAHire::NoHire { hire }.into()),
+        ],
+    );
+    fixtures.args(
+        "realm/chief_name_profile",
+        &asked(NameProfile {
+            profile: PROFILE,
+            name: "Ada".into(),
+        }),
+    );
+    let mut names = named::<NameProfileRefusal>();
+    names.extend([
+        (
+            "bad_name",
+            CreateRefusal::BadName {
+                name: "a: b".into(),
+            }
+            .into(),
+        ),
+        ("long_character", CreateRefusal::LongCharacter.into()),
+    ]);
+    answers(
+        fixtures,
+        "realm/chief_name_profile",
+        [(
+            "made",
+            Made::Made {
+                profile: PROFILE,
+                label: label(),
+            },
+        )],
+        names,
+    );
+    fixtures.args(
+        "realm/chief_unshelve",
+        &asked(UnshelveSkill {
+            skill: "deploy".into(),
+            reason: Some("It is out of date".into()),
+        }),
+    );
+    done(
+        fixtures,
+        "realm/chief_unshelve",
+        vec![(
+            "no_such_skill",
+            NoSkill::NoSuchSkill {
+                skill: "deploy".into(),
+            },
+        )],
     );
 }
