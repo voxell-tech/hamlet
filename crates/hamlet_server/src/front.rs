@@ -219,6 +219,7 @@ impl Door {
             calls.clone(),
             own.clone(),
             hub.clone(),
+            credentials.clone(),
             frames.clone(),
         ));
         let mut door = Self {

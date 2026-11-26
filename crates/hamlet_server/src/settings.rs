@@ -102,10 +102,15 @@ pub(crate) const CHARACTER: &str =
      given, and keep what is worth keeping in your memory so that \
      it lasts.";
 
+/// The provider that serves the model named `model`.
+pub(crate) fn provider_of(model: &str) -> Option<&str> {
+    model.split_once("::").map(|(provider, _)| provider)
+}
+
 impl Settings {
     /// The endpoint the realm's model is served by.
     pub fn provider(&self) -> Option<&str> {
-        self.model.split_once("::").map(|(provider, _)| provider)
+        provider_of(&self.model)
     }
 
     /// The address of the endpoint `provider`, when the settings name

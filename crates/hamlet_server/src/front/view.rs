@@ -27,8 +27,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::call::{Calls, server_failed};
 use super::host::HAND;
 use super::hub::Hub;
-use super::{Frames, words};
+use super::{Frames, Keys, words};
 use crate::clients::changes;
+use crate::credentials::Credentials;
+use crate::settings::provider_of;
 use crate::society::addresses::Address;
 use crate::talk::activity::{self, Activity};
 
@@ -291,6 +293,7 @@ pub(crate) async fn serve(
     calls: Calls,
     own: Arc<Own>,
     hub: Hub,
+    keys: Keys,
     frames: Frames,
 ) {
     let mut world = subscribe(&hub, &calls, Realm, World::NAME).await;
@@ -307,7 +310,8 @@ pub(crate) async fn serve(
         frames,
         realm: None,
         library: Vec::new(),
-        providers: Vec::new(),
+        keys,
+        providers: None,
         sent: None,
         epoch,
         revision: 0,
@@ -385,7 +389,11 @@ struct Shown {
     frames: Frames,
     realm: Option<protocol::State>,
     library: Vec<protocol::LibrarySkill>,
-    providers: Vec<protocol::ProviderView>,
+    /// The credentials, whose keys say which endpoint is signed in
+    /// to.
+    keys: Keys,
+    /// The providers the Hand listed; none before it answers.
+    providers: Option<Vec<protocol::ProviderView>>,
     sent: Option<protocol::State>,
     epoch: i64,
     revision: i64,
@@ -427,7 +435,7 @@ impl Shown {
             },
             Job::Providers(read) => {
                 if let Some(providers) = read {
-                    self.providers = providers;
+                    self.providers = Some(providers);
                     self.publish();
                 }
                 if std::mem::replace(
@@ -582,15 +590,21 @@ impl Shown {
     /// each agent does now.
     fn compose(&self) -> Option<protocol::State> {
         let own = &self.own;
+        let realm = self.realm.clone()?;
+        let providers = match &self.providers {
+            Some(listed) => listed.clone(),
+            None if own.faux => Vec::new(),
+            None => endpoints(&realm.settings, &self.keys.read()),
+        };
         let mut state = protocol::State {
             chief: own.chief.clone(),
             confinement: own.confinement.clone(),
             deeds: crate::commands::deeds(),
             hand: wire(HAND),
             library: self.library.clone(),
-            providers: self.providers.clone(),
+            providers,
             realm: hamlet_os::fs::path::text(&own.root),
-            ..self.realm.clone()?
+            ..realm
         };
         state.settings.link = own.link.borrow().clone();
         state.settings.workspace.moving = own.moving.borrow().clone();
@@ -607,6 +621,30 @@ impl Shown {
         }
         Some(state)
     }
+}
+
+/// The providers of a realm not served by the faux model before the
+/// Hand lists its own: each endpoint of `settings`, signed in to by a
+/// key, configured when `keys` holds one.
+fn endpoints(
+    settings: &protocol::SettingsView,
+    keys: &Credentials,
+) -> Vec<protocol::ProviderView> {
+    let serving = provider_of(&settings.model).unwrap_or_default();
+    let mut providers: Vec<_> = settings
+        .endpoints
+        .iter()
+        .map(|endpoint| protocol::ProviderView {
+            configured: keys.model(&endpoint.name, serving).is_some(),
+            id: endpoint.name.clone(),
+            label: endpoint.name.clone(),
+            methods: vec![protocol::LoginMethod::Key],
+            name: endpoint.name.clone(),
+        })
+        .collect();
+    providers.sort_by(|a, b| a.id.cmp(&b.id));
+    providers.dedup_by(|a, b| a.id == b.id);
+    providers
 }
 
 /// Shows on `agent` what `shown` says it does and says.
