@@ -230,6 +230,34 @@ pub enum CatalogueRefusal {
     ZeroImageLimit,
 }
 
+/// Reads what the chief says of each model of the catalogue.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadCatalogue;
+
+impl Action for ReadCatalogue {
+    type Output = Vec<CardRead>;
+    const NAME: &'static str = "read_catalogue";
+}
+
+impl Message for ReadCatalogue {
+    type To = Realm;
+    type From = Client;
+}
+
+/// What the chief says of the model `model`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CardRead {
+    /// `provider::model`, as the catalogue names it.
+    pub model: String,
+    pub note: String,
+    /// Absent for what the model's listing says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<Price>,
+    /// Absent for what the model's listing says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<ImageLimits>,
+}
+
 /// Reads the charter agents are given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadCharter;

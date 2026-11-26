@@ -21,6 +21,7 @@ import {
     checkModel,
     modelList,
     providerViews,
+    reached,
     runningImages,
     runningModel,
     secretsLoaded,
@@ -92,8 +93,13 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 generationOf(c).peers.reach.keep_credential,
             );
         }),
-        read_models: askedBy("read_models", async () => ({
-            models: config.faux ? [] : modelList(config.models),
+        read_models: askedBy("read_models", async (c) => ({
+            models: config.faux
+                ? modelList(config.models)
+                : modelList(
+                      config.models,
+                      await reached(config.models, generationOf(c).peers.reach),
+                  ),
         })),
         images_taken: askedBy("images_taken", async (c) => {
             const taken = await runningImages(

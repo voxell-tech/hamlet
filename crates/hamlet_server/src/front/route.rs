@@ -8,8 +8,8 @@ use hamlet_host::Address;
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    self, CheckConnection, NewSession, ReadHistory, ReadModels,
-    ReadPrompt, Resume, Retry, Rewind,
+    self, CheckConnection, NewSession, ReadHistory, ReadPrompt,
+    Resume, Retry, Rewind,
 };
 use hamlet_messages::realm::documents::ReadCharter;
 use hamlet_messages::workspace::AgentNumber;
@@ -232,13 +232,9 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
                 |_| After::Nothing,
             )?
         }
-        ClientMessage::Read(Read::Models { id, .. }) => call(
-            &address::Agent(HAND),
-            &id,
-            &ReadModels,
-            frames::models,
-            After::Nothing,
-        )?,
+        ClientMessage::Read(Read::Models { id, .. }) => {
+            Route::Read(Reading::Models { id })
+        }
         ClientMessage::Read(Read::Charter { id }) => call(
             &address::Realm,
             &id,
@@ -435,16 +431,15 @@ mod tests {
     #[test]
     fn the_models_are_read_from_the_hand_and_the_charter_from_the_realm()
      {
-        let Route::Call(models) =
+        let Route::Read(Reading::Models { .. }) =
             route(ClientMessage::Read(Read::Models {
                 id: RequestId::new(),
                 refresh: None,
             }))
             .unwrap()
         else {
-            panic!("the models are a call");
+            panic!("the models are a read of the Hand and the realm");
         };
-        assert_eq!(models.to.to_string(), "agent/1");
         let Route::Call(charter) =
             route(ClientMessage::Read(Read::Charter {
                 id: RequestId::new(),

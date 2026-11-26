@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { createModels } from "@earendil-works/pi-ai";
-import { checkConnection } from "../src/agent/models.ts";
+import {
+    createFauxCore,
+    createModels,
+    createProvider,
+} from "@earendil-works/pi-ai";
+import { checkConnection, reached } from "../src/agent/models.ts";
 import { servingEndpoints } from "../src/agent/providers.ts";
 import { until } from "./agent-testing.ts";
 
@@ -62,4 +66,42 @@ test("an endpoint the settings name is served with the copy's model, its list is
 
     serve({ settings: settings([]) });
     assert.equal(models.getProvider("local"), undefined);
+});
+
+test("only an endpoint or a provider the realm holds a sign-in for is reached, as today's catalogue lists them", async (t) => {
+    const base_url = await listing(t);
+    const models = createModels();
+    for (const id of ["kept", "other"]) {
+        const core = createFauxCore({ provider: id });
+        models.setProvider(
+            createProvider({
+                id,
+                models: core.models,
+                api: { stream: core.stream, streamSimple: core.streamSimple },
+                auth: { apiKey: { name: id, resolve: async () => undefined } },
+            }),
+        );
+    }
+    servingEndpoints(models)({
+        settings: {
+            reflect_every: 0,
+            allow_net: false,
+            endpoints: [{ name: "local", base_url }],
+        },
+    });
+    const realm = {
+        credential: async ({ provider }: { provider: string }) =>
+            provider === "kept"
+                ? ({ type: "key", key: "sk-made-up" } as const)
+                : ({
+                      type: "refused",
+                      why: { type: "not_signed_in", provider },
+                      words: `no one has signed in to ${provider}`,
+                  } as const),
+    };
+
+    assert.deepEqual([...(await reached(models, realm))].sort(), [
+        "kept",
+        "local",
+    ]);
 });

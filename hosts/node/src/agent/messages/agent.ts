@@ -192,14 +192,18 @@ export interface Versioned<T> {
     readonly value: T;
 }
 
-export type Effort =
-    | "off"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | "max";
+/** Every effort, weakest first. */
+export const EFFORTS = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+] as const;
+
+export type Effort = (typeof EFFORTS)[number];
 
 /** Dollars per million tokens. */
 export interface Price {
@@ -577,6 +581,10 @@ export interface ListedModel {
     readonly price?: Price;
     /** The most images one line may give it; absent when it takes none. */
     readonly images?: number;
+    /** The efforts it can be asked for, weakest first. */
+    readonly efforts?: readonly Effort[];
+    /** Whether its provider has a fast tier it can be asked for. */
+    readonly fast?: boolean;
 }
 
 export interface ModelList {
@@ -683,9 +691,7 @@ const INBOX_CURSOR = obj({ path: str(), offset: U32 }, OPEN);
 const MODEL = obj(
     {
         model: str(),
-        effort: opt(
-            oneOf(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
-        ),
+        effort: opt(oneOf(EFFORTS)),
         fast: opt(bool()),
         price: opt(
             obj(

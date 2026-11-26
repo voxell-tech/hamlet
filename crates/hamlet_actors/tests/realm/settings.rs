@@ -4,9 +4,9 @@ use hamlet_messages::agent::copies::{
 use hamlet_messages::realm::budget::{BudgetLimit, Payer};
 use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::documents::{
-    CardSetting, CatalogueRefusal, EditCatalogue, EditCharter,
-    EditSettings, Endpoint, ReadCharter, ReadCopies, Setting,
-    SettingRefusal,
+    CardRead, CardSetting, CatalogueRefusal, EditCatalogue,
+    EditCharter, EditSettings, Endpoint, ReadCatalogue, ReadCharter,
+    ReadCopies, Setting, SettingRefusal,
 };
 use hamlet_messages::realm::world::ReachSeen;
 use hamlet_messages::realm::{
@@ -72,6 +72,45 @@ fn priced(model: &str, price: Option<Price>) -> EditCatalogue {
         model: model.to_owned(),
         set: vec![CardSetting::Price { price }],
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_catalogue_reads_what_a_chief_said_of_each_model() {
+    let realm = Realm::start().await;
+    assert_eq!(realm.ask(&ReadCatalogue).await.unwrap(), []);
+    let edit = EditCatalogue {
+        model: FAUX.to_owned(),
+        set: vec![
+            CardSetting::Note {
+                note: "Preferred.".into(),
+            },
+            CardSetting::Price {
+                price: Some(Price {
+                    input: 0.12,
+                    output: 0.34,
+                    cache_read: 0.0,
+                    cache_write: 0.0,
+                }),
+            },
+        ],
+    };
+    assert_eq!(chief(&realm, edit).await, Done::Done);
+
+    assert_eq!(
+        realm.ask(&ReadCatalogue).await.unwrap(),
+        [CardRead {
+            model: FAUX.to_owned(),
+            note: "Preferred.".into(),
+            price: Some(Price {
+                input: 0.12,
+                output: 0.34,
+                cache_read: 0.0,
+                cache_write: 0.0,
+            }),
+            images: None,
+        }]
+    );
+    realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

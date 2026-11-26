@@ -369,6 +369,8 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                         cache_write: 3.75,
                     }),
                     images: None,
+                    efforts: vec![Effort::Off],
+                    fast: false,
                 },
                 ListedModel {
                     name: "local::small".into(),
@@ -376,6 +378,8 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                     context: 8192,
                     price: None,
                     images: None,
+                    efforts: vec![Effort::Off],
+                    fast: false,
                 },
             ],
         },

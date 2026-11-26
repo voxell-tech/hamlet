@@ -496,6 +496,12 @@ pub struct ListedModel {
     /// none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<u32>,
+    /// The efforts it can be asked for, weakest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<hamlet_protocol::Effort>,
+    /// Whether its provider has a fast tier it can be asked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 /// Reads how many images one line may give the model the agent runs.

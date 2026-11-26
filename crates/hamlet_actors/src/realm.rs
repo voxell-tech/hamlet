@@ -64,7 +64,8 @@ use hamlet_messages::realm::client::{
     Answer, ReadState, ReadWorld, RememberSecret, Say, World,
 };
 use hamlet_messages::realm::documents::{
-    EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
+    EditCatalogue, EditCharter, EditSettings, ReadCatalogue,
+    ReadCharter, ReadCopies,
 };
 use hamlet_messages::realm::hamlets::{
     EraseHamlet, MoveHamlet, NameHamlet, ReadRecord, RemoveHamlet,
@@ -283,6 +284,7 @@ impl Actor for Realm {
         Asked<EditSettings>,
         Asked<EditCatalogue>,
         Bare<ReadCharter>,
+        Bare<ReadCatalogue>,
         Living<Bare<ReadCopies>>,
         Tool<AgreeRoad>,
         Living<Looks<Credential>>,

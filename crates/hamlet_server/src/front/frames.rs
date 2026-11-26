@@ -2,17 +2,20 @@
 //! a chat as a `Transcript`, an event as a `Turn`, and each answer to
 //! a client's request as its frame.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Result, bail};
 use hamlet_messages::agent::chat::{
     Began, ChatEvent, ChatFile, ChatImage, ChatItem, ChatOp,
     ChatPage, ChatRef, ChatTool, Checked, History, LineMark,
     ModelList, Prompt, ResumeAnswer, RewindAnswer, ToolChange, Usage,
 };
-use hamlet_messages::realm::documents::CharterRead;
+use hamlet_messages::realm::documents::{CardRead, CharterRead};
 use hamlet_protocol::client::{
-    self as protocol, AgentId, AttachedFile, AttachedImage, ItemKind,
-    LastActivity, Link, LinkState, Listed, ListedPriced, ReadResult,
-    RequestId, ServerMessage, Transcript, TranscriptOperation, Turn,
+    self as protocol, AgentId, AttachedFile, AttachedImage,
+    ImageInput, ItemKind, LastActivity, Link, LinkState, Listed,
+    ListedPriced, ReadResult, RequestId, ServerMessage, Transcript,
+    TranscriptOperation, Turn,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -20,6 +23,7 @@ use serde::de::DeserializeOwned;
 use super::view::Own;
 use super::words;
 use crate::clients::check::reply;
+use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
 
 /// `page` of `chat`, answering the request `to`.
@@ -264,40 +268,78 @@ pub(crate) fn history(
     })
 }
 
-/// The models the Hand's listing holds, with what it does not know
-/// of them left unknown.
+/// The models the Hand lists, each with what the chief says of it, as
+/// today's catalogue shows them: the chief's price and images over
+/// the listed ones, and the effort it thinks at unless asked
+/// otherwise.
 pub(crate) fn models(
     id: &RequestId,
-    answer: &[u8],
-    _: &Own,
-) -> Result<ServerMessage> {
-    worded(id, answer, |ModelList { models }| {
-        let models = models
-            .into_iter()
-            .map(|model| Listed {
+    list: ModelList,
+    cards: Vec<CardRead>,
+) -> ServerMessage {
+    let mut cards = cards
+        .into_iter()
+        .map(|card| (card.model.clone(), card))
+        .collect::<BTreeMap<_, _>>();
+    let models = list
+        .models
+        .into_iter()
+        .map(|model| {
+            let card = cards.remove(&model.name);
+            let (price, priced) = match (
+                card.as_ref().and_then(|c| c.price.clone()),
+                model.price,
+            ) {
+                (Some(yours), _) => {
+                    (Some(yours), ListedPriced::Yours)
+                }
+                (None, Some(listed)) => {
+                    (Some(listed), ListedPriced::Listed)
+                }
+                (None, None) => (None, ListedPriced::Unknown),
+            };
+            let efforts = model
+                .efforts
+                .iter()
+                .copied()
+                .map(Effort::of)
+                .collect::<Vec<_>>();
+            let images =
+                match card.as_ref().and_then(|c| c.images.clone()) {
+                    Some(limits) => Some(ImageInput {
+                        max_bytes: limits.max_bytes,
+                        max_height: limits.max_height,
+                        max_width: limits.max_width,
+                        per_line: limits.per_line,
+                    }),
+                    None => model.images.map(|per_line| ImageInput {
+                        max_bytes: None,
+                        max_height: None,
+                        max_width: None,
+                        per_line: Some(per_line),
+                    }),
+                };
+            Listed {
                 context: Some(i64::from(model.context)),
-                default_effort: None,
-                efforts: Vec::new(),
-                fast: false,
-                images: None,
+                default_effort: (!efforts.is_empty())
+                    .then(|| Effort::Medium.clamped(&efforts).wire()),
+                efforts: model.efforts,
+                fast: model.fast,
+                images,
                 name: model.name,
-                note: String::new(),
-                priced: if model.price.is_some() {
-                    ListedPriced::Listed
-                } else {
-                    ListedPriced::Unknown
-                },
-                price: model.price.map(|price| protocol::Price {
+                note: card.map(|card| card.note).unwrap_or_default(),
+                price: price.map(|price| protocol::Price {
                     input: price.input,
                     output: price.output,
                 }),
+                priced,
                 title: model.title,
-            })
-            .collect();
-        Ok(ServerMessage::Read(ReadResult::Models {
-            models,
-            to: id.clone(),
-        }))
+            }
+        })
+        .collect();
+    ServerMessage::Read(ReadResult::Models {
+        models,
+        to: id.clone(),
     })
 }
 
@@ -790,48 +832,83 @@ mod tests {
     }
 
     #[test]
-    fn a_model_with_no_price_is_priced_unknown() {
+    fn a_chiefs_card_stands_over_the_listing_and_a_model_with_no_price_is_unknown()
+     {
+        let listed = |name: &str, price: Option<Price>| ListedModel {
+            name: name.to_owned(),
+            title: name.to_owned(),
+            context: 8_000,
+            price,
+            images: None,
+            efforts: vec![hamlet_protocol::Effort::Off],
+            fast: false,
+        };
+        let price = Price {
+            input: 1.0,
+            output: 2.0,
+            cache_read: 0.1,
+            cache_write: 1.25,
+        };
         let list = ModelList {
             models: vec![
-                ListedModel {
-                    name: "faux::a".to_owned(),
-                    title: "A".to_owned(),
-                    context: 32_000,
-                    price: Some(Price {
-                        input: 1.0,
-                        output: 2.0,
-                        cache_read: 0.1,
-                        cache_write: 1.25,
-                    }),
-                    images: None,
-                },
-                ListedModel {
-                    name: "faux::b".to_owned(),
-                    title: "B".to_owned(),
-                    context: 8_000,
-                    price: None,
-                    images: None,
-                },
+                listed("faux::a", Some(price.clone())),
+                listed("faux::b", None),
+                listed("faux::c", Some(price)),
             ],
         };
-        let answer =
-            models(&RequestId::new(), &bytes(&list), &own()).unwrap();
+        let cards = vec![CardRead {
+            model: "faux::c".to_owned(),
+            note: "Preferred.".to_owned(),
+            price: Some(Price {
+                input: 0.12,
+                output: 0.34,
+                cache_read: 0.0,
+                cache_write: 0.0,
+            }),
+            images: None,
+        }];
         let ServerMessage::Read(ReadResult::Models {
             models, ..
-        }) = answer
+        }) = models(&RequestId::new(), list, cards)
         else {
             panic!("a read of the models");
         };
-        assert_eq!(models[0].priced, ListedPriced::Listed);
-        assert_eq!(
-            models[0].price,
-            Some(protocol::Price {
-                input: 1.0,
-                output: 2.0
+        let shown = models
+            .iter()
+            .map(|m| {
+                (
+                    m.priced.clone(),
+                    m.price.clone(),
+                    m.note.as_str(),
+                    m.default_effort,
+                )
             })
+            .collect::<Vec<_>>();
+        let off = Some(hamlet_protocol::Effort::Off);
+        assert_eq!(
+            shown,
+            [
+                (
+                    ListedPriced::Listed,
+                    Some(protocol::Price {
+                        input: 1.0,
+                        output: 2.0
+                    }),
+                    "",
+                    off
+                ),
+                (ListedPriced::Unknown, None, "", off),
+                (
+                    ListedPriced::Yours,
+                    Some(protocol::Price {
+                        input: 0.12,
+                        output: 0.34
+                    }),
+                    "Preferred.",
+                    off
+                ),
+            ]
         );
-        assert_eq!(models[1].priced, ListedPriced::Unknown);
-        assert_eq!(models[1].context, Some(8_000));
     }
 
     #[test]

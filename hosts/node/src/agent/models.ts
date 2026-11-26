@@ -33,12 +33,13 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
-import type {
-    Checked,
-    Effort,
-    ListedModel,
-    Price,
-    ProviderView,
+import {
+    type Checked,
+    EFFORTS,
+    type Effort,
+    type ListedModel,
+    type Price,
+    type ProviderView,
 } from "./messages/agent.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
@@ -371,6 +372,7 @@ export function agentModels(
     const served = async (
         model: Model<Api>,
         options: ModelsSimpleStreamOptions | undefined,
+        bill: Bill,
     ): Promise<[Model<Api>, ModelsSimpleStreamOptions]> => {
         const signal = options?.signal;
         // A stop does not wait for a refresh or the first load, which go on.
@@ -382,7 +384,16 @@ export function agentModels(
             stoppable(secretsLoaded(peers.reach)),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
-        const made: ModelsSimpleStreamOptions = { ...options, ...given };
+        const previous = options?.onProviderStreamEvent;
+        const made: ModelsSimpleStreamOptions = {
+            ...options,
+            ...given,
+            onProviderStreamEvent: async (event, called) => {
+                const billed = billedCost(event);
+                if (billed !== undefined) bill.billed = billed;
+                await previous?.(event, called);
+            },
+        };
         return [
             {
                 ...model,
@@ -391,29 +402,40 @@ export function agentModels(
             chosen && choice.fast === true ? fastened(made, model.api) : made,
         ];
     };
-    const streamSimple: Models["streamSimple"] = (model, transcript, options) =>
-        new Scrubbed(
-            served(model, options).then(([made, asked]) =>
+    const streamSimple: Models["streamSimple"] = (
+        model,
+        transcript,
+        options,
+    ) => {
+        const bill: Bill = {};
+        return new Scrubbed(
+            served(model, options, bill).then(([made, asked]) =>
                 takingKeys(listed, made.provider, asked).streamSimple(
                     made,
                     transcript,
                     asked,
                 ),
             ),
+            bill,
         );
+    };
     const completeSimple: Models["completeSimple"] = async (
         model,
         transcript,
         options,
     ) => {
         try {
-            const [made, asked] = await served(model, options);
-            return scrub(
-                await takingKeys(listed, made.provider, asked).completeSimple(
-                    made,
-                    transcript,
-                    asked,
+            const bill: Bill = {};
+            const [made, asked] = await served(model, options, bill);
+            return billedIn(
+                scrub(
+                    await takingKeys(
+                        listed,
+                        made.provider,
+                        asked,
+                    ).completeSimple(made, transcript, asked),
                 ),
+                bill,
             );
         } catch (error) {
             throw scrubbedError(error);
@@ -476,13 +498,15 @@ const GIVEN_KEY: ApiKeyAuth = {
  */
 class Scrubbed extends AssistantMessageEventStream {
     readonly #source: Promise<AssistantMessageEventStream>;
+    readonly #bill: Bill;
 
-    constructor(source: Promise<AssistantMessageEventStream>) {
+    constructor(source: Promise<AssistantMessageEventStream>, bill: Bill) {
         super();
         // Its consumer may first wait on the realm, and a rejection seen
         // later is still a rejection there.
         source.catch(() => {});
         this.#source = source;
+        this.#bill = bill;
     }
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
@@ -498,7 +522,10 @@ class Scrubbed extends AssistantMessageEventStream {
 
     override async result(): Promise<AssistantMessage> {
         try {
-            const message = scrub(await (await this.#source).result());
+            const message = billedIn(
+                scrub(await (await this.#source).result()),
+                this.#bill,
+            );
             if (isCutOff(message)) withheldIn(message);
             return message;
         } catch (error) {
@@ -516,7 +543,9 @@ class Scrubbed extends AssistantMessageEventStream {
         received: Map<number, string>,
     ): AssistantMessageEvent {
         const event = scrub(source);
-        if (event.type === "error") withheldIn(event.error);
+        if (event.type === "done") billedIn(event.message, this.#bill);
+        if (event.type === "error")
+            withheldIn(billedIn(event.error, this.#bill));
         if (event.type === "done" && isCutOff(event.message)) {
             withheldIn(event.message);
         }
@@ -551,6 +580,28 @@ class Scrubbed extends AssistantMessageEventStream {
         }
         return event;
     }
+}
+
+/** What an endpoint says it billed a call, which stands over pi-ai's own price, as today's harness takes it. */
+interface Bill {
+    billed?: number;
+}
+
+/** `message` at the cost its endpoint billed, where it billed one. */
+function billedIn(message: AssistantMessage, bill: Bill): AssistantMessage {
+    if (bill.billed !== undefined) message.usage.cost.total = bill.billed;
+    return message;
+}
+
+/** The cost a provider's raw event reports in its usage, as OpenRouter-style endpoints bill (`harnesses/pi/src/models.ts`). */
+function billedCost(event: unknown): number | undefined {
+    if (typeof event !== "object" || event === null || !("usage" in event))
+        return undefined;
+    const { usage } = event;
+    if (typeof usage !== "object" || usage === null || !("cost" in usage))
+        return undefined;
+    const { cost } = usage;
+    return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
 }
 
 /** An answer whose text may end in part of a key. */
@@ -656,8 +707,19 @@ function fastened(
     };
 }
 
-export function modelList(listed: Models): ListedModel[] {
-    return listed.getModels().map((model) => {
+/**
+ * The models of `providers`, or of every provider when it is absent, each
+ * with what today's catalogue learns of its listing (`providers.rs`,
+ * `Card::learn`).
+ */
+export function modelList(
+    listed: Models,
+    providers?: ReadonlySet<string>,
+): ListedModel[] {
+    const models = listed
+        .getModels()
+        .filter((model) => providers?.has(model.provider) ?? true);
+    return models.map((model) => {
         const cost = listedCost(model);
         const images = imagesOf(model);
         return {
@@ -665,6 +727,8 @@ export function modelList(listed: Models): ListedModel[] {
             title: model.name,
             context: model.contextWindow,
             ...(images === undefined ? {} : { images: images.perLine }),
+            efforts: effortsOf(model),
+            ...(FAST_APIS.includes(model.api) ? { fast: true } : {}),
             ...(cost === undefined
                 ? {}
                 : {
@@ -677,6 +741,41 @@ export function modelList(listed: Models): ListedModel[] {
                   }),
         };
     });
+}
+
+/**
+ * The efforts `model` can be asked for: every one its thinking map does not
+ * leave out, the two highest only where it names them, or none but off for a
+ * model that does not reason.
+ */
+function effortsOf(model: Model<Api>): Effort[] {
+    if (!model.reasoning) return ["off"];
+    const map: Partial<Record<string, unknown>> = model.thinkingLevelMap ?? {};
+    return EFFORTS.filter((effort) =>
+        effort in map
+            ? map[effort] !== null
+            : effort !== "xhigh" && effort !== "max",
+    );
+}
+
+/**
+ * The providers whose models a chief can choose, as today's catalogue
+ * shows them: those the realm holds a sign-in for, and the endpoints.
+ */
+export async function reached(
+    listed: Models,
+    realm: Pick<BareRealm, "credential">,
+): Promise<Set<string>> {
+    const views = await providerViews(listed, realm);
+    return new Set(
+        views.flatMap(({ id, configured }) => {
+            const provider = listed.getProvider(id);
+            return configured ||
+                (provider !== undefined && isEndpoint(provider))
+                ? [id]
+                : [];
+        }),
+    );
 }
 
 /**
