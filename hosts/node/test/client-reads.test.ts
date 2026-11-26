@@ -185,24 +185,23 @@ test("the Hand lists its providers in today's order and words", async (t) => {
     await agent.stop();
 });
 
-test("a faux model is titled by its id, as today's listing titles it", (t) => {
+test("a faux model is titled by its id and takes images, as today's listing shows it", (t) => {
     const script = join(scratchFolder(t), "script.json");
     writeFileSync(
         script,
         JSON.stringify({ models: ["faux-a", { id: "faux-b", window: 32000 }] }),
     );
     const titles = (path: string | undefined) =>
-        modelList(fauxModels(path, false).models).map(({ name, title }) => ({
-            name,
-            title,
-        }));
+        modelList(fauxModels(path, false).models).map(
+            ({ name, title, images }) => ({ name, title, images }),
+        );
 
     assert.deepEqual(titles(undefined), [
-        { name: "faux::faux-1", title: "faux-1" },
+        { name: "faux::faux-1", title: "faux-1", images: {} },
     ]);
     assert.deepEqual(titles(script), [
-        { name: "faux::faux-a", title: "faux-a" },
-        { name: "faux::faux-b", title: "faux-b" },
+        { name: "faux::faux-a", title: "faux-a", images: {} },
+        { name: "faux::faux-b", title: "faux-b", images: {} },
     ]);
 });
 

@@ -484,7 +484,7 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::large",
             title: "Large",
             context: 64_000,
-            images: 20,
+            images: {},
             price: { input: 2, output: 4, cache_read: 1, cache_write: 3 },
             efforts: ["off"],
         },
@@ -495,20 +495,22 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::partly",
             title: "partly",
             context: createFauxCore({}).models[0]?.contextWindow,
-            images: 20,
+            images: {},
             efforts: ["off"],
         },
     );
 });
 
-test("the model list says how many images one line gives a model, as today's listing", () => {
+test("the model list says what images a model takes, with the limits its listing names, as today's listing", () => {
     const listed = createModels();
-    const taking = (id: string, input: Model<Api>["input"], most?: number) => ({
+    const taking = (
+        id: string,
+        input: Model<Api>["input"],
+        images?: NonNullable<Model<Api>["inputLimits"]>["images"],
+    ) => ({
         id,
         input,
-        ...(most === undefined
-            ? {}
-            : { inputLimits: { images: { maxPerMessage: most } } }),
+        ...(images === undefined ? {} : { inputLimits: { images } }),
     });
     listed.setProvider(
         served(
@@ -516,22 +518,28 @@ test("the model list says how many images one line gives a model, as today's lis
             [
                 taking("plain", ["text"]),
                 taking("sees", ["text", "image"]),
-                taking("few", ["text", "image"], 5),
-                taking("many", ["text", "image"], 50),
+                taking("few", ["text", "image"], { maxPerMessage: 5 }),
+                taking("many", ["text", "image"], {
+                    maxPerMessage: 50,
+                    resize: { maxBytes: 5_242_880, maxWidth: 8000 },
+                }),
             ],
             fauxAssistantMessage("Hello."),
         ),
     );
 
     // As `listed_images` in `crates/hamlet_server/src/providers.rs` reads a
-    // listing and `Limits::of` in `crates/hamlet_server/src/images.rs` caps it.
+    // listing.
     assert.deepEqual(
         modelList(listed).map(({ name, images }) => ({ name, images })),
         [
             { name: "local::plain", images: undefined },
-            { name: "local::sees", images: 20 },
-            { name: "local::few", images: 5 },
-            { name: "local::many", images: 20 },
+            { name: "local::sees", images: {} },
+            { name: "local::few", images: { per_line: 5 } },
+            {
+                name: "local::many",
+                images: { max_bytes: 5_242_880, max_width: 8000, per_line: 50 },
+            },
         ],
     );
 });
@@ -1246,7 +1254,17 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
                 {
                     id: "claude-sonnet-4-5",
                     name: "Claude Sonnet 4.5",
-                    input: ["text"],
+                    input: ["text", "image"],
+                    inputLimits: {
+                        images: {
+                            maxPerMessage: 100,
+                            resize: {
+                                maxBytes: 5_242_880,
+                                maxWidth: 8000,
+                                maxHeight: 8000,
+                            },
+                        },
+                    },
                     contextWindow: 200_000,
                     cost: {
                         input: 3,
@@ -1266,7 +1284,7 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
                 {
                     id: "small",
                     name: "Small",
-                    input: ["text"],
+                    input: ["text", "image"],
                     contextWindow: 8192,
                 },
             ],

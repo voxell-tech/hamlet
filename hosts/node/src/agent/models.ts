@@ -42,10 +42,12 @@ import {
     type Checked,
     EFFORTS,
     type Effort,
+    type ListedImages,
     type ListedModel,
     type Price,
     type ProviderView,
 } from "./messages/agent.ts";
+import { U32_MAX } from "./messages/shared.ts";
 import type { ImageLimits } from "./messages/workspace.ts";
 import { isEndpoint } from "./providers.ts";
 import type { BareRealm, Peers } from "./turn.ts";
@@ -418,12 +420,12 @@ export function modelList(
         .filter((model) => providers?.has(model.provider) ?? true);
     return models.map((model) => {
         const cost = listedCost(model);
-        const images = imagesOf(model);
+        const images = listedImages(model);
         return {
             name: nameOf(model),
             title: model.name,
             context: model.contextWindow,
-            ...(images === undefined ? {} : { images: images.perLine }),
+            ...(images === undefined ? {} : { images }),
             efforts: effortsOf(model),
             ...(FAST_APIS.includes(model.api) ? { fast: true } : {}),
             ...(cost === undefined
@@ -623,25 +625,40 @@ export interface ImagesTaken extends ImageLimits {
 
 /**
  * The images `model` takes, as `listed_images` in
- * `crates/hamlet_server/src/providers.rs` reads its listing and `Limits::of`
- * fills in what it leaves out; a faux model takes them at the defaults.
+ * `crates/hamlet_server/src/providers.rs` reads its listing; a faux model
+ * takes them with no limit named, as `Providers::images` there gives.
  * `undefined` when it takes none.
  */
-function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+function listedImages(model: Model<Api>): ListedImages | undefined {
     if (model.provider !== FAUX && !model.input.includes("image")) {
         return undefined;
     }
     const images = model.inputLimits?.images;
-    const size = (value: number | undefined, otherwise: number) =>
-        value !== undefined && value > 0 ? value : otherwise;
+    const named = (key: keyof ListedImages, value: number | undefined) =>
+        value !== undefined && value > 0 && value <= U32_MAX
+            ? { [key]: Math.floor(value) }
+            : {};
     return {
-        width: size(images?.resize?.maxWidth, IMAGE_WIDTH),
-        height: size(images?.resize?.maxHeight, IMAGE_HEIGHT),
-        bytes: size(images?.resize?.maxBytes, IMAGE_BYTES),
-        perLine: Math.min(
-            size(images?.maxPerMessage, IMAGES_PER_LINE),
-            IMAGES_PER_LINE,
-        ),
+        ...named("max_bytes", images?.resize?.maxBytes),
+        ...named("max_height", images?.resize?.maxHeight),
+        ...named("max_width", images?.resize?.maxWidth),
+        ...named("per_line", images?.maxPerMessage),
+    };
+}
+
+/**
+ * The images `model` takes, as `Limits::of` in
+ * `crates/hamlet_server/src/images.rs` fills in what its listing leaves
+ * out and caps the most of them in one line. `undefined` when it takes none.
+ */
+function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+    const listed = listedImages(model);
+    if (listed === undefined) return undefined;
+    return {
+        width: listed.max_width ?? IMAGE_WIDTH,
+        height: listed.max_height ?? IMAGE_HEIGHT,
+        bytes: listed.max_bytes ?? IMAGE_BYTES,
+        perLine: Math.min(listed.per_line ?? IMAGES_PER_LINE, IMAGES_PER_LINE),
     };
 }
 
