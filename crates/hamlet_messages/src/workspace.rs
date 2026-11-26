@@ -14,6 +14,7 @@
 //!   call. `why` is one of the families of [`refusal`].
 
 pub mod files;
+pub mod images;
 pub mod reach;
 pub mod refusal;
 

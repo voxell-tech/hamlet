@@ -458,6 +458,7 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::large",
             title: "Large",
             context: 64_000,
+            images: 20,
             price: { input: 2, output: 4, cache_read: 1, cache_write: 3 },
         },
     );
@@ -467,7 +468,43 @@ test("the model list names each listed model with its window and price", () => {
             name: "loopback::partly",
             title: "partly",
             context: createFauxCore({}).models[0]?.contextWindow,
+            images: 20,
         },
+    );
+});
+
+test("the model list says how many images one line gives a model, as today's listing", () => {
+    const listed = createModels();
+    const taking = (id: string, input: Model<Api>["input"], most?: number) => ({
+        id,
+        input,
+        ...(most === undefined
+            ? {}
+            : { inputLimits: { images: { maxPerMessage: most } } }),
+    });
+    listed.setProvider(
+        served(
+            "local",
+            [
+                taking("plain", ["text"]),
+                taking("sees", ["text", "image"]),
+                taking("few", ["text", "image"], 5),
+                taking("many", ["text", "image"], 50),
+            ],
+            fauxAssistantMessage("Hello."),
+        ),
+    );
+
+    // As `listed_images` in `crates/hamlet_server/src/providers.rs` reads a
+    // listing and `Limits::of` in `crates/hamlet_server/src/images.rs` caps it.
+    assert.deepEqual(
+        modelList(listed).map(({ name, images }) => ({ name, images })),
+        [
+            { name: "local::plain", images: undefined },
+            { name: "local::sees", images: 20 },
+            { name: "local::few", images: 5 },
+            { name: "local::many", images: 20 },
+        ],
     );
 });
 
@@ -1181,6 +1218,7 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
                 {
                     id: "claude-sonnet-4-5",
                     name: "Claude Sonnet 4.5",
+                    input: ["text"],
                     contextWindow: 200_000,
                     cost: {
                         input: 3,
@@ -1196,7 +1234,14 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
     listed.setProvider(
         served(
             "local",
-            [{ id: "small", name: "Small", contextWindow: 8192 }],
+            [
+                {
+                    id: "small",
+                    name: "Small",
+                    input: ["text"],
+                    contextWindow: 8192,
+                },
+            ],
             fauxAssistantMessage("", {
                 stopReason: "error",
                 errorMessage: "the provider answered 401",

@@ -42,6 +42,7 @@ import type {
 } from "./messages/agent.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
 import { u32 } from "./messages/shared.ts";
+import type { ImageLimits } from "./messages/workspace.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices. */
@@ -649,10 +650,12 @@ function fastened(
 export function modelList(listed: Models): ListedModel[] {
     return listed.getModels().map((model) => {
         const cost = listedCost(model);
+        const images = imagesOf(model);
         return {
             name: nameOf(model),
             title: model.name,
             context: model.contextWindow,
+            ...(images === undefined ? {} : { images: images.perLine }),
             ...(cost === undefined
                 ? {}
                 : {
@@ -755,22 +758,75 @@ export function signedInTo(listed: Models, name: string): boolean {
     return auth?.apiKey?.login !== undefined || auth?.oauth !== undefined;
 }
 
-/** The model the agent runs, as `provider::model`: its copy's, else `host`'s, given as `provider/model`. */
+/** The model the agent runs: its copy's, else `host`'s, given as `provider/model`. */
+async function runningRef(copies: ReadCopies, host: string): Promise<ModelRef> {
+    return (await copiedAgent(copies))?.model ?? hostRef(host);
+}
+
+function hostRef(host: string): ModelRef {
+    const at = host.indexOf("/");
+    return { provider: host.slice(0, at), modelId: host.slice(at + 1) };
+}
+
+/** The model the agent runs, as `provider::model`. */
 export async function runningModel(
     copies: ReadCopies,
     host: string,
 ): Promise<string> {
-    const copied = await copiedAgent(copies);
-    if (copied !== undefined) {
-        return `${copied.model.provider}::${copied.model.modelId}`;
-    }
-    return hostModel(host);
+    const { provider, modelId } = await runningRef(copies, host);
+    return nameOf({ provider, id: modelId });
 }
 
 /** `host`, given as `provider/model`, as `provider::model`. */
 export function hostModel(host: string): string {
-    const at = host.indexOf("/");
-    return `${host.slice(0, at)}::${host.slice(at + 1)}`;
+    const { provider, modelId } = hostRef(host);
+    return nameOf({ provider, id: modelId });
+}
+
+/** As `ImageInput`'s defaults in `crates/hamlet_protocol/src/client/images.rs`. */
+const IMAGE_WIDTH = 2000;
+const IMAGE_HEIGHT = 2000;
+const IMAGE_BYTES = 4_718_592;
+const IMAGES_PER_LINE = 20;
+
+/** The images a model takes, and the most of them one line gives it. */
+export interface ImagesTaken extends ImageLimits {
+    readonly perLine: number;
+}
+
+/**
+ * The images `model` takes, as `listed_images` in
+ * `crates/hamlet_server/src/providers.rs` reads its listing and `Limits::of`
+ * fills in what it leaves out; a faux model takes them at the defaults.
+ * `undefined` when it takes none.
+ */
+function imagesOf(model: Model<Api>): ImagesTaken | undefined {
+    if (model.provider !== FAUX && !model.input.includes("image")) {
+        return undefined;
+    }
+    const images = model.inputLimits?.images;
+    const size = (value: number | undefined, otherwise: number) =>
+        value !== undefined && value > 0 ? value : otherwise;
+    return {
+        width: size(images?.resize?.maxWidth, IMAGE_WIDTH),
+        height: size(images?.resize?.maxHeight, IMAGE_HEIGHT),
+        bytes: size(images?.resize?.maxBytes, IMAGE_BYTES),
+        perLine: Math.min(
+            size(images?.maxPerMessage, IMAGES_PER_LINE),
+            IMAGES_PER_LINE,
+        ),
+    };
+}
+
+/** The images the model the agent runs takes; `undefined` when it takes none. */
+export async function runningImages(
+    listed: Models,
+    copies: ReadCopies,
+    host: string,
+): Promise<ImagesTaken | undefined> {
+    const { provider, modelId } = await runningRef(copies, host);
+    const model = listed.getModel(provider, modelId);
+    return model === undefined ? undefined : imagesOf(model);
 }
 
 /** The providers a subscription signs in to, as today's (ADR 0006). */

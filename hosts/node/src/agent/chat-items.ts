@@ -540,13 +540,14 @@ export function money(micros: number): string {
 }
 
 /**
- * An entry's words, kept in its data when the model never reads it; a
- * reviewed line's are the chief's own, without the lead's note.
+ * An entry's words, kept in its data when the model never reads it or a
+ * line's content holds captions besides; a reviewed line's are the chief's
+ * own, without the lead's note.
  */
 export function textOf(entry: EntryRecord): string {
     const kept = (entry.data as { text?: unknown } | undefined)?.text;
     const text =
-        entry.model === undefined && typeof kept === "string"
+        typeof kept === "string"
             ? kept
             : (entry.model ?? [])
                   .flatMap((message) =>

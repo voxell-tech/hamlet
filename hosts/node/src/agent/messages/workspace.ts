@@ -211,6 +211,23 @@ export interface Cancelled {
     readonly commands: readonly CommandId[];
 }
 
+/** The most pixels of an image's width and height, and its most bytes, that a model takes. */
+export interface ImageLimits {
+    readonly width: number;
+    readonly height: number;
+    readonly bytes: number;
+}
+
+export interface FitImage {
+    /** In base64: a PNG, JPEG, WebP or GIF. */
+    readonly image: string;
+    readonly limits: ImageLimits;
+}
+
+export type FitAnswer =
+    | { readonly type: "image"; readonly mime: string; readonly data: string }
+    | { readonly type: "unusable"; readonly words: string };
+
 export interface WorkspaceActions {
     run(message: Run): RunAnswer;
     read_file(message: ReadFile): ReadAnswer;
@@ -220,6 +237,7 @@ export interface WorkspaceActions {
     edit_file(message: EditFile): ChangeAnswer;
     list_tools(): ToolList;
     cancel(message: Cancel): Cancelled;
+    fit_image(message: FitImage): FitAnswer;
 }
 
 export const WORKSPACE: Address<WorkspaceActions> = Address.of(
