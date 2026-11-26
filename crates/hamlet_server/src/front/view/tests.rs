@@ -79,6 +79,12 @@ impl Handler<ReadState> for HeldRealm {
         }
         let mut state = hamlet_testing::realm::state();
         state.hamlets[0].name = format!("v{revision}");
+        state.settings.endpoints =
+            vec![protocol::SettingsViewEndpoints {
+                base_url: "http://127.0.0.1:9/v1".into(),
+                key: false,
+                name: "local".into(),
+            }];
         Ok(state)
     }
 }
@@ -127,31 +133,44 @@ async fn until_shown(
 /// A `World` that comes while a read is out, for a commit after the
 /// read's own, is read again once that read ends: the client is shown
 /// the later commit, not left on the read's.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
-    let dir = Scratch::new("view-held-read");
+/// The view of a held realm in `dir`, served to the client 1 once it
+/// is welcomed: the host, the calls to it, the frames the client is
+/// sent and the view's task.
+async fn viewing(
+    dir: &Scratch,
+) -> (
+    Host,
+    Calls,
+    mpsc::UnboundedReceiver<(u64, ServerMessage)>,
+    tokio::task::JoinHandle<()>,
+) {
     let mut registry = Registry::new();
     registry.register_actor_with::<HeldRealm>(
         Realm::KIND,
         ActorConfig::default(),
     );
-    let host = Host::open(&dir, registry.into_factories()).unwrap();
+    let host = Host::open(dir, registry.into_factories()).unwrap();
     host.create(&Realm.address().unwrap(), Vec::new())
         .await
         .unwrap();
     let calls = Calls::new(host.clone());
-    let (frames, mut sent) = mpsc::unbounded_channel();
+    let (frames, sent) = mpsc::unbounded_channel();
     let (shows, jobs) = Shows::new();
     let keys =
-        Keys(Arc::new(RwLock::new(Credentials::open(&dir).unwrap())));
-    let hub =
-        Hub::new(calls.clone(), frames.clone(), keys, shows.clone());
+        Keys(Arc::new(RwLock::new(Credentials::open(dir).unwrap())));
+    let hub = Hub::new(
+        calls.clone(),
+        frames.clone(),
+        keys.clone(),
+        shows.clone(),
+    );
     let own = Arc::new(Own {
         chief: "Ada".into(),
         confinement: Confinement::Insecure,
-        realm: "/realm".into(),
+        root: "/realm".into(),
         epoch: 0,
         link: watch::Sender::new(crate::settings::untested()),
+        moving: watch::Sender::new(None),
         faux: false,
     });
     let served = tokio::spawn(serve(
@@ -160,9 +179,17 @@ async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
         calls.clone(),
         own,
         hub,
+        keys,
         frames,
     ));
     shows.welcome(1).await;
+    (host, calls, sent, served)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
+    let dir = Scratch::new("view-held-read");
+    let (host, calls, mut sent, served) = viewing(&dir).await;
     let mut state = None;
     until_shown(&mut sent, &mut state, "v0").await;
 
@@ -180,6 +207,32 @@ async fn a_change_told_while_a_read_is_out_is_read_again_after_it() {
     )
     .await
     .expect("the second commit is shown");
+    served.abort();
+    host.shutdown().await.unwrap();
+}
+
+/// Before the Hand lists its providers, a realm not served by the
+/// faux model is shown each endpoint of its settings, signed in to by
+/// a key.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_state_lists_the_endpoints_before_the_hand_answers()
+{
+    let dir = Scratch::new("view-endpoints");
+    let (host, _calls, mut sent, served) = viewing(&dir).await;
+    let mut state = None;
+    until_shown(&mut sent, &mut state, "v0").await;
+
+    let providers = state.expect("a State").providers;
+    assert_eq!(
+        providers,
+        [protocol::ProviderView {
+            configured: false,
+            id: "local".into(),
+            label: "local".into(),
+            methods: vec![protocol::LoginMethod::Key],
+            name: "local".into(),
+        }]
+    );
     served.abort();
     host.shutdown().await.unwrap();
 }

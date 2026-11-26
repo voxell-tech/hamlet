@@ -20,6 +20,7 @@ import {
     numberOf,
 } from "./actor.ts";
 import { Fold, textOf, timeOf } from "./chat-items.ts";
+import { scrub, secretsLoaded } from "./credentials.ts";
 import type {
     ChatEvent,
     ChatItem,
@@ -30,7 +31,6 @@ import type {
     Open,
     Session,
 } from "./messages/agent.ts";
-import { scrub, secretsLoaded } from "./models.ts";
 import { chiefSession, conversationOfChat, current } from "./sessions.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */

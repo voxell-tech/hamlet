@@ -492,16 +492,33 @@ pub struct ListedModel {
     pub context: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price: Option<Price>,
-    /// The most images one line may give it; absent when it takes
-    /// none.
+    /// The images it takes; absent when it takes none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub images: Option<u32>,
+    pub images: Option<ListedImages>,
     /// The efforts it can be asked for, weakest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub efforts: Vec<hamlet_protocol::Effort>,
     /// Whether its provider has a fast tier it can be asked for.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fast: bool,
+}
+
+/// The images a model takes, as its provider lists them: each limit
+/// absent where the listing names none.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct ListedImages {
+    /// The most bytes of one image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<u32>,
+    /// The most images one line gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_line: Option<u32>,
 }
 
 /// Reads how many images one line may give the model the agent runs.

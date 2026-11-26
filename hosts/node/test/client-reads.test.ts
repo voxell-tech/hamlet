@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxModels } from "../src/agent/faux.ts";
+import { modelList } from "../src/agent/models.ts";
 import { fakeCalls, fakeFiles, from, wakeAgent } from "./agent-testing.ts";
 import {
     A,
@@ -10,6 +13,7 @@ import {
     profileAnswering,
     saves,
 } from "./branch-testing.ts";
+import { scratchFolder } from "./testing.ts";
 
 const KEY = "sk-made-up-0d1e-papers";
 
@@ -179,4 +183,60 @@ test("the Hand lists its providers in today's order and words", async (t) => {
         ],
     );
     await agent.stop();
+});
+
+test("a faux model is titled by its id and takes images, as today's listing shows it", (t) => {
+    const script = join(scratchFolder(t), "script.json");
+    writeFileSync(
+        script,
+        JSON.stringify({ models: ["faux-a", { id: "faux-b", window: 32000 }] }),
+    );
+    const titles = (path: string | undefined) =>
+        modelList(fauxModels(path, false).models).map(
+            ({ name, title, images }) => ({ name, title, images }),
+        );
+
+    assert.deepEqual(titles(undefined), [
+        { name: "faux::faux-1", title: "faux-1", images: {} },
+    ]);
+    assert.deepEqual(titles(script), [
+        { name: "faux::faux-a", title: "faux-a", images: {} },
+        { name: "faux::faux-b", title: "faux-b", images: {} },
+    ]);
+});
+
+test("a faux answer books as input every prompt token the cache did not read", async () => {
+    const { models, model } = fauxModels(undefined, false);
+    const [provider = "", id = ""] = model.split("/");
+    const faux = models.getModel(provider, id);
+    assert.ok(faux !== undefined);
+    const asked = (...lines: string[]) => ({
+        messages: lines.map((content) => ({
+            role: "user" as const,
+            content,
+            timestamp: 0,
+        })),
+    });
+    const usage = async (
+        context: ReturnType<typeof asked>,
+        sessionId?: string,
+    ) =>
+        (
+            await models.completeSimple(
+                faux,
+                context,
+                sessionId === undefined ? {} : { sessionId },
+            )
+        ).usage;
+    const first = asked("Read the papers.");
+    const second = asked("Read the papers.", "Now the notes.");
+    const alone = [(await usage(first)).input, (await usage(second)).input];
+    const once = await usage(first, "session-1");
+    const again = await usage(second, "session-1");
+    assert.ok(alone[0] !== undefined && alone[0] > 0);
+    assert.deepEqual(
+        [once.input + once.cacheRead, again.input + again.cacheRead],
+        alone,
+    );
+    assert.ok(again.cacheRead > 0);
 });

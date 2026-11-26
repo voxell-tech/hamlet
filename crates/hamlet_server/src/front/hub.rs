@@ -10,7 +10,10 @@
 //! agent took the line and a read of that chat showed it busy, or
 //! that read itself when it shows the agent idle.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+mod folded;
+mod owed;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Result;
@@ -19,16 +22,18 @@ use hamlet_actor::action::encode_positional;
 use hamlet_host::{Address, Item};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    ChatEvent, ChatItem, ChatOp, ChatPage, ReadChat,
+    ChatEvent, ChatOp, ChatPage, ReadChat,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, AgentId, ItemKind, LastActivity, Open,
-    RequestId, ServerMessage, Transcript,
+    self as protocol, AgentId, LastActivity, Open, RequestId,
+    ServerMessage, Transcript,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
 
+use self::folded::Folded;
+use self::owed::{Owed, Taken};
 use super::call::{Calls, failed, refused_words};
 use super::route::number;
 use super::view::Shows;
@@ -60,112 +65,6 @@ struct Shared {
 /// One of an agent's chats with the chief or a peer: the peer, and
 /// whether it holds the peer's questions.
 type Lane = (Option<u32>, bool);
-
-/// What an agent does in one chat, folded from the chat's changes.
-struct Folded {
-    activity: Activity,
-    /// The text of each item written so far, and whether it is a
-    /// thought, by item.
-    written: HashMap<String, (bool, String)>,
-    /// The change its fold holds up to; an earlier one is in it.
-    seen: Option<Mark>,
-}
-
-impl Folded {
-    fn new() -> Self {
-        Self {
-            activity: Activity::of(&[]),
-            written: HashMap::new(),
-            seen: None,
-        }
-    }
-
-    /// The fold of `page`, the chat read now: its status, and the
-    /// items since the chief's last line.
-    fn of(page: &ChatPage) -> Self {
-        let mut folded = Self::new();
-        folded.seen = Some(Mark::of(page));
-        folded.status(page.working, page.pending);
-        let since = page
-            .items
-            .iter()
-            .rposition(|item| item.kind == ItemKind::User)
-            .map_or(0, |at| at + 1);
-        for item in &page.items[since..] {
-            folded.add(item, None);
-        }
-        folded
-    }
-
-    fn fold(&mut self, op: &ChatOp) {
-        match op {
-            ChatOp::Status { working, pending } => {
-                self.status(*working, *pending);
-            }
-            ChatOp::Add { item, replaces } => {
-                self.add(item, replaces.as_deref());
-            }
-            ChatOp::Append { item, text, .. } => {
-                if let Some((thought, written)) =
-                    self.written.get_mut(item)
-                {
-                    written.push_str(text);
-                    self.activity.said(text, *thought);
-                }
-            }
-            ChatOp::Usage { .. } | ChatOp::Reset => {}
-        }
-    }
-
-    /// Takes in whether the chat runs and how many inputs wait: a
-    /// turn that begins calls its model.
-    fn status(&mut self, working: bool, pending: u32) {
-        let begins = working && !self.activity.working;
-        self.activity.live(working, u64::from(pending), None);
-        if begins {
-            self.activity.attempted();
-        }
-        if !working {
-            self.written.clear();
-        }
-    }
-
-    fn add(&mut self, item: &ChatItem, replaces: Option<&str>) {
-        let activity = &mut self.activity;
-        match (&item.tool, &item.kind) {
-            (Some(tool), _) if replaces == Some(item.id.as_str()) => {
-                if tool.exit.is_some() {
-                    activity.ended(tool.failure.is_some());
-                }
-            }
-            (Some(tool), _) => {
-                activity.called(&tool.name, &tool.summary);
-            }
-            (None, ItemKind::Assistant | ItemKind::Reasoning) => {
-                let thought = item.kind == ItemKind::Reasoning;
-                let before = replaces
-                    .and_then(|replaced| {
-                        self.written.remove(replaced)
-                    })
-                    .map(|(_, text)| text)
-                    .unwrap_or_default();
-                let new = item
-                    .text
-                    .strip_prefix(before.as_str())
-                    .unwrap_or(&item.text);
-                if !new.is_empty() {
-                    activity.said(new, thought);
-                }
-                self.written.insert(
-                    item.id.clone(),
-                    (thought, item.text.clone()),
-                );
-            }
-            (None, ItemKind::Error) => activity.faulted = true,
-            _ => {}
-        }
-    }
-}
 
 /// An agent whose `chat` a task of its own follows, and what needs
 /// it. The task alone removes it, once nothing does.
@@ -228,32 +127,6 @@ impl Mark {
     fn after(self, then: Self) -> bool {
         self.epoch != then.epoch || self.number > then.number
     }
-}
-
-/// The reply of a line a client is owed.
-struct Owed {
-    client: u64,
-    id: RequestId,
-    taken: Taken,
-    /// The task that reads what became of the line, aborted when
-    /// the reply is no longer owed.
-    reading: Option<AbortHandle>,
-}
-
-impl Drop for Owed {
-    fn drop(&mut self) {
-        if let Some(reading) = &self.reading {
-            reading.abort();
-        }
-    }
-}
-
-enum Taken {
-    /// The realm has not said the agent took the line.
-    Not,
-    /// It took it: the first idle status after this change ends its
-    /// work, or any idle status when the change is not known.
-    After(Option<Mark>),
 }
 
 /// What a follow does for the door, in the order it is asked.
@@ -398,117 +271,6 @@ impl Hub {
             found.owed.retain(|owed| owed.client != client);
             let _ = found.jobs.send(Job::Look);
         }
-    }
-
-    /// Owes `client` the reply of its line `id` to `agent`, unless
-    /// its connection closed. The receiver resolves once `agent`'s
-    /// chat is followed, so no change after it is missed, and fails
-    /// when the hub answered the line already.
-    pub(crate) fn owe(
-        &self,
-        client: u64,
-        agent: AgentNumber,
-        id: &RequestId,
-    ) -> Option<oneshot::Receiver<()>> {
-        let shared = &self.shared;
-        let mut followed = shared.followed();
-        if !shared.clients().contains(&client) {
-            return None;
-        }
-        let (held, holds) = oneshot::channel();
-        let found = shared.follow(&mut followed, agent);
-        found.owed.push(Owed {
-            client,
-            id: id.clone(),
-            taken: Taken::Not,
-            reading: None,
-        });
-        let _ = found.jobs.send(Job::Held(held));
-        Some(holds)
-    }
-
-    /// Keeps `reading`, the task that reads what became of the line
-    /// `id` of `client` to `agent`, while its reply is owed; aborts
-    /// it when it is not.
-    pub(crate) fn reading(
-        &self,
-        client: u64,
-        agent: AgentNumber,
-        id: &RequestId,
-        reading: AbortHandle,
-    ) {
-        let mut followed = self.shared.followed();
-        let owed = followed.get_mut(&agent).and_then(|found| {
-            found
-                .owed
-                .iter_mut()
-                .find(|owed| owed.client == client && owed.id == *id)
-        });
-        match owed {
-            Some(owed) => owed.reading = Some(reading),
-            None => reading.abort(),
-        }
-    }
-
-    /// Takes in that `agent` took the line `id` of `client`: reads
-    /// the chief's chat to learn where the agent's work on it stands.
-    pub(crate) async fn taken(
-        &self,
-        client: u64,
-        agent: AgentNumber,
-        id: &RequestId,
-    ) {
-        let read = self.shared.current(agent).await.ok();
-        let shared = &self.shared;
-        let mut followed = shared.followed();
-        let Some(found) = followed.get_mut(&agent) else {
-            return;
-        };
-        let Some(at) = found
-            .owed
-            .iter()
-            .position(|owed| owed.client == client && owed.id == *id)
-        else {
-            return;
-        };
-        let ended = match (read, found.status) {
-            (Some((_, true)), _) => true,
-            (Some((mark, false)), Some((then, idle))) => {
-                idle && then.after(mark)
-            }
-            _ => false,
-        };
-        if ended {
-            let owed = found.owed.remove(at);
-            shared.settle(&owed);
-            let _ = found.jobs.send(Job::Look);
-        } else {
-            found.owed[at].taken =
-                Taken::After(read.map(|(mark, _)| mark));
-        }
-    }
-
-    /// Answers the line `id` of `client` to `agent` with `message`,
-    /// unless it was answered.
-    pub(crate) fn settle(
-        &self,
-        agent: AgentNumber,
-        client: u64,
-        id: &RequestId,
-        message: ServerMessage,
-    ) {
-        let mut followed = self.shared.followed();
-        let Some(found) = followed.get_mut(&agent) else {
-            return;
-        };
-        let before = found.owed.len();
-        found.owed.retain(|owed| {
-            !(owed.client == client && owed.id == *id)
-        });
-        if found.owed.len() < before {
-            self.shared.send(client, message);
-        }
-        let _ = found.jobs.send(Job::Look);
     }
 
     pub(crate) fn hold_resets(
@@ -764,6 +526,12 @@ impl Shared {
         open: Open,
     ) {
         let read = self.read(agent, &open).await;
+        let refusal = match &read {
+            Err(error) => {
+                Some(self.refused(agent, &open, error).await)
+            }
+            Ok(_) => None,
+        };
         let mut followed = self.followed();
         let Some(found) = followed.get_mut(&agent) else {
             return;
@@ -800,7 +568,9 @@ impl Shared {
                 if found.watches[at].seen.is_none() {
                     found.watches.remove(at);
                 }
-                self.send(client, refused(&open, &error));
+                let answer = refusal
+                    .unwrap_or_else(|| failed(&open.id, &error));
+                self.send(client, answer);
             }
         }
     }
@@ -1054,21 +824,34 @@ impl Shared {
             .await?;
         Ok(ciborium::from_reader(answer.as_slice())?)
     }
+
+    /// The answer to `open`, whose page of `agent`'s chat was refused
+    /// with `error`: a fault for a page before an item the chat
+    /// lacks, else the refusal's error reply.
+    async fn refused(
+        &self,
+        agent: AgentNumber,
+        open: &Open,
+        error: &anyhow::Error,
+    ) -> ServerMessage {
+        if let (Some(words), Some(_)) =
+            (refused_words(error), &open.before)
+        {
+            let whole = Open {
+                before: None,
+                ..open.clone()
+            };
+            if self.read(agent, &whole).await.is_ok() {
+                return fault(Some(&open.id), words);
+            }
+        }
+        failed(&open.id, error)
+    }
 }
 
 /// The reply of line `id`, whose work ended: the empty notice.
 pub(crate) fn ended_line(id: &RequestId) -> ServerMessage {
     reply(id, Ok(String::new()))
-}
-
-/// The answer to `open`, whose page was refused with `error`: an
-/// error reply for a chat that is not there, a fault for a page
-/// before an item it lacks.
-fn refused(open: &Open, error: &anyhow::Error) -> ServerMessage {
-    match (refused_words(error), &open.before) {
-        (Some(words), Some(_)) => fault(Some(&open.id), words),
-        _ => failed(&open.id, error),
-    }
 }
 
 /// The chief's current chat with `agent`.

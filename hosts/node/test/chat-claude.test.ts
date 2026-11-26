@@ -17,10 +17,10 @@ import { getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
 import type { MutableModels } from "@earendil-works/pi-ai";
 import { chatActions } from "../src/agent/chat.ts";
 import { withClaude } from "../src/agent/claude.ts";
+import { remember } from "../src/agent/credentials.ts";
 import { signIns } from "../src/agent/login.ts";
 import type { ChatPage, Login } from "../src/agent/messages/agent.ts";
 import type { Kept } from "../src/agent/messages/realm.ts";
-import { remember } from "../src/agent/models.ts";
 import {
     credentialsFile,
     dumped,

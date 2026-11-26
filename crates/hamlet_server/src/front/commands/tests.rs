@@ -49,11 +49,12 @@ fn view() -> View {
         Arc::new(Own {
             chief: "Ada".into(),
             confinement: Confinement::Insecure,
-            realm: "/realm".into(),
+            root: "/realm".into(),
             epoch: 0,
             link: tokio::sync::watch::Sender::new(
                 crate::settings::untested(),
             ),
+            moving: tokio::sync::watch::Sender::new(None),
             faux: false,
         }),
         Seen {

@@ -11,6 +11,7 @@ import type {
     Models,
     ProviderAuthInteraction,
 } from "@earendil-works/pi-ai";
+import { keptOf, remember, rememberKept, scrub } from "./credentials.ts";
 import type {
     Login,
     LoginAnswer,
@@ -18,7 +19,6 @@ import type {
     RequestId,
 } from "./messages/agent.ts";
 import type { Kept } from "./messages/realm.ts";
-import { keptOf, remember, rememberKept, scrub } from "./models.ts";
 import type { BareRealm } from "./turn.ts";
 
 /** How long a call waits for its step, as the front door allows it (root point 1). */
