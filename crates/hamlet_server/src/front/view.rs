@@ -621,3 +621,6 @@ fn show(agent: &mut protocol::Agent, shown: &Activity) {
     };
     agent.faulted = shown.faulted;
 }
+
+#[cfg(test)]
+mod tests;
