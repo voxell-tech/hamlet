@@ -791,8 +791,8 @@ async fn remove_folder(folder: PathBuf) {
 
 /// Calls `agent` with how its call ended. While the agent may not
 /// have heard it, the link to its host down or gone down while it was
-/// told, a task of its own tells it again; the agent takes a repeat of
-/// the same call's end once. A call that fails otherwise, as to an
+/// told, a task of its own tells it again; the agent takes a repeat
+/// of the same call's end once. A call that fails otherwise, as to an
 /// agent that no longer exists, is logged and dropped.
 async fn tell(
     ctx: &Ctx<Workspace>,
