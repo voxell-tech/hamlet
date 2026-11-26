@@ -58,6 +58,7 @@ import {
     type ReadCopies,
     refreshed,
 } from "./copies.ts";
+import { secretsRefreshed } from "./credentials.ts";
 import {
     type FailedTurns,
     failedTurns,
@@ -96,7 +97,6 @@ import {
     configured,
     type ImagesTaken,
     runningImages,
-    secretsRefreshed,
 } from "./models.ts";
 import { type Folder, ownFiles } from "./own-files.ts";
 import {

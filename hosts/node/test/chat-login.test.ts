@@ -10,6 +10,7 @@ import {
     type MutableModels,
 } from "@earendil-works/pi-ai";
 import { chatActions } from "../src/agent/chat.ts";
+import { keysOf } from "../src/agent/credentials.ts";
 import { type SignIns, signIns } from "../src/agent/login.ts";
 import type {
     ChatPage,
@@ -17,7 +18,7 @@ import type {
     LoginAnswer,
 } from "../src/agent/messages/agent.ts";
 import type { Kept } from "../src/agent/messages/realm.ts";
-import { checkModel, keysOf } from "../src/agent/models.ts";
+import { checkModel } from "../src/agent/models.ts";
 import {
     credentialsFile,
     dumped,

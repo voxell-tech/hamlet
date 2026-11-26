@@ -15,6 +15,7 @@ import {
     type UsageState,
 } from "@earendil-works/pi-durable";
 import { clip, editOf, madeOf } from "./change.ts";
+import { scrub, withheld } from "./credentials.ts";
 import { nameOf } from "./inputs.ts";
 import type {
     ChatItem,
@@ -25,7 +26,6 @@ import type {
     Usage,
 } from "./messages/agent.ts";
 import { u32 } from "./messages/shared.ts";
-import { scrub, withheld } from "./models.ts";
 import { type CallEnd, type Kept, KIND, NOTE_BREAK } from "./turn.ts";
 
 interface Held {

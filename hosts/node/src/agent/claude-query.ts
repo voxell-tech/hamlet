@@ -41,7 +41,7 @@ import {
 import { deleteSession } from "cc-session-io";
 import { environment, type Program, rememberLogin } from "./claude.ts";
 import { importSession, TOOL_PREFIX, userContent } from "./claude-history.ts";
-import { scrub, withheld } from "./models.ts";
+import { scrub, withheld } from "./credentials.ts";
 import { emptyAnswer } from "./spend.ts";
 import { reasonOf } from "./turn.ts";
 
