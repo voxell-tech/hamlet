@@ -46,7 +46,8 @@ use hamlet_messages::workspace::{
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
-use self::reach::{Gate, Purpose, RealmFolder};
+pub use self::reach::RealmFolder;
+use self::reach::{Gate, Purpose};
 use crate::call;
 
 /// The most lines and bytes of a command's output or a file handed

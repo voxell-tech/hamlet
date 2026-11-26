@@ -165,7 +165,11 @@ pub(super) enum Act {
     CreateProfile(CreateProfile),
     ToolsOff(Target),
     Versions(ProfileId),
-    Tag(TagProfile),
+    /// `at` names the commit as the chief wrote it.
+    Tag {
+        tag: TagProfile,
+        at: Option<String>,
+    },
     Revert {
         profile: ProfileId,
         which: String,
@@ -567,16 +571,20 @@ pub(super) fn parse(
             else {
                 return Err(usage(name));
             };
-            if scholar.contains('@') {
-                return Err(Refusal::Unsupported {
-                    what: "`/tag` at a version or a commit".into(),
+            let (address, at) = scholar
+                .split_once('@')
+                .map_or((*scholar, None), |(address, at)| {
+                    (address, Some(at.to_owned()))
                 });
+            Act::Tag {
+                tag: TagProfile {
+                    profile: profile_of(address)?,
+                    version: VersionName((*version).to_owned()),
+                    at: None,
+                    note: note.join(" "),
+                },
+                at,
             }
-            Act::Tag(TagProfile {
-                profile: profile_of(scholar)?,
-                version: VersionName((*version).to_owned()),
-                note: note.join(" "),
-            })
         }
         "revert" => {
             let [scholar, which, ..] = words.as_slice() else {

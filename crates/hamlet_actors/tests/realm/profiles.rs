@@ -607,6 +607,7 @@ fn tag(version: &str) -> TagProfile {
     TagProfile {
         profile: ProfileId(3),
         version: VersionName(version.to_owned()),
+        at: None,
         note: String::new(),
     }
 }
