@@ -715,6 +715,9 @@ mod tests {
             name: "tidy".into(),
             description: "Tidy a folder.".into(),
             usage: String::new(),
+            shelved_by: Some(hamlet_messages::profile::By::Agent {
+                agent: AgentNumber(7),
+            }),
         });
         skills.sort_by(|a, b| a.name.cmp(&b.name));
         let list = ShelfList {

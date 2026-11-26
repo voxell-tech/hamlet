@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::budget::Payer;
 use super::oversight::{Permission, Question};
 use super::parcels::Measure;
-use super::{HamletId, Left, Tier, ToolName};
+use super::{HamletId, Left, ProfileId, Tier, ToolName};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::Need;
 use crate::workspace::{AgentNumber, CallId, ReachVersion};
@@ -173,6 +173,9 @@ pub enum WaitKind {
     Send { measure: Measure },
     /// A turn that ended with no answer.
     Fault,
+    /// A profile an agent made, waiting at the harbor to be let into
+    /// the city.
+    Newcomer { profile: ProfileId },
 }
 
 /// What allowing a call always keeps letting through.

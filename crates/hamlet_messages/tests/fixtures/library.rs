@@ -47,6 +47,9 @@ fn shelves() -> ShelfList {
             name: "fixtures".into(),
             description: "Writes the fixtures of a message".into(),
             usage: "Read skills/fixtures/SKILL.md".into(),
+            shelved_by: Some(By::Agent {
+                agent: AgentNumber(7),
+            }),
         }],
     }
 }

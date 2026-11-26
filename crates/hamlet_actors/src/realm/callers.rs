@@ -458,7 +458,7 @@ impl Handler<Secrets> for Realm {
             let rowed = [Life::Living, Life::Ended];
             admit(&ctx, Secrets::NAME, agent, &rowed).await?;
         }
-        Ok(act::look(&self, &by, &secrets))
+        act::look(&self, &by, &secrets)
     }
 }
 
@@ -734,6 +734,6 @@ where
         looks: Looks<M>,
     ) -> Result<<M as Action>::Output> {
         let by = sender(&ctx, &looks)?;
-        Ok(act::look(&self, &by, &looks.0))
+        act::look(&self, &by, &looks.0)
     }
 }

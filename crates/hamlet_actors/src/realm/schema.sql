@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS profile (
 	house_x REAL,
 	house_z REAL,
 	house_turn REAL,
+	-- when it was made, and who made, housed or turned it away last:
+	-- `chief` or `agent/<n>`
+	since INTEGER NOT NULL DEFAULT 0,
+	arrival_by TEXT,
 	-- a fork's source profile and the commit it was made at
 	fork_of INTEGER,
 	fork_at TEXT) STRICT;
@@ -327,6 +331,11 @@ CREATE TABLE IF NOT EXISTS dream (
 	hire_folder TEXT,
 	done INTEGER,
 	summary TEXT) STRICT;
+
+-- newcomers.rs: the profile each of the Hand's errands judges
+CREATE TABLE IF NOT EXISTS newcomer (
+	errand INTEGER PRIMARY KEY,
+	profile INTEGER NOT NULL) STRICT;
 
 -- librarian.rs
 CREATE TABLE IF NOT EXISTS librarian (

@@ -35,6 +35,9 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub usage: String,
+    /// Who shelved it last; none for a starter skill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shelved_by: Option<By>,
 }
 
 /// Asks for the shelves, and to be called with [`ShelvesChanged`]

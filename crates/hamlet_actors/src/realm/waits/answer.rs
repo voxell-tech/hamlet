@@ -16,6 +16,7 @@ use super::super::act::{Act, Decided, Decision};
 use super::super::calls::{Calls, Made};
 use super::super::change::{self, Rows, number};
 use super::super::oversight::{asking, reserved};
+use super::super::profiles::lifecycle;
 use super::super::tasks::TaskId;
 use super::super::{oversight, parcels, record, versions};
 use super::{
@@ -111,7 +112,7 @@ impl Waiting {
             Chief::Dismiss => Choice::Dismiss,
             Chief::Go => Choice::Go,
             Chief::Withdraw => Choice::Withdraw,
-            Chief::Welcome => return Err(not_that_way()),
+            Chief::Welcome => Choice::Welcome,
         })
     }
 
@@ -269,6 +270,10 @@ impl Act<Client> for Answer {
             }
             Kind::Send => {
                 Ok(parcels::ruling(rows, wait, self).await?)
+            }
+            Kind::Newcomer => {
+                Ok(lifecycle::newcomer_ruling(rows, wait, self)
+                    .await?)
             }
             Kind::Tool | Kind::Fault => Ok(Ruling::default()),
         };

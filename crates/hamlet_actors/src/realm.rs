@@ -19,6 +19,7 @@ mod librarian;
 mod lines;
 mod marker;
 mod merges;
+mod newcomers;
 mod on_task;
 mod oversight;
 mod parcels;
@@ -143,6 +144,9 @@ pub struct Options {
     /// answers.
     pub answer_within: Duration,
     pub chief: String,
+    /// The agents' models answer from a faux script, so each runs
+    /// the faux model.
+    pub faux: bool,
 }
 
 impl Default for Options {
@@ -152,6 +156,7 @@ impl Default for Options {
             review_deadline: REVIEW_DEADLINE,
             answer_within: ANSWER_WITHIN,
             chief: "chief".to_owned(),
+            faux: false,
         }
     }
 }
