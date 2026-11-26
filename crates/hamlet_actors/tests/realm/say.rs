@@ -296,6 +296,9 @@ async fn a_line_gives_its_agent_the_images_and_files_sent_before_it()
     assert_eq!((sent.parcel, sent.file), (kept.parcel, 1));
     assert_eq!(fetched(&realm, kept).await, PNG);
     assert_eq!(fetched(&realm, sent).await, notes);
+    let realm = realm.restart().await;
+    assert_eq!(fetched(&realm, kept).await, PNG);
+    assert_eq!(fetched(&realm, sent).await, notes);
     realm.host.shutdown().await.unwrap();
 }
 
