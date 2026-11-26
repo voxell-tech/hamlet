@@ -6,6 +6,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Provider } from "@earendil-works/pi-ai/models";
 import { type AgentConfig, type AgentDefinition, agentActor } from "./actor.ts";
 import { claudeExecutable, withClaude } from "./claude.ts";
 import { fauxModels } from "./faux.ts";
@@ -23,6 +24,8 @@ export interface HostedAgent {
     readonly signIn: boolean;
     /** Adds the Claude program's models, where it is installed. */
     readonly claude: boolean;
+    /** The providers in place of today's, where it has no faux script and lists no sign-in. */
+    readonly providers?: readonly Provider[];
     readonly files?: (files: AgentFilesystem) => AgentFilesystem;
 }
 
@@ -39,7 +42,8 @@ export function hostedConfig(home: string, host: HostedAgent): AgentConfig {
         // Today's providers stand in the faux ones' place; the faux model's
         // name stays the model of an agent the realm gave none.
         models.clearProviders();
-        for (const provider of hostProviders()) models.setProvider(provider);
+        for (const provider of host.providers ?? hostProviders())
+            models.setProvider(provider);
     }
     const executable = host.claude ? claudeExecutable() : undefined;
     if (executable !== undefined)
