@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::address::LOCAL;
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Need, Reach, SecretsVersion, Trust,
+    Footing, Mode, Need, Reach, SecretsVersion,
 };
 use hamlet_messages::workspace::refusal::{
     PathRefusal, ReachRefusal, ReadRefusal, ToChange, ToRead,
@@ -416,9 +416,7 @@ fn needs(
             Ok(
                 if in_manual_project
                     && !footing.is_some_and(|footing| {
-                        trusts(footing, conversation, |trust| {
-                            trust.edits
-                        })
+                        footing.allows(conversation, Need::Edit)
                     })
                 {
                     vec![Need::Edit]
@@ -556,11 +554,11 @@ fn program_needs(
     network: bool,
 ) -> Vec<Need> {
     let mut needs = Vec::new();
-    if network && !footing.network {
+    if network && !footing.allows(conversation, Need::Network) {
         needs.push(Need::Network);
     }
     if is_manual(footing)
-        && !trusts(footing, conversation, |trust| trust.commands)
+        && !footing.allows(conversation, Need::Command)
     {
         needs.push(Need::Command);
     }
@@ -573,18 +571,6 @@ fn is_manual(footing: &Footing) -> bool {
         .project
         .as_ref()
         .is_some_and(|project| project.mode == Mode::Manual)
-}
-
-/// Whether the footing trusts `conversation` for what `allows`
-/// picks.
-fn trusts(
-    footing: &Footing,
-    conversation: &ConversationId,
-    allows: impl Fn(&Trust) -> bool,
-) -> bool {
-    footing.trust.iter().any(|trust| {
-        trust.conversation == *conversation && allows(trust)
-    })
 }
 
 /// Whether `script` names a word that reaches the network: a word as

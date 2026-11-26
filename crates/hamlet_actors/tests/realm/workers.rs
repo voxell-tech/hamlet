@@ -166,6 +166,7 @@ async fn a_worker_answers_its_starter_once_in_its_conversation_and_ends()
                 text: "count the files".to_owned(),
                 tools: Vec::new(),
                 model: None,
+                dream: false,
             }),
             copies,
         }

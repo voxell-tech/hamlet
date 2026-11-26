@@ -53,6 +53,7 @@ pub(super) enum Change {
     Librarian(librarian::Change),
     Merges(merges::Change),
     Record(record::Change),
+    World(world::Change),
 }
 
 macro_rules! change_from {
@@ -92,6 +93,7 @@ change_from!(
     librarian => Librarian,
     merges => Merges,
     record => Record,
+    world => World,
 );
 
 #[derive(Debug, Default, PartialEq)]
@@ -254,6 +256,15 @@ impl Column for u64 {
 impl Column for u32 {
     fn of(value: &ColumnValue) -> Result<Self> {
         Ok(Self::try_from(i64::of(value)?)?)
+    }
+}
+
+impl Column for f64 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Float(x) => Ok(*x),
+            other => bail!("a real column holds {other:?}"),
+        }
     }
 }
 
@@ -605,6 +616,7 @@ impl Transaction {
                     Change::Record(change) => {
                         record::apply(&writer, change).await?
                     }
+                    Change::World(change) => world::apply(change),
                 });
             }
             versions::raise(&writer, &affected).await?;

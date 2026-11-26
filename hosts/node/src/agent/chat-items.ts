@@ -50,6 +50,8 @@ interface Shown {
  * watch holds no text for the whole wake.
  */
 export class Fold {
+    /** The agent whose entries these are, which each item's id names. */
+    readonly #agent: number;
     readonly #calls = new Map<string, Pick<Shown, "item" | "made">>();
     readonly #held = new Map<string, Held>();
     readonly #live = new Map<number, ChatItem>();
@@ -59,6 +61,10 @@ export class Fold {
     working = false;
     pending = 0;
     usage: Usage = usageOf(undefined, 0, this.#spent);
+
+    constructor(agent: number) {
+        this.#agent = agent;
+    }
 
     streamed(): ChatItem[] {
         return [...this.#live.values()];
@@ -107,10 +113,15 @@ export class Fold {
         const ended = this.#endedLater(entry);
         if (ended !== undefined) return ended;
         const answer = entry.kind === "pi.assistant";
-        const ops = itemsOf(entry).map(({ block, item, call, made }) => {
-            if (call !== undefined) this.#calls.set(call, { item, made });
-            return added(item, answer ? this.#live.get(block)?.id : undefined);
-        });
+        const ops = itemsOf(entry, entryIdOf(this.#agent, entry)).map(
+            ({ block, item, call, made }) => {
+                if (call !== undefined) this.#calls.set(call, { item, made });
+                return added(
+                    item,
+                    answer ? this.#live.get(block)?.id : undefined,
+                );
+            },
+        );
         if (answer) {
             this.#live.clear();
             const message = entry.model?.[0] as AssistantMessage | undefined;
@@ -187,13 +198,18 @@ export class Fold {
         const ops = [closed(shownAt(held.item, end), endingOf(held, end))];
         const said =
             name === "ask_chief" ? chiefSaid(textOf(entry)) : undefined;
-        if (said !== undefined) {
+        const shown =
+            said !== undefined
+                ? { kind: "answered" as const, text: said }
+                : end.type === "aborted" && end.withdrawn === true
+                  ? { kind: "notice" as const, text: textOf(entry) }
+                  : undefined;
+        if (shown !== undefined) {
             ops.push(
                 added({
-                    id: `${entry.id}:0`,
+                    id: `${entryIdOf(this.#agent, entry)}:0`,
                     at: `${timeOf(entry)}`,
-                    kind: "answered",
-                    text: said,
+                    ...shown,
                 }),
             );
         }
@@ -260,21 +276,32 @@ function closed(
 const SUMMARY_NOTICE =
     "The conversation grew longer than the model can hold, so the earlier part of it was summarised.";
 
+/**
+ * The entry's id as its items' ids show it, `<agent>.<entry>`, so that no two
+ * agents' items share one, as no two of today's pi entries do.
+ */
+export function entryIdOf(
+    agent: number,
+    entry: Pick<EntryRecord, "id">,
+): string {
+    return `${agent}.${entry.id}`;
+}
+
 /** The items an entry shows; a tool's result shows in its call's item. */
-function itemsOf(entry: EntryRecord): Shown[] {
+function itemsOf(entry: EntryRecord, shownId: string): Shown[] {
     const at = `${timeOf(entry)}`;
     const one = (
         kind: ItemKind,
         text: string,
         more: Partial<ChatItem> = {},
     ): Shown[] => [
-        { block: 0, item: { id: `${entry.id}:0`, at, kind, text, ...more } },
+        { block: 0, item: { id: `${shownId}:0`, at, kind, text, ...more } },
     ];
     switch (entry.kind) {
         case "pi.assistant": {
             const message = entry.model?.[0] as AssistantMessage | undefined;
             if (message === undefined) return [];
-            const id = (block: number) => `${entry.id}:${block}`;
+            const id = (block: number) => `${shownId}:${block}`;
             const shown = blocksOf(message.content, id, at);
             if (
                 message.stopReason === "error" ||
@@ -330,7 +357,7 @@ function itemsOf(entry: EntryRecord): Shown[] {
                       {
                           block: 1,
                           item: {
-                              id: `${entry.id}:1`,
+                              id: `${shownId}:1`,
                               at,
                               kind: "notice",
                               text: note,

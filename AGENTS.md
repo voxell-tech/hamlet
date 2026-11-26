@@ -239,6 +239,12 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
+The same suite runs against `hamlet_server --actors` when
+`HAMLET_ACCEPTANCE_SERVER` is `target/debug/hamlet_server --actors`.
+`cargo xtask actors` builds the Node host's native module and runs it so,
+skipping the scenarios that fail on that server, each named with the
+place of its test in `xtask/src/main.rs`. CI runs it as a job of its own.
+
 The server's tests that start pi serving a realm, crashes included, are
 its `crashes` target and its tests of the core, compiled only with the
 `harness` feature, so plain `cargo test` needs no Node. They need

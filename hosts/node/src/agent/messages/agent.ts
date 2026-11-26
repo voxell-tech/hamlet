@@ -130,7 +130,7 @@ export interface PromptSection {
 /** A society call the realm kept for a chief, which a ruling or a stop ends. */
 export interface HeldCall {
     readonly call: CallId;
-    readonly end: "ran" | "blocked" | "aborted";
+    readonly end: "ran" | "blocked" | "aborted" | "withdrawn";
 }
 
 export interface Submit {
@@ -185,6 +185,8 @@ export interface Brief {
     /** Absent is every built-in for a worker, and none for an errand. */
     readonly tools?: readonly { readonly name: string }[];
     readonly model?: string;
+    /** The errand is a dream, which asks its model as a dream does. */
+    readonly dream?: boolean;
 }
 
 export interface Versioned<T> {
@@ -192,14 +194,18 @@ export interface Versioned<T> {
     readonly value: T;
 }
 
-export type Effort =
-    | "off"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | "max";
+/** Every effort, weakest first. */
+export const EFFORTS = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+] as const;
+
+export type Effort = (typeof EFFORTS)[number];
 
 /** Dollars per million tokens. */
 export interface Price {
@@ -217,9 +223,16 @@ export interface ModelChoice {
     readonly price?: Price;
 }
 
+/** A model server the realm's settings name, serving `name::model`. */
+export interface Endpoint {
+    readonly name: string;
+    readonly base_url: string;
+}
+
 export interface AgentSettings {
     readonly reflect_every: number;
     readonly allow_net: boolean;
+    readonly endpoints?: readonly Endpoint[];
 }
 
 /** The parts the realm owns that the agent keeps a copy of. */
@@ -570,6 +583,10 @@ export interface ListedModel {
     readonly price?: Price;
     /** The most images one line may give it; absent when it takes none. */
     readonly images?: number;
+    /** The efforts it can be asked for, weakest first. */
+    readonly efforts?: readonly Effort[];
+    /** Whether its provider has a fast tier it can be asked for. */
+    readonly fast?: boolean;
 }
 
 export interface ModelList {
@@ -577,7 +594,8 @@ export interface ModelList {
 }
 
 export interface Check {
-    readonly model: string;
+    /** The model the agent runs when absent. */
+    readonly model?: string;
 }
 
 /** The model's hello, its failure, or a refusal of its name. */
@@ -617,6 +635,8 @@ export interface EditMemory {
 export interface Checked {
     readonly type: "answered" | "failed" | "refused";
     readonly words: string;
+    /** The models its endpoint lists, after a connection check. */
+    readonly models?: number;
 }
 
 /** A client's calls of an agent, each answered with a value. */
@@ -631,6 +651,7 @@ export interface ClientActions {
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
     read_models(): ModelList;
+    images_taken(): { readonly per_line?: number };
     check(message: Check): Checked;
     check_connection(): Checked;
     read_providers(): ProviderList;
@@ -672,9 +693,7 @@ const INBOX_CURSOR = obj({ path: str(), offset: U32 }, OPEN);
 const MODEL = obj(
     {
         model: str(),
-        effort: opt(
-            oneOf(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
-        ),
+        effort: opt(oneOf(EFFORTS)),
         fast: opt(bool()),
         price: opt(
             obj(
@@ -697,11 +716,19 @@ const BRIEF = obj(
         text: str(),
         tools: opt(arr(obj({ name: str() }, OPEN))),
         model: opt(str()),
+        dream: opt(bool()),
     },
     OPEN,
 );
 
-const SETTINGS = obj({ reflect_every: U32, allow_net: bool() }, OPEN);
+const SETTINGS = obj(
+    {
+        reflect_every: U32,
+        allow_net: bool(),
+        endpoints: opt(arr(obj({ name: str(), base_url: str() }, OPEN))),
+    },
+    OPEN,
+);
 
 function versioned<S extends Schema>(value: S) {
     return obj({ version: U32, value }, OPEN);
@@ -763,7 +790,10 @@ const INPUT = union([
             conversation: opt(str()),
             held: opt(
                 obj(
-                    { call: str(), end: oneOf(["ran", "blocked", "aborted"]) },
+                    {
+                        call: str(),
+                        end: oneOf(["ran", "blocked", "aborted", "withdrawn"]),
+                    },
                     OPEN,
                 ),
             ),
@@ -973,7 +1003,10 @@ export const readClient: {
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
     read_models: () => [],
-    check: first(obj({ model: str() }, OPEN), ({ model }) => ({ model })),
+    images_taken: () => [],
+    check: first(obj({ model: opt(str()) }, OPEN), ({ model }) =>
+        model === undefined ? {} : { model },
+    ),
     check_connection: () => [],
     read_providers: () => [],
     read_papers: () => [],
@@ -1033,10 +1066,21 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
                   },
               }),
     }));
-    const settings = part(raw.settings, ({ reflect_every, allow_net }) => ({
-        reflect_every,
-        allow_net,
-    }));
+    const settings = part(
+        raw.settings,
+        ({ reflect_every, allow_net, endpoints }) => ({
+            reflect_every,
+            allow_net,
+            ...(endpoints === undefined
+                ? {}
+                : {
+                      endpoints: endpoints.map(({ name, base_url }) => ({
+                          name,
+                          base_url,
+                      })),
+                  }),
+        }),
+    );
     return {
         ...(raw.charter === undefined ? {} : { charter: raw.charter }),
         ...(model === undefined ? {} : { model }),
@@ -1075,6 +1119,7 @@ function briefOf({
     text,
     tools,
     model,
+    dream,
 }: Static<typeof BRIEF>): Brief {
     return {
         ...(instructions === undefined ? {} : { instructions }),
@@ -1083,5 +1128,6 @@ function briefOf({
             ? {}
             : { tools: tools.map(({ name }) => ({ name })) }),
         ...(model === undefined ? {} : { model }),
+        ...(dream === true ? { dream } : {}),
     };
 }

@@ -2,15 +2,18 @@
 //! a chat as a `Transcript`, an event as a `Turn`, and each answer to
 //! a client's request as its frame.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Result, bail};
 use hamlet_messages::agent::chat::{
     Began, ChatEvent, ChatFile, ChatImage, ChatItem, ChatOp,
     ChatPage, ChatRef, ChatTool, Checked, History, LineMark,
     ModelList, Prompt, ResumeAnswer, RewindAnswer, ToolChange, Usage,
 };
-use hamlet_messages::realm::documents::CharterRead;
+use hamlet_messages::realm::documents::{CardRead, CharterRead};
 use hamlet_protocol::client::{
-    self as protocol, AgentId, AttachedFile, AttachedImage, Listed,
+    self as protocol, AgentId, AttachedFile, AttachedImage,
+    ImageInput, ItemKind, LastActivity, Link, LinkState, Listed,
     ListedPriced, ReadResult, RequestId, ServerMessage, Transcript,
     TranscriptOperation, Turn,
 };
@@ -20,6 +23,7 @@ use serde::de::DeserializeOwned;
 use super::view::Own;
 use super::words;
 use crate::clients::check::reply;
+use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
 
 /// `page` of `chat`, answering the request `to`.
@@ -28,6 +32,11 @@ pub(crate) fn transcript(
     chat: protocol::ChatRef,
     to: Option<RequestId>,
 ) -> Result<Transcript> {
+    let items = page
+        .items
+        .into_iter()
+        .map(item)
+        .collect::<Result<Vec<_>>>()?;
     Ok(Transcript {
         number: chat
             .from
@@ -37,12 +46,8 @@ pub(crate) fn transcript(
             .map(i64::from),
         chat,
         earlier: page.earlier,
-        items: page
-            .items
-            .into_iter()
-            .map(item)
-            .collect::<Result<_>>()?,
-        last: None,
+        last: items.iter().rev().find_map(last_of),
+        items,
         pending: u64::from(page.pending),
         to,
         usage: usage(page.usage),
@@ -51,23 +56,49 @@ pub(crate) fn transcript(
 }
 
 /// `event` as a turn of the watched chat `chat`, or none when the
-/// event is of another chat.
+/// event is of another chat. `last` is what the chat showed the agent
+/// did last, which each item the event adds may change.
 pub(crate) fn turn(
     event: ChatEvent,
     chat: &protocol::ChatRef,
+    last: &mut Option<LastActivity>,
 ) -> Result<Option<Turn>> {
     if chat_ref(&event.chat) != *chat {
         return Ok(None);
     }
+    let mut operations = Vec::with_capacity(event.ops.len());
+    for op in event.ops {
+        let mut op = operation(op)?;
+        match &mut op {
+            TranscriptOperation::Add { item, .. } => {
+                if let Some(did) = last_of(item) {
+                    *last = Some(did);
+                }
+            }
+            TranscriptOperation::Status { last: shown, .. } => {
+                shown.clone_from(last);
+            }
+            _ => {}
+        }
+        operations.push(op);
+    }
     Ok(Some(Turn {
         chat: chat.clone(),
         number: chat.from.is_none().then_some(chat.past).flatten(),
-        operations: event
-            .ops
-            .into_iter()
-            .map(operation)
-            .collect::<Result<_>>()?,
+        operations,
     }))
+}
+
+/// What `item` shows the agent did, as a chat's status tells it: a
+/// tool it called, a reply or an error.
+fn last_of(item: &protocol::Item) -> Option<LastActivity> {
+    let what = match (&item.tool, &item.kind) {
+        (Some(tool), _) => format!("tool {}", tool.name),
+        (None, ItemKind::Assistant) => "replied".into(),
+        (None, ItemKind::Error) => "error".into(),
+        _ => return None,
+    };
+    Some(LastActivity { at: item.at, what })
 }
 
 /// The words of an answer that is a refusal, which carries them
@@ -161,15 +192,30 @@ pub(crate) fn rewound(
 }
 
 /// A check of a model: its hello is the reply's words, and its
-/// failure or refusal the error's.
+/// failure or refusal the error's. A hello or a failure is the
+/// realm's model link from then on.
 pub(crate) fn checked(
     id: &RequestId,
     answer: &[u8],
-    _: &Own,
+    own: &Own,
 ) -> Result<ServerMessage> {
+    let link = |state, models: Option<u32>, words: &str| {
+        own.link.send_replace(Link {
+            models: models.map(i64::from),
+            state,
+            words: Some(words.to_owned()),
+        });
+    };
     Ok(match ciborium::from_reader(answer)? {
-        Checked::Answered { words } => notice(id, words),
-        Checked::Failed { words } | Checked::Refused { words } => {
+        Checked::Answered { words, models } => {
+            link(LinkState::Connected, models, &words);
+            notice(id, words)
+        }
+        Checked::Failed { words } => {
+            link(LinkState::Failed, None, &words);
+            reply(id, Err(Refusal::Usage { words }))
+        }
+        Checked::Refused { words } => {
             reply(id, Err(Refusal::Usage { words }))
         }
     })
@@ -222,40 +268,78 @@ pub(crate) fn history(
     })
 }
 
-/// The models the Hand's listing holds, with what it does not know
-/// of them left unknown.
+/// The models the Hand lists, each with what the chief says of it, as
+/// today's catalogue shows them: the chief's price and images over
+/// the listed ones, and the effort it thinks at unless asked
+/// otherwise.
 pub(crate) fn models(
     id: &RequestId,
-    answer: &[u8],
-    _: &Own,
-) -> Result<ServerMessage> {
-    worded(id, answer, |ModelList { models }| {
-        let models = models
-            .into_iter()
-            .map(|model| Listed {
+    list: ModelList,
+    cards: Vec<CardRead>,
+) -> ServerMessage {
+    let mut cards = cards
+        .into_iter()
+        .map(|card| (card.model.clone(), card))
+        .collect::<BTreeMap<_, _>>();
+    let models = list
+        .models
+        .into_iter()
+        .map(|model| {
+            let card = cards.remove(&model.name);
+            let (price, priced) = match (
+                card.as_ref().and_then(|c| c.price.clone()),
+                model.price,
+            ) {
+                (Some(yours), _) => {
+                    (Some(yours), ListedPriced::Yours)
+                }
+                (None, Some(listed)) => {
+                    (Some(listed), ListedPriced::Listed)
+                }
+                (None, None) => (None, ListedPriced::Unknown),
+            };
+            let efforts = model
+                .efforts
+                .iter()
+                .copied()
+                .map(Effort::of)
+                .collect::<Vec<_>>();
+            let images =
+                match card.as_ref().and_then(|c| c.images.clone()) {
+                    Some(limits) => Some(ImageInput {
+                        max_bytes: limits.max_bytes,
+                        max_height: limits.max_height,
+                        max_width: limits.max_width,
+                        per_line: limits.per_line,
+                    }),
+                    None => model.images.map(|per_line| ImageInput {
+                        max_bytes: None,
+                        max_height: None,
+                        max_width: None,
+                        per_line: Some(per_line),
+                    }),
+                };
+            Listed {
                 context: Some(i64::from(model.context)),
-                default_effort: None,
-                efforts: Vec::new(),
-                fast: false,
-                images: None,
+                default_effort: (!efforts.is_empty())
+                    .then(|| Effort::Medium.clamped(&efforts).wire()),
+                efforts: model.efforts,
+                fast: model.fast,
+                images,
                 name: model.name,
-                note: String::new(),
-                priced: if model.price.is_some() {
-                    ListedPriced::Listed
-                } else {
-                    ListedPriced::Unknown
-                },
-                price: model.price.map(|price| protocol::Price {
+                note: card.map(|card| card.note).unwrap_or_default(),
+                price: price.map(|price| protocol::Price {
                     input: price.input,
                     output: price.output,
                 }),
+                priced,
                 title: model.title,
-            })
-            .collect();
-        Ok(ServerMessage::Read(ReadResult::Models {
-            models,
-            to: id.clone(),
-        }))
+            }
+        })
+        .collect();
+    ServerMessage::Read(ReadResult::Models {
+        models,
+        to: id.clone(),
     })
 }
 
@@ -444,6 +528,10 @@ mod tests {
             },
             realm: "/realm".to_owned(),
             epoch: 0,
+            link: tokio::sync::watch::Sender::new(
+                crate::settings::untested(),
+            ),
+            faux: false,
         }
     }
 
@@ -531,7 +619,7 @@ mod tests {
                 item: Box::new(ChatItem {
                     id: "3:0".to_owned(),
                     at: Count(1_763_200_000_123),
-                    kind: protocol::ItemKind::User,
+                    kind: ItemKind::User,
                     text: "Go on.".to_owned(),
                     author: None,
                     chief: None,
@@ -544,7 +632,7 @@ mod tests {
             }],
         };
         let chat = chat_ref(&event.chat);
-        let turn = turn(event, &chat).unwrap().unwrap();
+        let turn = turn(event, &chat, &mut None).unwrap().unwrap();
         let [TranscriptOperation::Add { item, .. }] =
             turn.operations.as_slice()
         else {
@@ -560,7 +648,7 @@ mod tests {
                 item: Box::new(ChatItem {
                     id: "11:0".to_owned(),
                     at: Count(1_763_200_000_123),
-                    kind: protocol::ItemKind::Tool,
+                    kind: ItemKind::Tool,
                     text: String::new(),
                     author: None,
                     chief: None,
@@ -599,7 +687,7 @@ mod tests {
             ops: vec![call(open, None), call(ended, Some("11:0"))],
         };
         let chat = chat_ref(&event.chat);
-        let turn = turn(event, &chat).unwrap().unwrap();
+        let turn = turn(event, &chat, &mut None).unwrap().unwrap();
         assert!(
             matches!(
                 turn.operations.as_slice(),
@@ -622,11 +710,70 @@ mod tests {
     }
 
     #[test]
+    fn a_status_tells_what_the_agent_did_last() {
+        let event = ChatEvent {
+            chat: ChatRef {
+                with: AgentNumber(7),
+                from: None,
+                kind: None,
+                past: None,
+            },
+            epoch: 1,
+            number: 1,
+            ops: vec![
+                ChatOp::Add {
+                    item: Box::new(ChatItem {
+                        id: "11:0".to_owned(),
+                        at: Count(1_763_200_000_123),
+                        kind: ItemKind::Tool,
+                        text: String::new(),
+                        author: None,
+                        chief: None,
+                        images: Vec::new(),
+                        files: Vec::new(),
+                        rewindable: None,
+                        tool: Some(ChatTool {
+                            name: "read".to_owned(),
+                            summary: "notes.md".to_owned(),
+                            exit: None,
+                            ms: None,
+                            failure: None,
+                            change: None,
+                        }),
+                    }),
+                    replaces: None,
+                },
+                ChatOp::Status {
+                    working: true,
+                    pending: 0,
+                },
+            ],
+        };
+        let chat = chat_ref(&event.chat);
+        let mut last = None;
+        let turn = turn(event, &chat, &mut last).unwrap().unwrap();
+        let read = LastActivity {
+            at: 1_763_200_000_123,
+            what: "tool read".to_owned(),
+        };
+        assert!(
+            matches!(
+                turn.operations.last(),
+                Some(TranscriptOperation::Status { last: Some(shown), .. })
+                    if *shown == read
+            ),
+            "{:?}",
+            turn.operations
+        );
+        assert_eq!(last, Some(read));
+    }
+
+    #[test]
     fn a_chiefs_line_names_its_chief_as_today() {
         let line = item(ChatItem {
             id: "10:0".to_owned(),
             at: Count(1_795_521_338_667),
-            kind: protocol::ItemKind::User,
+            kind: ItemKind::User,
             text: "run it".to_owned(),
             author: None,
             chief: Some("Ada".to_owned()),
@@ -685,48 +832,83 @@ mod tests {
     }
 
     #[test]
-    fn a_model_with_no_price_is_priced_unknown() {
+    fn a_chiefs_card_stands_over_the_listing_and_a_model_with_no_price_is_unknown()
+     {
+        let listed = |name: &str, price: Option<Price>| ListedModel {
+            name: name.to_owned(),
+            title: name.to_owned(),
+            context: 8_000,
+            price,
+            images: None,
+            efforts: vec![hamlet_protocol::Effort::Off],
+            fast: false,
+        };
+        let price = Price {
+            input: 1.0,
+            output: 2.0,
+            cache_read: 0.1,
+            cache_write: 1.25,
+        };
         let list = ModelList {
             models: vec![
-                ListedModel {
-                    name: "faux::a".to_owned(),
-                    title: "A".to_owned(),
-                    context: 32_000,
-                    price: Some(Price {
-                        input: 1.0,
-                        output: 2.0,
-                        cache_read: 0.1,
-                        cache_write: 1.25,
-                    }),
-                    images: None,
-                },
-                ListedModel {
-                    name: "faux::b".to_owned(),
-                    title: "B".to_owned(),
-                    context: 8_000,
-                    price: None,
-                    images: None,
-                },
+                listed("faux::a", Some(price.clone())),
+                listed("faux::b", None),
+                listed("faux::c", Some(price)),
             ],
         };
-        let answer =
-            models(&RequestId::new(), &bytes(&list), &own()).unwrap();
+        let cards = vec![CardRead {
+            model: "faux::c".to_owned(),
+            note: "Preferred.".to_owned(),
+            price: Some(Price {
+                input: 0.12,
+                output: 0.34,
+                cache_read: 0.0,
+                cache_write: 0.0,
+            }),
+            images: None,
+        }];
         let ServerMessage::Read(ReadResult::Models {
             models, ..
-        }) = answer
+        }) = models(&RequestId::new(), list, cards)
         else {
             panic!("a read of the models");
         };
-        assert_eq!(models[0].priced, ListedPriced::Listed);
-        assert_eq!(
-            models[0].price,
-            Some(protocol::Price {
-                input: 1.0,
-                output: 2.0
+        let shown = models
+            .iter()
+            .map(|m| {
+                (
+                    m.priced.clone(),
+                    m.price.clone(),
+                    m.note.as_str(),
+                    m.default_effort,
+                )
             })
+            .collect::<Vec<_>>();
+        let off = Some(hamlet_protocol::Effort::Off);
+        assert_eq!(
+            shown,
+            [
+                (
+                    ListedPriced::Listed,
+                    Some(protocol::Price {
+                        input: 1.0,
+                        output: 2.0
+                    }),
+                    "",
+                    off
+                ),
+                (ListedPriced::Unknown, None, "", off),
+                (
+                    ListedPriced::Yours,
+                    Some(protocol::Price {
+                        input: 0.12,
+                        output: 0.34
+                    }),
+                    "Preferred.",
+                    off
+                ),
+            ]
         );
-        assert_eq!(models[1].priced, ListedPriced::Unknown);
-        assert_eq!(models[1].context, Some(8_000));
     }
 
     #[test]

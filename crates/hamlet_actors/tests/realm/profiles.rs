@@ -2,7 +2,9 @@ use hamlet_messages::profile::{
     BadPath, By, Edit, Path, ProfileInput, ReadAnswer, RevertAnswer,
     Revision, TagAnswer, TagRefusal, VersionName,
 };
-use hamlet_messages::realm::documents::{EditSettings, Setting};
+use hamlet_messages::realm::documents::{
+    EditSettings, Newcomers, Setting,
+};
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
     Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
@@ -11,7 +13,8 @@ use hamlet_messages::realm::profiles::{
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Found, FoundAnswer,
-    Gate, Hire, HireAnswer, HireRefusal, LeadRefusal, ProfileId,
+    FoundRefusal, Gate, Hire, HireAnswer, HireRefusal, LeadRefusal,
+    ProfileId,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -235,6 +238,41 @@ async fn set_character(realm: &Realm) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_profile_a_lead_makes_waits_at_the_harbor_unless_the_hand_makes_it_or_the_city_is_open()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, MAYOR, "c1", "Mason", None).await;
+    create(&realm, Hand::NUMBER, "c2", "Digger", None).await;
+    let open = EditSettings {
+        set: vec![Setting::Newcomers {
+            newcomers: Newcomers::Open,
+        }],
+    };
+    assert_eq!(chief(&realm, open).await, Done::Done);
+    create(&realm, MAYOR, "c3", "Smith", None).await;
+
+    let arrivals = realm
+        .stopped_rows(|db| {
+            db.prepare(
+                "SELECT id, arrival FROM profile WHERE id >= 3 \
+                 ORDER BY id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<(u32, String)>>>()
+        })
+        .await;
+    assert_eq!(
+        arrivals,
+        [
+            (3, "harbor".to_owned()),
+            (4, "housed".to_owned()),
+            (5, "housed".to_owned())
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_made_profile_is_made_from_its_character_before_the_answer()
 {
     let (realm, _) = hamlet_with(0).await;
@@ -357,6 +395,80 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
             agent: named_as(3, "hire#3 (Mason)")
         }
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The profile `Mason`, made by the Hand, as the mayor of a hamlet
+/// founded at `version`.
+fn quay_at(version: &str) -> Found {
+    Found {
+        mayor: Some(ProfileId(3)),
+        version: Some(VersionName(version.to_owned())),
+        purpose: Some("Mind the boats".to_owned()),
+        ..found("Quay")
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_found_at_a_version_seats_its_mayor_at_it() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+
+    let FoundAnswer::Founded { mayor, .. } = realm
+        .tool(Hand::NUMBER, &tool("f1", quay_at("v1")))
+        .await
+        .unwrap()
+    else {
+        panic!("the Hand founds Quay");
+    };
+    realm.live(mayor).await;
+
+    let branched = realm.seen.branches.lock().unwrap().clone();
+    assert!(
+        branched.iter().any(|(profile, branch)| {
+            *profile == ProfileId(3)
+                && branch.name == format!("hires/{}", mayor.0)
+                && branch.from == Some(VersionName("v1".to_owned()))
+        }),
+        "{branched:?}"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_found_at_a_version_its_profile_lacks_is_refused_by_name() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let branched = || realm.seen.branches.lock().unwrap().len();
+    let before = branched();
+    let refusal = |answer: FoundAnswer<FoundRefusal>| match answer {
+        FoundAnswer::Refused { why } => why.to_string(),
+        FoundAnswer::Founded { hamlet, .. } => {
+            format!("founded {}", hamlet.0)
+        }
+    };
+
+    let by_the_hand = realm
+        .tool(Hand::NUMBER, &tool("f1", quay_at("main")))
+        .await
+        .unwrap();
+    let by_the_chief = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: quay_at("v9"),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        refusal(by_the_hand),
+        "`scholar#3 (Mason)` has no version `main`"
+    );
+    assert_eq!(
+        refusal(by_the_chief),
+        "`scholar#3 (Mason)` has no version `v9`"
+    );
+    assert_eq!(branched(), before);
     realm.host.shutdown().await.unwrap();
 }
 

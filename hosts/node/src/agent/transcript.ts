@@ -13,7 +13,12 @@ import type {
 } from "@earendil-works/pi-durable";
 import { UserError } from "../actor/actor/mod.ts";
 import { piRuntime, withHarness } from "../pi/runtime.ts";
-import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
+import {
+    type AgentCall,
+    type AgentContext,
+    generationOf,
+    numberOf,
+} from "./actor.ts";
 import { Fold, textOf, timeOf } from "./chat-items.ts";
 import type {
     ChatEvent,
@@ -247,7 +252,7 @@ function foldOf(
     const kept = at.folds.get(id);
     if (kept !== undefined) return kept;
     const made = (async () => {
-        const fold = new Fold();
+        const fold = new Fold(numberOf(c));
         const take = (view: ConversationView) => {
             watch.queue = watch.queue
                 .then(async () => {
@@ -419,7 +424,7 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
             const at = await followed(c, follow);
             const live = await foldOf(c, follow, at, conversation);
             const number = follow.now();
-            const fold = new Fold();
+            const fold = new Fold(numberOf(c));
             const kept = new Map<string, ChatItem>();
             const held = await harness.conversation(conversation, context);
             let cursor: Cursor | undefined;

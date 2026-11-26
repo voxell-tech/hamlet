@@ -3,9 +3,11 @@
 //! at a time.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use hamlet_messages::Message;
 use hamlet_messages::address::Profile;
 use hamlet_messages::agent::BuiltIn;
 use hamlet_messages::profile::{
@@ -13,13 +15,14 @@ use hamlet_messages::profile::{
 };
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::profiles::{
-    Dream, DreamAskedRefusal, DreamRefusal, Dreamer,
+    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt,
 };
 use hamlet_messages::realm::workers::{BUILT_IN, Ended};
-use hamlet_messages::realm::{Done, ProfileId, Refusable};
+use hamlet_messages::realm::{Asked, ProfileId, Refusable};
 use hamlet_messages::sender::{Client, Hand};
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
+use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::change::{self, Affected, Rows, Writer, integer, number};
@@ -28,7 +31,8 @@ use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tree::tools::off_for;
 use super::workers::errands::{self, ErrandInput, Purpose};
 use super::{
-    calls, documents, oversight, profiles, record, tasks, versions,
+    Realm, calls, documents, oversight, profiles, record, tasks,
+    versions,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's
@@ -236,9 +240,9 @@ async fn dreamt_over(
 }
 
 impl Act<Client> for Dream {
-    type Output = Done<DreamAskedRefusal>;
-    type Loaded = Result<Change, DreamAskedRefusal>;
-    type Done = ();
+    type Output = Dreamt;
+    type Loaded = Result<(DreamId, Change), DreamAskedRefusal>;
+    type Done = DreamId;
 
     async fn load(
         &self,
@@ -251,10 +255,15 @@ impl Act<Client> for Dream {
         let dream =
             DreamId(u32::try_from(rows.next_id("dream").await?)?);
         Ok(dreamt_over(rows, &self.of).await?.map(
-            |(profile, hire)| Change::Begin {
-                dream,
-                profile,
-                hire,
+            |(profile, hire)| {
+                (
+                    dream,
+                    Change::Begin {
+                        dream,
+                        profile,
+                        hire,
+                    },
+                )
             },
         ))
     }
@@ -263,17 +272,65 @@ impl Act<Client> for Dream {
         &self,
         _by: &Client,
         loaded: Self::Loaded,
-    ) -> Decision<(), Self::Output> {
+    ) -> Decision<DreamId, Self::Output> {
         match loaded {
-            Ok(begin) => {
-                Decision::Change(Decided::new(()).change(begin))
+            Ok((dream, begin)) => {
+                Decision::Change(Decided::new(dream).change(begin))
             }
-            Err(why) => Decision::Answer(Done::refused(why)),
+            Err(why) => Decision::Answer(Dreamt::refused(why)),
         }
     }
 
-    fn answer(&self, (): (), _made: &calls::Made) -> Self::Output {
-        Done::Done
+    fn answers_after(&self, &dream: &DreamId) -> Vec<StepId> {
+        vec![row(dream)]
+    }
+
+    fn answer(&self, dream: DreamId, _made: &calls::Made) -> Dreamt {
+        Dreamt::Began { dream }
+    }
+}
+
+/// `chief_dream`, which answers once the dream's folders are checked
+/// out: `Nothing` when its profile had nothing to dream about, which
+/// ends the dream with no errand and no failed step.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct ChiefDream(pub Asked<Dream>);
+
+impl Action for ChiefDream {
+    type Output = <Asked<Dream> as Action>::Output;
+    const NAME: &'static str = <Asked<Dream> as Action>::NAME;
+}
+
+impl Message for ChiefDream {
+    type To = <Asked<Dream> as Message>::To;
+    type From = <Asked<Dream> as Message>::From;
+}
+
+impl Handler<ChiefDream> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        ChiefDream(asked): ChiefDream,
+    ) -> Result<Dreamt> {
+        let answer = self.handle(ctx.clone(), asked).await?;
+        let Dreamt::Began { dream } = answer else {
+            return Ok(answer);
+        };
+        let rows = Rows::outside(&ctx)?;
+        let ended_unprepared = rows
+            .value::<bool>(
+                "SELECT errand IS NULL AND done IS NOT NULL FROM \
+                 dream WHERE id = ?1",
+                vec![id(dream)],
+            )
+            .await?
+            .unwrap_or(false);
+        let nothing = ended_unprepared
+            && steps::first_failed(&rows, &[row(dream)])
+                .await?
+                .is_none();
+        Ok(if nothing { Dreamt::Nothing } else { answer })
     }
 }
 

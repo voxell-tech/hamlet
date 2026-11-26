@@ -8,8 +8,8 @@ use hamlet_host::Address;
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    self, NewSession, ReadHistory, ReadModels, ReadPrompt, Resume,
-    Retry, Rewind,
+    self, CheckConnection, NewSession, ReadHistory, ReadPrompt,
+    Resume, Retry, Rewind,
 };
 use hamlet_messages::realm::documents::ReadCharter;
 use hamlet_messages::workspace::AgentNumber;
@@ -18,10 +18,11 @@ use hamlet_protocol::client::{
     ServerMessage,
 };
 
+use super::answers::Reading;
 use super::call::Stopping;
 use super::host::HAND;
 use super::view::Own;
-use super::{commands, frames, words};
+use super::{commands, frames};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -43,7 +44,31 @@ pub(crate) enum Route {
     /// it ends.
     Line(protocol::Say, AgentNumber),
     Call(Call),
+    /// A check of the realm's model, whose link is testing until it
+    /// answers, unless every agent runs the faux model.
+    Check(Call),
     SignIn(protocol::Login),
+    Read(Reading),
+    Upload(Upload),
+}
+
+/// A chief's upload: its start or one of its parts.
+pub(crate) enum Upload {
+    Image(protocol::PutImage),
+    ImagePart(protocol::PutImagePart),
+    File(protocol::PutFile),
+    FilePart(protocol::PutFilePart),
+}
+
+impl Upload {
+    pub(crate) fn id(&self) -> &RequestId {
+        match self {
+            Self::Image(put) => &put.id,
+            Self::ImagePart(part) => &part.id,
+            Self::File(put) => &put.id,
+            Self::FilePart(part) => &part.id,
+        }
+    }
 }
 
 /// A chief's command, edit, answer to a wait or stop, answered by
@@ -55,6 +80,7 @@ pub(crate) enum Asked {
     /// A stop of one agent.
     Stop(RequestId, AgentId),
     StopAll(RequestId),
+    MoveLodges(RequestId),
 }
 
 impl Asked {
@@ -63,7 +89,8 @@ impl Asked {
             Self::Command(say) => &say.id,
             Self::Edit(id, _)
             | Self::Stop(id, _)
-            | Self::StopAll(id) => id,
+            | Self::StopAll(id)
+            | Self::MoveLodges(id) => id,
             Self::Answer(answer) => &answer.id,
         }
     }
@@ -181,21 +208,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             )?
         }
         ClientMessage::Login(login) => Route::SignIn(login),
-        ClientMessage::Check(Check::Model {
-            id,
-            model: Some(model),
-        }) => call(
-            &address::Agent(HAND),
-            &id,
-            &chat::Check { model },
-            frames::checked,
-            After::Nothing,
-        )?,
-        ClientMessage::Check(Check::Model { id, model: None }) => {
-            Route::Now(Box::new(reply(
-                &id,
-                Ok(words::FAUX_MODELS.into()),
-            )))
+        ClientMessage::Check(Check::Model { id, model }) => {
+            check(&id, &chat::Check { model })?
+        }
+        ClientMessage::Check(Check::Connection { id }) => {
+            check(&id, &CheckConnection)?
         }
         ClientMessage::Read(Read::Prompt { agent, id }) => {
             agent_call(
@@ -215,13 +232,9 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
                 |_| After::Nothing,
             )?
         }
-        ClientMessage::Read(Read::Models { id, .. }) => call(
-            &address::Agent(HAND),
-            &id,
-            &ReadModels,
-            frames::models,
-            After::Nothing,
-        )?,
+        ClientMessage::Read(Read::Models { id, .. }) => {
+            Route::Read(Reading::Models { id })
+        }
         ClientMessage::Read(Read::Charter { id }) => call(
             &address::Realm,
             &id,
@@ -229,7 +242,31 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             frames::charter,
             After::Nothing,
         )?,
-        message => Route::Now(Box::new(unsupported(&message)?)),
+        ClientMessage::Read(Read::Papers { of, id, .. }) => {
+            Route::Read(Reading::Papers { id, of })
+        }
+        ClientMessage::Read(Read::Image { id, image, size }) => {
+            Route::Read(Reading::Image {
+                id,
+                image,
+                size: size.unwrap_or_default(),
+            })
+        }
+        ClientMessage::PutImage(put) => {
+            Route::Upload(Upload::Image(put))
+        }
+        ClientMessage::PutImagePart(part) => {
+            Route::Upload(Upload::ImagePart(part))
+        }
+        ClientMessage::PutFile(put) => {
+            Route::Upload(Upload::File(put))
+        }
+        ClientMessage::PutFilePart(part) => {
+            Route::Upload(Upload::FilePart(part))
+        }
+        ClientMessage::MoveLodges(asked) => {
+            Route::Command(Asked::MoveLodges(asked.id))
+        }
     };
     Ok(route)
 }
@@ -276,36 +313,43 @@ fn call<M: Message>(
     answer: Words,
     after: After,
 ) -> Result<Route> {
-    Ok(Route::Call(Call {
+    Ok(Route::Call(made(to, id, message, answer, after)?))
+}
+
+/// The Hand's check of a model, which its link shows.
+fn check<M: Message<To = address::Agent>>(
+    id: &RequestId,
+    message: &M,
+) -> Result<Route> {
+    Ok(Route::Check(made(
+        &address::Agent(HAND),
+        id,
+        message,
+        frames::checked,
+        After::Nothing,
+    )?))
+}
+
+fn made<M: Message>(
+    to: &M::To,
+    id: &RequestId,
+    message: &M,
+    answer: Words,
+    after: After,
+) -> Result<Call> {
+    Ok(Call {
         to: to.address()?,
         action: M::NAME,
         args: encode_positional(message)?,
         request: id.clone(),
         answer,
         after,
-    }))
-}
-
-/// The answer to `message`, which this server does not serve.
-fn unsupported(message: &ClientMessage) -> Result<ServerMessage> {
-    let what = serde_json::to_value(message)?["type"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let refusal = Refusal::Unsupported {
-        what: format!("`{what}`"),
-    };
-    Ok(match message.id() {
-        Some(id) => reply(id, Err(refusal)),
-        None => fault(None, refusal.to_string()),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use hamlet_protocol::client::{
-        Keeper, MoveLodges, ReplyKind, Say, ScholarId,
-    };
+    use hamlet_protocol::client::{ReplyKind, Say};
 
     use super::*;
 
@@ -387,16 +431,15 @@ mod tests {
     #[test]
     fn the_models_are_read_from_the_hand_and_the_charter_from_the_realm()
      {
-        let Route::Call(models) =
+        let Route::Read(Reading::Models { .. }) =
             route(ClientMessage::Read(Read::Models {
                 id: RequestId::new(),
                 refresh: None,
             }))
             .unwrap()
         else {
-            panic!("the models are a call");
+            panic!("the models are a read of the Hand and the realm");
         };
-        assert_eq!(models.to.to_string(), "agent/1");
         let Route::Call(charter) =
             route(ClientMessage::Read(Read::Charter {
                 id: RequestId::new(),
@@ -407,35 +450,5 @@ mod tests {
         };
         assert_eq!(charter.to.to_string(), "realm/local");
         assert_eq!(charter.action, "read_charter");
-    }
-
-    #[test]
-    fn what_no_actor_serves_yet_is_answered_at_once() {
-        for message in [
-            ClientMessage::Check(Check::Connection {
-                id: RequestId::new(),
-            }),
-            ClientMessage::Read(Read::Papers {
-                of: Keeper::Scholar(ScholarId(1)),
-                full: None,
-                id: RequestId::new(),
-            }),
-            ClientMessage::MoveLodges(MoveLodges {
-                id: RequestId::new(),
-            }),
-        ] {
-            let Route::Now(answer) = route(message).unwrap() else {
-                panic!("answered at once");
-            };
-            let ServerMessage::Reply(answer) = *answer else {
-                panic!("a reply");
-            };
-            assert_eq!(answer.kind, ReplyKind::Error);
-            assert!(
-                answer.text.contains("does not do that yet"),
-                "{}",
-                answer.text
-            );
-        }
     }
 }

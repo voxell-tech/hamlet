@@ -34,7 +34,7 @@ import {
     type AgentHandlers,
     agentActor,
 } from "../src/agent/actor.ts";
-import { textOf } from "../src/agent/chat-items.ts";
+import { entryIdOf, textOf } from "../src/agent/chat-items.ts";
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import type { AgentInput, PromptSection } from "../src/agent/messages/agent.ts";
 import { LIBRARY, type LibraryActions } from "../src/agent/messages/library.ts";
@@ -815,7 +815,7 @@ export async function itemOfLine(agent: Woken, text: string): Promise<string> {
         (entry) => entry.kind === "hamlet.line" && textOf(entry) === text,
     );
     assert.ok(line !== undefined, `the line ${text} is in the session`);
-    return `${line.id}:0`;
+    return `${entryIdOf(7, line)}:0`;
 }
 
 /** Every table of the agent's database, as text. */

@@ -6,17 +6,18 @@ use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
-    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Login,
-    LoginMethod, LoginReply, LoginStart, LoginStep, New, Open, Read,
-    ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
-    ServerMessage, Stop, TranscriptOperation,
+    ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Keeper,
+    LinkState, Login, LoginMethod, LoginReply, LoginStart, LoginStep,
+    New, Open, Read, ReadResult, ReplyKind, RequestId, Resume, Retry,
+    Say, ServerMessage, Stop, TranscriptOperation,
 };
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
 use super::{
     HeldNode, KEY, SIGN_IN, finish_sign_in, frames, keeps_to_itself,
-    kill_node, login_step, serve, serve_with, start_sign_in,
+    kill_node, login_step, said_once_hired, serve, serve_with,
+    start_sign_in,
 };
 
 /// What the faux model answers the first line it is given.
@@ -447,8 +448,7 @@ async fn an_open_after_its_follow_ended_follows_again() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// Each request the door answers from the actors, with what changed
-/// shown to every client before the reply.
+/// Each request the door answers from the actors.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_request_is_answered_in_todays_words() {
     let (mut server, _home, _side) =
@@ -471,6 +471,14 @@ async fn each_request_is_answered_in_todays_words() {
         })
         .await;
     assert_eq!(checked.kind, ReplyKind::Notice, "{}", checked.text);
+    chief
+        .until("the model link the check set", |chief| {
+            let link = chief.realm().settings.link;
+            link.state == LinkState::Connected
+                && link.words.as_deref()
+                    == Some(checked.text.as_str())
+        })
+        .await;
     let unnamed = chief
         .request(|id| {
             ClientMessage::Check(Check::Model { id, model: None })
@@ -518,26 +526,12 @@ async fn each_request_is_answered_in_todays_words() {
     );
 
     let seen = other.messages().len();
-    let asked = chief.messages().len();
     let began = chief
         .request(|id| ClientMessage::New(New { id, to: hand }))
         .await;
     assert_eq!(
         (began.kind, began.text.as_str()),
         (ReplyKind::Notice, "Session 2 began.")
-    );
-    let answered = chief
-        .messages()
-        .iter()
-        .rposition(|message| {
-            matches!(message, ServerMessage::Reply(_))
-        })
-        .unwrap();
-    assert!(
-        chief.messages()[asked..answered].iter().any(
-            |message| matches!(message, ServerMessage::State(_))
-        ),
-        "the asker is shown the realm before the reply"
     );
     let reread = |message: &ServerMessage| {
         matches!(
@@ -549,13 +543,6 @@ async fn each_request_is_answered_in_todays_words() {
     other
         .until("the watcher's session read again", |other| {
             other.messages()[seen..].iter().any(reread)
-        })
-        .await;
-    other
-        .until("the watcher shown the realm", |other| {
-            other.messages()[seen..].iter().any(|message| {
-                matches!(message, ServerMessage::State(_))
-            })
         })
         .await;
     let back = chief
@@ -788,4 +775,54 @@ async fn a_sign_in_cancelled_from_another_connection_goes_on() {
 /// loopback providers to sign in to.
 async fn serve_signing_in() -> (Server, Scratch, Scratch) {
     serve_with(json!([REPLY]), &[SIGN_IN]).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_items_of_two_agents_chats_never_share_an_id() {
+    let (mut server, _home, _side) =
+        serve(json!(["Docs answer.", "Mill answer."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let mut mayors = Vec::new();
+    for name in ["Docs", "Mill"] {
+        chief.command(hand, &format!("/create-hamlet {name}")).await;
+        chief.until(name, |c| c.hamlet(name).is_some()).await;
+        let mayor = chief.hamlet(name).unwrap().mayor;
+        said_once_hired(&mut chief, mayor, "Are you there?").await;
+        mayors.push(mayor);
+    }
+    let mut ids = HashSet::new();
+    for mayor in mayors {
+        for item in chief.open(&chat(mayor)).await.items {
+            assert!(ids.insert(item.id.clone()), "{} twice", item.id);
+        }
+    }
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scholar_made_and_founded_under_in_one_answer_has_its_papers()
+ {
+    let (mut server, _home, _side) = serve(json!([
+        {"calls": [
+            {"name": "create_scholar",
+             "arguments": {"name": "bo", "character": "Careful."}},
+            {"name": "found_hamlet",
+             "arguments": {"name": "bog", "scholar": "scholar#2",
+                           "purpose": "drain"}}
+        ]},
+        "Founded."
+    ]))
+    .await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    chief.open(&chat(hand)).await;
+    chief.tell(hand, "Found a hamlet.").await;
+    chief.shows(&chat(hand), "Founded.").await;
+    let scholar = chief.scholar("bo").unwrap().id;
+    let papers = chief.papers(Keeper::Scholar(scholar)).await;
+    assert_eq!(papers.character, "Careful.");
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

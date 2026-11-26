@@ -82,6 +82,8 @@ struct Peers {
     secrets_delay: Duration,
     fetched: AtomicUsize,
     refused_tells: AtomicUsize,
+    /// Tells answered as if the link to the agent's host were down.
+    unlinked_tells: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
     asked: Mutex<Vec<NeedsChief>>,
 }
@@ -162,15 +164,11 @@ impl Handler<Finished> for Peer {
         _: Ctx<Self>,
         finished: Finished,
     ) -> anyhow::Result<()> {
-        if self
-            .peers
-            .refused_tells
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
-                left.checked_sub(1)
-            })
-            .is_ok()
-        {
+        if taken(&self.peers.refused_tells) {
             anyhow::bail!("the agent refused the end");
+        }
+        if taken(&self.peers.unlinked_tells) {
+            return Err(LinkDown.build());
         }
         self.peers
             .told
@@ -180,6 +178,18 @@ impl Handler<Finished> for Peer {
         Ok(())
     }
 }
+
+/// Whether one of `left` was there to take.
+fn taken(left: &AtomicUsize) -> bool {
+    left.try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+        left.checked_sub(1)
+    })
+    .is_ok()
+}
+
+#[derive(ActorError)]
+#[error("link", "down", "The link to the other host is not up.")]
+struct LinkDown;
 
 impl Handler<NeedsChief> for Peer {
     async fn handle(
@@ -951,6 +961,28 @@ fn told_ends(peers: &Peers) -> Vec<(String, CommandEnd)> {
             (finished.call.0.clone(), ran(finished).clone())
         })
         .collect()
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commands_end_is_told_again_while_its_agents_link_is_down()
+{
+    let dir = Scratch::new("workspace-unlinked");
+    filesystem(&dir);
+    let peers = answering_within(200);
+    peers.unlinked_tells.store(2, Ordering::SeqCst);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    running(
+        &agent_runs(&host, &run("c1", "sleep 0.5; echo late")).await,
+    );
+    told_within(&peers, 1, Duration::from_secs(10)).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(peers.unlinked_tells.load(Ordering::SeqCst), 0);
+    let told = told_ends(&peers);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0].1.output, "late\n");
 }
 
 #[cfg(unix)]

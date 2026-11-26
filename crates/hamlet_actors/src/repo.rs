@@ -124,6 +124,21 @@ impl Repo {
             host,
         })
     }
+
+    /// What `look` reads of the repository, beside other reads,
+    /// outside any call.
+    pub async fn reads<T, F>(&self, look: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Reads) -> Result<T> + Send + 'static,
+    {
+        let folder = self.folder.clone().read_owned().await;
+        let at = now_ms()?;
+        tokio::task::spawn_blocking(move || {
+            look(folder.open(at)?.reads()?)
+        })
+        .await?
+    }
 }
 
 /// A message as it arrived: who sent it, by the host's stamp.

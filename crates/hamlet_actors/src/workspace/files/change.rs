@@ -38,7 +38,7 @@ use tokio::sync::OwnedMutexGuard;
 
 use self::shown::cut;
 use super::edit::{self, CallError};
-use super::{Gated, Passed};
+use super::{Gated, Passed, diff};
 use crate::workspace::pending::{
     self, NotRun, Pending, Rechecked, Wait,
 };
@@ -760,6 +760,10 @@ async fn planned(
     .context("a change's thread ended before it")
 }
 
+/// The most bytes of a file a write's change is shown from, old or
+/// new.
+const SHOWN_MOST: usize = 1 << 20;
+
 /// Reads what the change at `path` replaces, and works out what it
 /// writes, or says in words why it cannot.
 fn plan(
@@ -773,27 +777,50 @@ fn plan(
     match asked {
         PlannedAs::Write(content) => {
             let mut replaced = match planning {
-                Planning::ForChief { secrets } => {
-                    Some(shown::Replaced::new(secrets))
-                }
+                Planning::ForChief { secrets } => Some((
+                    shown::Replaced::new(secrets),
+                    Some(Vec::new()),
+                )),
                 Planning::Now | Planning::Allowed { .. } => None,
             };
             let current = env.and_then(|env| {
                 env.read_for_change(path, &mut |part| {
-                    if let Some(replaced) = &mut replaced {
+                    if let Some((replaced, kept)) = &mut replaced {
                         replaced.push(part);
+                        // A file too large to show whole shows no
+                        // change.
+                        if let Some(bytes) = kept {
+                            if bytes.len() + part.len() > SHOWN_MOST {
+                                *kept = None;
+                            } else {
+                                bytes.extend_from_slice(part);
+                            }
+                        }
                     }
                 })
             });
             let current = still(current, planning)?
                 .map_err(|error| Unplanned::Failed(error.message))?;
+            // A chief is shown a text write's change, as an edit's.
+            let diff = replaced.as_ref().and_then(|(_, old)| {
+                let old = std::str::from_utf8(old.as_ref()?).ok()?;
+                let new = std::str::from_utf8(&content)
+                    .ok()
+                    .filter(|new| new.len() <= SHOWN_MOST)?;
+                let (shown, first) = diff::diff_string(old, new);
+                Some(EditDiff {
+                    diff: shown,
+                    patch: diff::unified_patch(path, old, new),
+                    first_changed_line: first.map(|line| line as u64),
+                })
+            });
             Ok(Planned {
                 replaced: replaced
                     .filter(|_| current.digest.is_some())
-                    .map(shown::Replaced::shown),
+                    .map(|(replaced, _)| replaced.shown()),
                 current,
                 content,
-                diff: None,
+                diff,
             })
         }
         PlannedAs::Edit(edits) => {

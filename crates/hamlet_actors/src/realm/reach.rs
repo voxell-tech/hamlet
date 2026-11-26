@@ -30,20 +30,33 @@ pub(super) async fn of(
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
     let secrets = secrets.version();
-    if let Numbered::Errand(n) = agent.numbered() {
-        return Ok(SetReach {
-            agent,
-            version,
-            reach: dreams::reach(rows, n, folder, secrets).await?,
-        });
-    }
+    let reach = match agent.numbered() {
+        Numbered::Errand(n) => {
+            dreams::reach(rows, n, folder, secrets).await?
+        }
+        _ => standing(rows, agent, secrets).await?,
+    };
+    Ok(SetReach {
+        agent,
+        version,
+        reach,
+    })
+}
+
+/// The reach of `agent`, not a dream's errand, as the rows give it
+/// now, asking for the secrets of `secrets`.
+pub(super) async fn standing(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    secrets: SecretsVersion,
+) -> Result<Reach> {
     let worker = rows
         .row::<(Option<u32>, Option<String>)>(
             "SELECT starter, hamlet FROM worker WHERE agent = ?1",
             vec![number(agent)],
         )
         .await?;
-    let reach = if tree::left(rows, agent).await?.is_some() {
+    Ok(if tree::left(rows, agent).await?.is_some() {
         Reach::Ended
     } else if let Some((starter, hamlet)) = worker {
         let starter = starter.map(AgentNumber);
@@ -60,11 +73,6 @@ pub(super) async fn of(
         }
     } else {
         Reach::Agent(oversight::footing(rows, agent, secrets).await?)
-    };
-    Ok(SetReach {
-        agent,
-        version,
-        reach,
     })
 }
 

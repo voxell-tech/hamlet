@@ -401,8 +401,16 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     let (realm, ctx) = (&realm, &ctx);
     let refused = retried(ctx, None, move || async move {
         let walked = walk_row(realm, ctx, row).await;
-        if let Err(error) = &walked {
-            tracing::warn!(?row, "a step failed: {error:#}");
+        match &walked {
+            // As the hosts start, an agent is not reached until the
+            // Node host links up, and the step runs again.
+            Err(error) if peer::unreached(error) => {
+                tracing::debug!(?row, "a step waits: {error:#}");
+            }
+            Err(error) => {
+                tracing::warn!(?row, "a step failed: {error:#}");
+            }
+            Ok(()) => {}
         }
         walked
     })

@@ -38,8 +38,8 @@ use crate::workspace::lodges::LODGE;
 /// The most bytes of an image the realm keeps.
 pub(crate) const MOST_BYTES: usize = 20 << 20;
 /// The longest side of a thumbnail, and the most bytes it takes.
-const THUMBNAIL_SIDE: u32 = 320;
-const THUMBNAIL_BYTES: u64 = 256 * 1024;
+pub(crate) const THUMBNAIL_SIDE: u32 = 320;
+pub(crate) const THUMBNAIL_BYTES: u64 = 256 * 1024;
 /// The folder of a lodge, or of a worker's scratch folder, that holds
 /// the images given to its agent (S29).
 pub(crate) const SEEN: &str = "inbox/images";
@@ -735,7 +735,7 @@ fn held_by_agents(layout: &Layout) -> HashSet<ImageId> {
 }
 
 /// `words` with its first letter in capitals.
-fn capitalised(words: &str) -> String {
+pub(crate) fn capitalised(words: &str) -> String {
     let mut letters = words.chars();
     letters
         .next()

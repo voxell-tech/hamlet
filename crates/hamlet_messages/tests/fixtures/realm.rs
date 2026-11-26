@@ -417,6 +417,20 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                     },
                 ),
                 ("no_purpose", FoundRefusal::NoPurpose),
+                (
+                    "no_version",
+                    FoundRefusal::NoVersion {
+                        label: profiles::label(),
+                        version: VersionName("v9".to_owned()),
+                    },
+                ),
+                (
+                    "unanswered",
+                    FoundRefusal::Unanswered {
+                        label: profiles::label(),
+                        version: VersionName("v9".to_owned()),
+                    },
+                ),
             ],
         );
     }
@@ -1302,6 +1316,35 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                     left: left(HowEnded::ByTheChief),
                 },
             ),
+            (
+                "not_a_place",
+                SayRefusal::NotAPlace { at: 5, length: 4 },
+            ),
+            (
+                "file_not_sent",
+                SayRefusal::FileNotSent {
+                    name: "notes/plan.md".to_owned(),
+                },
+            ),
+            (
+                "not_its_size",
+                SayRefusal::NotItsSize {
+                    name: "notes/plan.md".to_owned(),
+                },
+            ),
+            ("too_many_bytes", SayRefusal::TooManyBytes),
+            (
+                "no_image",
+                SayRefusal::NoImage {
+                    image: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae".to_owned(),
+                },
+            ),
+            (
+                "not_a_file_name",
+                SayRefusal::NotAFileName {
+                    name: "../plan.md".to_owned(),
+                },
+            ),
         ],
     );
     fixtures.unprobed_args(
@@ -1324,7 +1367,13 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 "nothing_waits",
                 AnswerRefusal::NothingWaits { wait: "3".into() },
             ),
-            ("not_offered", AnswerRefusal::NotOffered),
+            (
+                "not_that_way",
+                AnswerRefusal::NotThatWay {
+                    answers: "/allow /deny".to_owned(),
+                },
+            ),
+            ("picks_with_text", AnswerRefusal::PicksWithText),
             ("blank_reply", AnswerRefusal::BlankReply),
             ("unequal", AnswerRefusal::Unequal),
             ("no_option", AnswerRefusal::NoOption { question: 2 }),
@@ -1636,6 +1685,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                     name: "read".into(),
                 }],
                 model: None,
+                dream: false,
             },
         ),
         (
@@ -1646,6 +1696,18 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 text: "Write the tests".into(),
                 tools: Vec::new(),
                 model: Some("faux::faux-1".into()),
+                dream: false,
+            },
+        ),
+        (
+            "dream",
+            AgentKind::Errand,
+            Brief {
+                instructions: Some("You are dreaming.".into()),
+                text: "Dream now.".into(),
+                tools: Vec::new(),
+                model: Some("faux::faux-1".into()),
+                dream: true,
             },
         ),
     ] {
@@ -1723,6 +1785,20 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 held: Some(HeldCall {
                     call: CallId("t9".into()),
                     end: HeldEnd::Aborted,
+                }),
+            },
+        ),
+        (
+            "notice.withdrawn",
+            task(),
+            Input::Notice {
+                text: "The chief withdrew the instruction: Make the \
+                       file."
+                    .into(),
+                conversation: Some(ConversationId("c1".into())),
+                held: Some(HeldCall {
+                    call: CallId("t10".into()),
+                    end: HeldEnd::Withdrawn,
                 }),
             },
         ),

@@ -305,13 +305,32 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "cy said blue.").await;
     let questions = lane(ada, ChatRefKind::Questions, cy);
+    // Under --actors the asker does not wait for the answer.
+    s.chief.open(&questions).await;
+    s.chief.shows(&questions, "Blue.").await;
     let page = s.chief.open(&questions).await;
     assert_eq!(page.items.first().unwrap().text, "Which colour?");
-    assert_eq!(page.items.last().unwrap().text, "Blue.");
     let back = failures(&s.chief, &questions);
     assert_eq!(back.len(), 1);
     assert_eq!(back[0].0, "ask");
-    assert!(back[0].1.is_some(), "asking back is refused: {back:?}");
+    if home::serves_actors() {
+        // ada does not wait on cy, so cy's question back is asked,
+        // and ada's answer to it comes after cy's.
+        assert!(
+            page.items.iter().any(|i| i.text == "Blue."),
+            "{page:?}"
+        );
+        assert!(
+            back[0].1.is_none(),
+            "asking back is asked: {back:?}"
+        );
+    } else {
+        assert_eq!(page.items.last().unwrap().text, "Blue.");
+        assert!(
+            back[0].1.is_some(),
+            "asking back is refused: {back:?}"
+        );
+    }
     let cy = s.chief.agent("hire#3").unwrap();
     let kinds = cy
         .conversations
@@ -350,6 +369,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.open(&now).await;
     s.chief.tell(ada, "Count.").await;
     s.chief.shows(&now, "The worker said 42.").await;
+    left(&mut s.chief, "worker#3").await;
     let worker = s.chief.agent("worker#3").unwrap();
     assert_eq!(worker.kind, AgentKind::Worker);
     assert_eq!(worker.parent, Some(ada));
@@ -360,10 +380,21 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.shows(&now, "Started another.").await;
     s.chief.shows(&now, "worker#4 answers: 43").await;
     s.chief.shows(&now, "The second answer came.").await;
+    left(&mut s.chief, "worker#4").await;
     assert_eq!(
         s.chief.agent("worker#4").unwrap().left.unwrap().how,
         LeftHow::Answered
     );
+}
+
+/// Waits for the worker `name` to have left: a worker started with
+/// `wait` does not hold its starter's turn.
+async fn left(chief: &mut Client, name: &str) {
+    chief
+        .until(&format!("{name} left"), |c| {
+            c.agent(name).is_some_and(|agent| agent.left.is_some())
+        })
+        .await;
 }
 
 #[tokio::test]

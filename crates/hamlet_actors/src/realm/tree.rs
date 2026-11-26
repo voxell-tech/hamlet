@@ -17,7 +17,10 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
-pub(super) use lead::{Pinned, Pinning, ending, failed, hire_ending};
+pub(super) use lead::{
+    Pinned, Pinning, Unanswered, Versioned, ending, failed,
+    hire_ending,
+};
 use serde::Deserialize as _;
 
 use super::callers::Decider;
@@ -594,6 +597,11 @@ pub(super) enum Change {
     Live { agent: AgentNumber },
     /// A hire's purpose, when it has none.
     Purpose { hire: AgentNumber, text: String },
+    /// A hire is held at its profile's `version`, or follows `main`.
+    Pin {
+        hire: AgentNumber,
+        version: Option<VersionName>,
+    },
     /// The agent ends, and its hires go to its lead.
     End {
         agent: AgentNumber,
@@ -659,6 +667,20 @@ pub(super) async fn apply(
         Change::Live { agent } => live(writer, agent).await,
         Change::Purpose { hire, text } => {
             purpose(writer, hire, text).await
+        }
+        Change::Pin { hire, version } => {
+            writer
+                .execute(
+                    "UPDATE hire SET version = ?2 WHERE agent = ?1",
+                    vec![
+                        number(hire),
+                        version.map_or(BindParam::Null, |version| {
+                            BindParam::Text(version.0)
+                        }),
+                    ],
+                )
+                .await?;
+            Ok(Affected::seen([Part::Agents]))
         }
         Change::End { agent, how, why } => {
             lead::end(writer, agent, how, why).await

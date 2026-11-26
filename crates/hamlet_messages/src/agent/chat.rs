@@ -496,13 +496,33 @@ pub struct ListedModel {
     /// none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<u32>,
+    /// The efforts it can be asked for, weakest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<hamlet_protocol::Effort>,
+    /// Whether its provider has a fast tier it can be asked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
+}
+
+/// Reads how many images one line may give the model the agent runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImagesTaken;
+from_client!(ImagesTaken, "images_taken", TakenImages);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakenImages {
+    /// Absent when the model takes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_line: Option<u32>,
 }
 
 /// Asks `model` for a hello. It is neither admitted to a conversation
 /// nor charged, and a repeat asks again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {
-    pub model: String,
+    /// The model the agent runs when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 from_client!(Check, "check", Checked);
 
@@ -510,9 +530,18 @@ from_client!(Check, "check", Checked);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Checked {
-    Answered { words: String },
-    Failed { words: String },
-    Refused { words: String },
+    Answered {
+        words: String,
+        /// The models its endpoint lists, after a connection check.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        models: Option<u32>,
+    },
+    Failed {
+        words: String,
+    },
+    Refused {
+        words: String,
+    },
 }
 
 /// Asks the Hand to reach the model service the realm's settings

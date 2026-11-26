@@ -3,8 +3,7 @@
 
 use super::agent::{TELL_RESULTS, TELLS_CUT_OFF};
 use super::{
-    Demo, Expect, Is, Kill, Probe, Read, Scenario, exactly, mayor,
-    realm,
+    Demo, Expect, Is, Kill, Probe, Scenario, exactly, mayor, realm,
 };
 
 /// The model requests the realm charged the Hand.
@@ -47,15 +46,12 @@ const OPEN_OBJECTIONS: Probe = realm(
 /// The letters and answers the realm keeps for a held task.
 const HELD: Probe = realm("realm.held", "SELECT COUNT(*) FROM held");
 
-/// The letters hire 3 took.
-const LETTERS: Probe = Probe {
-    name: "agent.letters",
-    file: "actors/agent/3.sqlite",
-    read: Read::Sql(
-        "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
-         = 'hamlet.letter'",
-    ),
-};
+/// The letters the mayor took.
+const LETTERS: Probe = mayor(
+    "agent.letters",
+    "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
+     'hamlet.letter'",
+);
 
 /// The line said once, its repeat answered from what the realm kept.
 const SAID_ONCE: &[Expect] = &[
@@ -94,7 +90,7 @@ const RULED_ONCE: &[Expect] = &[
     exactly("may/3", 1),
     exactly("answered/1", 1),
     exactly("refused/1", 1),
-    exactly("took/3/letter", 1),
+    exactly("took/2/letter", 1),
     exactly("realm.objections", 0),
     exactly("agent.letters", 1),
 ];
@@ -186,9 +182,9 @@ pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "realm-objection",
         about: "a hire's model objects to a chief's line with the \
-                hire's own `object` tool, its mayor's letter on \
-                that task is kept, and the host is killed at a \
-                random time after; after each restart the \
+                hire's own `object` tool, its own letter to its \
+                mayor on that task is kept, and the host is killed \
+                at a random time after; after each restart the \
                 objection's wait is open and the hire's spending \
                 held, one go at the second ends it and lets the \
                 hire spend, a second go finds nothing waiting, and \
@@ -204,7 +200,7 @@ pub const SCENARIOS: &[Scenario] = &[
             "until 3 1 object result: The chief is considering an \
              objection.",
         ],
-        trigger: "agent 2 tell t1 hire#3 task=line:3 the file is in \
+        trigger: "agent 3 tell t1 mayor task=line:3 the file is in \
                   /tmp",
         trigger_replies: true,
         kill: Kill::After {
@@ -220,9 +216,9 @@ pub const SCENARIOS: &[Scenario] = &[
                 "agent 3 may-spend line:3",
                 "realm answer 1 go",
                 "realm answer 1 go",
-                "agent 3 await letter 1",
+                "agent 2 await letter 1",
                 "until 3 1 assistant: Heard: The chief rules",
-                "until 3 1 assistant: Heard: the file is in /tmp",
+                "until 2 1 assistant: Heard: the file is in /tmp",
                 "agent 3 may-spend line:3",
                 "pi pid",
             ],

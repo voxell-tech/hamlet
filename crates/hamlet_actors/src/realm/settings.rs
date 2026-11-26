@@ -1,7 +1,7 @@
 //! The realm's settings: the `settings` table and `EditSettings`.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::Result;
 use hamlet_actor::{Action, BindParam, Ctx, Handler};
@@ -27,6 +27,9 @@ const CHARACTER: &str = "You are a scholar new to this realm. You \
                          in your memory so that it lasts.";
 
 pub(super) const CHARACTER_MOST: usize = 4000;
+
+static OVERRIDES: LazyLock<Overrides> =
+    LazyLock::new(Overrides::from_env);
 
 /// The realm's settings, as a chief last set them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +66,7 @@ impl Settings {
         AgentSettings {
             reflect_every: self.reflect_every,
             allow_net: self.allow_net,
+            endpoints: self.endpoints.clone(),
         }
     }
 
@@ -199,6 +203,9 @@ pub(super) async fn apply(
     };
     let moved = settings.moved(&before);
     let mut seen = BTreeSet::new();
+    if settings != before {
+        seen.insert(world::Part::State);
+    }
     if !reaches.is_empty() {
         seen.insert(world::Part::Reaches);
     }
@@ -220,9 +227,76 @@ pub(super) async fn apply(
     })
 }
 
+/// What the process puts over the kept settings, read once from
+/// `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
+/// `HAMLET_NET`. It is never kept.
+#[derive(Debug, Default)]
+struct Overrides {
+    model: Option<String>,
+    base_url: Option<String>,
+    reflect_every: Option<u32>,
+    allow_net: Option<bool>,
+}
+
+impl Overrides {
+    fn from_env() -> Self {
+        let set =
+            |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+        Self {
+            model: set("HAMLET_MODEL"),
+            base_url: set("HAMLET_BASE_URL"),
+            reflect_every: set("HAMLET_REFLECT_EVERY")
+                .and_then(|v| v.parse().ok()),
+            allow_net: set("HAMLET_NET")
+                .map(|v| v == "1" || v == "true"),
+        }
+    }
+
+    /// `settings` as this process runs them: the model, and the
+    /// endpoint its `endpoint::` names pointed at the base URL.
+    fn apply(&self, mut settings: Settings) -> Settings {
+        if let Some(model) = &self.model {
+            settings.model = Some(model.clone());
+        }
+        if let Some(every) = self.reflect_every {
+            settings.reflect_every = every;
+        }
+        if let Some(net) = self.allow_net {
+            settings.allow_net = net;
+        }
+        let endpoint = settings
+            .model
+            .as_deref()
+            .and_then(|model| model.split_once("::"))
+            .map(|(endpoint, _)| endpoint.to_owned());
+        if let (Some(url), Some(endpoint)) =
+            (&self.base_url, endpoint)
+        {
+            match settings
+                .endpoints
+                .iter_mut()
+                .find(|kept| kept.name == endpoint)
+            {
+                Some(kept) => kept.base_url.clone_from(url),
+                None => settings.endpoints.push(Endpoint {
+                    name: endpoint,
+                    base_url: url.clone(),
+                }),
+            }
+        }
+        settings
+    }
+}
+
+/// The settings this process runs: the kept ones under the
+/// environment's overrides.
+pub(super) async fn read(rows: &Rows<'_>) -> Result<Settings> {
+    Ok(OVERRIDES.apply(kept(rows).await?))
+}
+
 /// The settings as the rows hold them: a chief's, else the realm's
 /// first.
-pub(super) async fn read(rows: &Rows<'_>) -> Result<Settings> {
+async fn kept(rows: &Rows<'_>) -> Result<Settings> {
     let kept = rows
         .value::<Vec<u8>>(
             "SELECT value FROM settings WHERE id = 1",
@@ -256,7 +330,7 @@ impl Handler<Asked<EditSettings>> for Realm {
             Some(marker::Found::Other) => return Err(key.reused()),
             None => {}
         }
-        let mut settings = read(&tx.rows()).await?;
+        let mut settings = kept(&tx.rows()).await?;
         let before = settings.endpoints.clone();
         let mut chosen = None;
         for setting in asked.act.set {

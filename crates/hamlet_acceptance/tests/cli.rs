@@ -111,7 +111,7 @@ async fn attaches_a_file_and_a_folder_to_the_first_line() {
         placed,
         [("c.txt", Some(5)), ("notes/a.txt", None), ("b.txt", None)]
     );
-    let inbox = s.home.file("hand/inbox");
+    let inbox = s.home.agent_files(1, "hand").join("inbox");
     assert_eq!(
         std::fs::read_to_string(inbox.join("notes/a.txt")).unwrap(),
         "alpha"
@@ -243,7 +243,9 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     .await;
     next.write("/allow\n").await;
     next.out_shows("After restart.\n").await;
-    let read = std::fs::read_to_string(home.file("hand/two"));
+    let read = std::fs::read_to_string(
+        home.agent_files(1, "hand").join("two"),
+    );
     let Ok(two) = read else {
         let mut chief = chief;
         let hand = hamlet_acceptance::chat(chief.hand());

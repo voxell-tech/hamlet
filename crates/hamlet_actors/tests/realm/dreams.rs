@@ -6,10 +6,10 @@ use hamlet_messages::profile::{
     PurgeAnswer,
 };
 use hamlet_messages::realm::profiles::{
-    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, ProfileRefusal,
-    PurgeProfile, PurgeProfileRefusal,
+    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt,
+    ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
 };
-use hamlet_messages::realm::{Done, ProfileId, Refusable as _};
+use hamlet_messages::realm::{ProfileId, Refusable as _};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
@@ -137,7 +137,7 @@ async fn a_hires_dream_checks_its_folders_out_then_ends() {
 
     let answer = chief(&realm, of_hire(THREE)).await;
 
-    assert_eq!(answer, Done::Done);
+    assert_eq!(answer, Dreamt::Nothing);
     until("the dream ends", || !dream_ends(&realm).is_empty()).await;
     let prepared = prepares(&realm);
     let [(profile, prepare, _)] = prepared.as_slice() else {
@@ -164,21 +164,34 @@ async fn one_dream_is_open_in_the_realm_at_a_time() {
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::PrepareDream);
 
-    let first = chief(&realm, of_profile(4)).await;
-    let second = chief(&realm, of_hire(THREE)).await;
-    realm.seen.release(Callee::PrepareDream);
+    let (first, second) =
+        tokio::join!(chief(&realm, of_profile(4)), async {
+            until(
+                "the first dream's folders are being checked out",
+                || {
+                    realm.seen.is_waiting(
+                        Callee::PrepareDream,
+                        AgentNumber(4),
+                    )
+                },
+            )
+            .await;
+            let second = chief(&realm, of_hire(THREE)).await;
+            realm.seen.release(Callee::PrepareDream);
+            second
+        });
     until("the first dream ends", || !dream_ends(&realm).is_empty())
         .await;
     let third = chief(&realm, of_hire(THREE)).await;
 
-    assert_eq!(first, Done::Done);
+    assert_eq!(first, Dreamt::Nothing);
     assert_eq!(
         second,
-        Done::Refused {
+        Dreamt::Refused {
             why: DreamAskedRefusal::Dream(DreamRefusal::Running),
         }
     );
-    assert_eq!(third, Done::Done);
+    assert_eq!(third, Dreamt::Nothing);
     until("the third dream ends", || dream_ends(&realm).len() == 2)
         .await;
     realm.host.shutdown().await.unwrap();
@@ -194,7 +207,7 @@ async fn a_dream_of_no_hire_or_no_shared_profile_is_refused() {
 
     assert_eq!(
         no_hire,
-        Done::Refused {
+        Dreamt::Refused {
             why: DreamAskedRefusal::Dream(DreamRefusal::NoSuchHire {
                 hire: AgentNumber(77),
             }),
@@ -202,7 +215,7 @@ async fn a_dream_of_no_hire_or_no_shared_profile_is_refused() {
     );
     assert_eq!(
         apart,
-        Done::Refused {
+        Dreamt::Refused {
             why: DreamAskedRefusal::Profile(ProfileRefusal::Apart {
                 label: "scholar#2 (Mayor)".to_owned(),
             }),
@@ -210,7 +223,7 @@ async fn a_dream_of_no_hire_or_no_shared_profile_is_refused() {
     );
     assert_eq!(
         missing,
-        Done::Refused {
+        Dreamt::Refused {
             why: DreamAskedRefusal::Profile(
                 ProfileRefusal::NoSuchProfile {
                     profile: ProfileId(9),
@@ -237,21 +250,23 @@ async fn no_dream_is_prepared_while_a_purge_is_in_flight() {
             realm.seen.is_waiting(Callee::Purge, AgentNumber(3))
         })
         .await;
-        let answer = chief(&realm, of_profile(3)).await;
-        let _ = tokio::time::timeout(
-            Duration::from_secs(1),
-            until("the dream is prepared", || {
-                !prepares(&realm).is_empty()
-            }),
-        )
-        .await;
-        realm.seen.release(Callee::Purge);
+        let (answer, ()) =
+            tokio::join!(chief(&realm, of_profile(3)), async {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(1),
+                    until("the dream is prepared", || {
+                        !prepares(&realm).is_empty()
+                    }),
+                )
+                .await;
+                realm.seen.release(Callee::Purge);
+            });
         answer
     };
     let (purged, dreamt) = tokio::join!(purged, dreamt);
 
     assert!(matches!(purged, PurgeAnswer::Purged { .. }));
-    assert_eq!(dreamt, Done::Done);
+    assert!(matches!(dreamt, Dreamt::Began { .. }));
     until("the dream is prepared", || !prepares(&realm).is_empty())
         .await;
     let held = prepares(&realm).iter().any(|&(_, _, held)| held);
@@ -259,24 +274,38 @@ async fn no_dream_is_prepared_while_a_purge_is_in_flight() {
     realm.host.shutdown().await.unwrap();
 }
 
-/// The dream's folders stay checked out until the test ends: a purge
-/// that waited on them would not be answered at all.
+/// The dream's folders stay checked out until both purges are
+/// answered: a purge that waited on them would not be answered at
+/// all.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_purge_does_not_wait_on_a_dreams_preparation() {
     let (realm, _) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     create(&realm, Hand::NUMBER, "c2", "Smith", None).await;
     realm.seen.hold(Callee::PrepareDream);
-    assert_eq!(chief(&realm, of_profile(3)).await, Done::Done);
-    until("the dream's folders are being checked out", || {
-        realm.seen.is_waiting(Callee::PrepareDream, AgentNumber(3))
-    })
-    .await;
+    let (began, (dreamt, other)) =
+        tokio::join!(chief(&realm, of_profile(3)), async {
+            until(
+                "the dream's folders are being checked out",
+                || {
+                    realm.seen.is_waiting(
+                        Callee::PrepareDream,
+                        AgentNumber(3),
+                    )
+                },
+            )
+            .await;
+            let dreamt =
+                asked(&realm, &RequestId::new(), purge(3, "a.md"))
+                    .await;
+            let other =
+                asked(&realm, &RequestId::new(), purge(4, "a.md"))
+                    .await;
+            realm.seen.release(Callee::PrepareDream);
+            (dreamt, other)
+        });
 
-    let dreamt =
-        asked(&realm, &RequestId::new(), purge(3, "a.md")).await;
-    let other =
-        asked(&realm, &RequestId::new(), purge(4, "a.md")).await;
+    assert!(matches!(began, Dreamt::Began { .. }));
 
     assert_eq!(
         dreamt,
@@ -302,7 +331,7 @@ async fn a_dream_is_not_prepared_again_after_a_restart() {
     realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::EndDream);
-    assert_eq!(chief(&realm, of_profile(3)).await, Done::Done);
+    assert_eq!(chief(&realm, of_profile(3)).await, Dreamt::Nothing);
     until("the dream is to end", || {
         realm.seen.is_waiting(Callee::EndDream, AgentNumber(3))
     })

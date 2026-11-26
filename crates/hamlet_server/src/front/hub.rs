@@ -1,14 +1,16 @@
 //! The agents' chats the door follows for its clients: one `chat`
 //! subscription per agent, held while a client watches one of its
-//! chats or is owed the reply of a line to it, and dropped after, so
-//! the door keeps no agent awake for nothing.
+//! chats, is owed the reply of a line to it, or the realm shows it at
+//! work, and dropped after, so the door keeps no agent awake for
+//! nothing. What each agent does and says is folded from its chats'
+//! changes, for the realm a client is shown.
 //!
 //! A line's reply is owed until the agent's work on it ends: the
 //! first idle status of the chief's chat after the realm said the
 //! agent took the line and a read of that chat showed it busy, or
 //! that read itself when it shows the agent idle.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::Result;
@@ -17,22 +19,24 @@ use hamlet_actor::action::encode_positional;
 use hamlet_host::{Address, Item};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
-    ChatEvent, ChatOp, ChatPage, ReadChat,
+    ChatEvent, ChatItem, ChatOp, ChatPage, ReadChat,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
-    self as protocol, AgentId, Open, RequestId, ServerMessage,
-    Transcript,
+    self as protocol, AgentId, ItemKind, LastActivity, Open,
+    RequestId, ServerMessage, Transcript,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::AbortHandle;
 
 use super::call::{Calls, failed, refused_words};
 use super::route::number;
-use super::{Frames, Keys, To, frames};
+use super::view::Shows;
+use super::{Frames, Keys, frames};
 use crate::clients::check::{fault, reply};
 use crate::diagnostic::{self, Secrets};
 use crate::society::refusal::Refusal;
+use crate::talk::activity::Activity;
 
 /// The chats the door follows, shared by the door and each agent's
 /// follow.
@@ -45,9 +49,122 @@ struct Shared {
     calls: Calls,
     frames: Frames,
     credentials: Keys,
+    shows: Shows,
     /// The clients whose connection is open.
     clients: Mutex<BTreeSet<u64>>,
     followed: Mutex<BTreeMap<AgentNumber, Followed>>,
+    /// What each agent followed at work did in each of its chats.
+    activities: Mutex<BTreeMap<AgentNumber, BTreeMap<Lane, Folded>>>,
+}
+
+/// One of an agent's chats with the chief or a peer: the peer, and
+/// whether it holds the peer's questions.
+type Lane = (Option<u32>, bool);
+
+/// What an agent does in one chat, folded from the chat's changes.
+struct Folded {
+    activity: Activity,
+    /// The text of each item written so far, and whether it is a
+    /// thought, by item.
+    written: HashMap<String, (bool, String)>,
+    /// The change its fold holds up to; an earlier one is in it.
+    seen: Option<Mark>,
+}
+
+impl Folded {
+    fn new() -> Self {
+        Self {
+            activity: Activity::of(&[]),
+            written: HashMap::new(),
+            seen: None,
+        }
+    }
+
+    /// The fold of `page`, the chat read now: its status, and the
+    /// items since the chief's last line.
+    fn of(page: &ChatPage) -> Self {
+        let mut folded = Self::new();
+        folded.seen = Some(Mark::of(page));
+        folded.status(page.working, page.pending);
+        let since = page
+            .items
+            .iter()
+            .rposition(|item| item.kind == ItemKind::User)
+            .map_or(0, |at| at + 1);
+        for item in &page.items[since..] {
+            folded.add(item, None);
+        }
+        folded
+    }
+
+    fn fold(&mut self, op: &ChatOp) {
+        match op {
+            ChatOp::Status { working, pending } => {
+                self.status(*working, *pending);
+            }
+            ChatOp::Add { item, replaces } => {
+                self.add(item, replaces.as_deref());
+            }
+            ChatOp::Append { item, text, .. } => {
+                if let Some((thought, written)) =
+                    self.written.get_mut(item)
+                {
+                    written.push_str(text);
+                    self.activity.said(text, *thought);
+                }
+            }
+            ChatOp::Usage { .. } | ChatOp::Reset => {}
+        }
+    }
+
+    /// Takes in whether the chat runs and how many inputs wait: a
+    /// turn that begins calls its model.
+    fn status(&mut self, working: bool, pending: u32) {
+        let begins = working && !self.activity.working;
+        self.activity.live(working, u64::from(pending), None);
+        if begins {
+            self.activity.attempted();
+        }
+        if !working {
+            self.written.clear();
+        }
+    }
+
+    fn add(&mut self, item: &ChatItem, replaces: Option<&str>) {
+        let activity = &mut self.activity;
+        match (&item.tool, &item.kind) {
+            (Some(tool), _) if replaces == Some(item.id.as_str()) => {
+                if tool.exit.is_some() {
+                    activity.ended(tool.failure.is_some());
+                }
+            }
+            (Some(tool), _) => {
+                activity.called(&tool.name, &tool.summary);
+            }
+            (None, ItemKind::Assistant | ItemKind::Reasoning) => {
+                let thought = item.kind == ItemKind::Reasoning;
+                let before = replaces
+                    .and_then(|replaced| {
+                        self.written.remove(replaced)
+                    })
+                    .map(|(_, text)| text)
+                    .unwrap_or_default();
+                let new = item
+                    .text
+                    .strip_prefix(before.as_str())
+                    .unwrap_or(&item.text);
+                if !new.is_empty() {
+                    activity.said(new, thought);
+                }
+                self.written.insert(
+                    item.id.clone(),
+                    (thought, item.text.clone()),
+                );
+            }
+            (None, ItemKind::Error) => activity.faulted = true,
+            _ => {}
+        }
+    }
 }
 
 /// An agent whose `chat` a task of its own follows, and what needs
@@ -64,6 +181,8 @@ struct Followed {
     /// session's reply is owed.
     holds: u32,
     reset_held: bool,
+    /// Whether the realm shows it at work.
+    busy: bool,
 }
 
 /// A chat a client watches.
@@ -78,6 +197,8 @@ struct Watch {
     /// agent's changes to all its chats, so a page read again after
     /// a change to another chat can be this page unchanged.
     page: Option<Transcript>,
+    /// What its chat showed the agent did last.
+    last: Option<LastActivity>,
 }
 
 impl Watch {
@@ -144,6 +265,8 @@ enum Job {
     Held(oneshot::Sender<()>),
     /// Reads the current session again for its watchers, then tells.
     Reread(oneshot::Sender<()>),
+    /// Folds what the agent does now from its current session, read.
+    Seed,
     /// Something that needed the follow went away.
     Look,
 }
@@ -153,16 +276,69 @@ impl Hub {
         calls: Calls,
         frames: Frames,
         credentials: Keys,
+        shows: Shows,
     ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 calls,
                 frames,
                 credentials,
+                shows,
                 clients: Mutex::new(BTreeSet::new()),
                 followed: Mutex::new(BTreeMap::new()),
+                activities: Mutex::new(BTreeMap::new()),
             }),
         }
+    }
+
+    /// Follows each agent of `agents`, which the realm shows at work,
+    /// for what it does, and no other for that.
+    pub(crate) fn busy(&self, agents: &BTreeSet<AgentNumber>) {
+        let shared = &self.shared;
+        let mut followed = shared.followed();
+        for (agent, found) in followed.iter_mut() {
+            if found.busy && !agents.contains(agent) {
+                found.busy = false;
+                let _ = found.jobs.send(Job::Look);
+            }
+        }
+        for &agent in agents {
+            let found = shared.follow(&mut followed, agent);
+            if !found.busy {
+                found.busy = true;
+                let _ = found.jobs.send(Job::Seed);
+            }
+        }
+        drop(followed);
+        for (agent, lanes) in shared.activities().iter_mut() {
+            if !agents.contains(agent) {
+                for folded in lanes.values_mut() {
+                    folded.activity.live(false, 0, None);
+                }
+            }
+        }
+    }
+
+    /// What `agent` does: in the chat it works in, else in the one
+    /// whose last turn failed.
+    pub(crate) fn activity(
+        &self,
+        agent: AgentNumber,
+    ) -> Option<Activity> {
+        let activities = self.shared.activities();
+        let lanes = activities.get(&agent)?;
+        let folded = lanes
+            .values()
+            .find(|folded| folded.activity.working)
+            .or_else(|| {
+                lanes.values().find(|folded| folded.activity.faulted)
+            })?;
+        Some(folded.activity.clone())
+    }
+
+    /// Writes `words` to the server's log, without the secrets.
+    pub(crate) fn tell(&self, words: String) {
+        self.shared.tell(words);
     }
 
     /// Sends `client` the page `open` asks for, and from then on the
@@ -186,6 +362,7 @@ impl Hub {
                 chat: open.chat.clone(),
                 seen: None,
                 page: None,
+                last: None,
             });
         }
         let _ = found.jobs.send(Job::Page { client, open });
@@ -409,6 +586,15 @@ impl Shared {
         self.followed.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    fn activities(
+        &self,
+    ) -> MutexGuard<'_, BTreeMap<AgentNumber, BTreeMap<Lane, Folded>>>
+    {
+        self.activities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// The follow of `agent`, started now if there is none.
     fn follow<'a>(
         self: &Arc<Self>,
@@ -427,12 +613,13 @@ impl Shared {
                 status: None,
                 holds: 0,
                 reset_held: false,
+                busy: false,
             }
         })
     }
 
     fn send(&self, client: u64, message: ServerMessage) {
-        let _ = self.frames.send((To::One(client), message));
+        let _ = self.frames.send((client, message));
     }
 
     fn tell(&self, words: String) {
@@ -506,7 +693,9 @@ impl Shared {
     fn needed(&self, agent: AgentNumber) -> bool {
         let mut followed = self.followed();
         let needed = followed.get(&agent).is_some_and(|found| {
-            !found.watches.is_empty() || !found.owed.is_empty()
+            found.busy
+                || !found.watches.is_empty()
+                || !found.owed.is_empty()
         });
         if !needed {
             followed.remove(&agent);
@@ -553,6 +742,15 @@ impl Shared {
                 self.reread_all(agent, !all).await;
                 let _ = told.send(());
             }
+            Job::Seed => {
+                if let Ok(page) = self.read_current(agent).await {
+                    self.activities()
+                        .entry(agent)
+                        .or_default()
+                        .insert((None, false), Folded::of(&page));
+                    self.shows.activity();
+                }
+            }
             Job::Look => {}
         }
     }
@@ -588,6 +786,7 @@ impl Shared {
             Ok((mark, transcript)) => {
                 let watch = &mut found.watches[at];
                 watch.seen = Some(mark);
+                watch.last.clone_from(&transcript.last);
                 watch.page = Some(Transcript {
                     to: None,
                     ..transcript.clone()
@@ -648,6 +847,7 @@ impl Shared {
             }
             _ => None,
         });
+        self.fold(agent, &event, mark);
         if reset {
             return true;
         }
@@ -659,7 +859,11 @@ impl Shared {
             if !watch.seen.is_some_and(|seen| mark.after(seen)) {
                 continue;
             }
-            match frames::turn(event.clone(), &watch.chat) {
+            match frames::turn(
+                event.clone(),
+                &watch.chat,
+                &mut watch.last,
+            ) {
                 Ok(Some(turn)) => {
                     watch.seen = Some(mark);
                     watch.page = None;
@@ -684,6 +888,38 @@ impl Shared {
             }
         }
         false
+    }
+
+    /// Folds `event`, the change at `mark`, into what `agent` does in
+    /// its chat, for the clients to be shown.
+    fn fold(
+        &self,
+        agent: AgentNumber,
+        event: &ChatEvent,
+        mark: Mark,
+    ) {
+        if event.chat.past.is_some() {
+            return;
+        }
+        let lane = (
+            event.chat.from.map(|peer| peer.0),
+            event.chat.kind == Some(protocol::ChatRefKind::Questions),
+        );
+        let mut activities = self.activities();
+        let folded = activities
+            .entry(agent)
+            .or_default()
+            .entry(lane)
+            .or_insert_with(Folded::new);
+        if folded.seen.is_some_and(|seen| !mark.after(seen)) {
+            return;
+        }
+        folded.seen = Some(mark);
+        for op in &event.ops {
+            folded.fold(op);
+        }
+        drop(activities);
+        self.shows.activity();
     }
 
     /// Answers each line taken whose work `ends` says ended.
@@ -764,6 +1000,7 @@ impl Shared {
             for watch in &mut found.watches {
                 if watch.chat == chat && watch.is_behind(mark) {
                     watch.seen = Some(mark);
+                    watch.last.clone_from(&transcript.last);
                     if watch.page.as_ref() != Some(&transcript) {
                         watch.page = Some(transcript.clone());
                         self.send(
@@ -784,13 +1021,21 @@ impl Shared {
         &self,
         agent: AgentNumber,
     ) -> Result<(Mark, bool)> {
+        let page = self.read_current(agent).await?;
+        Ok((Mark::of(&page), !page.working && page.pending == 0))
+    }
+
+    /// The chief's current chat with `agent`, read now.
+    async fn read_current(
+        &self,
+        agent: AgentNumber,
+    ) -> Result<ChatPage> {
         let open = Open {
             id: RequestId::new(),
             chat: chief_chat(agent),
             before: None,
         };
-        let page = self.read(agent, &open).await?;
-        Ok((Mark::of(&page), !page.working && page.pending == 0))
+        self.read(agent, &open).await
     }
 
     async fn read(

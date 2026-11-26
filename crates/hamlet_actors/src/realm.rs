@@ -61,10 +61,11 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::choices::{SetModel, SetNickname};
 use hamlet_messages::realm::client::{
-    Answer, ReadState, ReadWorld, Say, World,
+    Answer, ReadState, ReadWorld, RememberSecret, Say, World,
 };
 use hamlet_messages::realm::documents::{
-    EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
+    EditCatalogue, EditCharter, EditSettings, ReadCatalogue,
+    ReadCharter, ReadCopies,
 };
 use hamlet_messages::realm::hamlets::{
     EraseHamlet, MoveHamlet, NameHamlet, ReadRecord, RemoveHamlet,
@@ -80,9 +81,10 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    ArchiveProfile, AskLibrarian, Dream, EditProfile, EraseProfile,
-    ForkProfile, MoveHouse, ReadProfile, RestoreProfile,
-    RevertProfile, TagProfile, TurnAway, Welcome,
+    ArchiveProfile, AskLibrarian, EditProfile, EraseProfile,
+    ForkProfile, MoveHouse, NameProfile, PinHire, ReadProfile,
+    RestoreProfile, RevertProfile, TagProfile, TurnAway,
+    UnshelveSkill, Welcome,
 };
 use hamlet_messages::realm::prompt::ReadPlace;
 use hamlet_messages::realm::workers::{
@@ -93,6 +95,7 @@ use hamlet_messages::realm::{
     ProfileId, ReadOwnPlace, Reply, RequestRoad, Seat, Secrets,
     SetLimits, SetTier, SetTools, TakeUpRoad, Tell, Tool,
 };
+pub use parcels::store::Store as ParcelStore;
 use serde::Serialize;
 
 use self::callers::{
@@ -202,6 +205,10 @@ struct Realm {
     /// Per profile, held shared by each purge of it in flight, and
     /// alone while a dream's folders are checked out of it.
     purging: Mutex<HashMap<ProfileId, Arc<tokio::sync::RwLock<()>>>>,
+    /// Held shared by each profile made in flight, from before its
+    /// row is kept until its actor is made, so that nothing starts
+    /// that actor empty meanwhile.
+    making: tokio::sync::RwLock<()>,
 }
 
 impl Realm {
@@ -221,8 +228,8 @@ impl Realm {
 impl Actor for Realm {
     type Input = ();
     type Actions = (
-        Asked<Found>,
-        ByHand<Tool<Found>>,
+        tree::Pinning<Asked<Found>>,
+        tree::Pinning<ByHand<Tool<Found>>>,
         tree::Pinning<Asked<Hire>>,
         tree::Pinning<Tool<Hire>>,
         Asked<End>,
@@ -244,6 +251,7 @@ impl Actor for Realm {
         Secrets,
         Looks<ReadWorld>,
         Looks<ReadState>,
+        RememberSecret,
         Asked<LayRoad>,
         Tool<LayRoad>,
         Asked<TakeUpRoad>,
@@ -280,12 +288,14 @@ impl Actor for Realm {
         Asked<EditSettings>,
         Asked<EditCatalogue>,
         Bare<ReadCharter>,
+        Bare<ReadCatalogue>,
         Living<Bare<ReadCopies>>,
         Tool<AgreeRoad>,
         Living<Looks<Credential>>,
         KeepCredential,
         FetchPart,
         profiles::Create,
+        profiles::ChiefCreate,
         Relays<ByHand<Tool<ReadProfile>>>,
         ByHand<Tool<EditProfile>>,
         ByHand<Tool<TagProfile>>,
@@ -294,7 +304,7 @@ impl Actor for Realm {
         Relays<Asked<TagProfile>>,
         Relays<Asked<RevertProfile>>,
         profiles::Purging,
-        Asked<Dream>,
+        dreams::ChiefDream,
         Unreserved<Tool<AskLibrarian>>,
         librarian::Submitting,
         ReadPlace,
@@ -314,6 +324,9 @@ impl Actor for Realm {
         Asked<Welcome>,
         Asked<TurnAway>,
         Asked<MoveHouse>,
+        Asked<NameProfile>,
+        Asked<PinHire>,
+        Asked<UnshelveSkill>,
     );
     type Events = (World,);
     type ConnParams = Option<Caller>;
@@ -347,6 +360,7 @@ impl Actor for Realm {
                 lanes: lanes::Lanes::default(),
                 lines: lines::Lines::default(),
                 purging: Mutex::default(),
+                making: tokio::sync::RwLock::default(),
             })
         }
         .await

@@ -150,7 +150,7 @@ fn budget_of(payer: &Payer) -> String {
 }
 
 /// `ms` in seconds, minutes, or hours and minutes, as `1h 05m`.
-fn duration(ms: u64) -> String {
+pub fn duration(ms: u64) -> String {
     let seconds = ms / 1000;
     if seconds < 60 {
         format!("{seconds}s")
@@ -163,7 +163,7 @@ fn duration(ms: u64) -> String {
 
 /// `micros` in dollars to the cent, as `$1.23`, or `<$0.01` for less
 /// than a cent and more than nothing.
-fn money(micros: u64) -> String {
+pub fn money(micros: u64) -> String {
     if (1..10_000).contains(&micros) {
         return "<$0.01".to_owned();
     }

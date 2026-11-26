@@ -17,8 +17,8 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentName, Done, DoneTo, End, Gate, HireAnswer, LayRoad, Named,
-    Refusable, RoadDone, SocietyTool, TakeUpRoad, ToolCall,
+    AgentName, Done, DoneTo, End, Gate, Hire, HireAnswer, LayRoad,
+    Named, Refusable, RoadDone, SocietyTool, TakeUpRoad, ToolCall,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -42,7 +42,7 @@ use super::super::{Realm, profiles, record, tree};
 #[derive(Deserialize)]
 #[serde(tag = "tool", content = "act", rename_all = "snake_case")]
 enum Held {
-    Hire(tree::Pinned),
+    Hire(tree::Pinned<Hire>),
     End(End),
     LayRoad(LayRoad),
     TakeUpRoad(TakeUpRoad),
@@ -63,7 +63,7 @@ impl Held {
             }
         };
         let tool = match self {
-            Self::Hire(tree::Pinned { hire, .. }) => {
+            Self::Hire(tree::Pinned { act: hire, .. }) => {
                 arg(
                     "hamlet",
                     hire.hamlet.as_ref().map(|h| h.0.clone()),

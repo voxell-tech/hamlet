@@ -23,6 +23,7 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, At, Rows, Writer, number};
 use super::chiefs::limits;
 use super::roads::{self, Way};
+use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
 use super::{budget, hire, letters, record};
@@ -443,6 +444,8 @@ pub(super) struct Asking {
     to: Option<(roads::End, String)>,
     lead: Option<roads::End>,
     letter: LetterId,
+    /// The task the request names, when it is the asker's.
+    task: Option<TaskId>,
 }
 
 impl Act<Agent> for Paid<RequestRoad> {
@@ -472,11 +475,16 @@ impl Act<Agent> for Paid<RequestRoad> {
             }
             None => None,
         };
+        let task = match &self.task {
+            Some(task) => tasks::named(rows, by.0, task).await?,
+            None => None,
+        };
         Ok(Asking {
             from: ends.from.agent,
             to,
             lead,
             letter: letters::fresh(rows).await?,
+            task,
         })
     }
 
@@ -493,6 +501,7 @@ impl Act<Agent> for Paid<RequestRoad> {
             to,
             lead,
             letter,
+            task,
         } = asking;
         let Some((_, name)) = to
             .filter(|(to, _)| !matches!(to.status, Status::Ended(_)))
@@ -521,10 +530,15 @@ impl Act<Agent> for Paid<RequestRoad> {
         let written = letters::Written {
             kind: letters::Kind::Letter,
             text: &text,
-            task: self.task.as_ref(),
             conversation: None,
         };
-        Decision::Change(written.keep(letter, from, &lead, Way::Tree))
+        Decision::Change(written.keep(
+            letter,
+            from,
+            &lead,
+            Way::Tree,
+            task,
+        ))
     }
 
     fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {

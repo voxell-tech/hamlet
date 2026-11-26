@@ -6,24 +6,29 @@ pub(super) mod limits;
 mod tier;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::{
-    Found, FoundAnswer, FoundRefusal, HamletId, ProfileId, Refusable,
-    Tier,
+    Asked, Found, FoundAnswer, FoundRefusal, HamletId, ProfileId,
+    Refusable, Tier, Tool,
 };
-use hamlet_messages::sender::Hand;
+use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;
 
-use super::act::{Act, Decided, Decision};
-use super::callers::RealmWide;
+use super::act::{self, Act, Decided, Decision};
+use super::callers::{ByHand, RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
+use super::tree::{Pinned, Pinning, Unanswered, Versioned};
 use super::world::Part;
-use super::{hire, profiles, record, steps, tasks, tree};
+use super::{
+    Realm, hire, marker, profiles, record, steps, tasks, tree,
+};
 
 const SCHEMA_VERSION: i64 = 1;
 
@@ -104,9 +109,13 @@ pub(super) fn fresh() -> HamletId {
 }
 
 pub(super) async fn name(rows: &Rows<'_>) -> Result<String> {
+    named(rows).await?.context("the realm has no chief")
+}
+
+/// The chief's name, once the realm's first start has kept it.
+pub(super) async fn named(rows: &Rows<'_>) -> Result<Option<String>> {
     rows.value::<String>("SELECT name FROM chief", Vec::new())
-        .await?
-        .context("the realm has no chief")
+        .await
 }
 
 #[derive(Debug, PartialEq)]
@@ -141,15 +150,19 @@ pub(super) async fn apply(
     match change {
         Change::First => first(writer).await,
         Change::Chief { name } => {
-            writer
+            let named = writer
                 .execute(
                     "INSERT INTO chief (id, name) VALUES (1, ?1) ON \
                      CONFLICT (id) DO UPDATE SET name = \
-                     excluded.name",
+                     excluded.name WHERE name != excluded.name",
                     vec![BindParam::Text(name)],
                 )
                 .await?;
-            Ok(Affected::default())
+            Ok(if named > 0 {
+                Affected::seen([Part::State])
+            } else {
+                Affected::default()
+            })
         }
         Change::Found {
             hamlet,
@@ -256,12 +269,70 @@ pub(super) async fn first_start(
 }
 
 pub(super) struct Founding {
-    of: Result<tree::Of, ProfileId>,
+    of: Result<tree::Of, FoundRefusal>,
     hamlet: HamletId,
     mayor: AgentNumber,
 }
 
-impl<By: RealmWide> Act<By> for Found {
+impl Versioned for Found {
+    fn pin(&self) -> Option<(ProfileId, &VersionName)> {
+        self.mayor.zip(self.version.as_ref())
+    }
+}
+
+impl Handler<Pinning<Asked<Found>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(asked): Pinning<Asked<Found>>,
+    ) -> Result<FoundAnswer<FoundRefusal>> {
+        let name = <Asked<Found> as Action>::NAME;
+        let by = sender(&ctx, &asked)?;
+        let id = marker::Id::Request(asked.id);
+        let key = marker::Key::of(&by, id, name, &asked.act)?;
+        pinned(&self, &ctx, by, key, name, asked.act).await
+    }
+}
+
+impl Handler<Pinning<ByHand<Tool<Found>>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(hand): Pinning<ByHand<Tool<Found>>>,
+    ) -> Result<FoundAnswer<FoundRefusal>> {
+        let name = <Tool<Found> as Action>::NAME;
+        let by = sender(&ctx, &hand)?;
+        let (key, _, found) = act::called(&by, name, hand.0)?;
+        pinned(&self, &ctx, by, key, name, found).await
+    }
+}
+
+/// Runs `found` by `by` under `key`, once its profile showed whether
+/// it has the version named.
+async fn pinned<By: RealmWide + Witness>(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    by: By,
+    key: marker::Key,
+    name: &'static str,
+    found: Found,
+) -> Result<FoundAnswer<FoundRefusal>> {
+    match Pinned::asked(realm, ctx, &key, found).await? {
+        Ok(pinned) => {
+            act::run_keyed(realm, ctx, by, Some(key), name, pinned)
+                .await
+        }
+        Err(why) => Ok(FoundAnswer::refused(why.into())),
+    }
+}
+
+impl From<Unanswered> for FoundRefusal {
+    fn from(Unanswered { label, version }: Unanswered) -> Self {
+        Self::Unanswered { label, version }
+    }
+}
+
+impl<By: RealmWide> Act<By> for Pinned<Found> {
     type Output = FoundAnswer<FoundRefusal>;
     type Loaded = Founding;
     /// The hamlet and its mayor.
@@ -273,11 +344,26 @@ impl<By: RealmWide> Act<By> for Found {
         rows: &Rows<'_>,
     ) -> Result<Founding> {
         Ok(Founding {
-            of: match self.mayor {
-                Some(mayor) => profiles::shared(rows, mayor)
-                    .await?
-                    .map(tree::Of::Profile)
-                    .map_err(|_| mayor),
+            of: match self.act.mayor {
+                Some(mayor) => {
+                    match profiles::shared(rows, mayor).await? {
+                        Ok(profile) => match &self.lacked {
+                            Some(version) => {
+                                Err(FoundRefusal::NoVersion {
+                                    label: profiles::label_of(
+                                        rows, profile,
+                                    )
+                                    .await?,
+                                    version: version.clone(),
+                                })
+                            }
+                            None => Ok(tree::Of::Profile(profile)),
+                        },
+                        Err(_) => Err(FoundRefusal::NoSuchProfile {
+                            profile: mayor,
+                        }),
+                    }
+                }
                 None => {
                     Ok(tree::blank(rows, None, None, &by.by())
                         .await?)
@@ -293,18 +379,19 @@ impl<By: RealmWide> Act<By> for Found {
         by: &By,
         founding: Founding,
     ) -> Decision<Self::Done, Self::Output> {
-        let name = match hamlet::checked_name(&self.name) {
+        let found = &self.act;
+        let name = match hamlet::checked_name(&found.name) {
             Ok(name) => name.to_owned(),
             Err(_) => {
                 return Decision::Answer(FoundAnswer::refused(
                     FoundRefusal::BadName {
-                        name: self.name.trim().to_owned(),
+                        name: found.name.trim().to_owned(),
                     },
                 ));
             }
         };
         let purpose =
-            match tree::given_purpose(self.purpose.as_deref()) {
+            match tree::given_purpose(found.purpose.as_deref()) {
                 Some(purpose) => purpose,
                 None if by.by() == record::By::Chief => {
                     format!("Mayor of {name}.")
@@ -318,10 +405,8 @@ impl<By: RealmWide> Act<By> for Found {
         let Founding { of, hamlet, mayor } = founding;
         let of = match of {
             Ok(of) => of,
-            Err(profile) => {
-                return Decision::Answer(FoundAnswer::refused(
-                    FoundRefusal::NoSuchProfile { profile },
-                ));
+            Err(why) => {
+                return Decision::Answer(FoundAnswer::refused(why));
             }
         };
         Decision::Change(
@@ -330,14 +415,16 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet: hamlet.clone(),
                     name,
                     mayor,
-                    tier: self.tier,
+                    tier: found.tier,
                 })
                 .change(tree::Change::Hire {
                     agent: mayor,
                     hamlet: hamlet.clone(),
                     lead: None,
                     of,
-                    version: None,
+                    version: found
+                        .pin()
+                        .map(|(_, version)| version.clone()),
                     purpose: Some(purpose.clone()),
                 })
                 .change(tasks::Change::Standing {
@@ -360,6 +447,14 @@ impl<By: RealmWide> Act<By> for Found {
                     why: Some(purpose),
                 }),
         )
+    }
+
+    /// As today's, once its mayor is live.
+    fn answers_after(
+        &self,
+        &(_, mayor): &Self::Done,
+    ) -> Vec<steps::StepId> {
+        vec![hire::row(mayor)]
     }
 
     fn answer(
@@ -389,13 +484,16 @@ mod tests {
     use super::super::testing::Started;
     use super::*;
 
-    fn found(name: &str, mayor: Option<ProfileId>) -> Found {
-        Found {
-            name: name.to_owned(),
-            mayor,
-            version: None,
-            tier: Tier::Fifty,
-            purpose: None,
+    fn found(name: &str, mayor: Option<ProfileId>) -> Pinned<Found> {
+        Pinned {
+            act: Found {
+                name: name.to_owned(),
+                mayor,
+                version: None,
+                tier: Tier::Fifty,
+                purpose: None,
+            },
+            lacked: None,
         }
     }
 
@@ -457,7 +555,9 @@ mod tests {
                 if name == "Mill"
         )));
         let missing = Founding {
-            of: Err(ProfileId(7)),
+            of: Err(FoundRefusal::NoSuchProfile {
+                profile: ProfileId(7),
+            }),
             ..founding()
         };
         assert_eq!(
