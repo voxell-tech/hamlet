@@ -1,6 +1,7 @@
 //! The `hamlet` command run against a served home, with what it
 //! printed kept apart by stream.
 
+use std::io;
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
@@ -74,15 +75,24 @@ impl Cli {
         env: &[(&str, &str)],
     ) -> Ended {
         let mut cli = Self::start(home, args, env);
-        cli.write(input).await;
+        // A command refused at its start may end before it reads.
+        match cli.written(input).await {
+            Err(error)
+                if error.kind() == io::ErrorKind::BrokenPipe => {}
+            written => written.unwrap(),
+        }
         cli.end().await
     }
 
     /// Writes `text` to stdin.
     pub async fn write(&mut self, text: &str) {
+        self.written(text).await.unwrap();
+    }
+
+    async fn written(&mut self, text: &str) -> io::Result<()> {
         let stdin = self.stdin.as_mut().expect("stdin is open");
-        stdin.write_all(text.as_bytes()).await.unwrap();
-        stdin.flush().await.unwrap();
+        stdin.write_all(text.as_bytes()).await?;
+        stdin.flush().await
     }
 
     /// Sends SIGINT, as Ctrl-C does, without waiting.
