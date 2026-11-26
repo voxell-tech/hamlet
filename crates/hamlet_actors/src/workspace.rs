@@ -847,12 +847,13 @@ async fn tell_cut_off(
     let run::UntoldCutOff {
         agent,
         call,
+        task,
         command,
     } = untold;
     let end = run::without_output(command, Exit::CutOff);
     let ended = Finished {
         call,
-        task: None,
+        task,
         outcome: Outcome::Run {
             end: RunEnd::Ran(end),
         },
@@ -1001,9 +1002,14 @@ impl Workspace {
             &ready,
             network,
         )?;
-        let command =
-            run::open(tx, agent, &run.call, request_hash.to_vec())
-                .await?;
+        let command = run::open(
+            tx,
+            agent,
+            &run.call,
+            run.realm_task.as_ref(),
+            request_hash.to_vec(),
+        )
+        .await?;
         let exec = ready.exec();
         // Before the commit, so a repeat that finds the row finds who
         // waits for it, and a reach that ends after the commit finds
@@ -1139,7 +1145,7 @@ impl Workspace {
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
-        closed: Vec<(CallId, pending::NotRun)>,
+        closed: Vec<Finished>,
     ) -> Result<()> {
         self.cancel(ctx, agent, &Which::All).await;
         let owner = i64::from(agent.0);
@@ -1148,12 +1154,7 @@ impl Workspace {
         remove_folder(self.home.scratch(agent)).await;
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
-            for (call, why) in closed {
-                let ended = Finished {
-                    call,
-                    task: None,
-                    outcome: why.outcome(),
-                };
+            for ended in closed {
                 tell(&task_ctx, agent, ended).await;
             }
         });

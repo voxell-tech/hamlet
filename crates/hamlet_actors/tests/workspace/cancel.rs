@@ -9,7 +9,7 @@ use hamlet_messages::workspace::refusal::{ReachRefusal, WaitEnd};
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, Cancel, CancelAgent,
     Cancelled, ConversationId, Exit, InForce, Lapse, ReachVersion,
-    Run, RunAnswer, RunEnd, SetReach, Which,
+    RealmTask, Run, RunAnswer, RunEnd, SetReach, Which,
 };
 use hamlet_testing::Scratch;
 
@@ -417,6 +417,35 @@ async fn an_ended_reach_ends_the_agents_commands() {
         (to_seven[0].1.command, &to_seven[0].1.exit),
         (command, &Exit::Cancelled)
     );
+}
+
+/// The end an ended reach tells of a call's closed wait carries the
+/// realm's task the call was made under.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_waits_end_carries_its_calls_task() {
+    let dir = Scratch::new("workspace-ended-task");
+    filesystem(&dir);
+    let (_project, folder) = project("workspace-ended-task-p", &[]);
+    let peers = answering_within(2000);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    let task = RealmTask("task-1".into());
+    let call = Run {
+        realm_task: Some(task.clone()),
+        ..run("c1", "touch marker")
+    };
+    agent_runs(&host, &call).await;
+
+    realm_sets(&host, 2, Reach::Ended).await;
+    told_within(&peers, 1, Duration::from_secs(3)).await;
+    host.shutdown().await.unwrap();
+
+    let told = told(&peers)
+        .into_iter()
+        .map(|(_, finished)| (finished.call, finished.task))
+        .collect::<Vec<_>>();
+    assert_eq!(told, [(CallId("c1".into()), Some(task))]);
 }
 
 /// an ended reach closes the agent's waits for a chief in the
