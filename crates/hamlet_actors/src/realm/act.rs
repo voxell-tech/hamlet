@@ -217,21 +217,52 @@ pub(super) async fn run_called<A: Act<Agent> + Serialize>(
         name,
         act,
         async move |by: &Agent, rows: &Rows<'_>, act: &A| {
-            if let Some(stood) = callers::standing(rows, by.0).await?
-            {
-                return Ok(Some(Barred::Stood(stood)));
-            }
-            let kept =
-                reserved::reserve(rows, tool, by.0, &called, act)
-                    .await?;
-            Ok(kept.map(|kept| match kept {
-                Kept::Waits(kept) => Barred::Reserved(kept),
-                Kept::Refused(why) => Barred::Stood(Stood::Gate(why)),
-            }))
+            barred(rows, by, tool, &called, act).await
         },
         |wait| Ok(Stood::Gate(Gate::Reserved { wait })),
     )
     .await
+}
+
+/// What `by` meets before `act`, which a call of the society tool
+/// `tool` carried in `called`, is loaded: its standing, then a
+/// chief's reserve.
+async fn barred(
+    rows: &Rows<'_>,
+    by: &Agent,
+    tool: SocietyTool,
+    called: &Called,
+    act: &impl Serialize,
+) -> Result<Option<Barred<Stood>>> {
+    if let Some(stood) = callers::standing(rows, by.0).await? {
+        return Ok(Some(Barred::Stood(stood)));
+    }
+    let kept =
+        reserved::reserve(rows, tool, by.0, called, act).await?;
+    Ok(kept.map(|kept| match kept {
+        Kept::Waits(kept) => Barred::Reserved(kept),
+        Kept::Refused(why) => Barred::Stood(Stood::Gate(why)),
+    }))
+}
+
+/// Whether [`run_called`] would go on to change the realm for `act`
+/// as `rows` stand: nothing bars it and it decides no answer of its
+/// own.
+pub(super) async fn goes<A: Act<Agent> + Serialize>(
+    rows: &Rows<'_>,
+    by: &Agent,
+    tool: SocietyTool,
+    called: &Called,
+    act: &A,
+) -> Result<bool> {
+    if barred(rows, by, tool, called, act).await?.is_some() {
+        return Ok(false);
+    }
+    let loaded = act.load(by, rows).await?;
+    Ok(matches!(
+        act.decide(by, loaded),
+        Decision::Change(_) | Decision::WaitFor { .. }
+    ))
 }
 
 /// The call that carried a society tool, with its turn's task and

@@ -27,8 +27,8 @@ use super::parcel_files::{
 };
 use super::stand_ins::Callee;
 use super::{
-    DEADLINE, MAYOR, Realm, THREE, answer, sent, submits_to, tell,
-    to, tool, until,
+    DEADLINE, FOUR, MAYOR, Realm, THREE, answer, hires, sent, shown,
+    submits_to, tell, to, tool, until,
 };
 
 /// Mayor 2 tells 3 `text` with the files under `paths`.
@@ -366,6 +366,36 @@ async fn a_path_outside_the_reach_refuses_the_tell_and_the_ask() {
     assert!(parcel_states(&realm).await.is_empty());
     assert!(submits_to(&realm, THREE).is_empty());
     assert!(notices_to_mayor(&realm).is_empty());
+}
+
+/// A tell or an ask with no road answers the road's refusal before
+/// its files are measured, as today's tool does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_with_no_road_is_refused_for_the_road_before_its_files()
+ {
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    hires(&realm, THREE, "h1").await;
+    realm.live(FOUR).await;
+    let outside = vec![Enclosed {
+        path: "/outside/secret".into(),
+    }];
+    let mut told = tell(to(FOUR), "Here.");
+    told.paths = outside.clone();
+    let ask = Ask {
+        to: to(FOUR),
+        text: "Here?".to_owned(),
+        conversation: ConversationId("c1".to_owned()),
+        paths: outside,
+    };
+
+    let told = realm.tool(MAYOR, &tool("t1", told)).await.unwrap();
+    let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
+
+    let why =
+        AgentRefusal::Act(LetterRefusal::NoRoad { to: shown(FOUR) });
+    assert_eq!(told, Sent::Refused { why: why.clone() });
+    assert_eq!(asked, Waiting::Refused { why });
 }
 
 /// The first notice to the mayor fails as an agent not ready; the

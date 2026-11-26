@@ -509,19 +509,19 @@ where
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
         let (key, called, tool) = act::called(&by, name, tool)?;
+        let paths = tool.paths().to_vec();
+        let run = tool.run(&called);
+        let rows = Rows::outside(&ctx)?;
         let repeat =
-            marker::find::<IgnoredAny>(&Rows::outside(&ctx)?, &key)
-                .await?
-                .is_some();
+            marker::find::<IgnoredAny>(&rows, &key).await?.is_some();
         if !repeat
-            && let Some(why) =
-                unsendable(&self, by.0, tool.paths()).await
+            && act::goes(&rows, &by, T::TOOL, &called, &run).await?
+            && let Some(why) = unsendable(&self, by.0, &paths).await
         {
             return Ok(T::Answer::refused(AgentRefusal::Act(
                 LetterRefusal::Files { words: told(&why) },
             )));
         }
-        let run = tool.run(&called);
         let ran = act::run_called(
             &self,
             &ctx,
