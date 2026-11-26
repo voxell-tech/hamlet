@@ -462,56 +462,8 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
         "tests/cli.rs:149",
     ),
     (
-        "prices_and_notes_a_model_in_the_catalogue",
-        "tests/documents.rs:306",
-    ),
-    (
-        "founds_a_hamlet_under_a_new_scholar_then_an_existing_one",
-        "tests/city.rs:29",
-    ),
-    (
-        "the_network_waits_for_a_chief_and_always_becomes_a_grant",
-        "tests/oversight.rs:16",
-    ),
-    (
-        "a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder",
-        "tests/oversight.rs:142",
-    ),
-    (
-        "an_objection_holds_the_turn_until_the_chief_rules",
-        "tests/oversight.rs:353",
-    ),
-    (
         "withdrawing_an_objection_stops_the_turns_calls",
-        "tests/oversight.rs:388",
-    ),
-    (
-        "the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it",
-        "tests/society.rs:31",
-    ),
-    (
-        "letters_and_questions_go_along_roads_and_a_question_back_is_refused",
-        "tests/society.rs:240",
-    ),
-    (
-        "a_worker_answers_its_starter_once_and_ends",
-        "tests/society.rs:326",
-    ),
-    (
-        "tries_the_model_and_the_connection_and_keeps_the_link",
-        "tests/models.rs:26",
-    ),
-    (
-        "signs_in_with_a_key_without_sending_it_to_any_client",
-        "tests/models.rs:127",
-    ),
-    (
-        "lists_prices_and_bills_an_endpoints_models",
-        "tests/models.rs:295",
-    ),
-    (
-        "gives_plain_words_for_http_refusals_and_charges_nothing",
-        "tests/models.rs:385",
+        "tests/oversight.rs:400",
     ),
     (
         "a_hire_dreams_what_it_learned_onto_its_scholars_main",
@@ -528,26 +480,6 @@ const ACTORS_SKIP: &[(&str, &str)] = &[
     (
         "a_letter_copies_the_files_it_names_into_the_receivers_inbox",
         "tests/files.rs:86",
-    ),
-    (
-        "a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told",
-        "tests/files.rs:152",
-    ),
-    (
-        "a_file_mid_line_has_its_caption_in_place_for_the_model",
-        "tests/files.rs:227",
-    ),
-    (
-        "the_realms_budget_stops_the_hand_until_it_starts_again",
-        "tests/spend.rs:41",
-    ),
-    (
-        "a_hires_allowance_stops_its_calls_and_a_lead_may_set_it",
-        "tests/spend.rs:71",
-    ),
-    (
-        "spending_leaves_the_prompt_as_it_was_and_read_budget_tells_it",
-        "tests/spend.rs:112",
     ),
     (
         "oauth_is_client_owned_and_prompts_cancel_on_disconnect_and_shutdown",
