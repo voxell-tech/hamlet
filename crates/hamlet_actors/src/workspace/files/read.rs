@@ -6,9 +6,9 @@ use hamlet_messages::workspace::files::{
     CutBy, Image, Note, ReadAnswer, Severity, Text, Truncation,
 };
 use hamlet_sandbox::{Env, FileError};
+use hamlet_workspace_wire::image::Format;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::workspace::image::Format;
 use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// `path`'s lines from `offset`, at most `limit` of them and within
