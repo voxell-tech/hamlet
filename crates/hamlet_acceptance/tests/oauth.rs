@@ -1,10 +1,11 @@
 //! Public sign-in and refresh through the real server and Pi, with
 //! offline providers.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hamlet_acceptance::Home;
+use hamlet_acceptance::home::serves_actors;
 use hamlet_testing::{Scratch, Server, Socket, send};
 use serde_json::{Value, json};
 
@@ -24,12 +25,28 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
         "models": {"openai":{"type":"api_key","key":"test-openai-separate-key"},
             "other":{"type":"api_key","key":"test-other-provider-secret"}}
     }).to_string()).unwrap();
-    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../harnesses/pi/test/fixtures/oauth.ts");
+    // The same offline providers, served by pi or by the actors' Node
+    // host, which inherits only the variables named
+    // `HAMLET_ACTOR_...` of these.
+    let (seam, folder, fixture_entry) = if serves_actors() {
+        (
+            "HAMLET_NODE_HOST",
+            "HAMLET_ACTOR_OAUTH_FIXTURE",
+            "../../hosts/node/test/fixtures/oauth.ts",
+        )
+    } else {
+        (
+            "HAMLET_PI_HARNESS",
+            "HAMLET_OAUTH_FIXTURE",
+            "../../harnesses/pi/test/fixtures/oauth.ts",
+        )
+    };
+    let entry =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_entry);
     let server = home
         .serve_providers(&[
-            ("HAMLET_PI_HARNESS", entry.to_str().unwrap()),
-            ("HAMLET_OAUTH_FIXTURE", fixture.to_str().unwrap()),
+            (seam, entry.to_str().unwrap()),
+            (folder, fixture.to_str().unwrap()),
             ("HAMLET_REFLECT_EVERY", "0"),
             ("HAMLET_MODEL", "chatgpt::offline"),
             ("OPENAI_API_KEY", "ambient-must-not-be-used"),
@@ -43,6 +60,13 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
             .as_array()
             .is_some_and(|p| p.iter().any(|p| p["id"] == "chatgpt"))
         {
+            // Today's providers list `chatgpt` too, and would sign in
+            // over the network.
+            assert!(
+                !serves_actors() || fixture.join("started").exists(),
+                "the Node host's OAuth fixture is not the one \
+                 serving"
+            );
             return server;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -150,22 +174,44 @@ fn stored(home: &Path) -> Value {
     .unwrap()
 }
 
-fn no_store_secrets(home: &Path) {
-    let mut files = vec![home.join("realm.sqlite")];
-    files.extend(
-        ["realm.sqlite-wal", "realm.sqlite-shm"]
-            .map(|name| home.join(name))
-            .into_iter()
-            .filter(|path| path.exists()),
-    );
-    for runtime in std::fs::read_dir(home.join("harnesses")).unwrap()
-    {
-        for entry in
-            std::fs::read_dir(runtime.unwrap().path()).unwrap()
-        {
-            files.push(entry.unwrap().path());
+/// Every file under `folder`, at any depth.
+fn files_under(folder: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(folder).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(files_under(&path));
+        } else {
+            files.push(path);
         }
     }
+    files
+}
+
+/// Checks the realm's and the agents' stores: today's realm database
+/// and harnesses' stores, or the actors' databases.
+fn no_store_secrets(home: &Path) {
+    let files = if serves_actors() {
+        files_under(&home.join("actors"))
+    } else {
+        let mut files = vec![home.join("realm.sqlite")];
+        files.extend(
+            ["realm.sqlite-wal", "realm.sqlite-shm"]
+                .map(|name| home.join(name))
+                .into_iter()
+                .filter(|path| path.exists()),
+        );
+        for runtime in
+            std::fs::read_dir(home.join("harnesses")).unwrap()
+        {
+            for entry in
+                std::fs::read_dir(runtime.unwrap().path()).unwrap()
+            {
+                files.push(entry.unwrap().path());
+            }
+        }
+        files
+    };
     assert!(files.len() > 1);
     for path in files {
         let bytes = std::fs::read(&path).unwrap();
@@ -280,6 +326,9 @@ async fn shutdown_waits_for_a_model_calls_started_rotation_to_persist()
     file(&fixture.join("refresh-started")).await;
     server.terminate();
     stopped_listening(&server).await;
+    // Past the second the connections are given to close, so the
+    // rotation outlasts them.
+    tokio::time::sleep(Duration::from_secs(2)).await;
     assert!(
         server.is_running(),
         "shutdown abandoned a started rotation"
@@ -318,12 +367,20 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
         .await;
     file(&fixture.join("refresh-started")).await;
     let check = send(&mut second, json!({"type":"check","what":"model","model":"chatgpt::offline"})).await;
+    // The second check waits on the rotation the first started: pi
+    // queues for the store's lease (its third), and the Node host
+    // reads the subscription just before it joins the rotation.
+    let (waited, lines) = if serves_actors() {
+        ("read-while-refreshing", 1)
+    } else {
+        ("acquires", 3)
+    };
     tokio::time::timeout(Duration::from_secs(10), async {
-        while std::fs::read_to_string(fixture.join("acquires"))
-            .unwrap()
+        while std::fs::read_to_string(fixture.join(waited))
+            .unwrap_or_default()
             .lines()
             .count()
-            < 3
+            < lines
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

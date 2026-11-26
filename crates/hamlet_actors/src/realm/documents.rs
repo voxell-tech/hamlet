@@ -151,12 +151,14 @@ pub(super) async fn apply(
         Change::Card { model, mut card } => {
             card.note = writer.scrubbed(&card.note);
             let mut cards = catalogue(&writer.rows()).await?;
-            let price = card.price.clone();
+            let copied = (card.price.clone(), card.images.clone());
             let before = cards.insert(model.clone(), card);
             keep(writer, "catalogue", cbor(&cards)?).await?;
-            let repriced =
-                before.and_then(|card| card.price) != price;
-            (repriced && runs(&writer.rows(), &model).await?)
+            let changed = before
+                .map(|card| (card.price, card.images))
+                .unwrap_or_default()
+                != copied;
+            (changed && runs(&writer.rows(), &model).await?)
                 .then_some(Part::Model)
         }
     };
@@ -263,10 +265,11 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
     ))
 }
 
-/// The model `agent` runs, with its card's price: each part its own
-/// choice's, else a worker's starter's, else its hamlet's, else the
-/// realm's (`crates/hamlet_server/src/talk/models.rs:96-109`). A
-/// worker's fast mode is its own alone (`talk/models.rs:39`).
+/// The model `agent` runs, with its card's price and images: each
+/// part its own choice's, else a worker's starter's, else its
+/// hamlet's, else the realm's
+/// (`crates/hamlet_server/src/talk/models.rs:96-109`). A worker's
+/// fast mode is its own alone (`talk/models.rs:39`).
 pub(super) async fn model(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -285,15 +288,14 @@ pub(super) async fn model(
     let Some(model) = chosen.model else {
         return Ok(None);
     };
-    let price = catalogue(rows)
-        .await?
-        .remove(&model)
-        .and_then(|card| card.price);
+    let card =
+        catalogue(rows).await?.remove(&model).unwrap_or_default();
     Ok(Some(ModelChoice {
         model,
         effort: chosen.effort,
         fast: chosen.fast.unwrap_or(false),
-        price,
+        price: card.price,
+        images: card.images,
     }))
 }
 

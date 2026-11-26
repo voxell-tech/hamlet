@@ -305,9 +305,11 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "cy said blue.").await;
     let questions = lane(ada, ChatRefKind::Questions, cy);
-    // Under --actors the asker does not wait for the answer.
-    s.chief.open(&questions).await;
-    s.chief.shows(&questions, "Blue.").await;
+    if home::serves_actors() {
+        // Under --actors the asker does not wait for the answer.
+        s.chief.open(&questions).await;
+        s.chief.shows(&questions, "Blue.").await;
+    }
     let page = s.chief.open(&questions).await;
     assert_eq!(page.items.first().unwrap().text, "Which colour?");
     let back = failures(&s.chief, &questions);
@@ -369,7 +371,9 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.open(&now).await;
     s.chief.tell(ada, "Count.").await;
     s.chief.shows(&now, "The worker said 42.").await;
-    left(&mut s.chief, "worker#3").await;
+    if home::serves_actors() {
+        left(&mut s.chief, "worker#3").await;
+    }
     let worker = s.chief.agent("worker#3").unwrap();
     assert_eq!(worker.kind, AgentKind::Worker);
     assert_eq!(worker.parent, Some(ada));
@@ -380,15 +384,17 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     s.chief.shows(&now, "Started another.").await;
     s.chief.shows(&now, "worker#4 answers: 43").await;
     s.chief.shows(&now, "The second answer came.").await;
-    left(&mut s.chief, "worker#4").await;
+    if home::serves_actors() {
+        left(&mut s.chief, "worker#4").await;
+    }
     assert_eq!(
         s.chief.agent("worker#4").unwrap().left.unwrap().how,
         LeftHow::Answered
     );
 }
 
-/// Waits for the worker `name` to have left: a worker started with
-/// `wait` does not hold its starter's turn.
+/// Waits for the worker `name` to have left: under --actors a worker
+/// started with `wait` does not hold its starter's turn.
 async fn left(chief: &mut Client, name: &str) {
     chief
         .until(&format!("{name} left"), |c| {

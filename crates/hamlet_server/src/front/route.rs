@@ -232,8 +232,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
                 |_| After::Nothing,
             )?
         }
-        ClientMessage::Read(Read::Models { id, .. }) => {
-            Route::Read(Reading::Models { id })
+        ClientMessage::Read(Read::Models { id, refresh }) => {
+            Route::Read(Reading::Models {
+                id,
+                refresh: refresh == Some(true),
+            })
         }
         ClientMessage::Read(Read::Charter { id }) => call(
             &address::Realm,
@@ -450,5 +453,27 @@ mod tests {
         };
         assert_eq!(charter.to.to_string(), "realm/local");
         assert_eq!(charter.action, "read_charter");
+    }
+
+    #[test]
+    fn a_read_of_the_models_asks_for_a_refresh_only_when_the_client_does()
+     {
+        let refreshes =
+            |refresh| match route(ClientMessage::Read(Read::Models {
+                id: RequestId::new(),
+                refresh,
+            }))
+            .unwrap()
+            {
+                Route::Read(Reading::Models { refresh, .. }) => {
+                    refresh
+                }
+                _ => panic!(
+                    "the models are a read of the Hand and the realm"
+                ),
+            };
+        assert!(refreshes(Some(true)));
+        assert!(!refreshes(Some(false)));
+        assert!(!refreshes(None));
     }
 }

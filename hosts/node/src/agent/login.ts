@@ -40,6 +40,11 @@ export type Keep = BareRealm["keep_credential"];
 
 export interface SignIns {
     step(login: Login, keep: Keep): Promise<LoginAnswer>;
+    /**
+     * Cancels every open sign-in, as today's close does, and resolves once
+     * their flows end.
+     */
+    close(): Promise<void>;
 }
 
 export interface SignInOptions {
@@ -130,6 +135,11 @@ export function signIns(
             if ("reply" in login) open.reply(login.reply.value);
             return open.answer(login.id, () => open.next(at, keep));
         },
+        close: async () => {
+            const open = [...all.values()].filter((signIn) => !signIn.closed);
+            for (const signIn of open) signIn.cancel();
+            await Promise.all(open.map((signIn) => signIn.flowed));
+        },
     };
 }
 
@@ -148,6 +158,8 @@ class SignIn {
     readonly provider: string;
     /** Answered with its end, after which only a repeat is answered. */
     closed = false;
+    /** Resolves once the provider's flow has ended, however it ended. */
+    readonly flowed: Promise<void>;
     readonly #waited: (stop: AbortSignal) => Promise<void>;
     readonly #stop = new AbortController();
     readonly #steps: LoginStep[] = [];
@@ -170,7 +182,7 @@ class SignIn {
     ) {
         this.provider = provider;
         this.#waited = waited;
-        flow({
+        this.flowed = flow({
             signal: this.#stop.signal,
             prompt: (prompt) => this.#prompt(prompt),
             notify: (event) => {

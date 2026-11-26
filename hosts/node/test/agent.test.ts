@@ -297,6 +297,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "retire",
             "retry",
             "rewind",
+            "settle",
             "shelves_changed",
             "stop",
             "submit",

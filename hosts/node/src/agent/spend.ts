@@ -200,15 +200,21 @@ export function realmWordsIn(text: string): string | undefined {
 }
 
 /**
- * The realm's words alone, as today's item reads. pi-durable tries again
- * only an `error`, and a held task's name can hold a status code.
+ * The realm's words alone. pi-durable tries again only an `error`, and a
+ * held task's name can hold a status code.
  */
 function heldOf(model: Model<Api>, words: string): AssistantMessage {
     return {
         ...refusalOf(model, ""),
         stopReason: "aborted",
+        rawStopReason: HELD,
         errorMessage: words,
     };
+}
+
+/** Whether the realm held `message`'s request, which today's chat shows nothing of. */
+export function isHeld(message: AssistantMessage): boolean {
+    return message.stopReason === "aborted" && message.rawStopReason === HELD;
 }
 
 /**
@@ -229,6 +235,9 @@ function abortOf(signal: AbortSignal | undefined): Promise<void> {
         signal.addEventListener("abort", () => resolve(), { once: true }),
     );
 }
+
+/** The gate's stop reason for a request the realm held. */
+const HELD = "held by the realm";
 
 /** Holds "billing", which pi-ai's `isRetryableAssistantError` never retries. */
 const REFUSED =

@@ -8,6 +8,7 @@ import type {
     OAuthAuth,
     OAuthCredential,
     ProviderEnv,
+    ProviderHeaders,
 } from "@earendil-works/pi-ai";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { CredentialAnswer, Kept, OauthLogin } from "./messages/realm.ts";
@@ -131,12 +132,19 @@ export interface Keys {
      * from the host's environment is used.
      */
     of(provider: string): Promise<Given>;
+    /**
+     * Rotates the realm's OAuth login for `provider` when it is due, as a
+     * request would; nothing for a key or where the realm holds none.
+     */
+    fresh(provider: string): Promise<void>;
 }
 
 /** The part of its credential a request carries, as pi-ai's request options. */
 export interface Given {
     readonly apiKey?: string;
     readonly env?: ProviderEnv;
+    /** The headers a login's auth adds, as pi-ai's `toAuth` gives them. */
+    readonly headers?: ProviderHeaders;
 }
 
 /**
@@ -198,27 +206,39 @@ export function keysOf(
                 });
                 asked.set(provider, Promise.resolve({ type: "oauth", login }));
             }
-            const { apiKey } = await oauth.toAuth(credentialOf(login));
-            if (apiKey !== undefined) return { apiKey };
+            const { apiKey, headers } = await oauth.toAuth(credentialOf(login));
+            if (apiKey !== undefined)
+                return {
+                    apiKey,
+                    ...(headers === undefined ? {} : { headers }),
+                };
         }
         throw new Error(
             `The sign-in for ${provider} gives no key, and only a key is used yet.`,
         );
     };
+    const keptFor = (provider: string): Promise<CredentialAnswer> => {
+        let asking = asked.get(provider);
+        if (asking === undefined) {
+            asking = ask(provider);
+            asked.set(provider, asking);
+            // A refusal or a failed call is asked again at the next request.
+            const forget = () => asked.delete(provider);
+            asking.then((answer) => {
+                if (answer.type === "refused") forget();
+            }, forget);
+        }
+        return asking;
+    };
     return {
+        fresh: async (provider) => {
+            if (provider === FAUX) return;
+            const kept = await keptFor(provider);
+            if (kept.type === "oauth") await givenOf(provider, kept);
+        },
         of: async (provider) => {
             if (provider === FAUX) return {};
-            let asking = asked.get(provider);
-            if (asking === undefined) {
-                asking = ask(provider);
-                asked.set(provider, asking);
-                // A refusal or a failed call is asked again at the next request.
-                const forget = () => asked.delete(provider);
-                asking.then((answer) => {
-                    if (answer.type === "refused") forget();
-                }, forget);
-            }
-            const kept = await asking;
+            const kept = await keptFor(provider);
             if (kept.type === "refused") {
                 // An endpoint no one signed in to is called without a key, as today's.
                 const listed = subscriptions?.listed.getProvider(provider);
@@ -277,6 +297,11 @@ function rotated(
         rotation.catch(() => ROTATIONS.delete(retired));
     }
     return rotation;
+}
+
+/** Resolves once each rotation begun in the host has been handed to the realm. */
+export async function rotationsKept(): Promise<void> {
+    await Promise.allSettled(ROTATIONS.values());
 }
 
 /** pi-ai's credential as the realm keeps it: an OAuth expiry in whole seconds. */

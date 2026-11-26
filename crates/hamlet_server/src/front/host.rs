@@ -27,6 +27,9 @@ const ENTRY: &str = concat!(
     "/../../hosts/node/src/main.ts"
 );
 
+/// Names a Node host entry to start in place of [`ENTRY`], for tests.
+const NODE_HOST: &str = "HAMLET_NODE_HOST";
+
 /// Set to `1`, the Node host lists two loopback providers to sign in
 /// to, for tests.
 const SIGN_IN: &str = "HAMLET_DEMO_SIGN_IN";
@@ -53,11 +56,13 @@ pub(crate) fn open(
 ) -> Result<(Host, Supervisor)> {
     let node = std::env::var("HAMLET_NODE")
         .unwrap_or_else(|_| "node".into());
+    let entry =
+        std::env::var(NODE_HOST).unwrap_or_else(|_| ENTRY.to_owned());
     // Node before 24.3 warns at each start that it strips types.
     let mut argv = vec![
         node,
         "--disable-warning=ExperimentalWarning".to_owned(),
-        ENTRY.to_owned(),
+        entry,
     ];
     if let Some(faux) = faux {
         let script =

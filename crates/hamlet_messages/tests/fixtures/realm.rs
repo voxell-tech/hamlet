@@ -738,6 +738,14 @@ fn the_letters(fixtures: &mut Fixtures) {
                 LetterRefusal::StillHiring { to: shown(HIRE) },
             ),
             ("withdrawn", LetterRefusal::Withdrawn),
+            (
+                "files",
+                LetterRefusal::Files {
+                    words: "`/outside` cannot be read: /outside is \
+                            out of this agent's reach to read"
+                        .to_owned(),
+                },
+            ),
         ]
     };
     answers(

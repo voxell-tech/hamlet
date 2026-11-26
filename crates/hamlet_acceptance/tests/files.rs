@@ -202,14 +202,19 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     assert!(!inbox.exists());
     s.chief.choose(&ask.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Sent.").await;
-    // The chief's allow does not hold the turn under --actors, so the
-    // files may still be copying when the words that follow show.
-    s.chief
-        .until("the 1001 files", |_| {
-            fs::read_dir(&inbox)
-                .is_ok_and(|files| files.count() == 1001)
-        })
-        .await;
+    if home::serves_actors() {
+        // The chief's allow does not hold the turn under --actors, so
+        // the files may still be copying when the words that follow
+        // show.
+        s.chief
+            .until("the 1001 files", |_| {
+                fs::read_dir(&inbox)
+                    .is_ok_and(|files| files.count() == 1001)
+            })
+            .await;
+    } else {
+        assert_eq!(fs::read_dir(&inbox).unwrap().count(), 1001);
+    }
 
     s.chief.tell(ada, "Once more.").await;
     let ask = s

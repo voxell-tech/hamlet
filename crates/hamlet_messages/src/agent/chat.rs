@@ -473,8 +473,15 @@ pub enum LoginAnswer {
 }
 
 /// Reads the models the agent's listing holds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReadModels;
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub struct ReadModels {
+    /// Asks each endpoint for its list again before the listing is
+    /// read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub refresh: bool,
+}
 from_client!(ReadModels, "read_models", ModelList);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -576,6 +583,13 @@ from_client!(ReadProviders, "read_providers", ProviderList);
 pub struct ProviderList {
     pub providers: Vec<hamlet_protocol::client::ProviderView>,
 }
+
+/// Ends the sign-ins the agent's host has open, and answers once
+/// their flows have ended and each login the host began rotating is
+/// handed to the realm, so a closing server keeps the rotated one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settle;
+from_client!(Settle, "settle", ());
 
 /// Reads what the agent knows: the character and the papers of its
 /// own filesystem, and the paths it changed against its profile.

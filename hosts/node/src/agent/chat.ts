@@ -10,7 +10,7 @@ import {
     wrongCaller,
 } from "./actor.ts";
 import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
-import { secretsLoaded } from "./credentials.ts";
+import { rotationsKept, secretsLoaded } from "./credentials.ts";
 import {
     type Checked,
     type ClientActions,
@@ -29,6 +29,7 @@ import {
 } from "./models.ts";
 import { editMemory, readPapers } from "./papers.ts";
 import { promptSections } from "./prompt.ts";
+import { isEndpoint } from "./providers.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
 declare const asked: unique symbol;
@@ -49,7 +50,10 @@ export type ChatHandlers = {
  * Actions that answer only fixed words or the realm's, so they do not wait
  * on the realm's secret list and are taken in the order they come.
  */
-const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set(["retry"]);
+const ANSWERS_NO_READ: ReadonlySet<keyof ClientActions> = new Set([
+    "retry",
+    "settle",
+]);
 
 export function askedBy<N extends keyof ClientActions>(
     action: N,
@@ -93,14 +97,27 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 generationOf(c).peers.reach.keep_credential,
             );
         }),
-        read_models: askedBy("read_models", async (c) => ({
-            models: config.faux
-                ? modelList(config.models)
-                : modelList(
-                      config.models,
-                      await reached(config.models, generationOf(c).peers.reach),
-                  ),
-        })),
+        settle: askedBy("settle", async () => {
+            await Promise.all([rotationsKept(), config.signIns?.close()]);
+            return null;
+        }),
+        read_models: askedBy("read_models", async (c, { refresh }) => {
+            if (config.faux) return { models: modelList(config.models) };
+            if (refresh === true)
+                await config.models.refresh({
+                    providers: config.models
+                        .getProviders()
+                        .filter(isEndpoint)
+                        .map((provider) => provider.id),
+                    force: true,
+                });
+            return {
+                models: modelList(
+                    config.models,
+                    await reached(config.models, generationOf(c).peers.reach),
+                ),
+            };
+        }),
         images_taken: askedBy("images_taken", async (c) => {
             const taken = await runningImages(
                 config.models,
@@ -120,14 +137,16 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                       name,
                   );
         }),
-        check_connection: askedBy("check_connection", async (c) =>
-            config.faux
+        check_connection: askedBy("check_connection", async (c) => {
+            const { peers, copies } = generationOf(c);
+            return config.faux
                 ? FAUX_CHECKED
                 : checkConnection(
                       config.models,
-                      await runningModel(generationOf(c).copies, config.model),
-                  ),
-        ),
+                      agentKeys(config.models, peers),
+                      await runningModel(copies, config.model),
+                  );
+        }),
         read_providers: askedBy("read_providers", async (c) => ({
             providers: await providerViews(
                 config.models,

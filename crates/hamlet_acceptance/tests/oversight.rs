@@ -73,13 +73,21 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .await;
     s.chief.choose(&fourth.id, Choice::Always, None).await;
     s.chief.shows(&now, "Done again.").await;
-    // An approval does not hold the turn under --actors, so the
-    // commands may end after the words that follow them.
-    s.chief
-        .until("four and five", |_| {
-            lodge.join("four").exists() && lodge.join("five").exists()
-        })
-        .await;
+    if home::serves_actors() {
+        // An approval does not hold the turn under --actors, so the
+        // commands may end after the words that follow them.
+        s.chief
+            .until("four and five", |_| {
+                lodge.join("four").exists()
+                    && lodge.join("five").exists()
+            })
+            .await;
+    } else {
+        assert!(
+            lodge.join("four").exists()
+                && lodge.join("five").exists()
+        );
+    }
     assert!(s.chief.waits().is_empty());
     let grants = s.chief.realm().grants;
     assert_eq!(grants.len(), 1);
@@ -318,8 +326,13 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
             .await;
         assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     }
-    // Under --actors the second question may already wait beside it.
-    assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
+    if home::serves_actors() {
+        // Under --actors the second question may already wait beside
+        // it.
+        assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
+    } else {
+        assert_eq!(s.chief.waits().len(), 1);
+    }
     let reply = s
         .chief
         .request(|id| {
@@ -348,13 +361,25 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
         .command(hand, &format!("/reply #{} yes, plant", sure.id))
         .await;
     s.chief.shows(&now, "Planted.").await;
-    // A question does not hold the turn under --actors, so the
-    // answers may show after the words that follow them.
-    s.chief
-        .until("an answer in the chat", |c| {
-            c.items(&now).iter().any(|i| i.kind == ItemKind::Answered)
-        })
-        .await;
+    if home::serves_actors() {
+        // A question does not hold the turn under --actors, so the
+        // answers may show after the words that follow them.
+        s.chief
+            .until("an answer in the chat", |c| {
+                c.items(&now)
+                    .iter()
+                    .any(|i| i.kind == ItemKind::Answered)
+            })
+            .await;
+    } else {
+        let answers = s
+            .chief
+            .items(&now)
+            .into_iter()
+            .filter(|i| i.kind == ItemKind::Answered)
+            .count();
+        assert!(answers >= 1);
+    }
     assert!(s.chief.waits().is_empty());
 }
 

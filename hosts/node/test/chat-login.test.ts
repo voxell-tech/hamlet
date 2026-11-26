@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import {
     type ApiKeyAuth,
@@ -11,6 +13,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { chatActions } from "../src/agent/chat.ts";
 import { keysOf } from "../src/agent/credentials.ts";
+import { hostedConfig } from "../src/agent/host.ts";
 import { type SignIns, signIns } from "../src/agent/login.ts";
 import type {
     ChatPage,
@@ -28,7 +31,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { fixture } from "./testing.ts";
+import { fixture, scratchFolder } from "./testing.ts";
 
 /**
  * A made-up secret named for the test, so no test passes on a secret an
@@ -468,6 +471,35 @@ test("A17: an OAuth sign-in steps through its link, code and prompt", async (t) 
         events: agent.events,
         database: await dumped(agent),
     });
+    await agent.stop();
+});
+
+test("a host signs in to a subscription as its installation, the id in its realm folder's credentials.json", async (t) => {
+    const home = scratchFolder(t);
+    writeFileSync(
+        join(home, "credentials.json"),
+        JSON.stringify({ installationId: "stable-installation" }),
+    );
+    const config = hostedConfig(home, { signIn: true, claude: false });
+    const { file, calls } = credentialsFile();
+    const agent = await wakeAgent(t, { calls, models: () => config.models });
+    assert.ok(config.signIns !== undefined);
+    const hand = client(agent, config.signIns);
+
+    let step = await hand.start("chatgpt", "subscription");
+    const { login } = step;
+    while (step.type === "step" && !("prompt" in step.step))
+        step = await hand.next(login);
+    assert.deepEqual(await hand.reply(login, "the-code"), {
+        type: "done",
+        login,
+    });
+    const stored = file.get("chatgpt");
+    assert.equal(stored?.type, "oauth");
+    assert.equal(
+        JSON.parse(stored.login.extra ?? "{}").clientId,
+        "stable-installation",
+    );
     await agent.stop();
 });
 
