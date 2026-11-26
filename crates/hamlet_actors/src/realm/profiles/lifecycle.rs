@@ -435,6 +435,7 @@ fn placed(
                 profile,
                 arrival,
                 house,
+                by: record::By::Chief,
             })
             .record(entry),
     )

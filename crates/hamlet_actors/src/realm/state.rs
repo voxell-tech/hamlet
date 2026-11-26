@@ -423,10 +423,7 @@ async fn closed(
             .unwrap_or_default();
         closed.push(protocol::ClosedHamlet {
             at,
-            by: match by.strip_prefix("agent/").map(str::parse) {
-                Some(Ok(agent)) => address(AgentNumber(agent), false),
-                _ => chief.to_owned(),
-            },
+            by: shown_by(&by, chief),
             id,
             name,
             reason: why.unwrap_or_default(),
@@ -443,13 +440,15 @@ async fn scholars(
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
-             house_z, house_turn FROM profile WHERE kind != 'hand' \
-             AND status IN ('living', 'archived') ORDER BY id",
+             house_z, house_turn, since, arrival_by FROM profile \
+             WHERE kind != 'hand' AND status IN ('living', \
+             'archived') ORDER BY id",
             Vec::new(),
         )
         .await?
     {
-        let [id, kind, name, status, arrival, x, z, turn] = &row[..]
+        let [id, kind, name, status, arrival, x, z, turn, since, by] =
+            &row[..]
         else {
             bail!("a profile's row of another form: {row:?}");
         };
@@ -484,7 +483,8 @@ async fn scholars(
                     protocol::Arrival::Turned
                 }
             },
-            arrival_by: None,
+            arrival_by: Option::<String>::of(by)?
+                .map(|by| shown_by(&by, chief)),
             chief: chief.to_owned(),
             hires: hires
                 .into_iter()
@@ -508,7 +508,7 @@ async fn scholars(
                 }
             }),
             name: String::of(name)?,
-            since: 0,
+            since: time(i64::of(since)?),
             skills: Vec::new(),
             versions: Vec::new(),
         });
@@ -780,6 +780,15 @@ fn unset() -> protocol::SettingsView {
             running: None,
             url: None,
         },
+    }
+}
+
+/// Who `by`, as the realm keeps it (`chief` or `agent/<n>`), is:
+/// an agent's address, else `chief`'s name.
+fn shown_by(by: &str, chief: &str) -> String {
+    match by.strip_prefix("agent/").map(str::parse) {
+        Some(Ok(agent)) => address(AgentNumber(agent), false),
+        _ => chief.to_owned(),
     }
 }
 

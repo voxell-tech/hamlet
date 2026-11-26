@@ -198,20 +198,24 @@ pub(super) async fn next(rows: &Rows<'_>) -> Result<ProfileId> {
     Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
 }
 
+/// Keeps `profile`, which `by` makes now.
 pub(super) async fn insert(
     writer: &Writer<'_>,
     profile: ProfileId,
     kind: Kind,
     name: &str,
+    by: &record::By,
 ) -> Result<()> {
     writer
         .execute(
-            "INSERT INTO profile (id, kind, name) VALUES (?1, ?2, \
-             ?3)",
+            "INSERT INTO profile (id, kind, name, since, \
+             arrival_by) VALUES (?1, ?2, ?3, ?4, ?5)",
             vec![
                 id(profile),
                 BindParam::Text(change::case_name(&kind)?),
                 BindParam::Text(name.to_owned()),
+                BindParam::Integer(writer.at().0),
+                BindParam::Text(by.name()),
             ],
         )
         .await?;
@@ -245,11 +249,14 @@ pub(super) async fn start(
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A shared profile named `name`, arriving as `arrival`.
+    /// A shared profile named `name` that `by` makes, arriving as
+    /// `arrival`, housed at `house` when it is housed.
     Made {
         profile: ProfileId,
         name: String,
         arrival: Arrival,
+        house: HouseAt,
+        by: record::By,
     },
     /// A shared profile named `name`, making from `from`'s commit
     /// `at`, housed at `house`.
@@ -268,11 +275,13 @@ pub(super) enum Change {
     },
     /// The profile is named `name`.
     Named { profile: ProfileId, name: String },
-    /// The profile is `arrival`, its house at `house` or none.
+    /// `by` places the profile as `arrival`, its house at `house` or
+    /// none.
     Placed {
         profile: ProfileId,
         arrival: Arrival,
         house: Option<HouseAt>,
+        by: record::By,
     },
 }
 
@@ -285,11 +294,12 @@ pub(super) async fn apply(
             profile,
             name,
             arrival,
+            house,
+            by,
         } => {
-            insert(writer, profile, Kind::Shared, &name).await?;
-            if arrival != Arrival::Housed {
-                place(writer, profile, arrival, None).await?;
-            }
+            insert(writer, profile, Kind::Shared, &name, &by).await?;
+            let house = (arrival == Arrival::Housed).then_some(house);
+            place(writer, profile, arrival, house, &by).await?;
         }
         Change::Fork {
             profile,
@@ -317,8 +327,14 @@ pub(super) async fn apply(
                     ],
                 )
                 .await?;
-            place(writer, profile, Arrival::Housed, Some(house))
-                .await?;
+            place(
+                writer,
+                profile,
+                Arrival::Housed,
+                Some(house),
+                &record::By::Chief,
+            )
+            .await?;
         }
         Change::Status { profile, from, to } => {
             writer
@@ -345,7 +361,8 @@ pub(super) async fn apply(
             profile,
             arrival,
             house,
-        } => place(writer, profile, arrival, house).await?,
+            by,
+        } => place(writer, profile, arrival, house, &by).await?,
     }
     Ok(Affected::seen([Part::State]))
 }
@@ -355,6 +372,7 @@ async fn place(
     profile: ProfileId,
     arrival: Arrival,
     house: Option<HouseAt>,
+    by: &record::By,
 ) -> Result<()> {
     let coordinate = |of: fn(&HouseAt) -> f64| {
         house.as_ref().map_or(BindParam::Null, |house| {
@@ -364,13 +382,14 @@ async fn place(
     writer
         .execute(
             "UPDATE profile SET arrival = ?2, house_x = ?3, house_z \
-             = ?4, house_turn = ?5 WHERE id = ?1",
+             = ?4, house_turn = ?5, arrival_by = ?6 WHERE id = ?1",
             vec![
                 id(profile),
                 BindParam::Text(change::case_name(&arrival)?),
                 coordinate(|house| house.x),
                 coordinate(|house| house.z),
                 coordinate(|house| house.turn),
+                BindParam::Text(by.name()),
             ],
         )
         .await?;
@@ -460,13 +479,15 @@ fn given(character: Option<&str>) -> Option<&str> {
     character.filter(|text| !text.is_empty())
 }
 
-/// The profile `create` makes as `profile`, arriving as `arrival`,
-/// or why it is refused.
+/// The profile `create` makes for `by` as `making` names it,
+/// arriving as `arrival`, or why it is refused.
 fn made(
     create: &CreateProfile,
-    profile: ProfileId,
+    making: Making,
     arrival: Arrival,
+    by: record::By,
 ) -> Result<Decided<(ProfileId, String)>, CreateRefusal> {
+    let Making { profile, house } = making;
     let Ok(name) = hamlet::checked_name(&create.name) else {
         return Err(CreateRefusal::BadName {
             name: create.name.trim().to_owned(),
@@ -482,28 +503,48 @@ fn made(
         profile,
         name,
         arrival,
+        house,
+        by,
     }))
+}
+
+/// The id a new profile takes, and the city's next free spot.
+pub(super) struct Making {
+    profile: ProfileId,
+    house: HouseAt,
+}
+
+impl Making {
+    async fn read(rows: &Rows<'_>) -> Result<Self> {
+        Ok(Self {
+            profile: next(rows).await?,
+            house: free_spot(&houses(rows, None).await?)?,
+        })
+    }
 }
 
 /// A profile an agent other than the Hand makes waits at the harbor,
 /// as today, unless the realm lets newcomers in.
 impl Act<Agent> for CreateProfile {
     type Output = Made<AgentRefusal<CreateRefusal>>;
-    type Loaded = (ProfileId, Newcomers);
+    type Loaded = (Making, Newcomers);
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
         _by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<(ProfileId, Newcomers)> {
-        Ok((next(rows).await?, settings::read(rows).await?.newcomers))
+    ) -> Result<(Making, Newcomers)> {
+        Ok((
+            Making::read(rows).await?,
+            settings::read(rows).await?.newcomers,
+        ))
     }
 
     fn decide(
         &self,
         by: &Agent,
-        (profile, newcomers): (ProfileId, Newcomers),
+        (making, newcomers): (Making, Newcomers),
     ) -> Decision<Self::Done, Self::Output> {
         let arrival =
             if by.0 == Hand::NUMBER || newcomers == Newcomers::Open {
@@ -511,7 +552,7 @@ impl Act<Agent> for CreateProfile {
             } else {
                 Arrival::Harbor
             };
-        match made(self, profile, arrival) {
+        match made(self, making, arrival, record::By::Agent(by.0)) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(
                 AgentRefusal::Act(why),
@@ -533,23 +574,23 @@ impl Act<Agent> for CreateProfile {
 
 impl Act<Client> for CreateProfile {
     type Output = Made<CreateRefusal>;
-    type Loaded = ProfileId;
+    type Loaded = Making;
     type Done = (ProfileId, String);
 
     async fn load(
         &self,
         _by: &Client,
         rows: &Rows<'_>,
-    ) -> Result<ProfileId> {
-        next(rows).await
+    ) -> Result<Making> {
+        Making::read(rows).await
     }
 
     fn decide(
         &self,
         _by: &Client,
-        profile: ProfileId,
+        making: Making,
     ) -> Decision<Self::Done, Self::Output> {
-        match made(self, profile, Arrival::Housed) {
+        match made(self, making, Arrival::Housed, record::By::Chief) {
             Ok(decided) => Decision::Change(decided),
             Err(why) => Decision::Answer(Made::refused(why)),
         }

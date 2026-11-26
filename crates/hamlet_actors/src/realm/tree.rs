@@ -508,6 +508,7 @@ pub(super) async fn blank(
         profile: profiles::next(rows).await?,
         name,
         kind: profiles::Kind::blank_by(by),
+        by: by.clone(),
     })
 }
 
@@ -560,11 +561,13 @@ pub(super) async fn kind_of(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Of {
     Profile(ProfileId),
-    /// A new profile named `name`, made for this hire alone (H38).
+    /// A new profile named `name` that `by` makes for this hire alone
+    /// (H38).
     Blank {
         profile: ProfileId,
         name: String,
         kind: profiles::Kind,
+        by: record::By,
     },
 }
 
@@ -733,6 +736,7 @@ async fn hand(writer: &Writer<'_>) -> Result<Affected> {
         HAND_PROFILE,
         profiles::Kind::Hand,
         "hand",
+        &record::By::Chief,
     )
     .await?;
     new_agent(writer, Hand::NUMBER, AgentKind::Hand, "hiring")
@@ -755,8 +759,10 @@ async fn hire(
             profile,
             name,
             kind,
+            by,
         } => {
-            profiles::insert(writer, profile, kind, &name).await?;
+            profiles::insert(writer, profile, kind, &name, &by)
+                .await?;
             profile
         }
     };
