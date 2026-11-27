@@ -19,8 +19,10 @@ import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     from,
+    notices,
     type Sent,
     toolCall,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -247,6 +249,54 @@ test("a held call's end that lands while its conversation is busy is read after 
 
     await send(agent, { type: "line", text: "Go on." });
     assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("ask_chief")]);
+});
+
+// The chief withdraws while the run is under way, so the notice queues; the
+// run's next request is refused as withdrawn, and no input follows it.
+test("a notice queued behind a run that ends on a withdrawn request is placed with no further input", async (t) => {
+    const withdrew = "The chief withdrew the instruction: Make the file.";
+    let agent: Woken | undefined;
+    let asked = 0;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            object: () => ({ type: "done" }),
+            may_spend: async () => {
+                asked += 1;
+                if (asked === 1 || agent === undefined) return { type: "done" };
+                await agent.actions.submit(agent.by(from.realm), {
+                    id: "wait/1",
+                    task: "task-1",
+                    input: {
+                        type: "notice",
+                        text: withdrew,
+                        held: {
+                            call: callOf(sent, "object"),
+                            end: "withdrawn",
+                        },
+                    },
+                });
+                return {
+                    type: "refused",
+                    why: { type: "withdrawn", task: "task-1" },
+                    words: "The chief withdrew the instruction, so this call did not run.",
+                };
+            },
+        },
+    });
+    agent = await wake(t, calls, [
+        toolCall("object", { reason: "Leave the file." }),
+        fauxAssistantMessage("Never asked."),
+    ]);
+    const woken = agent;
+    await woken.actions.submit(woken.by(from.realm), {
+        id: "input-1",
+        task: "task-1",
+        input: { type: "line", text: "Make the file." },
+    });
+    await until(async () =>
+        (await notices(woken)).some((notice) => notice.text === withdrew),
+    );
+    assert.equal(woken.faux.state.callCount, 1, "the notice started no run");
 });
 
 const CANCELLED: Outcome = {

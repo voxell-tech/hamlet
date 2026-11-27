@@ -9,12 +9,14 @@ import {
     type ConversationId,
     defineExtension,
     defineTask,
+    type EntryDraft,
     type EntryId,
     type EntryRecord,
     type Extension,
     GenerationTask,
     type Harness,
     hook,
+    InboxDoc,
     LiveDoc,
     type LiveState,
     type RunFailure,
@@ -23,6 +25,7 @@ import {
     type SubmissionRecord,
     type TaskId,
     type TaskRuntime,
+    type Tx,
 } from "@earendil-works/pi-durable";
 import { notice } from "./commands.ts";
 import type { TurnFailed } from "./messages/realm.ts";
@@ -203,7 +206,7 @@ export function failedTurns(
 ): FailedTurns {
     // Each request's task's last answer, until its run ends: the
     // error item an error leaves already shows its words.
-    const answered = new Map<TaskId, "unsent" | "error">();
+    const answered = new Map<TaskId, "held" | "unsent" | "error">();
     const extension = defineExtension({
         name: "hamlet.failed",
         hooks: [
@@ -218,7 +221,10 @@ export function failedTurns(
                     );
                     const unsent = unsentOf(message);
                     if (unsent !== undefined) {
-                        answered.set(api.taskId, "unsent");
+                        answered.set(
+                            api.taskId,
+                            unsent.held ? "held" : "unsent",
+                        );
                         if (!unsent.held) {
                             await refused(
                                 api.conversationId,
@@ -295,6 +301,19 @@ export function failedTurns(
     }: FailedRun): Promise<void> {
         const last = answered.get(failure.taskId);
         answered.delete(failure.taskId);
+        if (last === "held") {
+            await withHarness((harness, context) =>
+                harness.commit((tx) => placeWrites(tx, conversation), context),
+            ).catch((error: unknown) => {
+                if (!(error instanceof Closing)) {
+                    peers.report(
+                        "a held turn's notices were not placed",
+                        error,
+                    );
+                }
+            });
+            return;
+        }
         if (last === "unsent") return;
         // As today's `fault` words it (`talk/follow.rs:436-446`); a run
         // that failed before its request keeps its words on the failure.
@@ -376,6 +395,33 @@ export function failedTurns(
             );
             return true;
         });
+    }
+}
+
+/**
+ * Places the writes queued behind a run that ended on a held request, as
+ * the end of an answered run would: pi-durable keeps them queued behind a
+ * failed run until another submission comes, and a notice of the chief's
+ * ruling may be the last one.
+ */
+async function placeWrites(
+    tx: Tx,
+    conversation: ConversationId,
+): Promise<void> {
+    if ((await tx.doc(LiveDoc, conversation)).run !== undefined) return;
+    const { items } = await tx.doc(InboxDoc, conversation);
+    for (let at = 0; at < items.length; ) {
+        const item = items[at];
+        if (item?.mode !== "write" || item.entry.head !== undefined) {
+            at += 1;
+            continue;
+        }
+        const entry = await tx.appendEntry(
+            conversation,
+            item.entry as unknown as EntryDraft,
+        );
+        tx.placeSubmission(item.id, entry.id);
+        items.splice(at, 1);
     }
 }
 
