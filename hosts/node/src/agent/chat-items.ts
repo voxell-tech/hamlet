@@ -1,4 +1,4 @@
-/** Entries as the chat items a client reads, folded as today folds them. */
+/** Entries folded into the chat items a client reads. */
 import { isDeepStrictEqual } from "node:util";
 import type {
     AssistantMessage,
@@ -46,8 +46,7 @@ interface Shown {
 
 /**
  * Turns a conversation's entries and the answer being written into ops on
- * its items, as `crates/hamlet_server/src/clients/fold.rs` folds them. It
- * keeps only the answer being written and the calls not yet answered, so a
+ * its items. It keeps only the answer being written and the calls not yet answered, so a
  * watch holds no text for the whole wake.
  */
 export class Fold {
@@ -326,8 +325,7 @@ function itemsOf(entry: EntryRecord, shownId: string): Shown[] {
             return one("notice", SUMMARY_NOTICE);
         // A notice the realm told the model is an input; one for people
         // alone keeps its text in its data. The chief's answer to an
-        // `ask_chief` shows as `crates/hamlet_server/src/clients/fold.rs`
-        // shows it.
+        // `ask_chief` shows as an answer to its call.
         case "hamlet.notice": {
             const text =
                 (entry.data as { text?: string } | undefined)?.text ??
@@ -429,10 +427,10 @@ function blocksOf(
     return shown;
 }
 
-/** `crates/hamlet_server/src/talk/asking.rs`'s `ANSWERS`. */
+/** The answers an `ask_chief` question may offer. */
 const ANSWERS = "The chief answers:";
 
-/** The chief's words in the realm's answer to an `ask_chief`, as `talk/asking.rs`'s `said` reads them. */
+/** The chief's words in the realm's answer to an `ask_chief`. */
 function chiefSaid(result: string): string | undefined {
     if (!result.startsWith(ANSWERS)) return undefined;
     const words = result.slice(ANSWERS.length).trim();
@@ -481,7 +479,7 @@ function shownAt(item: ChatItem, end: CallEnd): ChatItem {
 /** pi-durable's words before the reason a call was not run. */
 export const BLOCKED = "Tool call blocked: ";
 
-/** A held call's end as today's fold closes it (`clients/fold.rs`). */
+/** A held call's end, which closes its item. */
 function endingOf(
     held: Held,
     end: CallEnd,
@@ -561,7 +559,7 @@ function usageOf(
     };
 }
 
-/** As `crates/hamlet_server/src/spend.rs` shows money. */
+/** Money in dollars to the cent, as a chief reads it. */
 export function money(micros: number): string {
     if (micros >= 1 && micros < 10_000) return "<$0.01";
     const cents = Math.floor((micros + 5_000) / 10_000);

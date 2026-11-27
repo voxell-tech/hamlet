@@ -211,8 +211,7 @@ interface Offer {
 }
 
 /**
- * What an agent of its kind is offered, as today decides it
- * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand the built-in
+ * What an agent of its kind is offered: an errand the built-in
  * tools its brief names, or no tool (`undefined`) when it names none, a worker
  * the built-in tools its brief names, or all of them when it names none, and a
  * Hand or a hire every tool but the built-in and hand tools its lead turned

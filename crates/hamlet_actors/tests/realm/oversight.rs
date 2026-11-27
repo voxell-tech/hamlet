@@ -286,7 +286,7 @@ async fn an_end_revokes_the_agents_grants() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_revoke_of_no_grant_is_a_notice_in_todays_words() {
+async fn a_revoke_of_no_grant_is_a_notice_in_its_words() {
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
     realm
@@ -337,7 +337,6 @@ async fn a_revoke_of_no_grant_is_a_notice_in_todays_words() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_end_revokes_a_workers_grants() {
-    // As today's end of any agent (society/agents.rs:271-281).
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
     realm.live(THREE).await;

@@ -270,7 +270,7 @@ async fn an_edit_commits_once_on_main_and_refuses_what_it_may_not_write()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_chief_s_edits_and_reverts_carry_today_s_words() {
+async fn a_chief_s_edits_and_reverts_carry_their_words() {
     let dir = Scratch::new("profile-edit-words");
     let host = made(&dir).await;
     let chief = || "chief:3".to_owned();
@@ -307,7 +307,7 @@ async fn a_chief_s_edits_and_reverts_carry_today_s_words() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_hand_s_revert_carries_today_s_words() {
+async fn the_hand_s_revert_carries_its_words() {
     let dir = Scratch::new("profile-revert-hand");
     let host = made(&dir).await;
     edited(&host, "memory/a.md", "a").await;

@@ -43,8 +43,7 @@ const OAUTH_FIELDS: [&str; 4] =
 /// A credential's fields that the workspace takes out.
 const SECRET_FIELDS: [&str; 3] = ["key", "access", "refresh"];
 
-/// `credentials.json` as today's server writes it, with the counter
-/// of its versions.
+/// `credentials.json`, with the counter of its versions.
 #[derive(Clone, Serialize, Deserialize)]
 struct Stored {
     #[serde(default = "first")]
@@ -308,8 +307,8 @@ impl Held {
 }
 
 /// `kept` with `before`'s expiry when they name the same second, so a
-/// login read and kept back is no change: today's server keeps the
-/// expiry to the millisecond.
+/// login read and kept back is no change: the file keeps the expiry
+/// to the millisecond.
 fn unchanged_expiry(before: &Value, mut kept: Value) -> Value {
     let second = |value: &Value| {
         value["expires"].as_f64().map(|ms| (ms / 1000.0) as u32)

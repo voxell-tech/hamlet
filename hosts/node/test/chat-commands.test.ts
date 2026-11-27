@@ -835,8 +835,6 @@ test("A6: rewind takes the chat back to before a line", async (t) => {
             chat: { with: 7, ...chat },
             item,
         });
-    // As `crates/hamlet_server/src/talk/chats.rs` and
-    // `crates/hamlet_server/src/clients/requests.rs` word them.
     const notALine = "That is not one of your lines in this conversation.";
 
     assert.deepEqual(await rewind(`${entryIdOf(7, answer)}:0`), {
@@ -918,8 +916,7 @@ test("a letter to a busy agent waits for the next run", async (t) => {
     ]);
 });
 
-// As today, a retry of a session with nothing in it is admitted
-// (`crates/hamlet_server/src/talk/chats.rs`, `retry`).
+// A retry of a session with nothing in it is admitted.
 test("a retry of an empty session carries on", async (t) => {
     const agent = await wake(t, fakes().calls, [
         fauxAssistantMessage("Carried."),
@@ -1034,8 +1031,7 @@ function callOfRun(sent: Parameters<typeof named>[0]): string {
     return (run.message as { call: string }).call;
 }
 
-// As today, where a turn waiting on a chief is busy (`talk/inputs.rs:273-280`,
-// `talk/chats.rs:322-326`).
+// Where a turn waiting on a chief is busy.
 for (const [what, run] of [
     ["a command's end has not come", { type: "running", command: 4 }],
     [

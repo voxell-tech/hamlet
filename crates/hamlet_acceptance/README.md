@@ -14,8 +14,9 @@ scenario that received it.
 
 The scenarios are compiled only with the `acceptance` feature, so plain
 `cargo test` neither builds nor runs them. They need the built `hamlet`
-and `hamlet_server`, Node from `harnesses/pi/.nvmrc`, and
-`npm ci --prefix harnesses/pi`. `cargo xtask check` runs them. By hand, at the root:
+and `hamlet_server`, Node from `hosts/node/.nvmrc`, and the Node host's
+packages and native module, which `cargo xtask acceptance` puts in place.
+`cargo xtask check` runs them. By hand, at the root:
 
 ```sh
 cargo build -p hamlet_cli -p hamlet_server
@@ -100,10 +101,10 @@ provider. Both wire directions are saved as JSONL; connection tokens and the
 fake sign-in key are redacted. IDs, timestamps and stream boundaries come
 from the running server.
 
-From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
+From the repository root, using the Node version in `hosts/node/.nvmrc`,
+after `cargo xtask acceptance` has put the Node host in place:
 
 ```sh
-npm ci --prefix harnesses/pi
 cargo build -p hamlet_cli -p hamlet_server
 cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
 cargo test -p hamlet_protocol -p hamlet_client

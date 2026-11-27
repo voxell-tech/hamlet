@@ -29,10 +29,10 @@ const ANSWERED: &str = "answered";
 
 const FAILED: &str = "failed";
 
-/// Today's words for an errand that ended with no answer.
+/// The words for an errand that ended with no answer.
 const NO_ANSWER: &str = "the errand gave no answer";
 
-/// The cap of an errand that has none of its own today: only its
+/// The cap of an errand that has none of its own: only its
 /// task's budget bounds it.
 pub(in crate::realm) const UNCAPPED: u64 = i64::MAX.unsigned_abs();
 

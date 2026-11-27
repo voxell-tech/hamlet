@@ -4,7 +4,7 @@
  * lines below (`run:`, `tell`, `read` and the others), and the line `tools`
  * with the tools it is offered, one `<name>: <description>` a line.
  *
- * A script is JSON, in the server's `--faux` format:
+ * A script is JSON, the file the server's `--faux` names:
  *
  * ```json
  * {

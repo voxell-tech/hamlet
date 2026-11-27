@@ -102,8 +102,7 @@ pub(super) enum Act {
     },
     Merge {
         absorbed: Target,
-        /// Refused only once `absorbed` is found, as today reads
-        /// them.
+        /// Refused only once `absorbed` is found.
         into: Result<Target, Refusal>,
         why: String,
     },
@@ -125,8 +124,7 @@ pub(super) enum Act {
     TurnAway(TurnAway),
     MoveHouse {
         profile: ProfileId,
-        /// Refused only once the profile is found, as today reads
-        /// the numbers.
+        /// Refused only once the profile is found.
         spot: Result<Spot, Refusal>,
     },
     Steer {
@@ -566,9 +564,9 @@ pub(super) fn parse(
             else {
                 return Err(usage(name));
             };
-            // The profile takes a name after `@` as today's `resolve`
-            // does: a branch's, a version's, then a commit's whole
-            // id.
+            // The profile takes a name after `@` as `hamlet_git`'s
+            // `resolve` does: a branch's, a version's, then a
+            // commit's whole id.
             let (address, at) = scholar.split_once('@').map_or(
                 (*scholar, None),
                 |(address, at)| {

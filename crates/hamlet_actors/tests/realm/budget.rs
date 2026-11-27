@@ -315,7 +315,7 @@ async fn ten_charges_at_once_each_count() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_charge_before_the_period_began_counts_nothing() {
     // a charge two days old, written with the realm stopped, is
-    // outside today's period: only a charge made now counts.
+    // outside this period: only a charge made now counts.
     let (realm, hamlet) = hamlet_with(0).await;
     let task = standing(&realm, MAYOR);
     let payer = pays(&hamlet);

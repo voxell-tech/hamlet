@@ -171,9 +171,7 @@ async fn a_write_and_an_edit_change_the_project() {
 /// in manual mode, before anything else, and nothing is written: by
 /// `..`, by a full path, by a link out of the project and by a link
 /// into the agent's own filesystem. An edit of a file that is not
-/// UTF-8 fails in the words of the server's tools and leaves it as it
-/// was.
-// Ported from the server's `writes_and_edits_nothing_out_of_reach`.
+/// UTF-8 fails in the edit's words and leaves it as it was.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {

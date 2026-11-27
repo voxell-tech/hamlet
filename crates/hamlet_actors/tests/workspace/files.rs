@@ -130,7 +130,7 @@ pub(super) async fn working_in(
 }
 
 /// A read, a search and a find of the project answer what is there,
-/// cut as the server's tools cut it.
+/// cut as a read cuts it.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_file_tools_read_the_project() {
@@ -181,8 +181,6 @@ async fn the_file_tools_read_the_project() {
 }
 
 /// A long file is read in parts, each saying where to go on.
-// Ported from the server's `reads_a_long_file_in_parts_saying_where_
-// to_go_on`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_file_is_read_in_parts_saying_where_to_go_on() {

@@ -104,7 +104,7 @@ test("an endpoint the settings name is served with the copy's model, its list is
     assert.equal(models.getProvider("local"), undefined);
 });
 
-test("only an endpoint or a provider the realm holds a sign-in for is reached, as today's catalogue lists them", async (t) => {
+test("only an endpoint or a provider the realm holds a sign-in for is reached", async (t) => {
     const base_url = await listing(t);
     const models = createModels();
     for (const id of ["kept", "other"]) {
@@ -142,8 +142,8 @@ test("only an endpoint or a provider the realm holds a sign-in for is reached, a
     ]);
 });
 
-/** The providers today's server lists in its recorded sign-in session. */
-function todaysProviders(): ProviderView[] {
+/** The providers listed in the recorded sign-in session. */
+function recordedProviders(): ProviderView[] {
     const frames = readFileSync(
         new URL(
             "../../../crates/hamlet_protocol/frames/login-key.jsonl",
@@ -159,10 +159,10 @@ function todaysProviders(): ProviderView[] {
         const listed = message.changes?.find((change) => change.providers);
         if (listed?.providers !== undefined) return listed.providers;
     }
-    throw new Error("today's session lists no providers");
+    throw new Error("the recorded session lists no providers");
 }
 
-test("the host's providers are today's, by today's names", async () => {
+test("the host's providers are the recorded session's, by its names", async () => {
     const models = createModels();
     for (const provider of hostProviders()) models.setProvider(provider);
     const views = await providerViews(models, {
@@ -182,7 +182,7 @@ test("the host's providers are today's, by today's names", async () => {
                 methods,
             }));
 
-    assert.deepEqual(shown(views), shown(todaysProviders()));
+    assert.deepEqual(shown(views), shown(recordedProviders()));
 });
 
 /** A model list with `chatgpt`, signed in to by OAuth, whose auth adds a header. */

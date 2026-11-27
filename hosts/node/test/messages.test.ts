@@ -619,8 +619,8 @@ const WRITTEN: readonly Written[] = [
         tool: ["found_hamlet", { name: "Harbor", purpose: "Run the release" }],
         answers: { realm: { found: () => answer("realm/found.founded") } },
         own: ["call", "conversation"],
-        // The tool has no tier to choose: a hamlet an agent founds has
-        // today's default, 50. The fixture's 500 is a chief's choice.
+        // The tool has no tier to choose: a hamlet an agent founds has the
+        // default, 50. The fixture's 500 is a chief's choice.
         constant: { "act.tier": "fifty" },
     },
     {
@@ -1759,7 +1759,7 @@ const CALLED: Readonly<Record<string, readonly [string, ToolArgs]>> = {
 };
 
 /**
- * A refusal the model is told in today's words of a result, not of an error:
+ * A refusal the model is told in the words of a result, not of an error:
  * a call a chief must allow, and the chief that cannot be asked.
  */
 function toldPlainly(given: {
@@ -1821,7 +1821,7 @@ for (const action of ANSWERED_BY_TOOLS) {
             if (plainly !== undefined) {
                 assert.deepEqual(told, [plainly, false], name);
             } else if (given.type === "refused") {
-                // Today's gate blocks a letter whose files it may not send.
+                // A letter whose files it may not send is blocked.
                 const words =
                     given.why?.type === "files"
                         ? `Tool call blocked: ${given.words}`
@@ -2373,7 +2373,7 @@ test("the agent's chat events equal their fixtures, and its items, status, usage
 });
 
 for (const name of fixtures(/^error\/.*\.run\./)) {
-    test(`${name}, thrown by run, gives bash today's interrupted result, never a throw`, async (t) => {
+    test(`${name}, thrown by run, gives bash the interrupted result, never a throw`, async (t) => {
         const given = fixture(name) as {
             group: string;
             code: string;
@@ -2402,7 +2402,7 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
         await agent.stop();
 
         assert.ok(result && !threw(result));
-        // Today's words for a change that may have run (`calls.rs`).
+        // The words for a change that may have run.
         assert.ok(
             result.diagnostics.some(({ message }) =>
                 message.includes(
@@ -2442,7 +2442,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [
         /^realm\/lapse\.stopped\.args$/,
-        "a stop's lapse of one conversation: as today, `/stop` lapses every wait the agent raised",
+        "a stop's lapse of one conversation: `/stop` lapses every wait the agent raised",
     ],
     [/^realm\/needs_chief\./, "the workspace's call of the realm"],
     [
@@ -2492,16 +2492,13 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [
         /^realm\/lapse\.ended\.args$/,
-        "a /new, which leaves the waits of the session it left, as today's does",
+        "a /new, which leaves the waits of the session it left",
     ],
     [
         /^realm\/read_budget\.args$/,
-        "a budget read for a task's payer: the agent reads its own, as today's read_budget does",
+        "a budget read for a task's payer: the agent reads its own",
     ],
-    [
-        /^realm\/set_model\.args$/,
-        "a model change with an effort and a speed, which today's set_model does not take",
-    ],
+    [/^realm\/set_model\.args$/, "a model change with an effort and a speed"],
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 

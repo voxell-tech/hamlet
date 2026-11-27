@@ -757,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chiefs_line_names_its_chief_as_today() {
+    fn a_chiefs_line_names_its_chief() {
         let line = item(ChatItem {
             id: "10:0".to_owned(),
             at: Count(1_795_521_338_667),

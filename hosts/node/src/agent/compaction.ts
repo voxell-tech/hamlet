@@ -27,13 +27,12 @@ import type { LetterId, RealmTask } from "./messages/shared.ts";
 import { realmWordsIn } from "./spend.ts";
 import { draftOf } from "./turn.ts";
 
-/** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
 export const ANSWER_SHARE = 0.2;
 const BACKGROUND_SHARE = 0.1;
 /** The window assumed for a model the listing does not hold. */
 export const DEFAULT_WINDOW = 32_768;
 
-/** Compaction sized by each model's window, and by today's default window for any other. */
+/** Compaction sized by each model's window, and by the default window for any other. */
 export function compactionFor(
     models: readonly Model<Api>[],
 ): CompactionSettings {
@@ -56,7 +55,6 @@ function sized(window: number) {
     };
 }
 
-/** Today's rule and words, in `crates/hamlet_server/src/talk/verdicts.rs`. */
 const ROOMY = 1024;
 
 /**
@@ -72,7 +70,7 @@ const NO_SUMMARY =
 const TOO_LONG = "the message is longer than the model can hold";
 const SUMMARY_FAILED = "Summarization failed: ";
 
-/** Today's retry input, in `crates/hamlet_server/src/talk/chats.rs`. */
+/** The input that retries a failed turn. */
 const CARRY_ON = "Carry on from where you stopped.";
 
 type CutOffInput = { input: EntryId; answer: EntryId };
@@ -90,7 +88,7 @@ export function isShortCutOff(answer: AssistantMessage): boolean {
     );
 }
 
-/** Today's test of an answer that stands (`verdicts.rs:55-60`): words or a tool call. */
+/** Whether an answer stands: it has words or a tool call. */
 export function hasWordsOrCall(answer: AssistantMessage): boolean {
     return answer.content.some(
         (block) =>
@@ -99,10 +97,7 @@ export function hasWordsOrCall(answer: AssistantMessage): boolean {
     );
 }
 
-/**
- * As `crates/hamlet_server/src/talk/verdicts.rs` rules: an answer
- * stands when it ended and has words or a call; any other fails its turn.
- */
+/** An answer stands when it ended and has words or a call; any other fails its turn. */
 export function stands(answer: AssistantMessage): boolean {
     return (
         (answer.stopReason === "stop" || answer.stopReason === "length") &&
@@ -274,7 +269,7 @@ export function cutOffRule(tell: TellFailed): Extension {
                         return undefined;
                     }
                     const input = await inputOf(api, run, context);
-                    // Today's rule leaves a reflection's empty answer to C29.
+                    // A reflection's empty answer is left to C29.
                     const task =
                         isShortCutOff(answer) &&
                         input !== undefined &&

@@ -208,7 +208,7 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
     await agent.stop();
 });
 
-test("every typed answer to a sign-in joins the scrub list, as today", async (t) => {
+test("every typed answer to a sign-in joins the scrub list", async (t) => {
     const key = secret(t, "key");
     /** Made up, and scrubbed from the host once typed. */
     const profile = "profile-made-up-41c9";

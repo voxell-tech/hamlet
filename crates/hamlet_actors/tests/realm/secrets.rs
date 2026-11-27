@@ -83,14 +83,14 @@ async fn credential(
     realm.tool(agent, &asked).await.unwrap()
 }
 
-/// Writes `stored` as today's server would have left it, and starts
-/// the realm again on it.
+/// Writes `stored` as a realm's file, and starts the realm again on
+/// it.
 async fn moved_over(realm: Realm, stored: &Value) -> Realm {
     std::fs::write(file(&realm), stored.to_string()).unwrap();
     realm.restart().await
 }
 
-fn todays_file() -> Value {
+fn stored_file() -> Value {
     json!({
         "installationId": "a3c1",
         "connection": { "token": "connection-token" },
@@ -188,14 +188,13 @@ async fn two_keeps_at_once_keep_both() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_file_from_todays_server_keeps_what_the_realm_does_not_read()
- {
+async fn a_stored_file_keeps_what_the_realm_does_not_read() {
     let realm =
-        moved_over(Realm::start().await, &todays_file()).await;
+        moved_over(Realm::start().await, &stored_file()).await;
 
     keep(&realm, "anthropic", key("sk-new")).await;
 
-    let mut expected = todays_file();
+    let mut expected = stored_file();
     expected["models"]["anthropic"] =
         json!({ "type": "api_key", "key": "sk-new" });
     expected["version"] = json!(2);
@@ -308,7 +307,7 @@ async fn a_key_is_kept_and_given_back_with_its_settings() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
-    let mut file = todays_file();
+    let mut file = stored_file();
     file["models"]["bedrock"] = json!({ "type": "api_key", "env": { "AWS_PROFILE": "work" } });
     file["models"]["blank"] = json!({ "type": "api_key" });
     let realm = moved_over(Realm::start().await, &file).await;
@@ -337,9 +336,9 @@ async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_file_from_todays_server_reads_as_an_agent_keeps_it() {
+async fn a_stored_file_reads_as_an_agent_keeps_it() {
     let realm =
-        moved_over(Realm::start().await, &todays_file()).await;
+        moved_over(Realm::start().await, &stored_file()).await;
 
     let oauth = credential(&realm, Hand::NUMBER, "chatgpt").await;
     let api_key = credential(&realm, Hand::NUMBER, "openai").await;
@@ -369,7 +368,7 @@ async fn a_file_from_todays_server_reads_as_an_agent_keeps_it() {
 async fn the_workspace_reads_each_kept_value_under_a_raised_version()
 {
     let realm =
-        moved_over(Realm::start().await, &todays_file()).await;
+        moved_over(Realm::start().await, &stored_file()).await;
     realm.live(Hand::NUMBER).await;
     let list = async || -> SecretList {
         realm.call_as_workspace(&Secrets).await.unwrap()
@@ -489,9 +488,9 @@ async fn a_workspace_at_no_address_is_refused_and_not_kept() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_file_from_todays_server_keeps_its_workspace() {
+async fn a_stored_file_keeps_its_workspace() {
     let realm =
-        moved_over(Realm::start().await, &todays_file()).await;
+        moved_over(Realm::start().await, &stored_file()).await;
 
     let other =
         chief(&realm, choose(Some(("https://w.invalid", "t-1"))));
@@ -512,7 +511,7 @@ async fn a_file_from_todays_server_keeps_its_workspace() {
 async fn a_start_makes_the_file_0600() {
     use std::os::unix::fs::PermissionsExt as _;
     let realm = Realm::start().await;
-    std::fs::write(file(&realm), todays_file().to_string()).unwrap();
+    std::fs::write(file(&realm), stored_file().to_string()).unwrap();
     std::fs::set_permissions(
         file(&realm),
         std::fs::Permissions::from_mode(0o644),
@@ -529,11 +528,11 @@ async fn a_start_makes_the_file_0600() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_login_read_and_kept_back_unchanged_changes_nothing() {
     let realm =
-        moved_over(Realm::start().await, &todays_file()).await;
+        moved_over(Realm::start().await, &stored_file()).await;
     let CredentialAnswer::Oauth { login } =
         credential(&realm, Hand::NUMBER, "chatgpt").await
     else {
-        panic!("today's login reads as one");
+        panic!("the stored login reads as one");
     };
     let before = stored(&realm);
 
@@ -933,7 +932,7 @@ async fn a_key_kept_after_a_reason_is_removed_from_the_record_read() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_keeps_the_credentials_files_version_and_the_keys_the_realm_does_not_own()
  {
-    let mut file = todays_file();
+    let mut file = stored_file();
     file["version"] = json!(5);
     let realm = moved_over(Realm::start().await, &file).await;
     let realm = realm.restart().await;

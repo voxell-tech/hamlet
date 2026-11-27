@@ -411,7 +411,7 @@ async fn ask_chief_needs_a_chief_and_stops_at_the_hamlets_count() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_misshapen_question_is_refused_as_today() {
+async fn a_misshapen_question_is_refused() {
     let (realm, _) = hamlet_with(0).await;
     let task = chief_task(&realm, Hand::NUMBER).await;
     let mut crowded =

@@ -35,8 +35,8 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
             ("OPENAI_API_KEY", "ambient-must-not-be-used"),
         ])
         .await;
-    // The providers are listed once the harness has started, which is
-    // after a connection's first state.
+    // The providers are listed once the Node host has started, which
+    // is after a connection's first state.
     for _ in 0..200 {
         let (_, state) = server.connect().await;
         if state["providers"]
@@ -52,7 +52,7 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("the harness never listed its providers");
+    panic!("the Node host never listed its providers");
 }
 
 /// [`hamlet_testing::until`], checking that no message on the way

@@ -229,15 +229,13 @@ These cover the worker's tokens, its journal across restarts, its
 answers to the shared fixture's refusals, its no-follow file operations
 and its address checks. Hamlet's server tests against this protocol
 with a loopback double of the worker, in
-`crates/hamlet_server/tests/crashes/remote.rs`:
+`crates/hamlet_server/tests/worker/mod.rs`, which the front door's
+tests start:
 
 ```sh
-npm ci --prefix harnesses/pi
-cargo test -p hamlet_server --features harness --test crashes remote::
+cargo test -p hamlet_server --features node-host --test front reads::
 ```
 
-They cover the lodges moved at a chief's word, an agent's tool writing
-its remote lodge and the server bringing that home beside what it
-kept, the library snapshot sent once, and a host path refused without
-running on the server. No automated test runs the server against the
-real worker.
+They cover each agent's filesystem copied to the chosen workspace at a
+chief's word, and a workspace that does not answer. No automated test
+runs the server against the real worker.

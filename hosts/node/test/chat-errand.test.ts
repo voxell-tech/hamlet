@@ -58,7 +58,7 @@ test("an errand answers once and ends", async (t) => {
     assert.deepEqual(agent.reported, []);
 });
 
-test("a dream's errand answers from a faux script's dream steps, as today's dream does, and another errand from its errand steps", async (t) => {
+test("a dream's errand answers from a faux script's dream steps, and another errand from its errand steps", async (t) => {
     const dir = mkdtempSync(join(tmpdir(), "faux-dream-"));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     const script = join(dir, "faux.json");
@@ -151,7 +151,7 @@ test("an errand's prompt is its instructions only", async (t) => {
         "Review the chief's line.",
     );
     assert.deepEqual(userWords(request), ["Write the tests"]);
-    // As today (`calls/place.rs:232`), an errand is offered no tool.
+    // An errand is offered no tool.
     assert.deepEqual(await offered(agent), []);
 });
 
@@ -207,7 +207,7 @@ test("a worker is offered only the built-in tools its brief names", async (t) =>
     // The tools a workspace lists arrive after the wake.
     await until(async () => (await offered(agent)).includes("lint"));
 
-    // As today (`calls/place.rs:189-197`): no society tool, no timer.
+    // No society tool, no timer.
     assert.deepEqual(await offered(agent), ["lint", "read"]);
 });
 
@@ -260,7 +260,7 @@ test("a place sent to an errand offers it no tool", async (t) => {
     assert.deepEqual(await offered(agent), []);
 });
 
-test("the chief's answer, a worker's answer and a reviewed line's note are taken and shown as today", async (t) => {
+test("the chief's answer, a worker's answer and a reviewed line's note are taken and shown", async (t) => {
     const seen: Context[] = [];
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
@@ -286,7 +286,6 @@ test("the chief's answer, a worker's answer and a reviewed line's note are taken
         [
             "Write the tests\n\nhire#2 reviewed this line: fine",
             "The chief answers: use the staging server",
-            // As `crates/hamlet_server/src/talk/letters.rs:334` words it.
             "worker#15 answers: Three links are broken",
         ],
     );
@@ -302,8 +301,7 @@ test("the chief's answer, a worker's answer and a reviewed line's note are taken
             ? {}
             : { rewindable: item.rewindable }),
     });
-    // As `crates/hamlet_server/src/clients/fold.rs:296-340` shows a chief's
-    // line, a notice and a reply.
+    // A chief's line, a notice and a reply.
     assert.deepEqual(page.items.map(shown), [
         { kind: "user", text: "Write the tests", rewindable: true },
         { kind: "notice", text: "hire#2 reviewed this line: fine" },
@@ -327,7 +325,7 @@ test("the chief's answer, a worker's answer and a reviewed line's note are taken
     assert.deepEqual(agent.reported, []);
 });
 
-test("an errand that answers no words fails with today's words", async (t) => {
+test("an errand that answers no words fails with its words", async (t) => {
     const { calls, sent } = fakeCalls({ realm: { errand_done: () => null } });
     const agent = await wakeAgent(t, {
         calls,
@@ -337,7 +335,6 @@ test("an errand that answers no words fails with today's words", async (t) => {
     t.after(() => agent.stop());
     await until(() => named(sent, "errand_done").length === 1);
 
-    // `crates/hamlet_server/src/talk/errands.rs:133`.
     assert.deepEqual(named(sent, "errand_done")[0]?.message, {
         ended: { type: "failed", why: "the errand gave no answer" },
     });
@@ -353,14 +350,14 @@ test("a worker cut off with no words ends with the notice's words", async (t) =>
     t.after(() => agent.stop());
     await until(() => named(sent, "worker_done").length === 1);
 
-    // As today (`talk/follow.rs:73-78`), a failed turn ends with its reason.
+    // A failed turn ends with its reason.
     assert.deepEqual(named(sent, "worker_done")[0]?.message, {
         ended: {
             type: "failed",
             why: "the message is longer than the model can hold",
         },
     });
-    // Only a chief's turn opens a wait (`talk/follow.rs:54-59`).
+    // Only a chief's turn opens a wait.
     assert.deepEqual(named(sent, "turn_failed"), []);
 });
 
@@ -429,8 +426,8 @@ async function workerPrompt(t: TestContext): Promise<string> {
 
 const WORKER_PLACE = "# Your place\nYou are worker#7, started by `hire#4`.";
 
-// Today's worker reads the charter, the machine, the project and its place,
-// and no memory (`talk/prompt.rs:78-98`, `talk/prompt/place.rs:84-94`).
+// A worker reads the charter, the machine, the project and its place, and no
+// memory.
 test("a worker's prompt is the charter, the environment, the project and the realm's worker place", async (t) => {
     const prompt = await workerPrompt(t);
 

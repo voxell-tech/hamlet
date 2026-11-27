@@ -690,7 +690,7 @@ export interface ToolResult {
     readonly details?: unknown;
 }
 
-/** Today's `tool_interrupted` (`crates/hamlet_server/src/calls.rs`). */
+/** The result of a call a stop interrupted. */
 export function interrupted(tool: string): ToolResult {
     return {
         output: "",

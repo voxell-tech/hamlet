@@ -476,8 +476,8 @@ impl Sent {
 /// The words the sender reads when its parcel fails for good.
 const UNSENT: &str = "The files could not be sent.";
 
-/// The words the sender reads for `why`, as today's tools gave them:
-/// a file that cannot be read, or a workspace that cannot be opened,
+/// The words the sender reads for `why`: a file that cannot be read,
+/// or a workspace that cannot be opened,
 /// in the words that say so, and any other refusal as a sentence.
 fn told(why: &ParcelRefusal) -> String {
     let words = why.to_string();
@@ -710,8 +710,8 @@ pub(super) fn measure_of(detail: &[u8]) -> Result<Measure> {
     Ok(ciborium::from_reader::<Sending, _>(detail)?.measure)
 }
 
-/// The words a chief reads on a parcel's wait, as today's gate gave
-/// them: the size and the files, then the call.
+/// The words a chief reads on a parcel's wait: the size and the
+/// files, then the call.
 async fn subject(
     rows: &Rows<'_>,
     sent: &Sent,

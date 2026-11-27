@@ -23,7 +23,6 @@ use hamlet_sandbox::{
     Policy, base_env, host_env, is_within, real_path,
 };
 
-// Copied from the server's `oversight/gate.rs` and `tools/shell.rs`.
 /// Commands that reach the network, by the words they name, in lower
 /// case.
 const NETWORK_WORDS: &[&str] = &[

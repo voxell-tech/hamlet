@@ -426,7 +426,7 @@ async fn an_always_on_the_network_writes_a_grant_before_the_answer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_always_is_refused_where_today_refuses_it() {
+async fn an_always_is_refused_where_it_cannot_hold() {
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let task = standing(&realm, HAND);

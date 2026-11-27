@@ -18,20 +18,17 @@ import { ANSWER_SHARE, DEFAULT_WINDOW } from "./compaction.ts";
 import type { Held } from "./copies.ts";
 import type { Endpoint } from "./messages/agent.ts";
 
-/**
- * The built-in providers this host's pi-ai lists and today's harness, on the
- * pi-ai of `harnesses/pi/package.json`, does not.
- */
+/** The built-in providers this host's pi-ai lists that Hamlet does not offer. */
 const NOT_TODAYS: ReadonlySet<string> = new Set([
     "qwen-token-plan-individual-cn",
 ]);
 
-/** The names today's harness gives the built-in providers that pi-ai renamed since. */
+/** Hamlet's names for the built-in providers that pi-ai renamed. */
 const TODAYS_NAMES: Readonly<Record<string, string>> = {
     "openai-codex": "OpenAI Codex (legacy)",
 };
 
-/** The built-in providers with today's names and sign-in methods. */
+/** The built-in providers with Hamlet's names and sign-in methods. */
 export function hostProviders(): Provider[] {
     const openai: Provider = openaiProvider();
     const served = new Set(

@@ -72,8 +72,8 @@ const address = { type: "string", description: ADDRESS };
 const text = (description: string) => ({ type: "string", description });
 const PROFILE_ADDRESS = text("The scholar's address, `scholar#<id>`.");
 
-/** Today's society tools as `crates/hamlet_server/src/calls/society.rs`'s `specs` offers them, typed out by hand. */
-const TODAY = [
+/** The society tools as a model is offered them, typed out by hand. */
+const OFFERED = [
     {
         name: "tell",
         description:
@@ -818,7 +818,7 @@ test("ask carries its conversation and no task when its input named none, and th
     await agent.stop();
 });
 
-test("each society tool is offered under today's name, and set_tools sends a society tool by its act and any other name as given", async (t) => {
+test("each society tool is offered under its name, and set_tools sends a society tool by its act and any other name as given", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
@@ -859,12 +859,11 @@ test("each society tool is offered under today's name, and set_tools sends a soc
     );
     await agent.idle();
 
-    // A hamlet an agent founds has today's default tier, 50
-    // (`hamlet_store/src/schema.sql`).
+    // A hamlet an agent founds has the default tier, 50.
     assert.deepEqual(acts(sent, "found"), [
         { name: "Mill", tier: "fifty", purpose: "Grind" },
     ]);
-    // As today (`society/hires.rs`, `set_tools`), no name is refused.
+    // No name is refused.
     assert.deepEqual(acts(sent, "set_tools"), [
         {
             hire: { type: "agent", agent: 21 },
@@ -1014,8 +1013,8 @@ test("an input that arrives while the agent is busy waits, then has its own turn
     await agent.stop();
 });
 
-test("each society tool is offered with today's name, description and parameters, word for word", async (t) => {
-    const names = TODAY.map((tool) => tool.name);
+test("each society tool is offered with its name, description and parameters, word for word", async (t) => {
+    const names = OFFERED.map((tool) => tool.name);
     const seen = new Map<string, Awaited<ReturnType<typeof schemas>>[number]>();
     for (const input of [undefined, MAYOR]) {
         const agent = await wakeAgent(t, {
@@ -1031,13 +1030,13 @@ test("each society tool is offered with today's name, description and parameters
         [...seen.values()]
             .filter((tool) => names.includes(tool.name))
             .sort(byName),
-        [...TODAY].sort(byName),
+        [...OFFERED].sort(byName),
     );
 });
 
 /**
- * Today's society tools by kind (`crates/hamlet_server/src/calls/place.rs`):
- * every agent's in a chief's chat, a lead's, and the Hand's own; a hire's
+ * The society tools by kind: every agent's in a chief's chat, a lead's, and
+ * the Hand's own; a hire's
  * road tools.
  */
 const EVERYONE = [
@@ -1062,7 +1061,7 @@ const LEADS = [
     "lay_road",
     "take_up_road",
 ];
-const SOCIETY = new Set(TODAY.map((tool) => tool.name));
+const SOCIETY = new Set(OFFERED.map((tool) => tool.name));
 const OFFERED_TO_THE_HAND = new Set([
     ...EVERYONE,
     ...LEADS,
@@ -1076,7 +1075,7 @@ const OFFERED_TO_THE_HAND = new Set([
     "revert",
 ]);
 
-test("the Hand and a hire are each offered today's society tools for their kind, and a worker none", async (t) => {
+test("the Hand and a hire are each offered the society tools for their kind, and a worker none", async (t) => {
     const kinds: [string, AgentInput | undefined, string[]][] = [
         ["hand", undefined, [...OFFERED_TO_THE_HAND]],
         ["hire", HIRE, [...EVERYONE, "request_road", ...LEADS]],
@@ -1095,7 +1094,7 @@ test("the Hand and a hire are each offered today's society tools for their kind,
     }
 });
 
-test("a mayor is offered agree_road while another hamlet lives, as today, and a new place offers it again", async (t) => {
+test("a mayor is offered agree_road while another hamlet lives, and a new place offers it again", async (t) => {
     const agrees = async (agent: Woken) =>
         (await offered(agent)).includes("agree_road");
     for (const [input, expected] of [
@@ -1125,7 +1124,7 @@ test("a mayor is offered agree_road while another hamlet lives, as today, and a 
     await agent.stop();
 });
 
-test("object is offered in a chief's chat and not in a letter's conversation, as today", async (t) => {
+test("object is offered in a chief's chat and not in a letter's conversation", async (t) => {
     const agent = await wakeAgent(t, {
         calls: fakeCalls({}).calls,
         input: HIRE,
@@ -1161,7 +1160,7 @@ function queue<T>(...answers: T[]): () => T {
     return () => answers.shift() as T;
 }
 
-test("each society tool's result names the agents it acted on, in today's words", async (t) => {
+test("each society tool's result names the agents it acted on, in its words", async (t) => {
     const ada = (agent: number) => ({ agent, name: `hire#${agent} (Ada)` });
     const { calls } = fakeCalls({
         realm: {
@@ -1311,7 +1310,7 @@ test("a hire is told of a road agreed by one mayor, and of one both have agreed,
     );
 });
 
-test("every one of today's parameters leaves as a field of its act, but those this agent does not send", async (t) => {
+test("every one of a tool's parameters leaves as a field of its act, but those this agent does not send", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             tell: () => ({ type: "sent", to: shown(1) }),
@@ -1365,8 +1364,8 @@ test("every one of today's parameters leaves as a field of its act, but those th
         request_road: { to: "hire#4", reason: "We share a file." },
         found_hamlet: { name: "Mill", scholar: "scholar#2", purpose: "Grind" },
         seat_mayor: { hire: "hire#4", reason: "Cy leads now." },
-        // `scholar` and `name` are refused together, as today; the scholar
-        // form is the scholar address test's.
+        // `scholar` and `name` are refused together; the scholar form is the
+        // scholar address test's.
         hire: {
             name: "Cy",
             purpose: "Dig",
@@ -1423,13 +1422,11 @@ test("every one of today's parameters leaves as a field of its act, but those th
             ),
         );
     for (const [tool, dropped] of Object.entries(DROPPED)) {
-        const today =
-            TODAY.find((one) => one.name === tool)?.parameters.properties ?? {};
+        const offered =
+            OFFERED.find((one) => one.name === tool)?.parameters.properties ??
+            {};
         for (const parameter of dropped)
-            assert.ok(
-                parameter in today,
-                `${tool}.${parameter} is offered today`,
-            );
+            assert.ok(parameter in offered, `${tool}.${parameter} is offered`);
     }
     for (const input of [undefined, MAYOR]) {
         const probe = await wakeAgent(t, {
@@ -1621,7 +1618,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
     );
 });
 
-test("a scholar's address is read as today's server reads it, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
+test("a scholar's address is read as an address, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             hire: () => ({ type: "hired", agent: shown(22) }),
@@ -1650,7 +1647,7 @@ test("a scholar's address is read as today's server reads it, a pinned version i
     await agent.actions.submit(agent.by(from.realm), line("input-1", "Hire."));
     await agent.idle();
 
-    // An empty or blank parameter is one left out, as today's `text` trims it.
+    // An empty or blank parameter is one left out.
     assert.deepEqual(acts(sent, "hire"), [
         { purpose: "Dig", profile: 3 },
         { purpose: "Dig" },
@@ -1696,7 +1693,7 @@ test("a society tool whose call fails says it was interrupted, under the tool's 
     await agent.stop();
 });
 
-test("hire with both `scholar` and `name` is refused in today's words, and nothing is sent", async (t) => {
+test("hire with both `scholar` and `name` is refused in its words, and nothing is sent", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: { hire: () => ({ type: "hired", agent: shown(22) }) },
     });
@@ -1763,12 +1760,12 @@ async function seatAndHire(
 
 const seated = (agent: number) => ({ hire: { type: "agent", agent } });
 
-test("a seated mayor is named with its hamlet, in today's words", async (t) => {
+test("a seated mayor is named with its hamlet, in its words", async (t) => {
     const { results } = await seatAndHire(t, ["hire#22"]);
     assert.deepEqual(results, [`${shown(22).name} is the mayor of h now.`]);
 });
 
-test("an address is trimmed, as today's server trims it", async (t) => {
+test("an address is trimmed", async (t) => {
     const { seat } = await seatAndHire(t, [
         " hire#4 ",
         " mayor ",
@@ -1781,7 +1778,7 @@ test("an address is trimmed, as today's server trims it", async (t) => {
     ]);
 });
 
-test("an address's number is read as today's server reads it, where the act can carry it", async (t) => {
+test("an address's number is read as an i64, where the act can carry it", async (t) => {
     const read = [
         "hire#007",
         "hire#+3",
@@ -2062,7 +2059,7 @@ test("the profile tools' arguments leave as their acts: `scholar#<n>` as its pro
     await agent.stop();
 });
 
-test("the profile tools answer in today's words", async (t) => {
+test("the profile tools answer in their words", async (t) => {
     const answers = {
         read_profile: [
             {
@@ -2122,7 +2119,7 @@ test("the profile tools answer in today's words", async (t) => {
     await agent.stop();
 });
 
-test("submit_skill offers its folder's files to the library under the tool's call, then names the kept offer to the realm; a name, a missing folder or the library's refusal is refused in today's words", async (t) => {
+test("submit_skill offers its folder's files to the library under the tool's call, then names the kept offer to the realm; a name, a missing folder or the library's refusal is refused in its words", async (t) => {
     const { calls, sent } = fakeCalls({
         library: {
             offer: (offer) =>

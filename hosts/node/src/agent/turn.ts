@@ -374,7 +374,7 @@ export async function isBusy(
 
 /**
  * Whether `conversation` has a run or an input queued for one: an open
- * input, as today's stop counts it.
+ * input.
  */
 export async function isOpen(
     harness: Harness,
@@ -739,8 +739,8 @@ export function libraryCalls(peers: Peers): {
 }
 
 /**
- * The workspace's tool list, read once for a wake as today reads it once
- * for a server, and read again after a failed read.
+ * The workspace's tool list, read once for a wake, and read again after a
+ * failed read.
  */
 export function toolLister(peers: Peers): () => Promise<ToolList> {
     let listed: Promise<ToolList> | undefined;
@@ -783,7 +783,7 @@ export function failed(text: string): ToolExecutionResult {
     return { output: [{ type: "text", text }], isError: true };
 }
 
-/** A call that threw, as today's harness gives it: no text and one error. */
+/** A call that threw: no text and one error. */
 export function thrown(code: string, message: string): ToolExecutionResult {
     return {
         output: [{ type: "text", text: "" }],
@@ -792,7 +792,7 @@ export function thrown(code: string, message: string): ToolExecutionResult {
     };
 }
 
-/** Today's words for a call that may have run (`crates/hamlet_server/src/calls.rs`). */
+/** The words for a call that may have run. */
 export const MAY_HAVE_RUN =
     "interrupted by a restart and may have partially run";
 

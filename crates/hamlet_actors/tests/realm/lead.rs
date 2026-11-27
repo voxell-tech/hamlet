@@ -492,7 +492,7 @@ async fn a_lead_in_another_hamlet_is_refused() {
 async fn a_hire_under_the_hand_is_refused_as_not_under_a_hire() {
     // a hire under the Hand: the chief and the Hand hear that the
     // Hand is not a hire, and mayor 2, which does not lead the Hand,
-    // hears `NotALead`, as today's `may_lead`.
+    // hears `NotALead`.
     let realm = Realm::start().await;
     let hamlet = founded(&realm).await;
     let under_the_hand = Hire {
@@ -530,8 +530,7 @@ async fn a_hire_under_the_hand_is_refused_as_not_under_a_hire() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_hands_hire_names_its_hamlet_in_todays_words() {
-    // As today's hire by the Hand (calls/society.rs:860-874).
+async fn the_hands_hire_names_its_hamlet_in_its_words() {
     let realm = Realm::start().await;
     founded(&realm).await;
     let unnamed = hire(None);

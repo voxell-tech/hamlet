@@ -30,8 +30,8 @@ fn ask(question: &str) -> AskLibrarian {
     }
 }
 
-/// The librarian's part and the stand-in library's shelves, as today
-/// words them, before what it is asked.
+/// The librarian's part and the stand-in library's shelves, before
+/// what it is asked.
 const ROLE: &str =
     "You are the realm's librarian. You keep the library of skills \
      every agent shares: you know what is on its shelves, you take \
@@ -209,7 +209,7 @@ async fn the_librarians_verdict_reaches_the_library_then_the_offerer()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_refused_or_failed_judging_is_told_in_todays_words() {
+async fn a_refused_or_failed_judging_is_told_in_its_words() {
     let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, THREE);
     for (call, offer) in [("s1", 7), ("s2", 8)] {

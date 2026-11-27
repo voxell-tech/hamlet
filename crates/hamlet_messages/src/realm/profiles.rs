@@ -414,8 +414,8 @@ impl ChiefRequest for TurnAway {
 }
 
 /// Sets a profile's house down at `site`. The realm looks the profile
-/// up before it refuses a site that is not a spot: today names a
-/// missing profile before them.
+/// up before it refuses a site that is not a spot: the refusal names
+/// a missing profile before them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MoveHouse {
     pub profile: ProfileId,

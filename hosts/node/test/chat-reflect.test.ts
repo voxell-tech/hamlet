@@ -17,7 +17,6 @@ import {
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
-// `crates/hamlet_server/src/talk/reflections.rs:18-24`.
 const REFLECT =
     "Reflection time (automatic, not from a chief). Look back over this session. Keep what is worth remembering about the chiefs and the lessons learned in your memory/ folder, and save or improve a skill in skills/ for anything you did that is likely to come up again. If nothing is worth keeping, say so in one line.";
 
@@ -248,7 +247,6 @@ test("/reflect answers already while one is owed", async (t) => {
     assert.equal(named(sent, "open_task").length, 2);
 });
 
-// `crates/hamlet_server/src/talk/chats.rs`.
 const CARRY_ON = "Carry on from where you stopped.";
 
 function aborted(): { step: FauxResponseStep; asked: Promise<void> } {
@@ -368,8 +366,7 @@ test("leaving a session whose only turn was aborted asks no reflection", async (
     assert.deepEqual(named(calls, "open_task"), []);
 });
 
-// As `crates/hamlet_server/src/talk/reflections.rs:42-58` asks a session
-// put away while its turn was ending.
+// A session put away while its turn was ending reflects after its answer.
 test("a /new mid-turn at zero reflects once, after the answer", async (t) => {
     const busy = held("One.");
     const { agent } = await wake(t, "0", [busy.step, words("Kept.")]);

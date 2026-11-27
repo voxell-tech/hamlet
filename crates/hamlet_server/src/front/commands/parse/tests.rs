@@ -71,7 +71,7 @@ fn a_hire_and_a_worker_are_named_by_number() {
 }
 
 #[test]
-fn a_bad_address_is_refused_in_todays_words() {
+fn a_bad_address_is_refused_in_its_words() {
     assert_eq!(
         parse("/end scholar#2", None).unwrap_err().to_string(),
         "`scholar#2` is not an address"
@@ -79,7 +79,7 @@ fn a_bad_address_is_refused_in_todays_words() {
 }
 
 #[test]
-fn an_address_past_the_realms_numbers_is_no_one_in_todays_words() {
+fn an_address_past_the_realms_numbers_is_no_one_in_its_words() {
     for (line, words) in [
         (
             "/nickname hire#4294967297 Big",
@@ -99,8 +99,7 @@ fn an_address_past_the_realms_numbers_is_no_one_in_todays_words() {
 }
 
 #[test]
-fn a_hamlet_set_down_at_numbers_not_finite_is_refused_in_todays_words()
- {
+fn a_hamlet_set_down_at_numbers_not_finite_is_refused_in_its_words() {
     for (line, words) in [
         ("/move-hamlet docs NaN 4", "`NaN, 4` is not an address"),
         ("/move-hamlet docs 1e400 1", "`inf, 1` is not an address"),

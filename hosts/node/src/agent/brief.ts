@@ -57,10 +57,7 @@ export async function briefTurn(
     });
 }
 
-/**
- * As `crates/hamlet_server/src/talk/errands.rs:117-136` and
- * `talk/follow.rs:68-78` end an errand's and a worker's turn.
- */
+/** How an errand's and a worker's turn ends. */
 function endedOf(
     kind: "worker" | "errand",
     settled: SettledSubmissionRecord,
@@ -84,10 +81,7 @@ function endedOf(
 }
 
 interface Last {
-    /**
-     * As `crates/hamlet_server/src/talk/items.rs:66-106`: the text of the
-     * last answer that has any, its blocks joined by lines and trimmed.
-     */
+    /** The text of the last answer that has any, its blocks joined by lines and trimmed. */
     readonly words?: string;
     readonly notice?: string;
 }

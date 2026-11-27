@@ -260,7 +260,7 @@ async fn a_hire_still_being_hired_shows_its_road_to_its_lead() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_edit_waiting_for_a_chief_shows_its_change_as_today() {
+async fn an_edit_waiting_for_a_chief_shows_its_change() {
     let (realm, _) = hamlet_with(1).await;
     let edit = |call: &str, subject: &str, patch: &str| NeedsChief {
         needs: vec![hamlet_messages::workspace::reach::Need::Edit],

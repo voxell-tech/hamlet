@@ -36,7 +36,7 @@ use super::workers::errands::{self, ErrandInput, Purpose};
 use super::world::Part;
 use super::{Realm, callers, documents, profiles, record, tree};
 
-/// The librarian's part before every errand, in today's words.
+/// The librarian's part before every errand.
 const ROLE: &str =
     "You are the realm's librarian. You keep the library of skills \
      every agent shares: you know what is on its shelves, you take \
@@ -48,8 +48,7 @@ const LOOKING: &str = "Name the skills on the shelves that do what \
                        is asked, with their exact commands. If \
                        nothing fits, say so.";
 
-/// The most characters of an offer's `SKILL.md` its judge is shown,
-/// as today.
+/// The most characters of an offer's `SKILL.md` its judge is shown.
 const SHOWN: usize = 6000;
 
 const JUDGING: &str = "Answer with ACCEPT or REFUSE as your first \
@@ -193,8 +192,7 @@ async fn end(
 }
 
 /// Whether the librarian took `skill`, and the words its offerer is
-/// told, as today reads its answer: `ACCEPT` as the first word takes
-/// it.
+/// told: `ACCEPT` as the first word of its answer takes it.
 fn verdict(skill: &str, ended: &Ended) -> (bool, String) {
     let answer = match ended {
         Ended::Answered { text } => text,

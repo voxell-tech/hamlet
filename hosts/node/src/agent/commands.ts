@@ -99,9 +99,8 @@ export async function stopped(
     // never runs it. Not in `inTurn`, which may hold the very run it ends.
     for (const line of lines) generation.withdrawn.add(line.id);
     await Promise.allSettled(generation.admitting);
-    // Today runs a chief's commands to one agent one after another
-    // (`crates/hamlet_server/src/commands.rs`), so a retry under way is
-    // stopped too.
+    // A chief's commands to one agent run one after another, so a retry
+    // under way is stopped too.
     await generation.retrying;
     const shown = await Promise.all(
         lines.map(async (line) => ({
@@ -124,7 +123,6 @@ export async function stopped(
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
-    // As today's follow answers them (`crates/hamlet_server/src/talk/follow.rs`).
     for (const question of ended.flatMap((one) => one.dropped)) {
         await couldNotAnswer(
             peers,
@@ -179,7 +177,7 @@ export async function newSession(
             holdFollowers(c, answered.promise);
             return begin(c, message.id);
         });
-        // As today, the session left keeps what it waits for.
+        // The session left keeps what it waits for.
         if (left !== undefined) {
             void reflectOnLeaving(c, left).catch((error: unknown) =>
                 generation.peers.report(
@@ -208,13 +206,11 @@ export async function resume(
                 type: "no_such_session",
                 number: u32(typeof number === "bigint" ? Infinity : number),
             },
-            // As `crates/hamlet_server/src/society/refusal.rs` words it.
             words: `there is no past session ${number} here`,
         };
     }
     // A session gone back to asks again what it was trusted with (H11),
-    // before it is current, as today resets trust in the move's own
-    // transaction. The session left reflects before the move too, so a
+    // before it is current. The session left reflects before the move too, so a
     // repeat after a kill still asks it.
     await lapsed(c, to, "resumed");
     await generationOf(c).inTurn(async () => {
@@ -276,8 +272,8 @@ async function lapsed(
 
 /**
  * Carries on the current session's failed or stopped turn as a visible new
- * input with a task of its own (H12). The earlier answer stays. As today, a
- * session with nothing in it is carried on too.
+ * input with a task of its own (H12). The earlier answer stays. A session
+ * with nothing in it is carried on too.
  */
 export async function retry(
     c: AgentCall,
@@ -319,7 +315,6 @@ async function retried(c: AgentCall, message: Retry): Promise<RetryAnswer> {
         draftOf({
             kind: "retry",
             id: requestId,
-            // As `crates/hamlet_server/src/talk/chats.rs` words it.
             content: "Carry on from where you stopped.",
             task: opened.task,
         }),
@@ -330,7 +325,6 @@ async function retried(c: AgentCall, message: Retry): Promise<RetryAnswer> {
 type RetryRefusal = "running" | "answered";
 
 const RETRY_WORDS: Readonly<Record<RetryRefusal, string>> = {
-    // As `crates/hamlet_server/src/society/refusal.rs` words them.
     running: "a turn is running here; stop it, then retry",
     answered: "the last message was answered, so there is nothing to carry on",
 };
@@ -353,7 +347,7 @@ async function refusedRetry(
     const live = await harness.snapshot(LiveDoc, conversation, context);
     if (live?.run !== undefined) return "running";
     if (live?.runFailure !== undefined) return undefined;
-    // As today, only a session whose last entry is an answer was answered;
+    // Only a session whose last entry is an answer was answered;
     // an answer with nothing in it failed its turn (C29).
     const kept = await harness.conversation(conversation, context);
     const [last] =
@@ -379,7 +373,6 @@ export async function rewind(
         return {
             type: "refused",
             why: { type: "not_current" },
-            // As `crates/hamlet_server/src/clients/requests.rs` words it.
             words: "Only the current session of a chief's chat goes back.",
         };
     }
@@ -421,8 +414,6 @@ export async function rewind(
 type RewindRefusal = "no_such_item" | "not_a_chief_line" | "working";
 
 const REWIND_WORDS: Readonly<Record<RewindRefusal, string>> = {
-    // As `crates/hamlet_server/src/talk/chats.rs` and
-    // `crates/hamlet_server/src/society/refusal.rs` word them.
     no_such_item: "That is not one of your lines in this conversation.",
     not_a_chief_line: "That is not one of your lines in this conversation.",
     working: "a turn is running here; stop it, then rewind",
@@ -512,7 +503,6 @@ async function hasUnendedCall(
     return false;
 }
 
-/** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */
 export async function reflectNow(c: AgentCall): Answer<"reflect"> {
     return reflectIn(c, await chiefSession(c));
 }

@@ -80,7 +80,7 @@ export function conversationFor(
     });
 }
 
-/** The change that leaves `object` out of a peer's chat: today offers it only in a chief's. */
+/** The change that leaves `object` out of a peer's chat: it is offered only in a chief's. */
 function notObjecting(c: AgentCall): AgentChange {
     const society = generationOf(c)
         .registry.snapshot()
@@ -151,7 +151,6 @@ export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
                 await created(c, harness, context, (options) =>
                     harness.commit(async (tx) => {
                         const made = await tx.createConversation(options);
-                        // As `crates/hamlet_server/src/talk/chats.rs` writes it.
                         await tx.appendEntry(
                             made.id,
                             noticeEntry("Started a new session."),

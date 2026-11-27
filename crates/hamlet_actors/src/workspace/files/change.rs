@@ -1198,7 +1198,7 @@ mod tests {
     }
 
     /// A replace that failed answers a write in the file's words, and
-    /// an edit in the words of the server's tools for an edit.
+    /// an edit in an edit's words.
     #[test]
     fn a_failed_replace_says_why() {
         let error = || FileError {

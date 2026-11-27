@@ -253,7 +253,7 @@ test("a path that only begins with the root's name goes to the workspace", async
     await agent.stop();
 });
 
-test("an own search gives the adapter its name, and a search or a find answers in today's words", async (t) => {
+test("an own search gives the adapter its name, and a search or a find answers in its words", async (t) => {
     const fake = fakeFiles({});
     const md = `${ROOT}/memory/plan.md`;
     const named: (string | undefined)[] = [];
@@ -463,7 +463,7 @@ test("an own read answers as the workspace's read of the same file does", async 
     await agent.stop();
 });
 
-test("an own write and an own edit answer in today's words, a write that makes its file says so, and the edit gives the workspace's diff", async (t) => {
+test("an own write and an own edit answer in their words, a write that makes its file says so, and the edit gives the workspace's diff", async (t) => {
     const { calls } = fakeCalls({});
     const path = `${ROOT}/memory/plan.md`;
     const agent = await wakeAgent(t, {
@@ -517,7 +517,7 @@ test("an own write and an own edit answer in today's words, a write that makes i
     await agent.stop();
 });
 
-test("an own write or edit of the root's CHARACTER.md is refused in today's words and changes nothing", async (t) => {
+test("an own write or edit of the root's CHARACTER.md is refused in its words and changes nothing", async (t) => {
     const { calls } = fakeCalls({});
     const files: Record<string, string> = {
         [`${ROOT}/CHARACTER.md`]: "Kind.",
@@ -555,7 +555,7 @@ test("an own write or edit of the root's CHARACTER.md is refused in today's word
     await agent.stop();
 });
 
-test("an own write and edit name their path as today does, without `.` parts or doubled slashes", async (t) => {
+test("an own write and edit name their path without `.` parts or doubled slashes", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
@@ -600,7 +600,7 @@ test("an own write and edit name their path as today does, without `.` parts or 
     await agent.stop();
 });
 
-test("a path is own when it normalises into the agent's root, as today's `footing` decides", async (t) => {
+test("a path is own when it normalises into the agent's root", async (t) => {
     const own: Record<string, string> = {};
     const outside = "/realm/actors/agent/x";
     const { calls, sent } = fakeCalls({
@@ -649,7 +649,7 @@ test("a path is own when it normalises into the agent's root, as today's `footin
     await agent.stop();
 });
 
-test("bash refuses a timeout of 0 or below in today's words before it calls anything", async (t) => {
+test("bash refuses a timeout of 0 or below in its words before it calls anything", async (t) => {
     const { calls, sent } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
@@ -831,7 +831,7 @@ test("a rerun after a cut-off sends the same id", async (t) => {
     await second.stop();
 });
 
-test("a change whose call fails, a deadline included, says it was interrupted as today does, and is not sent again", async (t) => {
+test("a change whose call fails, a deadline included, says it was interrupted, and is not sent again", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
             run: () => {
@@ -857,7 +857,7 @@ test("a change whose call fails, a deadline included, says it was interrupted as
     await agent.stop();
 });
 
-test("an own edit that a cut-off interrupts is not run again, and says it was interrupted as today does", async (t) => {
+test("an own edit that a cut-off interrupts is not run again, and says it was interrupted", async (t) => {
     const path = `${ROOT}/memory/plan.md`;
     const files = fakeFiles({ [path]: "one two" });
     const cut = Promise.withResolvers<void>();
@@ -992,7 +992,7 @@ const ended = (
     },
 });
 
-test("a command that ends inside its call answers as today's bash does", async (t) => {
+test("a command that ends inside its call answers as bash does", async (t) => {
     const ends: Record<string, ReturnType<typeof ended>> = {
         "echo hi": ended(1, { type: "code", code: 0 }, "hi\n"),
         make: ended(2, { type: "code", code: 2 }, "tail\n", {
@@ -1085,7 +1085,6 @@ test("a command that ends inside its call answers as today's bash does", async (
             diagnostics: [],
         },
         interrupted("bash"),
-        // Today has no words for a cancelled command.
         {
             output: "x\n\n[Command 7: cancelled]",
             isError: true,
@@ -1113,7 +1112,7 @@ test("a command that ends inside its call answers as today's bash does", async (
     await agent.stop();
 });
 
-test("a hand tool that ends inside its call answers as today's hand tools do", async (t) => {
+test("a hand tool that ends inside its call answers as hand tools do", async (t) => {
     const ends: Record<string, ReturnType<typeof ended>> = {
         ok: ended(1, { type: "code", code: 0 }, "3 words\n"),
         bad: ended(2, { type: "code", code: 1 }, "no file\n"),
@@ -1220,7 +1219,7 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
     await agent.stop();
 });
 
-test("a workspace write and edit answer in today's words, in the call and later", async (t) => {
+test("a workspace write and edit answer in their words, in the call and later", async (t) => {
     const diff = {
         diff: "- 1 a\n+ 1 A",
         patch: "--- /work/a.md\n+++ /work/a.md\n@@ -1,1 +1,1 @@\n-a\n+A\n",
@@ -1321,8 +1320,7 @@ test("a workspace write and edit answer in today's words, in the call and later"
     await agent.stop();
 });
 
-// As today scrubs every tool's result (C32,
-// `crates/hamlet_server/src/work/tools.rs:567-570,606`).
+// Every tool's result is scrubbed (C32).
 test("an own file tool's result holds no secret the host knows", async (t) => {
     const key = "own-file-key-4f1c9e";
     remember(key);

@@ -156,8 +156,7 @@ fn endpoints_fault(
     Ok(())
 }
 
-/// A model server's address, checked as today's
-/// (`hamlet_server/src/clients/documents.rs:748-765`).
+/// A model server's address, checked.
 fn address_fault(address: &str) -> Result<(), SettingRefusal> {
     let Ok(url) = url::Url::parse(address) else {
         return Err(SettingRefusal::NotAnAddress {

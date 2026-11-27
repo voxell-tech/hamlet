@@ -2,8 +2,7 @@
  * The calls of the provider `claude`. One call ends at Claude's tool calls
  * and parks its query until pi-durable brings their results in the next
  * call; any other call starts a query, which resumes a Claude Code session
- * written from pi-durable's history. Ported from
- * `harnesses/pi/src/claude-query.ts`.
+ * written from pi-durable's history.
  */
 import {
     type EffortLevel,

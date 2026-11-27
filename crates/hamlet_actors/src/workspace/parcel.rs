@@ -91,7 +91,7 @@ impl Handler<ParcelPart> for Workspace {
 
 impl Workspace {
     /// The file tools' pass for `agent`, when its reach lets it read
-    /// each of `paths`; else today's words for the first it may not.
+    /// each of `paths`; else the words for the first it may not.
     async fn reading(
         &self,
         ctx: &Ctx<Self>,
@@ -196,7 +196,7 @@ struct Found {
     path: String,
 }
 
-/// The files under `paths`, each hashed, within today's limits.
+/// The files under `paths`, each hashed, within the limits.
 fn measure(
     env: &Env,
     paths: &[PathBuf],

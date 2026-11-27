@@ -374,7 +374,7 @@ async fn allow_net_shows_each_reach_pending_until_the_workspace_answers()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_endpoint_is_refused_in_todays_words() {
+async fn an_endpoint_is_refused_in_its_words() {
     let realm = realm_with_hand().await;
     let endpoint = |address: &str| {
         settings(Setting::Endpoints {

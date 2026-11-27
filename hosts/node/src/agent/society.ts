@@ -75,10 +75,10 @@ function societyTool<N extends SocietyTool>(
                 },
                 definition.name,
                 ({ why, words: refusal }) => {
-                    // Today's gate blocks a letter whose files it may not send.
+                    // A letter whose files it may not send is blocked.
                     if (why.type === "files") return failed(BLOCKED + refusal);
-                    // Today holds such a call until a chief rules, and the
-                    // ruling arrives as a notice.
+                    // Such a call waits until a chief rules, and the ruling
+                    // arrives as a notice.
                     const text =
                         why.type === "reserved"
                             ? WAITING
@@ -90,7 +90,7 @@ function societyTool<N extends SocietyTool>(
     });
 }
 
-/** Every agent's but a worker's (`crates/hamlet_server/src/calls/place.rs`). */
+/** Every agent's but a worker's. */
 const EVERYONE: readonly SocietyTool[] = [
     "tell",
     "ask",
@@ -117,8 +117,8 @@ const LEADS: readonly SocietyTool[] = [
 ];
 
 /**
- * The society tools today offers the Hand, or a hire at `place`, in a
- * chief's chat (`crates/hamlet_server/src/calls/place.rs`).
+ * The society tools offered to the Hand, or a hire at `place`, in a chief's
+ * chat.
  */
 export function offeredSociety(
     kind: "hand" | "hire",
@@ -146,7 +146,7 @@ export function offeredSociety(
     ];
 }
 
-/** As today, a society tool is offered whatever a lead turned off. */
+/** A society tool is offered whatever a lead turned off. */
 export function society(
     peers: Peers,
     folder: Folder,

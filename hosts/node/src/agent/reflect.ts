@@ -36,11 +36,9 @@ import {
     type WithHarness,
 } from "./turn.ts";
 
-/** As `crates/hamlet_server/src/talk/reflections.rs:18-24` asks it. */
 export const REFLECT =
     "Reflection time (automatic, not from a chief). Look back over this session. Keep what is worth remembering about the chiefs and the lessons learned in your memory/ folder, and save or improve a skill in skills/ for anything you did that is likely to come up again. If nothing is worth keeping, say so in one line.";
 
-/** `crates/hamlet_server/src/settings.rs:85`. */
 const EVERY = 10;
 
 /**
@@ -55,8 +53,7 @@ type Owed = (conversation: ConversationId) => Promise<{
 }>;
 
 /**
- * As today's `answered` (`crates/hamlet_server/src/talk/reflections.rs`),
- * a turn answered in a session the chief has left asks its reflection at
+ * A turn answered in a session the chief has left asks its reflection at
  * once, whatever `reflect_every` is.
  */
 export function reflection(
@@ -116,8 +113,8 @@ export async function reflectOnLeaving(
 
 /**
  * As `reflectOnLeaving`, and an idle session takes its reflection before
- * this ends, so what the chief's move writes next comes after it, as today
- * keeps the reflection first; a busy one takes it when its run ends.
+ * this ends, so what the chief's move writes next comes after it; a busy
+ * one takes it when its run ends.
  */
 export async function reflectBeforeLeaving(
     c: AgentCall,
@@ -270,8 +267,7 @@ async function live(
 
 /** `HAMLET_REFLECT_EVERY`; absent, the copy's setting holds. 0 turns it off. */
 export function reflectEvery(): number | undefined {
-    // As `crates/hamlet_server/src/settings.rs:168-175` reads it: a value
-    // that is not a whole number is ignored.
+    // A value that is not a whole number is ignored.
     const every = process.env.HAMLET_REFLECT_EVERY;
     return every !== undefined && /^\+?[0-9]+$/.test(every)
         ? Number(every)

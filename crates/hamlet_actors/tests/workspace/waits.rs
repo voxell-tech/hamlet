@@ -356,7 +356,7 @@ async fn a_pending_operation_does_not_run_after_a_revoke() {
 }
 
 /// In manual mode a write and an edit wait for a chief, and the realm
-/// is shown each in the words of the server's tools, with its
+/// is shown each in its tool's words, with its
 /// change. Allowed, each is carried out and the agent is told its
 /// answer.
 #[cfg(unix)]

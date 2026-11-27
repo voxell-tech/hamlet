@@ -146,7 +146,7 @@ async function savedWhole(
 
 /**
  * Saves each of `files` under its folder, a top name the folder holds
- * already numbered as today's, and gives the captions that say where each
+ * already numbered, and gives the captions that say where each
  * landed. A file that is not saved is reported and has no caption.
  */
 async function savedIn(
@@ -156,7 +156,7 @@ async function savedIn(
 ): Promise<Caption[]> {
     const saved = new Map<string, Saved>();
     const taken = new Map<string, Set<string>>();
-    // A path sent twice in one send keeps both, as today's `put_at`.
+    // A path sent twice in one send keeps both.
     const written = new Set<string>();
     const savedAt = async (
         folder: string,

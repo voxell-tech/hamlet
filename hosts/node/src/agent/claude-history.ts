@@ -1,7 +1,4 @@
-/**
- * pi-durable's history as a Claude Code session a query resumes. Ported
- * from `harnesses/pi/src/claude-history.ts`.
- */
+/** pi-durable's history as a Claude Code session a query resumes. */
 import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 import {
     type ContentBlock,

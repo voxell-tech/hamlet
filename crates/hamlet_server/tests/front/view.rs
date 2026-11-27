@@ -288,8 +288,8 @@ async fn an_idle_realm_holds_no_agents_subscription() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agent_that_has_not_worked_is_shown_at_rest_in_todays_words()
- {
+async fn an_agent_that_has_not_worked_is_shown_at_rest_in_its_words()
+{
     let (mut server, _home, _side) = serve(json!([])).await;
     let chief = Client::join(&server).await;
     let hand = shown(&chief, chief.hand()).unwrap();

@@ -1,5 +1,4 @@
-//! A lead's end or merge of a hire on a chief's task, refused as
-//! today refuses it (H7).
+//! A lead's end or merge of a hire on a chief's task, refused (H7).
 
 use hamlet_messages::agent::OnTask;
 use hamlet_messages::realm::hires::{Merge, MergeRefusal, MergedTo};

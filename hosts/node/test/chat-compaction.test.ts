@@ -198,7 +198,7 @@ test("a short cut-off compacts once", async (t) => {
     assert.equal(charged.task, "task-4", "it asks again under the same task");
 });
 
-test("a second short cut-off after the compaction fails with today's words", async (t) => {
+test("a second short cut-off after the compaction fails with its words", async (t) => {
     const run = script([
         fauxAssistantMessage("One."),
         fauxAssistantMessage("Two."),
@@ -381,9 +381,9 @@ test("a question cut off short replies with its second try's answer", async (t) 
     );
 });
 
-test("a model the listing does not hold is sized by today's default window", () => {
+test("a model the listing does not hold is sized by the default window", () => {
     const sizes = compactionFor([]);
-    // `harnesses/pi/src/models.ts`'s 32,768 tokens, a fifth and a tenth.
+    // The default 32,768 tokens, a fifth and a tenth.
     assert.equal(sizes.reserveTokens, 6554);
     assert.equal(sizes.backgroundTokens, 3277);
 });

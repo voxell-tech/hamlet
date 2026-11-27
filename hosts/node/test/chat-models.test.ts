@@ -309,7 +309,7 @@ test("each answer names its model and its price", async (t) => {
     await agent.stop();
 });
 
-test("an endpoint's billed cost stands over the price, as today's harness charges it", async (t) => {
+test("an endpoint's billed cost stands over the price", async (t) => {
     const { calls, sent } = signedIn();
     const second = loopback();
     const agent = await wakeAgent(t, { calls, models: second.add });
@@ -501,7 +501,7 @@ test("the model list names each listed model with its window and price", () => {
     );
 });
 
-test("the model list says what images a model takes, with the limits its listing names, as today's listing", () => {
+test("the model list says what images a model takes, with the limits its listing names", () => {
     const listed = createModels();
     const taking = (
         id: string,
@@ -1328,7 +1328,7 @@ test("a client's read_models and check answer as their fixtures hold", async (t)
     await agent.stop();
 });
 
-test("a scrub replaces the secret that begins first, and the longest of those that begin at one place, as today", () => {
+test("a scrub replaces the secret that begins first, and the longest of those that begin at one place", () => {
     // As `crates/hamlet_sandbox/src/scrub.rs` `Scrubber::replace`.
     assert.equal(scrub("abcde", ["bcde", "ab"]), "[REDACTED]cde");
     assert.equal(scrub("abcde", ["ab", "abc"]), "[REDACTED]de");

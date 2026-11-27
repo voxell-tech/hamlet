@@ -68,8 +68,7 @@ async function cutOff(
 
 /**
  * Waits for the realm to hear the turn failed, and checks it heard once,
- * with `words`, which the notice shows too. As today, the words are the
- * run's own (`crates/hamlet_server/src/talk/follow.rs:425-435`).
+ * with `words`, which the notice shows too. The words are the run's own.
  */
 async function failedOnce(
     agent: Woken,

@@ -64,8 +64,8 @@ const FAST_APIS: readonly Api[] = [
 ];
 
 /**
- * `listed` with each request made with the realm's key, priced in today's
- * order, and in the priority tier when the copy asks for it.
+ * `listed` with each request made with the realm's key, priced in
+ * `priced`'s order, and in the priority tier when the copy asks for it.
  */
 export function agentModels(
     listed: Models,
@@ -172,8 +172,8 @@ export function agentModels(
  * only for a provider with key auth (`auth/resolve.js`): one that signs in
  * only by OAuth is served by a listing of its own, where the login's access
  * token is that key. A key of settings alone is served by a listing of its
- * own too, which reads nothing of the host's environment or files, as
- * today's harness serves a request, so only the realm's settings sign it in.
+ * own too, which reads nothing of the host's environment or files, so only
+ * the realm's settings sign it in.
  */
 function takingKeys(
     listed: Models,
@@ -350,8 +350,7 @@ function nameOf(model: Pick<Model<Api>, "provider" | "id">): string {
 }
 
 /**
- * Today's order (`crates/hamlet_server/src/providers.rs`, `select`): the
- * catalogue's price, which the realm puts in the copy, then the listing's
+ * The order of prices: the catalogue's price, which the realm puts in the copy, then the listing's
  * cost, then a flat rate.
  */
 function costOf(
@@ -373,8 +372,7 @@ function costOf(
 }
 
 /**
- * The listing's cost when it gives all four rates, as today's server reads
- * it (`providers.rs`, `select`). A listing may leave some out, whatever
+ * The listing's cost when it gives all four rates. A listing may leave some out, whatever
  * pi-ai's type says.
  */
 function listedCost(model: Model<Api>): Model<Api>["cost"] | undefined {
@@ -399,7 +397,7 @@ function isLocal(baseUrl: string | undefined): boolean {
     );
 }
 
-/** As today's `withFast`: the provider's priority tier, where its API has one. */
+/** The provider's priority tier, where its API has one. */
 function fastened(
     options: ModelsSimpleStreamOptions,
     api: Api,
@@ -489,7 +487,7 @@ export async function reached(
 }
 
 /**
- * Asks the model `name` for a hello, as today's check does. It goes to the
+ * Asks the model `name` for a hello. It goes to the
  * listing itself, so it is neither admitted to a conversation nor charged,
  * and a repeat asks again.
  */

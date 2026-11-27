@@ -856,7 +856,7 @@ async fn every_fork_step_twice_leaves_one_profile() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn placing_a_profile_refuses_in_todays_order() {
+async fn placing_a_profile_refuses_in_order() {
     // Mason, housed; turn it away twice; move its house; welcome it
     // twice; move its house to the middle, then to a clear spot.
     let (realm, _) = masons_hamlet(0).await;

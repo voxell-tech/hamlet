@@ -38,7 +38,7 @@ import {
 export type Folder = () => Promise<string | undefined>;
 
 /**
- * Where `path` leads, as today's `footing` normalises it. A relative path
+ * Where `path` leads, normalised. A relative path
  * and a left-out one start from the project `folder`, else from the
  * agent's own filesystem; a path is own when it lands in that filesystem.
  */
@@ -327,7 +327,7 @@ async function searched(
         args.path,
         omitUndefined({
             ignoreCase: args.ignore_case,
-            // As today's: an empty name is no name.
+            // An empty name is no name.
             name: args.name || undefined,
         }),
         context,
@@ -349,7 +349,7 @@ function shown(from: string, path: string): string {
     const under = path.startsWith(`${from}/`)
         ? path.slice(from.length + 1)
         : "";
-    // Today's `shown` (`walk.rs`) gives whole a name that begins with `..`.
+    // A name that begins with `..` is given whole.
     return under === "" || under.startsWith("..") ? path : under;
 }
 
@@ -380,7 +380,6 @@ async function found(
     );
 }
 
-/** Today's words (`crates/hamlet_server/src/work/tools/walk.rs`). */
 function reported(found: Found<string>, none: string): ToolExecutionResult {
     const lines = found.found.length === 0 ? [none] : [...found.found];
     if (found.more) {

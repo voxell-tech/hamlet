@@ -360,8 +360,8 @@ pub(super) async fn intercept(
     ]))
 }
 
-/// Whether the lead's model is served from another machine, as
-/// today decides it; a model with no name runs no review.
+/// Whether the lead's model is served from another machine; a model
+/// with no name runs no review.
 fn served_far(settings: &Settings, model: Option<&str>) -> bool {
     let Some((provider, model)) =
         model.and_then(|model| model.split_once("::"))
@@ -391,7 +391,7 @@ fn is_local(address: &str) -> bool {
     })
 }
 
-/// The errand's instructions, in today's words.
+/// The errand's instructions.
 async fn instructions(
     rows: &Rows<'_>,
     hire: AgentNumber,
@@ -449,7 +449,7 @@ pub(super) fn ended(
     ]
 }
 
-/// The errand's answer as today reads it: `OBJECT: <reason>` objects,
+/// The errand's answer read: `OBJECT: <reason>` objects,
 /// and any other answer passes, with the words after `PASS:` as its
 /// note.
 fn verdict(ended: &Ended) -> Verdict {

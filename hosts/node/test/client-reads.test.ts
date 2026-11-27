@@ -148,7 +148,7 @@ test("on a faux script a line gives the model up to twenty images", async (t) =>
     await agent.stop();
 });
 
-test("the Hand lists its providers in today's order and words", async (t) => {
+test("the Hand lists its providers in order, in their words", async (t) => {
     const { calls } = fakeCalls({
         realm: {
             credential: ({ provider }) =>
@@ -195,7 +195,7 @@ test("the Hand lists its providers in today's order and words", async (t) => {
     await agent.stop();
 });
 
-test("a faux model is titled by its id and takes images, as today's listing shows it", (t) => {
+test("a faux model is titled by its id and takes images", (t) => {
     const script = join(scratchFolder(t), "script.json");
     writeFileSync(
         script,

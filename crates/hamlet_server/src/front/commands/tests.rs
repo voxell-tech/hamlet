@@ -124,7 +124,7 @@ fn the_speakers_oldest_wait_comes_before_an_older_one_of_another() {
 }
 
 #[test]
-fn merge_is_worded_as_today() {
+fn merge_is_worded() {
     let view = view();
     let ends = |absorbed: &str, into: &str| {
         not_hires(&view, Reach::Living, &[&at(absorbed), &at(into)])
@@ -165,7 +165,7 @@ fn merge_is_worded_as_today() {
 }
 
 #[test]
-fn restore_is_worded_as_today() {
+fn restore_is_worded() {
     let view = view();
     let hire = |text: &str| {
         read(hire_of(&view, &at(text)).map(|agent| agent.0))
@@ -227,7 +227,7 @@ fn restore_is_worded_as_today() {
 }
 
 #[test]
-fn erase_is_worded_as_today() {
+fn erase_is_worded() {
     let view = view();
     assert_eq!(
         read(hire_of(&view, &at("hand")).map(|agent| agent.0)),
@@ -282,7 +282,7 @@ fn living_hamlet() -> (Done<HamletRefusal>, &'static str) {
 }
 
 #[test]
-fn remove_hamlet_is_worded_as_today() {
+fn remove_hamlet_is_worded() {
     let said = || words::hamlet_removed(DOCS);
     reads(
         |answer| done(answer, said),
@@ -296,7 +296,7 @@ fn remove_hamlet_is_worded_as_today() {
 }
 
 #[test]
-fn restore_hamlet_is_worded_as_today() {
+fn restore_hamlet_is_worded() {
     let [missing, erased, _] = hamlet_refusals();
     reads(
         |answer| done(answer, || words::hamlet_restored(DOCS)),
@@ -317,7 +317,7 @@ fn restore_hamlet_is_worded_as_today() {
 }
 
 #[test]
-fn erase_hamlet_is_worded_as_today() {
+fn erase_hamlet_is_worded() {
     let [missing, erased, _] = hamlet_refusals();
     reads(
         |answer| done(answer, || words::hamlet_erased(DOCS)),
@@ -331,7 +331,7 @@ fn erase_hamlet_is_worded_as_today() {
 }
 
 #[test]
-fn fork_is_worded_as_today() {
+fn fork_is_worded() {
     let done = || Forked::Forked {
         profile: ProfileId(7),
         from: ADA.into(),
@@ -435,7 +435,7 @@ fn done_with_ada() -> Lifecycle {
 }
 
 #[test]
-fn remove_profile_is_worded_as_today() {
+fn remove_profile_is_worded() {
     reads(
         |answer| lived(answer, words::profile_archived),
         [
@@ -454,7 +454,7 @@ fn remove_profile_is_worded_as_today() {
 }
 
 #[test]
-fn restore_profile_is_worded_as_today() {
+fn restore_profile_is_worded() {
     reads(
         |answer| lived(answer, words::profile_restored),
         [
@@ -477,7 +477,7 @@ fn restore_profile_is_worded_as_today() {
 }
 
 #[test]
-fn erase_profile_is_worded_as_today() {
+fn erase_profile_is_worded() {
     reads(
         |answer| lived(answer, words::erased),
         [
@@ -493,7 +493,7 @@ fn erase_profile_is_worded_as_today() {
 }
 
 #[test]
-fn welcome_is_worded_as_today() {
+fn welcome_is_worded() {
     reads(
         |answer| lived(answer, words::welcomed),
         [
@@ -514,7 +514,7 @@ fn welcome_is_worded_as_today() {
 }
 
 #[test]
-fn turn_away_is_worded_as_today() {
+fn turn_away_is_worded() {
     reads(
         |answer| lived(answer, words::turned_away),
         [
@@ -535,7 +535,7 @@ fn turn_away_is_worded_as_today() {
 }
 
 #[test]
-fn move_house_is_worded_as_today() {
+fn move_house_is_worded() {
     reads(
         |answer| {
             lived(answer, |label| {
@@ -571,7 +571,7 @@ fn move_house_is_worded_as_today() {
 }
 
 #[test]
-fn the_hamlets_are_listed_by_name_then_id_as_today() {
+fn the_hamlets_are_listed_by_name_then_id() {
     let living = [
         ("yard", "c"),
         ("tagged", "d"),

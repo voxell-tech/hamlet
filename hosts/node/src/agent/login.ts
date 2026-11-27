@@ -26,16 +26,12 @@ import type { BareRealm } from "./turn.ts";
 /** How long a call waits for its step, as the front door allows it (root point 1). */
 export const STEP_WAIT_MS = 25_000;
 
-/**
- * The providers a chief signs in to with a subscription (ADR 0006), as
- * `harnesses/pi/src/provider-set.ts` names them.
- */
+/** The providers a chief signs in to with a subscription (ADR 0006). */
 const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
 
-/** As `crates/hamlet_server/src/providers.rs` words them. */
 const NOT_OPEN = "No sign-in of yours is open.";
 const CANCELLED = "Sign-in cancelled.";
-/** As `crates/hamlet_server/src/providers.rs` words a request that timed out. */
+/** The words of a request that timed out. */
 const LATE = "The provider did not answer in time.";
 
 export type Keep = BareRealm["keep_credential"];
@@ -110,7 +106,7 @@ export function signIns(
             SUBSCRIPTIONS.includes(provider)
         ) {
             const { deviceId } = options;
-            // Hamlet signs in as itself (S8), as today's harness does.
+            // Hamlet signs in as itself (S8).
             return (interaction) =>
                 oauth.login(interaction, {
                     agentName: "Hamlet",
@@ -234,8 +230,7 @@ class SignIn {
         const asking = this.#asking;
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
-        // Every answer, as today (`crates/hamlet_server/src/providers.rs`),
-        // since a later step or a failure can quote it.
+        // Every answer, since a later step or a failure can quote it.
         remember(value);
         asking.answer(value);
     }
@@ -307,7 +302,6 @@ class SignIn {
                 reject(new Error(CANCELLED));
                 return;
             }
-            // As `harnesses/pi/src/sign-in.ts` shows a prompt.
             const choices =
                 prompt.type === "select"
                     ? `\n${prompt.options.map((o) => `${o.id}: ${o.label}`).join("\n")}`
@@ -353,7 +347,7 @@ class SignIn {
     }
 }
 
-/** As `harnesses/pi/src/sign-in.ts` turns pi-ai's events into steps. */
+/** pi-ai's sign-in events, as steps. */
 function stepsOf(event: AuthEvent): LoginStep[] {
     switch (event.type) {
         case "auth_url":

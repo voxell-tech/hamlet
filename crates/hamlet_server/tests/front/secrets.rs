@@ -5,10 +5,6 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use diesel::sql_types::BigInt;
-use diesel::{
-    Connection, QueryableByName, RunQueryDsl, SqliteConnection,
-};
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
     Check, ClientMessage, ItemKind, Login, LoginMethod, LoginReply,
@@ -301,24 +297,20 @@ impl Seen {
 /// naming the secrets of the last credential kept, when the server
 /// on `home` ended.
 fn settled(home: &Path) {
-    let mut realm = SqliteConnection::establish(&format!(
-        "file:{}?mode=ro",
-        realm_database(home).display()
-    ))
-    .unwrap();
-    let Behind { behind } = diesel::sql_query(
-        "SELECT count(*) AS behind FROM reach WHERE applied IS NULL \
-         OR applied < wanted",
+    let realm = rusqlite::Connection::open_with_flags(
+        realm_database(home),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
-    .get_result(&mut realm)
     .unwrap();
+    let behind: i64 = realm
+        .query_row(
+            "SELECT count(*) FROM reach WHERE applied IS NULL \
+             OR applied < wanted",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(behind, 0, "reaches the workspace never took");
-}
-
-#[derive(QueryableByName)]
-struct Behind {
-    #[diesel(sql_type = BigInt)]
-    behind: i64,
 }
 
 /// The expiry, in milliseconds, of a login that needs a refresh.

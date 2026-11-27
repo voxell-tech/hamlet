@@ -55,13 +55,9 @@ const HAND_CHARACTER: &str =
 pub(super) enum Kind {
     Hand,
     /// A blank hire's own, made for it alone (H38), from the realm's
-    /// character: an agent's, as today
-    /// (`crates/hamlet_server/src/calls/society.rs:641-648`,
-    /// `:906-909`).
+    /// character: an agent's.
     Blank,
-    /// A blank hire's own with no character: a chief's, as today
-    /// (`crates/hamlet_server/src/commands.rs:544-547`,
-    /// `:1427-1430`).
+    /// A blank hire's own with no character: a chief's.
     Empty,
     /// One any hire may be made of.
     Shared,

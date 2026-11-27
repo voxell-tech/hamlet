@@ -35,8 +35,7 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
-    /// A hire made, kept with no reason, as today
-    /// (`crates/hamlet_server/src/society/hires.rs:144`).
+    /// A hire made, kept with no reason.
     Hired {
         hire: AgentNumber,
         by: By,

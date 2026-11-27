@@ -99,7 +99,7 @@ async fn an_upload_is_read_back_as_it_was_sent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_upload_out_of_its_bounds_is_refused_in_todays_words() {
+async fn an_upload_out_of_its_bounds_is_refused_in_its_words() {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
     let empty = chief.put_image(b"", 10).await;

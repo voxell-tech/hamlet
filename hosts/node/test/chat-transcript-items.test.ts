@@ -133,7 +133,7 @@ test("a line's images and files show on its item, in its events and in its rewin
     );
 });
 
-test("a chief's line shows the chief who said it, in the page and its events, as today", async (t) => {
+test("a chief's line shows the chief who said it, in the page and its events", async (t) => {
     const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
     await send(agent, { type: "line", text: "Go on.", chief: "ada" });
 
@@ -143,7 +143,7 @@ test("a chief's line shows the chief who said it, in the page and its events, as
     assert.deepEqual(chiefOf(added(agent)), ["ada"]);
 });
 
-test("a chat item's time is in milliseconds, as today", async (t) => {
+test("a chat item's time is in milliseconds", async (t) => {
     const before = Date.now();
     const agent = await wake(t, [fauxAssistantMessage("Seen.")]);
     await send(agent, { type: "line", text: "Go on." });
@@ -252,7 +252,7 @@ test("a sender's item shows its name as the realm gives it", async (t) => {
     ]);
 });
 
-test("a write that makes a file shows its change, as today", async (t) => {
+test("a write that makes a file shows its change", async (t) => {
     const agent = await wake(
         t,
         [
@@ -281,7 +281,6 @@ test("a write that makes a file shows its change, as today", async (t) => {
     const tool = (await read(agent)).items.find(
         (item) => item.tool !== undefined,
     )?.tool;
-    // As `crates/hamlet_server/src/work/cut.rs`'s `change_between` shows a new file.
     assert.deepEqual(tool?.change, {
         path: "/work/project/notes.md",
         created: true,
@@ -406,7 +405,7 @@ const tools = (items: readonly ChatItem[]) =>
 const answered = (items: readonly ChatItem[]) =>
     items.filter((item) => item.kind === "answered").map((item) => item.text);
 
-test("the chief's answer to an ask_chief shows as its own item, as today", async (t) => {
+test("the chief's answer to an ask_chief shows as its own item", async (t) => {
     const agent = await askedChief(t, "The chief answers: Blue.");
 
     const items = (await read(agent)).items;
@@ -416,7 +415,7 @@ test("the chief's answer to an ask_chief shows as its own item, as today", async
     assert.deepEqual(answered(added(agent)), ["Blue."]);
 });
 
-test("a picked answer shows the chief's words, and a dismissed question shows no answered item, as today", async (t) => {
+test("a picked answer shows the chief's words, and a dismissed question shows no answered item", async (t) => {
     const picked = await askedChief(
         t,
         "The chief answers:\nWhich colour? Blue",
@@ -530,7 +529,7 @@ test("a call that waits for a chief stays open until its ruling closes the same 
     );
 });
 
-test("a stop ends each call held for a chief as today's stop aborts it, and starts no run", async (t) => {
+test("a stop ends each call held for a chief, and starts no run", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             ask_chief: () => ({ type: "done" }),
@@ -620,7 +619,7 @@ const ends = (items: readonly ChatItem[]) =>
             : [[tool.name, tool.exit, tool.ms, tool.failure]],
     );
 
-test("a ruling closes its call as today does: a refusal is blocked with no time, an allowance takes the call's own time", async (t) => {
+test("a ruling closes its call: a refusal is blocked with no time, an allowance takes the call's own time", async (t) => {
     const reserved = (wait: number) => () => ({
         type: "refused" as const,
         why: { type: "reserved" as const, wait },
@@ -721,7 +720,7 @@ test("remove_hamlet stays open until a chief rules, and the ruling closes it wit
     ]);
 });
 
-test("an ask_chief's time runs from its call to the chief's answer, as today's call holds until then", async (t) => {
+test("an ask_chief's time runs from its call to the chief's answer", async (t) => {
     const agent = await askedChief(t, "The chief answers: Blue.");
 
     const entries = await chiefEntries(agent);
@@ -735,7 +734,7 @@ test("an ask_chief's time runs from its call to the chief's answer, as today's c
     ]);
 });
 
-test("an objection stays open until the chief rules: go closes it at the ruling's time, withdraw aborts it, as today's", async (t) => {
+test("an objection stays open until the chief rules: go closes it at the ruling's time, withdraw aborts it", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: { object: () => ({ type: "done" }) },
     });
@@ -786,7 +785,7 @@ test("an objection stays open until the chief rules: go closes it at the ruling'
     );
 });
 
-test("a call that waits for a chief to allow it stays open, and its end closes the same item as today's", async (t) => {
+test("a call that waits for a chief to allow it stays open, and its end closes the same item", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
             run: () => ({ type: "waits_for_chief", needs: ["command"] }),
@@ -924,7 +923,7 @@ test("a call that waits for a chief to allow it stays open, and its end closes t
     );
 });
 
-test("a command no chief holds closes with its own exit code, and one that runs on closes its own item when it ends, as today's", async (t) => {
+test("a command no chief holds closes with its own exit code, and one that runs on closes its own item when it ends", async (t) => {
     const ended = (exit: Exit, output: string): RunAnswer => ({
         type: "ended",
         end: {
@@ -1056,7 +1055,7 @@ test("a ruling closes its call's item in the watched chat after a restart, howev
     );
 });
 
-test("a held edit a chief refused closes with no change, as today's", async (t) => {
+test("a held edit a chief refused closes with no change", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
             edit_file: () => ({ type: "waits_for_chief", needs: ["edit"] }),

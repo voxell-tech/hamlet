@@ -67,7 +67,7 @@ test("a filesystem read gives a file's bytes, by a relative or an absolute path"
     assert.equal(missing.ok ? undefined : missing.error.code, "not_found");
 });
 
-test("a read of a missing file says ENOENT as today's read does", async (t) => {
+test("a read of a missing file says ENOENT", async (t) => {
     const { filesystem } = await planted(t);
     for (const path of [
         "memory/missing.md",
@@ -261,7 +261,7 @@ test("the root itself, as a left-out path reaches it, can be listed, found in an
     ]);
 });
 
-test("an own edit the filesystem refuses answers in today's words, and the file stays", async (t) => {
+test("an own edit the filesystem refuses answers in its words, and the file stays", async (t) => {
     const { filesystem } = await planted(t);
     assert.ok(
         (await filesystem.write("memory/notes.md", "one two two\n", context))
@@ -326,7 +326,6 @@ test("an own edit the filesystem refuses answers in today's words, and the file 
     });
     await agent.idle();
 
-    // Today's `CallError` (`crates/hamlet_server/src/work/tools/files.rs`).
     const refused = (message: string) => ({
         output: "",
         isError: true,
@@ -359,7 +358,7 @@ test("an own edit the filesystem refuses answers in today's words, and the file 
         refused(
             `No changes made to ${path}. The replacements produced identical content.`,
         ),
-        // Today checks for an edit before it looks for the file.
+        // An empty `edits` is refused before the file is looked for.
         refused(
             "Edit tool input is invalid. edits must contain at least one replacement.",
         ),

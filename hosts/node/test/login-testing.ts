@@ -46,9 +46,8 @@ export function assertNowhere(
 }
 
 /**
- * The provider `loopback`, whose key sign-in asks as today's endpoint's
- * does (`harnesses/pi/src/providers.ts`, `compatible`), and whose one model
- * answers with `answer`.
+ * The provider `loopback`, whose key sign-in asks as an endpoint's does, and
+ * whose one model answers with `answer`.
  */
 export function loopback(answer: FauxResponseFactory) {
     const core = createFauxCore({
@@ -135,9 +134,9 @@ export interface Fixture {
 }
 
 /**
- * The provider `chatgpt` on loopback, after today's OAuth fixture
- * (`harnesses/pi/test/fixtures/oauth.ts`): its sign-in shows a link, a
- * device code and a progress line, then asks for the code. Its model
+ * The provider `chatgpt` on loopback, as the OAuth fixture
+ * (`test/fixtures/oauth.ts`) has it: its sign-in shows a link, a device code
+ * and a progress line, then asks for the code. Its model
  * echoes every token it knows, as A19's does.
  */
 export function subscription(t: TestContext): Fixture {

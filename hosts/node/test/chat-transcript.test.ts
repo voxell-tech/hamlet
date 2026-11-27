@@ -191,7 +191,6 @@ test("a client reading after a gap misses nothing", async (t) => {
     assert.equal(again.epoch, first.epoch);
     assert.equal(again.session, 1);
     assert.equal(again.items[0]?.rewindable, true);
-    // As `crates/hamlet_server/src/work/cut.rs` shows an edit.
     assert.deepEqual(again.items[4]?.tool?.change, {
         path,
         created: false,
@@ -375,7 +374,7 @@ test("an append repeated, or crossing a read, applies once", async (t) => {
     assert.deepEqual(twice, now.items);
 });
 
-test("read_chat of a chat that does not exist is refused as today words it", async (t) => {
+test("read_chat of a chat that does not exist is refused in its words", async (t) => {
     const agent = await wake(t, [fauxAssistantMessage("One.")]);
     const refused = (words: string) => (error: unknown) =>
         error instanceof UserError && error.message === words;
@@ -393,7 +392,6 @@ test("read_chat of a chat that does not exist is refused as today words it", asy
         refused("no agent has the address `3's questions to 7`"),
     );
     await sender(agent)(line("a"));
-    // As `crates/hamlet_server/src/clients/requests.rs` words it.
     await assert.rejects(
         read(agent, CHIEF, "nothing"),
         refused("There is no item `nothing` here."),
@@ -499,8 +497,7 @@ test("a client following the chief's chat reads again after /new", async (t) => 
     ]);
 });
 
-// As today's `/new` (`crates/hamlet_server/src/commands.rs`): the chief is
-// answered once the new session has begun.
+// For `/new`, the chief is answered once the new session has begun.
 test("/new begins its session with its notice, and a follower hears of it after the answer", async (t) => {
     const asked = Promise.withResolvers<void>();
     const opened = Promise.withResolvers<void>();

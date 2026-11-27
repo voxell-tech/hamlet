@@ -18,7 +18,7 @@ function submitted(name: string, id: string): Submit {
     return { ...message, id };
 }
 
-test("a letter and a question reach the model as their bare words, and an answer as its author's, as today", async (t) => {
+test("a letter and a question reach the model as their bare words, and an answer as its author's", async (t) => {
     const seen: Context[] = [];
     const { calls } = fakeCalls({
         realm: { reply: () => fixture("realm/reply.done.answer") as never },
@@ -41,8 +41,6 @@ test("a letter and a question reach the model as their bare words, and an answer
     }
     await agent.stop();
 
-    // As `crates/hamlet_server/src/talk/letters.rs` keeps a letter, a
-    // question and an answer.
     assert.deepEqual(
         seen.map((request) => userWords(request).at(-1)),
         ["The tests pass", "Which tests fail?", "Ada answers: Two of them"],

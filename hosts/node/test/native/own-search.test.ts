@@ -49,7 +49,7 @@ const refused = (output: string) => ({
     diagnostics: [],
 });
 
-test("an own search refuses an empty or a bad pattern in today's words", async (t) => {
+test("an own search refuses an empty or a bad pattern in its words", async (t) => {
     assert.deepEqual(
         (
             await called(t, { "memory/notes.md": "notes" }, [
@@ -140,7 +140,7 @@ test("an own search trims pi's spaces from a line's end, then clips it to 300 ch
     );
 });
 
-test("an own search shows whole the path of a name that begins with `..`, as today's does", async (t) => {
+test("an own search shows whole the path of a name that begins with `..`", async (t) => {
     const { root, results } = await called(
         t,
         { "..dots.md": "notes dots", "memory/notes.md": "notes" },
@@ -151,7 +151,7 @@ test("an own search shows whole the path of a name that begins with `..`, as tod
     ]);
 });
 
-test("an own find shows each path from where a relative path starts, as today's does", async (t) => {
+test("an own find shows each path from where a relative path starts", async (t) => {
     const { root, results } = await called(
         t,
         {
@@ -180,7 +180,7 @@ const SKIPPED = [
     ".next",
 ];
 
-test("an own search and find pass over the folders today's walk skips, but not the folder they start in", async (t) => {
+test("an own search and find pass over the folders a walk skips, but not the folder they start in", async (t) => {
     const files = Object.fromEntries([
         ["build", "needle"],
         ["memory/notes.md", "needle"],
@@ -214,7 +214,7 @@ test("an own search and find pass over the folders today's walk skips, but not t
     );
 });
 
-test("a case-insensitive own search lowercases the pattern and the line, as today's does", async (t) => {
+test("a case-insensitive own search lowercases the pattern and the line", async (t) => {
     assert.deepEqual(
         (
             await called(

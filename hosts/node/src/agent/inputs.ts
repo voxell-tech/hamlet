@@ -61,8 +61,7 @@ export function admissionOf(
                       }),
             };
         // A worker's answer and an answer are told as their author's, and a
-        // letter and a question as their words, as
-        // `crates/hamlet_server/src/talk/letters.rs` keeps them.
+        // letter and a question as their words.
         case "worker_answer":
             return {
                 ...base,

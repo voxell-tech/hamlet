@@ -1,8 +1,6 @@
 /**
  * The system prompt, one pi-durable section per part (C11), rendered before
- * every model request, so a change shows from the next call. The words are
- * today's (`crates/hamlet_server/src/talk/prompt.rs`), "lodge" and
- * "scholar" included.
+ * every model request, so a change shows from the next call.
  */
 import {
     BACKGROUND_CONTEXT,
@@ -245,7 +243,6 @@ const SYSTEM =
           ? "System: Windows. `powershell` runs PowerShell. `bash`, where it is offered, is Git Bash, which writes C:\\Users as /c/Users."
           : "System: Linux.";
 
-/** As `machine` (`crates/hamlet_server/src/talk/prompt.rs`). */
 async function machine(sources: PromptSources): Promise<string> {
     const { settings, model } = await sources.copies();
     const { confinement, faults } = await sources.tools();
@@ -360,15 +357,14 @@ async function memory(
 }
 
 /**
- * As today's `skills` (`crates/hamlet_server/src/talk/prompt.rs:411-458`):
- * the agent's own skills, then the library's shelves, when they hold any.
+ * The agent's own skills, then the library's shelves, when they hold any.
  */
 async function skills(
     sources: PromptSources,
     context: Context,
 ): Promise<string> {
     const { files } = sources;
-    // As today's `shelf`, a folder that cannot be listed shows no skills.
+    // A folder that cannot be listed shows no skills.
     const entries = (await listed(sources, "skills", context)) ?? [];
     const quoted = files.root.replaceAll("'", "'\\''");
     let text = "# Your skills\n";
@@ -431,7 +427,7 @@ async function readText(
     return read.ok ? new TextDecoder().decode(read.value) : undefined;
 }
 
-/** A field of a front matter, as `field` in `crates/hamlet_server/src/knowledge/library.rs` reads one. */
+/** A field of a front matter. */
 export function field(paper: string, key: string): string {
     const head = paper.startsWith("---") ? paper.slice(3) : "";
     for (const line of (head.split("\n---")[0] ?? "").split("\n")) {

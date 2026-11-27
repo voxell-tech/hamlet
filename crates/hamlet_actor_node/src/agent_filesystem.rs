@@ -15,12 +15,11 @@ use regex::Regex;
 /// The largest file a search reads, in bytes.
 const LARGEST: u64 = 1024 * 1024;
 
-/// The most characters of a matching line a search shows, as today's;
-/// a longer line ends in `...` there.
+/// The most characters of a matching line a search shows; a longer
+/// line ends in `...` there.
 const WIDTH: usize = 300;
 
-/// The folders a walk does not go into below where it starts, as
-/// today's (`crates/hamlet_server/src/work/tools/walk.rs`).
+/// The folders a walk does not go into below where it starts.
 const SKIPPED: [&str; 9] = [
     ".git",
     ".hamlet",
@@ -68,7 +67,7 @@ pub struct FolderFiles {
 pub struct FolderMatch {
     pub path: String,
     pub line: u32,
-    /// The line as today's search shows it.
+    /// The line as a search shows it.
     pub text: String,
 }
 
@@ -206,7 +205,7 @@ impl AgentFolder {
     /// `name`, `*` stands for any run of characters and `?` for one;
     /// with a `/` in it, it is matched against the file's path from
     /// `path` rather than its name. No link is followed, and no
-    /// folder today's walk skips is gone into.
+    /// folder a walk skips is gone into.
     #[napi]
     pub async fn files(
         &self,
@@ -312,9 +311,8 @@ impl AgentFolder {
     }
 }
 
-/// `pattern` lowercased as today's case-insensitive search does
-/// (`crates/hamlet_server/src/work/tools/search.rs`, `compile`): all
-/// but the character after each `\`.
+/// `pattern` lowercased for a case-insensitive search: all but the
+/// character after each `\`.
 fn lowered(pattern: &str) -> String {
     let mut source = String::new();
     let mut chars = pattern.chars().peekable();
@@ -332,7 +330,7 @@ fn lowered(pattern: &str) -> String {
 }
 
 /// `line` with pi's spaces taken from its end, then cut at [`WIDTH`]
-/// characters, as today's search shows it.
+/// characters, as a search shows it.
 fn shown(line: &str) -> String {
     let line = line.trim_end_matches(|c: char| {
         (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'

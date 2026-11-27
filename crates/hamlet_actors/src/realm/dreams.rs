@@ -35,11 +35,10 @@ use super::{
     versions,
 };
 
-/// The most a dream may spend, in millionths of a dollar, as today's
-/// default.
+/// The most a dream may spend by default, in millionths of a dollar.
 const COST: u64 = 200_000;
 
-/// The input of a dream's errand, in today's words.
+/// The input of a dream's errand.
 const DREAM_NOW: &str = "Dream now.";
 
 #[derive(Debug, PartialEq)]

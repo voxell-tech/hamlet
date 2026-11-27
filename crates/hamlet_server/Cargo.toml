@@ -54,7 +54,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
-diesel.workspace = true
+rusqlite.workspace = true
 image.workspace = true
 
 # Its fixtures stop servers with Unix signals.

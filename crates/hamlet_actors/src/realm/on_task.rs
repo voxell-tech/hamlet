@@ -45,7 +45,7 @@ impl<M: Message> Message for Asking<M> {
 
 /// An act that ends or merges the hires it names.
 pub(super) trait Ends: Act<Agent> {
-    /// The hires it names, in the order today asks them.
+    /// The hires it names, in the order they are asked.
     fn named(&self) -> Vec<&Named>;
 }
 

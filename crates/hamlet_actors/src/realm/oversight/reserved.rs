@@ -54,7 +54,7 @@ enum Held {
 }
 
 impl Held {
-    /// Today's tool and its arguments, as the chief reads them.
+    /// The tool and its arguments, as the chief reads them.
     fn subject(&self) -> String {
         let mut args = Map::new();
         let mut arg = |name: &str, value: Option<String>| {
@@ -455,7 +455,7 @@ where
     })
 }
 
-/// Today's words for what a reserved act did, from its decision.
+/// The words for what a reserved act did, from its decision.
 async fn ran(
     rows: &Rows<'_>,
     entries: &[record::Entry],

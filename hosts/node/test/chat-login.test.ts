@@ -65,7 +65,7 @@ test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-i
     assert.deepEqual(named(sent, "keep_credential"), []);
 });
 
-test("A13: a key sign-in's refusals and its repeats are today's", async (t) => {
+test("A13: a key sign-in's refusals and its repeats are worded", async (t) => {
     const key = secret(t, "key");
     const { file, calls, sent } = credentialsFile();
     const agent = await wakeAgent(t, {
@@ -320,7 +320,7 @@ test("a cancel answers a call waiting for its step", async (t) => {
     await agent.stop();
 });
 
-test("A15: a check's refusals are today's plain words", async (t) => {
+test("A15: a check's refusals are plain words", async (t) => {
     const { calls } = credentialsFile();
     const answers = ["HTTP 401: no", "HTTP 402: no", "HTTP 403: no"];
     const agent = await wakeAgent(t, {
@@ -394,7 +394,7 @@ test("a start repeated after a reply answers as it first did", async (t) => {
     await agent.stop();
 });
 
-test("a sign-in with no first step in time fails with today's words", async (t) => {
+test("a sign-in with no first step in time fails with its words", async (t) => {
     const { calls } = credentialsFile();
     const agent = await wakeAgent(t, {
         calls,

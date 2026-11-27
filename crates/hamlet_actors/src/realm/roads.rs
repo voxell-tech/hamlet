@@ -101,8 +101,7 @@ pub(super) async fn of(
 }
 
 /// Every agent `agent` has a road to and a prompt names, with the
-/// way: the live ones and those still being hired, as today
-/// (`crates/hamlet_server/src/society/roads.rs:109-156`).
+/// way: the live ones and those still being hired.
 pub(super) async fn named(
     rows: &Rows<'_>,
     agent: AgentNumber,

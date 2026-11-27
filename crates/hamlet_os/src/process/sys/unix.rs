@@ -261,9 +261,7 @@ fn end_with_forking_thread(spawn: &mut tokio::process::Command) {
     }
 }
 
-pub(crate) fn own_session(
-    command: &mut std::process::Command,
-) {
+pub(crate) fn own_session(command: &mut std::process::Command) {
     // SAFETY: the child calls only setsid, which is
     // async-signal-safe, before exec, allocates nothing and touches
     // no shared state.

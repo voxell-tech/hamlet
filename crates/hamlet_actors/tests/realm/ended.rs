@@ -79,7 +79,7 @@ async fn a_hire_ended_while_it_was_made_is_made_once_restored() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_restore_refuses_in_todays_order() {
+async fn a_restore_refuses_in_order() {
     let (realm, hamlet) = super::hamlet_with(2).await;
     end(&realm, THREE).await;
     let refused = async |act| words(chief(&realm, act).await);

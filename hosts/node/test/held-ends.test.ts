@@ -104,7 +104,7 @@ function resultOf(messages: readonly Message[], id: string): string[] {
     );
 }
 
-/** Today's words for a held call that ended without an answer, as the model reads them. */
+/** The words for a held call that ended without an answer, as the model reads them. */
 const aborted = (tool: string) =>
     `<harness>\n[error] Tool ${tool} was aborted\n</harness>`;
 

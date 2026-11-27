@@ -1,4 +1,4 @@
-/** The society tools: today's names, descriptions, parameters and words. */
+/** The society tools: their names, descriptions, parameters and words. */
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
@@ -52,11 +52,10 @@ export interface Definition<N extends SocietyTool> {
         answer: Granted<SocietyActs[N]["answer"]>,
         args: never,
     ) => string;
-    /** Today's words for a refusal today gives as a plain result. */
+    /** The words for a refusal given as a plain result. */
     readonly plain?: (why: Refused["why"]) => string | undefined;
 }
 
-/** Today's words for an address (`crates/hamlet_server/src/calls/society.rs`). */
 const ADDRESS =
     "An agent's address: `hand`, `mayor`, `mayor@<hamlet id>`, `hire#<id>` or `worker#<id>`.";
 const PATHS = {
@@ -65,7 +64,7 @@ const PATHS = {
     description:
         "Files or folders to send with it, in your lodge or your hamlet's folder. They are copied into the receiver's inbox, and the message says where. Links are not followed. A chief approves a send of more than 32 MiB or 1000 files.",
 };
-/** The tier today's server gives a hamlet an agent founds: the column's default (`crates/hamlet_store/src/schema.sql`). */
+/** The tier of a hamlet an agent founds. */
 const FOUNDED_TIER: Tier = "fifty";
 const string = (description: string) => ({ type: "string", description });
 const address = string(ADDRESS);
@@ -77,7 +76,7 @@ const object = (properties: object, required: readonly string[]) => ({
 });
 const names = { type: "array", items: { type: "string" } };
 
-/** Today's words for a call a chief must allow first (`crates/hamlet_server/src/calls.rs`). */
+/** The words for a call a chief must allow first. */
 export const WAITING = "This call waits for a chief's answer.";
 
 export const OBJECTING = "The chief is considering an objection.";
@@ -86,7 +85,7 @@ export const OBJECTING = "The chief is considering an objection.";
 export const OBJECTED =
     "The chief is considering an objection, so this call did not run. Make it again if the chief says to go on.";
 
-/** As today's `ask_chief` limits (`crates/hamlet_server/src/talk/asking.rs`). */
+/** The limits of an `ask_chief` question. */
 const MOST_QUESTIONS = 10;
 const MOST_OPTIONS = 6;
 
@@ -96,10 +95,7 @@ function why(reason: string | undefined): { why?: string } {
     return given === undefined ? {} : { why: given };
 }
 
-/**
- * Read as today's server reads it (an `i64`), or `undefined` when the act's
- * `u32` cannot carry it.
- */
+/** Read as an `i64`, or `undefined` when the act's `u32` cannot carry it. */
 function numberOf(
     kind: "hire" | "worker" | "scholar",
     text: string,
@@ -112,16 +108,12 @@ function numberOf(
     return number <= U32_MAX ? number : undefined;
 }
 
-/** Today's server reads an empty parameter as one left out. */
+/** An empty parameter reads as one left out. */
 function present(text: string | undefined): string | undefined {
     const trimmed = text?.trim();
     return trimmed === "" ? undefined : trimmed;
 }
 
-/**
- * Read as today's server reads it
- * (`crates/hamlet_server/src/society/addresses.rs`, `parse`).
- */
 function named(given: string): Named | Invalid {
     const address = given.trim();
     if (address === "hand" || address === "mayor") return { type: address };
@@ -138,7 +130,6 @@ function named(given: string): Named | Invalid {
     return { invalid: `\`${address}\` is not an address` };
 }
 
-/** As `parse_scholar` of `crates/hamlet_server/src/society/addresses.rs`. */
 function profileNamed(text: string): ProfileId | Invalid {
     const given = text.trim();
     return (
@@ -154,9 +145,8 @@ function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
 }
 
 /**
- * A version or a commit as today's `version_of` names one
- * (`crates/hamlet_server/src/calls/society/scholars.rs:55-71`): `main`, a
- * commit's 40 hex digits, or a branch's or a version's name.
+ * A version or a commit as a call names one: `main`, a commit's 40 hex
+ * digits, or a branch's or a version's name.
  */
 function revisionOf(text: string): Revision {
     if (text === "main") return { type: "main" };
@@ -164,7 +154,6 @@ function revisionOf(text: string): Revision {
     return { type: "version", version: text };
 }
 
-/** As `crates/hamlet_server/src/calls/society/library.rs:131-139`. */
 const NOT_A_SKILL =
     "`skill` is its folder under skills/, in letters, digits, hyphens and underscores.";
 
@@ -179,7 +168,6 @@ async function offered(
 ): Promise<OfferAnswer | { invalid: string }> {
     const folder = `skills/${skill}`;
     const walked = await peers.files.walk(folder, BACKGROUND_CONTEXT);
-    // As `skill_files` (`crates/hamlet_server/src/calls/society/library.rs:252-257`).
     if (!walked.ok || walked.value.files.length === 0) {
         return { invalid: `no skill is named \`${skill}\`` };
     }
@@ -243,7 +231,7 @@ function toolNamesOf(given: readonly string[] | undefined): ToolName[] {
     return (given ?? []).map((name) => ({ name: ACT_OF.get(name) ?? name }));
 }
 
-/** Today's names and words for the model, word for word. */
+/** The tools' names and words for the model. */
 export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     tell: {
         name: "tell",
@@ -264,7 +252,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...paths,
             }));
         },
-        // As `sent` (`crates/hamlet_server/src/calls/society/letters.rs`).
         said: (answer) => `Sent to ${answer.to.name}.`,
     },
     ask: {
@@ -349,7 +336,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(path === undefined ? {} : { path }),
             };
         },
-        // As `read_scholar` (`crates/hamlet_server/src/calls/society/scholars.rs:94-113`).
         said: (answer, args: { scholar: string }) => {
             if (answer.type === "text") {
                 return answer.cut ? `${answer.text}\n[cut here]` : answer.text;
@@ -444,7 +430,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         ]),
         act: (args: { question: string }) => {
             const question = present(args.question);
-            // As `crates/hamlet_server/src/calls/society/library.rs:81-84`.
             return question === undefined
                 ? { invalid: "Say what you need a skill for." }
                 : { question };
@@ -512,7 +497,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(mayor === undefined ? {} : { mayor }),
             };
         },
-        // As `found_hamlet` (`crates/hamlet_server/src/calls/society.rs`).
         said: (answer, args: { name: string }) =>
             `Founded ${args.name.trim()} (\`${answer.hamlet}\`).`,
     },
@@ -525,7 +509,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 hire,
                 ...why(args.reason),
             })),
-        // As `seat_mayor` (`crates/hamlet_server/src/calls/society.rs`).
         said: (answer) =>
             `${answer.agent.name} is the mayor of ${answer.hamlet} now.`,
     },
@@ -552,9 +535,8 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             under?: string;
             hamlet?: string;
         }) => {
-            // Today (`calls/society.rs`, `hire_tool`) finds the hamlet and
-            // `under` before it checks `scholar` and `name`; here the realm
-            // finds them after.
+            // The realm finds the hamlet and `under` after this checks
+            // `scholar` and `name`.
             const given = present(args.under);
             const under = given === undefined ? undefined : named(given);
             if (under !== undefined && "invalid" in under) return under;
@@ -567,7 +549,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                         "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
                 };
             }
-            // As `scholar_pinned` (`crates/hamlet_server/src/commands.rs:1484-1497`).
             const [pinned, version] = splitOnce(present(args.scholar), "@");
             const profile = profileOf(pinned);
             if (typeof profile === "object") return profile;
@@ -582,7 +563,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(under === undefined ? {} : { under }),
             };
         },
-        // As `hire_tool` (`crates/hamlet_server/src/calls/society.rs`).
         said: (answer) => `Hired ${answer.agent.name}.`,
     },
     end: {
@@ -725,7 +705,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             };
         },
         said: () => WAITING,
-        // As `ask_chief` (`crates/hamlet_server/src/calls.rs`).
         plain: (why) => {
             if (why.type === "no_chief") {
                 return "No chief oversees this turn; go on with what you know.";
@@ -777,7 +756,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(tools.length === 0 ? {} : { tools }),
             };
         },
-        // As `worked` (`crates/hamlet_server/src/calls/society/letters.rs`).
         said: (answer) =>
             `Started ${answer.worker.name}; its answer comes to you as a reply.`,
     },
@@ -820,7 +798,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...road,
                 ...why(args.reason),
             })),
-        // As `agree_road` (`crates/hamlet_server/src/calls/society.rs`).
         said: ({ type, mine, theirs }) =>
             type === "laid"
                 ? `The road between ${mine.name} and ${theirs.name} is open.`
@@ -842,7 +819,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...why(args.reason),
             }));
         },
-        // As `nickname` (`crates/hamlet_server/src/calls/society.rs`).
         said: (answer, args: { nickname?: string }) => {
             const nickname = present(args.nickname);
             return nickname === undefined
@@ -870,7 +846,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...why(args.reason),
             }));
         },
-        // As `set_model` (`crates/hamlet_server/src/calls/society.rs`).
         said: (answer, args: { model?: string }) =>
             `${answer.agent.name} runs ${present(args.model) ?? "its hamlet's model"} now.`,
     },
@@ -879,7 +854,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         description: "Read a hamlet's record: every decision with its reason.",
         parameters: object({ hamlet: string("The hamlet's id.") }, ["hamlet"]),
         act: (args: { hamlet: string }) => ({ hamlet: args.hamlet.trim() }),
-        // As `lines` (`crates/hamlet_server/src/society/record.rs`).
         said: (answer) =>
             answer.lines.length === 0
                 ? "Nothing is decided yet."
@@ -898,7 +872,7 @@ interface AskedQuestion {
     readonly text_input?: boolean;
 }
 
-/** As today reads one (`crates/hamlet_server/src/talk/asking.rs`): words are allowed unless turned off. */
+/** A question as asked: words are allowed unless turned off. */
 function questionOf(asked: AskedQuestion): ChiefQuestion {
     const options = (asked.options ?? []).map((option) =>
         typeof option === "string" ? { title: option } : option,
@@ -913,12 +887,11 @@ function questionOf(asked: AskedQuestion): ChiefQuestion {
     };
 }
 
-/** As `micros` (`crates/hamlet_server/src/spend.rs`): dollars to the nearest millionth. */
+/** Dollars to the nearest millionth. */
 function microsOf(dollars: number): string {
     return `${Math.max(0, Math.round(dollars * 1_000_000))}`;
 }
 
-/** As `duration` (`crates/hamlet_server/src/spend.rs`). */
 function duration(ms: number): string {
     const seconds = Math.floor(ms / 1000);
     if (seconds < 60) return `${seconds}s`;
@@ -928,9 +901,8 @@ function duration(ms: number): string {
 }
 
 /**
- * As `budget` (`crates/hamlet_server/src/calls/society.rs`), with
- * the summary of `report` (`crates/hamlet_server/src/spend.rs`): the
- * cap nearest its end, or the money spent when there is none.
+ * A budget's words: the cap nearest its end, or the money spent when there
+ * is none.
  */
 function budgetWords(
     answer: Granted<SocietyActs["read_budget"]["answer"]>,

@@ -108,7 +108,7 @@ export function openAgentFilesystem(
             ),
         edit: (path, edits, context) =>
             call(path, context, async () => {
-                // Today refuses an empty `edits` before it looks for the file.
+                // An empty `edits` is refused before the file is looked for.
                 if (edits.length === 0) {
                     throw new FileError(
                         "invalid",
@@ -182,10 +182,7 @@ export function openAgentFilesystem(
     };
 }
 
-/**
- * A native refusal of a search's pattern by the regex crate, in today's
- * words (`crates/hamlet_server/src/work/tools/walk.rs`).
- */
+/** A native refusal of a search's pattern by the regex crate, in a model's words. */
 function patternRefusal(error: unknown, path: string): FileError | undefined {
     const message = error instanceof Error ? error.message : "";
     if (!/^EINVAL: (regex parse error:|Compiled regex )/.test(message)) {
@@ -205,7 +202,7 @@ function patternRefusal(error: unknown, path: string): FileError | undefined {
     );
 }
 
-/** As today's, a cut walk that also found more says only the more. */
+/** A cut walk that also found more says only the more. */
 function bounded<T>(items: T[], capped: boolean): Found<T> {
     const more = items.length > FOUND;
     return { found: items.slice(0, FOUND), more, capped: capped && !more };
@@ -221,7 +218,7 @@ function utf8(bytes: Uint8Array, path: string): string {
 
 /**
  * `text` with each of `edits` made in it, each found once in `text` as it
- * was. A refusal is in today's words (`crates/hamlet_server/src/work/tools/files.rs`).
+ * was.
  */
 function edited(text: string, edits: readonly Edit[], path: string): string {
     const refuse = (words: string): never => {

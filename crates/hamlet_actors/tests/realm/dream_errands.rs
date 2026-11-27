@@ -31,8 +31,7 @@ use super::{
     steps_told, to, until,
 };
 
-/// The most a dream may spend, in millionths of a dollar, as today's
-/// default.
+/// The most a dream may spend by default, in millionths of a dollar.
 const DREAM_COST: u64 = 200_000;
 
 async fn errand_ends(realm: &Realm, n: u32, ended: Ended) {
@@ -80,7 +79,7 @@ fn built_ins() -> Vec<BuiltIn> {
         .collect()
 }
 
-/// The hire's dream runs as an errand with today's instructions over
+/// The hire's dream runs as an errand with its instructions over
 /// the two folders, works in main's with its hire's network before it
 /// is made, and ends the dream done with the first line of its
 /// answer.
@@ -194,7 +193,7 @@ async fn a_dream_with_nothing_to_go_over_runs_no_errand() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_profiles_dream_tidies_its_main_in_todays_words() {
+async fn a_profiles_dream_tidies_its_main_in_its_words() {
     let (realm, _) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
 

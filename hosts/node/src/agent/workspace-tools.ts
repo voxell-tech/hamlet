@@ -75,7 +75,7 @@ const REFUSED = [
     "Permission denied",
 ];
 
-/** Today's note after a command the sandbox stopped, while the hamlet works on no folder. */
+/** The note after a command the sandbox stopped, while the hamlet works on no folder. */
 const OUTSIDE =
     "\n[The sandbox lets a command write only inside the workspace, which is its working directory. Use a relative path there, not /tmp or another folder.]";
 
@@ -86,7 +86,7 @@ function wallOf(script: Extract<Program, { type: "script" }>): number {
 const text = (description: string) => ({ type: "string", description });
 const number = (description: string) => ({ type: "number", description });
 
-/** Today's definitions, word for word (`crates/hamlet_server/src/work/tools.rs`). */
+/** The built-in tools' definitions. */
 const FILE_TOOLS: {
     readonly [N in FileTool]: {
         readonly description: string;
@@ -181,7 +181,7 @@ const FILE_TOOLS: {
     },
 };
 
-/** Today's shell definition, word for word (`crates/hamlet_server/src/work/tools/shell.rs`). */
+/** The shell tool's definition. */
 const BASH = {
     description:
         "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds. It stops after 120 seconds, or sooner with `timeout`.",
@@ -277,14 +277,13 @@ function ran(end: RunEnd): ToolExecutionResult {
 }
 
 /**
- * The words of a command that ended inside its call, as today's bash
- * (`crates/hamlet_server/src/work/tools/shell.rs`) and hand tools
- * (`work/added.rs`) give them.
+ * The words of a command that ended inside its call, from `bash` or a
+ * hand tool.
  */
 function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
     if (end.type === "not_run") return failed(end.words);
     const script = program.type === "script";
-    // Today's hand tools keep the head of their output and name no file.
+    // A hand tool keeps the head of its output and names no file.
     const fullOutput =
         end.cut === undefined || !script
             ? []
@@ -359,7 +358,6 @@ export function wrote(path: string, created = false): ToolExecutionResult {
     return created ? { ...result, details: { created } } : result;
 }
 
-/** Today's edit words (`crates/hamlet_server/src/work/tools/files.rs`). */
 export function replaced(
     path: string,
     blocks: number,
@@ -396,7 +394,7 @@ export function readResult(
 
 /**
  * The words of a write's or an edit's end. A diff is set only for an edit,
- * and today's edit words count its `blocks`, which an end that arrives as
+ * and an edit's words count its `blocks`, which an end that arrives as
  * an input does not carry.
  */
 function changed(end: ChangeEnd, blocks?: number): ToolExecutionResult {
@@ -417,8 +415,8 @@ export function endWords(outcome: Outcome): string {
 }
 
 /**
- * A call's end that arrives as an input, with today's words for a call
- * not run (`crates/hamlet_server/src/calls.rs`).
+ * A call's end that arrives as an input, with the words for a call not
+ * run.
  */
 export function endOf(outcome: Outcome): CallEnd {
     if (outcome.end.type === "not_run") {
@@ -514,7 +512,7 @@ async function run(
     );
 }
 
-/** A script that failed after `output`, in today's words (`shell.rs`, `fail`). */
+/** A script that failed after `output`. */
 function scriptFailed(output: string, reason: string): ToolExecutionResult {
     return failed(
         `${output}Error: ${reason}. Inspect the output before trying again, or tell the chief.`,

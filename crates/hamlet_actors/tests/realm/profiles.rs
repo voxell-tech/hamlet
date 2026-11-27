@@ -887,8 +887,8 @@ async fn a_chiefs_change_to_a_profile_is_answered_from_the_profile() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_at_another_hires_branch_starts_its_branch_there() {
-    // As today's hire at a version, which takes a branch's name
-    // (`hamlet_git` `resolve`).
+    // A hire at a version takes a branch's name (`hamlet_git`
+    // `resolve`).
     let (realm, _) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     let at = |version: &str| Hire {

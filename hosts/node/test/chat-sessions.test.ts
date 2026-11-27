@@ -258,7 +258,7 @@ test("a letter and a question from one peer go to two chats of their own", async
     );
 });
 
-test("/resume of a session that does not exist is refused with today's words", async (t) => {
+test("/resume of a session that does not exist is refused with its words", async (t) => {
     const agent = await wake(t, fakeCalls({}).calls, ["One."]);
     const client = agent.by(from.client);
     const refusal = (number: number, asked: number | bigint = number) => ({
@@ -279,8 +279,8 @@ test("/resume of a session that does not exist is refused with today's words", a
         await agent.actions.resume(client, { id: "r-3", number: 1, to: 7 }),
         { type: "back", number: 1 },
     );
-    // A client's `u64` past 2^53 arrives as a bigint: worded as asked, as
-    // today, while the refusal's number stays a `u32`.
+    // A client's `u64` past 2^53 arrives as a bigint: worded as asked,
+    // while the refusal's number stays a `u32`.
     const wide = 2n ** 63n;
     assert.deepEqual(
         await agent.actions.resume(client, { id: "r-4", number: wide, to: 7 }),
@@ -377,8 +377,7 @@ test("the history titles a session by its line's first words, cut at 90, and lea
     );
 });
 
-// As today's `/retry` (`crates/hamlet_server/src/talk/chats.rs`, `retry`),
-// only a session whose last entry is an answer was answered.
+// For `/retry`, only a session whose last entry is an answer was answered.
 test("/retry after /resume carries on: the session's last entry is the resume's notice", async (t) => {
     const agent = await wake(
         t,

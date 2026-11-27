@@ -472,7 +472,7 @@ async fn a_page_of_a_past_session_that_is_not_there_is_refused() {
 
 /// Each request the door answers from the actors.
 #[tokio::test(flavor = "multi_thread")]
-async fn each_request_is_answered_in_todays_words() {
+async fn each_request_is_answered_in_its_words() {
     let (mut server, _home, _side) =
         serve(json!(["Hello back."])).await;
     let mut chief = Client::join(&server).await;

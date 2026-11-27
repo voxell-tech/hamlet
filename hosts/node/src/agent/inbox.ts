@@ -1,6 +1,5 @@
 /**
- * A merge's move of the absorbed hire's `inbox/` into the kept hire's, as
- * `move_inbox` of `crates/hamlet_server/src/knowledge/merging.rs` moves it:
+ * A merge's move of the absorbed hire's `inbox/` into the kept hire's:
  * the absorbed hire's agent reads it in parts, the kept hire's writes each
  * file under `inbox/from-hire-<n>/`, and the absorbed one drops what was
  * taken.

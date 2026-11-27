@@ -326,7 +326,7 @@ test("read_prompt answers what the next request sends", async (t) => {
     await agent.stop();
 });
 
-test("read_prompt answers the prompt's sections by today's names", async (t) => {
+test("read_prompt answers the prompt's sections by their names", async (t) => {
     const profile = profileWithCharacter();
     const { calls } = fakeCalls({
         workspace: workspaceFiles({ "/work/AGENTS.md": "Use tabs." }),
@@ -420,7 +420,7 @@ test("a workspace that fails leaves the project's file out, keeps its folder lin
     await agent.stop();
 });
 
-test("a memory folder that cannot be listed leaves the memory out, as today, and is reported", async (t) => {
+test("a memory folder that cannot be listed leaves the memory out, and is reported", async (t) => {
     const files = fakeFiles({});
     const failing: AgentFilesystem = {
         ...files,
@@ -479,7 +479,7 @@ test("the prompt ends with the realm's three sections, read once for each reques
     );
 });
 
-/** As `crates/hamlet_actors/tests/realm/prompt.rs` holds today's words. */
+/** As `crates/hamlet_actors/tests/realm/prompt.rs` holds them. */
 const HAND_WORDS =
     "You are the Hand of this realm: the chiefs' own agent. You found hamlets (`found_hamlet`) and seat their mayors (`seat_mayor`), make scholars (`create_scholar`) and hire them into any hamlet, and lead every hire. You read any hamlet's record (`read_record`) and any scholar (`read_scholar`). What you do to what a chief owns, removing a hamlet or changing, tagging or reverting a scholar, waits for a chief first. Each mayor answers to you.";
 const LEAD_WORDS =
@@ -582,7 +582,7 @@ test("the first request of a turn is not sent when the realm does not give its p
     assert.deepEqual(record.prompts, []);
 });
 
-test("the environment names the sandbox and the tools that failed to load, as today", async (t) => {
+test("the environment names the sandbox and the tools that failed to load", async (t) => {
     const faults = [
         { folder: "/realm/tools/lint", words: "it has no manifest.json" },
         { folder: "/realm/tools/fmt", words: "`fmt` is taken" },
@@ -614,7 +614,7 @@ test("the environment names the sandbox and the tools that failed to load, as to
     }
 });
 
-test("the project says it is a git repository, and that a chief approves each change in a manual hamlet, as today", async (t) => {
+test("the project says it is a git repository, and that a chief approves each change in a manual hamlet", async (t) => {
     const git =
         "- The project is a git repository. When two agents must work apart, one may use a git worktree inside the project folder, such as under `.hamlet/worktrees/<name>`.";
     const manual =
@@ -647,7 +647,7 @@ test("the project says it is a git repository, and that a chief approves each ch
     assert.ok(!plain.includes(git) && !plain.includes(manual));
 });
 
-test("the machine section names the model the agent runs where the realm chose none, as today", async (t) => {
+test("the machine section names the model the agent runs where the realm chose none", async (t) => {
     const agent = await wakeAgent(t, { calls: fakeCalls({}).calls });
     const prompt = await readPrompt(agent);
     await agent.stop();

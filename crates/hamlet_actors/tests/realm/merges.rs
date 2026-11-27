@@ -384,7 +384,7 @@ async fn the_mayor_cannot_be_absorbed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_merge_refuses_in_todays_order() {
+async fn a_merge_refuses_in_order() {
     let (realm, _) = super::hamlet_with(2).await;
     let other = chief(
         &realm,

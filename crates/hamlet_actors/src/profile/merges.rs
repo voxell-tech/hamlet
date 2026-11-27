@@ -290,8 +290,8 @@ fn stage(
                         "a merge's file of another kind: {change:?}"
                     );
                 };
-                // As today's merge from another profile writes it, a
-                // file brought in does not run.
+                // A file brought in from another profile does not
+                // run.
                 let brought = |path: String| Change::Write {
                     path,
                     bytes: bytes.clone(),

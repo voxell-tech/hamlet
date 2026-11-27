@@ -258,7 +258,7 @@ async fn a_letter_passes_only_after_both_agreed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_agreement_is_refused_as_today() {
+async fn an_agreement_is_refused() {
     let (realm, _, _) = two_hamlets().await;
     hires(&realm, MAYOR, "h1").await;
     realm.live(AgentNumber(6)).await;
@@ -376,7 +376,7 @@ async fn an_agreed_road_is_taken_up_by_the_hand_and_agreed_anew() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_request_road_with_no_reason_writes_todays_words() {
+async fn a_request_road_with_no_reason_writes_its_words() {
     let (realm, _) = hamlet_with(2).await;
     let nickname = SetNickname {
         hire: to(THREE),

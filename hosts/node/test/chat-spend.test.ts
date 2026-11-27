@@ -36,7 +36,6 @@ const held = {
     words: "task task-1 is held on an objection until a chief says go or withdraw",
 } as const;
 
-/** Today's, in `crates/hamlet_server/src/talk/verdicts.rs`. */
 const EMPTY = "the model answered with nothing. Send the message again";
 const NO_ROOM =
     "the model has no room left to answer, even with the conversation summarised. Start a new session, or choose a model that holds more";
@@ -140,14 +139,14 @@ for (const [name, hold] of [
         assert.deepEqual(
             items.filter((item) => item.text.includes(hold.words)),
             [],
-            "today shows no item for a held call",
+            "a held call shows no item",
         );
         assert.deepEqual(agent.reported, []);
         await agent.stop();
     });
 }
 
-test("an empty answer fails its turn with today's words", async (t) => {
+test("an empty answer fails its turn with its words", async (t) => {
     const { calls, sent } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
@@ -513,8 +512,7 @@ test("/retry carries on after an empty answer", async (t) => {
     await agent.stop();
 });
 
-// Today's asker reads "It could not answer: <why>"
-// (`crates/hamlet_server/src/talk/letters.rs:234-250`).
+// The asker reads "It could not answer: <why>".
 for (const [what, answer, words] of [
     [
         "an empty answer",

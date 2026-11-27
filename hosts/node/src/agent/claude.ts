@@ -1,9 +1,9 @@
 /**
  * The provider `claude`: Claude models answered by Anthropic's own Claude
  * program through its Agent SDK, on the chief's Claude login, which that
- * program keeps in the realm's `claude/` folder (ADR 0014). Ported from
- * `harnesses/pi/src/claude.ts`; the calls are in `claude-query.ts`, loaded
- * at the first, so a host that never runs Claude never loads the SDK.
+ * program keeps in the realm's `claude/` folder (ADR 0014). The calls are
+ * in `claude-query.ts`, loaded at the first, so a host that never runs
+ * Claude never loads the SDK.
  */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -47,9 +47,8 @@ export interface ClaudeProgram {
 const APP = "hamlet/0.1.0";
 
 /**
- * The time `claude auth login` has to give its link: today's 30 s
- * (`harnesses/pi/src/claude.ts`) cut to end before the sign-in's step
- * does, so a link that never comes fails in this file's words.
+ * The time `claude auth login` has to give its link: under the sign-in's
+ * step, so a link that never comes fails in this file's words.
  */
 const LINK_WAIT_MS = STEP_WAIT_MS - 5_000;
 

@@ -1,10 +1,7 @@
-/**
- * An edit's change as a chat shows it, a port of
- * `crates/hamlet_server/src/work/cut.rs`'s diff.
- */
+/** An edit's change as a chat shows it. */
 import type { ToolChange } from "./messages/agent.ts";
 
-/** The most lines of an edit's change kept, and characters of a line (`work/cut.rs`). */
+/** The most lines of an edit's change kept, and characters of a line. */
 const KEPT = 200;
 const WIDE = 240;
 const AROUND = 3;
@@ -16,7 +13,7 @@ const PAIRS = 1_000_000;
 
 type Mark = ToolChange["lines"][number]["mark"];
 
-/** An edit's change from its arguments alone, as `work/cut.rs`'s `change_of`. */
+/** An edit's change from its arguments alone. */
 export function editOf(args: unknown): ToolChange | undefined {
     const { path, edits } = (args ?? {}) as { path?: unknown; edits?: unknown };
     if (typeof path !== "string" || !Array.isArray(edits)) return undefined;
@@ -35,7 +32,7 @@ export function editOf(args: unknown): ToolChange | undefined {
     return changeBetween(path, old.join("\n"), now.join("\n"), false);
 }
 
-/** A write's change when it made its file, as `work/cut.rs`'s `change_of`. */
+/** A write's change when it made its file. */
 export function madeOf(args: unknown): ToolChange | undefined {
     const { path, content } = (args ?? {}) as {
         path?: unknown;
@@ -47,7 +44,7 @@ export function madeOf(args: unknown): ToolChange | undefined {
     return changeBetween(path, "", content, true);
 }
 
-/** The change of `old` into `now` at `path` (`work/cut.rs`). */
+/** The change of `old` into `now` at `path`. */
 function changeBetween(
     path: string,
     old: string,
@@ -85,7 +82,7 @@ function changeBetween(
     };
 }
 
-/** The lines of `old` and `now` in a diff's order (`work/cut.rs`). */
+/** The lines of `old` and `now` in a diff's order. */
 function compare(old: string, now: string): [Mark, string][] {
     const a = linesOf(old);
     const b = linesOf(now);

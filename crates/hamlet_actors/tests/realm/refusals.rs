@@ -67,7 +67,7 @@ async fn a_hires_letter_on_its_withdrawn_task_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_answer_to_no_wait_is_refused_in_todays_words() {
+async fn an_answer_to_no_wait_is_refused_in_its_words() {
     let (realm, _) = hamlet_with(0).await;
 
     let answered = realm

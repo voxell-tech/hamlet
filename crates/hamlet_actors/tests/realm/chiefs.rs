@@ -321,7 +321,7 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_bad_name_is_refused_in_todays_words() {
+async fn a_bad_name_is_refused_in_its_words() {
     let (realm, hamlet) = hamlet_with(0).await;
 
     let named = chief(

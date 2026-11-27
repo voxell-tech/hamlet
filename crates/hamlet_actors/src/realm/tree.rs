@@ -426,7 +426,7 @@ pub(super) async fn left(
 }
 
 /// Every living hire under `lead`, at any depth: each hire's own
-/// hires follow the last of its hires, as today's tree walks them.
+/// hires follow the last of its hires.
 pub(super) async fn under(
     rows: &Rows<'_>,
     lead: AgentNumber,

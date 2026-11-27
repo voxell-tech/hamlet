@@ -181,8 +181,6 @@ pub fn list(home: &RealmFolder, sandbox: Sandbox) -> ToolList {
     }
 }
 
-// Copied from `hamlet_server/src/work/added.rs`, with the names it
-// reserves from `work/catalogue.rs`.
 /// The names a tool added by hand may not take besides the built-in
 /// tools: the society's.
 const RESERVED: [&str; 28] = [

@@ -400,15 +400,13 @@ const PAGE = 100;
 export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
     const { chat, before } = message;
     const follow = generationOf(c).following;
-    // As today's watch (`crates/hamlet_server/src/talk/chats.rs`
-    // `current`), the chief's chat with no session begins session 1.
+    // The chief's chat with no session begins session 1.
     const conversation =
         (await conversationOfChat(c, chat)) ??
         (chat.from === undefined && chat.past === undefined
             ? await chiefSession(c)
             : undefined);
     if (conversation === undefined) {
-        // As `crates/hamlet_server/src/society/refusal.rs` words them.
         if (chat.from !== undefined) {
             throw refused(
                 `no agent has the address \`${chat.from}'s ${chat.kind ?? "letters"} to ${chat.with}\``,
@@ -453,7 +451,6 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
         before === undefined
             ? items.length
             : items.findIndex((item) => item.id === before);
-    // As `crates/hamlet_server/src/clients/requests.rs` words it.
     if (end === -1) throw refused(`There is no item \`${before}\` here.`);
     const start = Math.max(0, end - PAGE);
     const earlier = start > 0 ? items[start]?.id : undefined;
@@ -475,9 +472,8 @@ export function refused(words: string): UserError {
 }
 
 /**
- * The chief's sessions, newest first, each titled by its first line, as
- * `crates/hamlet_server/src/clients/documents.rs` lists them. A session
- * with no line yet is left out.
+ * The chief's sessions, newest first, each titled by its first line. A
+ * session with no line yet is left out.
  */
 export async function readHistory(
     c: AgentCall,

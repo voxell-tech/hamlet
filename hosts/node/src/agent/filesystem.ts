@@ -29,7 +29,7 @@ export interface Found<T> {
 export interface Match {
     readonly path: string;
     readonly line: number;
-    /** The line as today's search shows it: trimmed, and cut at 300 characters with `...`. */
+    /** The line as a search shows it: trimmed, and cut at 300 characters with `...`. */
     readonly text: string;
 }
 
@@ -85,7 +85,7 @@ export interface AgentFilesystem {
      * The lines that match `pattern`, a regular expression that runs in
      * linear time, in the text files at or below `path`, and only in those
      * `options.name` matches as `find` reads a glob. It goes into no folder
-     * today's walk skips below `path`.
+     * a walk skips below `path`.
      */
     search(
         pattern: string,
@@ -96,8 +96,8 @@ export interface AgentFilesystem {
     /**
      * The files at or below `path` whose name `glob` matches, or whose path
      * from `path` it matches when it holds a `/`. In `glob`, `*` stands for
-     * any run of characters and `?` for one. It goes into no folder today's
-     * walk skips below `path`.
+     * any run of characters and `?` for one. It goes into no folder a walk
+     * skips below `path`.
      */
     find(
         glob: string,
@@ -107,8 +107,8 @@ export interface AgentFilesystem {
     /**
      * Every file at or below `path`, each from the folder, after at most
      * `LOOKED` names looked at, and those of them that run where the
-     * filesystem keeps that. It goes into no folder today's walk skips
-     * below `path`.
+     * filesystem keeps that. It goes into no folder a walk skips below
+     * `path`.
      */
     walk(
         path: string,

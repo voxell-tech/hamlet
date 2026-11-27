@@ -92,7 +92,6 @@ export async function couldNotAnswer(
     words: string,
     signal: AbortSignal | undefined,
 ): Promise<void> {
-    // As `crates/hamlet_server/src/talk/letters.rs:249` words it.
     const text = `It could not answer: ${words}`;
     const taken = await cutOff(signal, peers.reach.reply({ question, text }));
     if (taken.type === "refused") {
@@ -139,15 +138,13 @@ export async function failTurn<I, S>(
     );
 }
 
-/** Today's (`crates/hamlet_server/src/talk/verdicts.rs:19-20`). */
 const EMPTY = "the model answered with nothing. Send the message again";
 
 type EmptyInput = { input: EntryId | null };
 
 /**
  * C29, for an empty answer C28 does not ask again. pi-durable settled the
- * run's input answered, so it fails here, as today's
- * `rule` in `crates/hamlet_server/src/talk/verdicts.rs:44-138` fails it.
+ * run's input answered, so it fails here.
  */
 export function emptyAnswer(tell: TellFailed) {
     return defineTask<EmptyInput, { phase: "fail" }, null>({
@@ -315,8 +312,7 @@ export function failedTurns(
             return;
         }
         if (last === "unsent") return;
-        // As today's `fault` words it (`talk/follow.rs:436-446`); a run
-        // that failed before its request keeps its words on the failure.
+        // A run that failed before its request keeps its words on the failure.
         const said =
             typeof input.detail === "string"
                 ? input.detail
@@ -335,8 +331,7 @@ export function failedTurns(
                       );
             const kept = entry?.data as Kept | null | undefined;
             if (STOPPED.has(failure.reason)) {
-                // As today, a stopped turn tells only its asker
-                // (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+                // A stopped turn tells only its asker.
                 if (kept?.question !== undefined) {
                     await couldNotAnswer(
                         peers,
@@ -357,8 +352,7 @@ export function failedTurns(
             ) {
                 return;
             }
-            // Today a reflection's failure opens no wait
-            // (`crates/hamlet_server/src/talk/follow.rs:168-173`).
+            // A reflection's failure opens no wait.
             if (entry?.kind === "hamlet.reflection") return;
             await tell(
                 {

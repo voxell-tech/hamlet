@@ -1,8 +1,7 @@
 /**
  * The inputs given under one of the realm's tasks and when each ended, so
  * the realm can ask whether the agent works on a chief's task before a
- * lead ends or merges its hire, as `protects` of
- * `crates/hamlet_server/src/talk/tasks.rs` asks.
+ * lead ends or merges its hire.
  */
 import type { ConversationId, Harness } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";

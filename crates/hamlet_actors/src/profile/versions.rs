@@ -247,8 +247,7 @@ enum Unnamed {
 }
 
 /// The commit `what` names. A name is a branch's, then a version's,
-/// then a full commit id, as today's `resolve` takes it
-/// (`crates/hamlet_git/src/lib.rs:270-286`).
+/// then a full commit id, as `hamlet_git`'s `resolve` takes it.
 fn named(
     git: &Reads,
     what: &Revision,

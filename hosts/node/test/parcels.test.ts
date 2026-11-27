@@ -73,7 +73,7 @@ async function received(
     };
 }
 
-test("a letter's files land in the inbox and are told after its words, as today", async (t) => {
+test("a letter's files land in the inbox and are told after its words", async (t) => {
     const held: Record<string, string> = {};
     const { words, fetched } = await received(
         t,
@@ -88,7 +88,6 @@ test("a letter's files land in the inbox and are told after its words, as today"
         ],
     );
 
-    // As `crates/hamlet_server/src/inbox.rs` `placed_captions` words them.
     assert.deepEqual(words, [
         `The report\n\n[File 1 of this message, 14 bytes, saved at ${INBOX}/report.md]\n[Folder 2 of this message, 2 files, 8 bytes, saved at ${INBOX}/figures]`,
     ]);
@@ -105,7 +104,7 @@ test("a letter's files land in the inbox and are told after its words, as today"
     ]);
 });
 
-test("a name the inbox holds already is saved numbered, as today", async (t) => {
+test("a name the inbox holds already is saved numbered", async (t) => {
     const held: Record<string, string> = {
         "inbox/from-hire-12/report.md": "old",
         "inbox/from-hire-12/figures/old.png": "old",
@@ -168,7 +167,7 @@ test("a file over the workspace's 256 MiB is not fetched, and is reported", asyn
     assert.match(reported[0] ?? "", /from-hire-12\/big\.bin/);
 });
 
-test("two files of one name are both saved, the second numbered, as today", async (t) => {
+test("two files of one name are both saved, the second numbered", async (t) => {
     const held: Record<string, string> = {};
     const { words } = await received(t, held, serving(["first", "second"], 9), [
         letter([file(0, "x.txt", 5), file(1, "x.txt", 6)]),
@@ -178,13 +177,13 @@ test("two files of one name are both saved, the second numbered, as today", asyn
         "inbox/from-hire-12/x.txt": "first",
         "inbox/from-hire-12/x-2.txt": "second",
     });
-    // Today counts the second into the first's caption (`inbox.rs` `put_at`).
+    // The second is counted into the first's caption.
     assert.deepEqual(words, [
         `The report\n\n[File 1 of this message, 11 bytes, saved at ${INBOX}/x.txt]`,
     ]);
 });
 
-test("a size half way between two tenths rounds to the even one, as today", async (t) => {
+test("a size half way between two tenths rounds to the even one", async (t) => {
     const held: Record<string, string> = {};
     const { words } = await received(
         t,

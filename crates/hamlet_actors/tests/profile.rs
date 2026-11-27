@@ -829,9 +829,8 @@ async fn a_hire_is_told_once_main_moved_under_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_branch_starts_at_a_branch_a_tag_or_a_commit_and_never_main()
  {
-    // As today's hire at a version (`hamlet_server/src/commands.rs`
-    // `existing`, `hamlet_git` `resolve`): a branch, then a tag, then
-    // a full commit id; `main` itself is no version.
+    // A hire at a version takes a branch, then a tag, then a full
+    // commit id; `main` itself is no version.
     let dir = Scratch::new("profile-branch-from");
     let host = made(&dir).await;
     hire(&host, 7).await;
