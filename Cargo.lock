@@ -4767,6 +4767,7 @@ dependencies = [
  "hamlet_actor",
  "hamlet_actor_core",
  "hamlet_actor_error",
+ "hamlet_actors",
  "hamlet_git",
  "hamlet_host",
  "hamlet_messages",

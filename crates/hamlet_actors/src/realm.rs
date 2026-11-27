@@ -147,22 +147,10 @@ pub struct Options {
     /// The agents' models answer from a faux script, so each runs
     /// the faux model.
     pub faux: bool,
-    /// Told what the step drives do, for a test that orders its
-    /// calls by the realm's steps.
-    pub steps_told:
-        Option<tokio::sync::mpsc::UnboundedSender<StepTold>>,
 }
 
-/// What the realm's step drives tell of a step, by its kind and
-/// number.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StepTold {
-    /// A caller waits for the step while it runs.
-    Waited { kind: String, n: u64 },
-    /// The step's drive ended: its last change is kept, or the
-    /// realm stops.
-    Ended { kind: String, n: u64 },
-}
+#[cfg(feature = "steps-told")]
+pub use steps::{StepTold, StepsTold};
 
 impl Default for Options {
     fn default() -> Self {
@@ -172,7 +160,6 @@ impl Default for Options {
             answer_within: ANSWER_WITHIN,
             chief: "chief".to_owned(),
             faux: false,
-            steps_told: None,
         }
     }
 }
@@ -357,9 +344,11 @@ impl Actor for Realm {
         async {
             let host = HostRef::of(ctx.inner())?;
             ctx.sql().exec(SCHEMA).await?;
-            let told = host
-                .value::<Options>()
-                .and_then(|options| options.steps_told.clone());
+            #[cfg(feature = "steps-told")]
+            let told =
+                host.value::<StepsTold>().map(|told| told.0.clone());
+            #[cfg(not(feature = "steps-told"))]
+            let told = None;
             Ok(Self {
                 folder: std::path::absolute(host.folder())?,
                 hiring_wait: host
