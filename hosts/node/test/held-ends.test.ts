@@ -249,6 +249,18 @@ test("a held call's end that lands while its conversation is busy is read after 
     assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("ask_chief")]);
 });
 
+const CANCELLED: Outcome = {
+    type: "run",
+    end: {
+        type: "ran",
+        command: 4,
+        exit: { type: "cancelled" },
+        output: "",
+        policy: "sandbox",
+        took_ms: 6004,
+    },
+};
+
 test("a cancelled command starts no run and leaves the agent off its task", async (t) => {
     const asked: (readonly Message[])[] = [];
     const { calls, sent } = fakeCalls({
@@ -260,21 +272,10 @@ test("a cancelled command starts no run and leaves the agent off its task", asyn
         seen(asked, "Heard."),
     ]);
     await send(agent, { type: "line", text: "Run it." });
-    const cancelled: Outcome = {
-        type: "run",
-        end: {
-            type: "ran",
-            command: 4,
-            exit: { type: "cancelled" },
-            output: "",
-            policy: "sandbox",
-            took_ms: 6004,
-        },
-    };
     await agent.actions.finished(agent.by(from.workspace), {
         call: callOf(sent, "run"),
         task: "7",
-        outcome: cancelled,
+        outcome: CANCELLED,
     });
     await agent.idle();
     assert.equal(agent.faux.state.callCount, 2, "the end started no run");
@@ -287,5 +288,33 @@ test("a cancelled command starts no run and leaves the agent off its task", asyn
     );
 
     await send(agent, { type: "line", text: "Go on." });
+    assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("bash")]);
+});
+
+test("a cancelled command's end told twice is kept once, and the model reads it once", async (t) => {
+    const asked: (readonly Message[])[] = [];
+    const { calls, sent } = fakeCalls({
+        workspace: { run: () => ({ type: "running", command: 4 }) },
+    });
+    const agent = await wake(t, calls, [
+        toolCall("bash", { command: "sleep 60" }),
+        fauxAssistantMessage("Running."),
+        seen(asked, "Heard."),
+    ]);
+    await send(agent, { type: "line", text: "Run it." });
+    const end = { call: callOf(sent, "run"), task: "7", outcome: CANCELLED };
+    await agent.actions.finished(agent.by(from.workspace), end);
+    await agent.actions.finished(agent.by(from.workspace), end);
+    await agent.idle();
+    assert.equal(agent.faux.state.callCount, 2, "the ends started no run");
+
+    await send(agent, { type: "line", text: "Go on." });
+    const ends = (await entriesOf(agent, await chief(agent))).filter(
+        (entry) =>
+            entry.kind === "hamlet.notice" &&
+            (entry.data as { ended?: { call: string } }).ended?.call ===
+                end.call,
+    );
+    assert.equal(ends.length, 1, "the end is kept once");
     assert.deepEqual(resultOf(asked[0] ?? [], "c1"), [aborted("bash")]);
 });
