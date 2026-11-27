@@ -12,9 +12,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
-use bevy_cef::prelude::{
-    HostEmitEvent, JsEmitEventPlugin, LoadFinished, Receive,
-};
+use bevy_cef::prelude::{HostEmitEvent, LoadFinished, Receive};
 use hamlet_protocol::client::RequestId;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,8 +27,7 @@ pub(super) const SCRIPT: &str = include_str!("bridge.js");
 const ACT_WITHIN: Duration = Duration::from_secs(25);
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_plugins(JsEmitEventPlugin::<Reply>::default())
-        .init_resource::<Bridged>()
+    app.init_resource::<Bridged>()
         .add_observer(replied)
         .add_observer(ask_again)
         .add_systems(Update, give_up);
@@ -108,13 +105,14 @@ fn ask_again(loaded: On<LoadFinished>, mut commands: Commands) {
 }
 
 /// Answers the act a page replied to.
-fn replied(reply: On<Receive<Reply>>, mut commands: Commands) {
-    let (page, nonce, failed, text) = (
-        reply.webview,
-        reply.hamlet.clone(),
-        reply.failed,
-        reply.text.clone(),
-    );
+fn replied(emitted: On<Receive<Value>>, mut commands: Commands) {
+    let Ok(reply) =
+        serde_json::from_value::<Reply>(emitted.payload.clone())
+    else {
+        return;
+    };
+    let (page, nonce, failed, text) =
+        (emitted.webview, reply.hamlet, reply.failed, reply.text);
     commands.queue(move |world: &mut World| {
         let mine = world
             .resource::<Bridged>()

@@ -23,6 +23,7 @@ mod state;
 mod terminals;
 mod waits;
 mod web;
+mod web_ide;
 
 pub use chat::*;
 pub use documents::*;
@@ -37,6 +38,7 @@ pub use state::*;
 pub use terminals::*;
 pub use waits::*;
 pub use web::*;
+pub use web_ide::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
@@ -101,7 +103,8 @@ impl ClientMessage {
                 | Terminal::Watch { id, .. }
                 | Terminal::Close { id, .. }
                 | Terminal::Rename { id, .. },
-            ) => Some(id),
+            )
+            | Self::WebIde(WebIde { id, .. }) => Some(id),
         }
     }
 }
@@ -184,6 +187,8 @@ pub enum ClientMessage {
     Terminal(Terminal),
     #[serde(rename = "mcp")]
     Mcp(Mcp),
+    #[serde(rename = "web-ide")]
+    WebIde(WebIde),
     #[serde(rename = "web-window")]
     WebWindow(WebWindow),
     #[serde(rename = "web")]
@@ -271,6 +276,9 @@ pub enum ReplyKind {
     Error,
     #[serde(rename = "rewound")]
     Rewound,
+    /// The address a web IDE can be reached at, as its text.
+    #[serde(rename = "address")]
+    Address,
 }
 
 #[derive(

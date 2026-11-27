@@ -6,7 +6,6 @@ use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EntityEvent;
-use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
@@ -15,7 +14,6 @@ use bevy::ecs::world::World;
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
 use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
-use bevy::text::EditableText;
 use bevy_cef::prelude::{
     CefKeyboardFilter, FocusedWebview, KeyboardDeliverSet,
     ModifiersState, RequestGoBack, RequestGoForward, RequestReload,
@@ -26,7 +24,7 @@ use bevy_fynix::shortcut::{
 };
 
 use super::page::{self, Page};
-use super::panel::{AddressField, PanelId, SCOPE};
+use super::panel::{PanelId, SCOPE};
 
 /// The keys a page keeps when the window has a command on them too:
 /// editing, which the page's text needs.
@@ -52,10 +50,6 @@ pub(super) fn plugin(app: &mut App) {
         mods: Mods::PRIMARY,
     };
     app.add_command(
-        command("web.address", "Go to the address", to_address),
-        &[primary(KeyCode::KeyL)],
-    )
-    .add_command(
         command("web.reload", "Reload", |world, invoke| {
             if let Some(webview) = page_of(world, invoke) {
                 world.trigger(RequestReload { webview });
@@ -97,37 +91,6 @@ fn panel_of(world: &World, invoke: Invoke) -> Option<PanelId> {
 fn page_of(world: &mut World, invoke: Invoke) -> Option<Entity> {
     let panel = panel_of(world, invoke)?;
     page::of(world, &panel)
-}
-
-/// Gives the keys to the address field of the panel a command was run
-/// over.
-fn to_address(world: &mut World, invoke: Invoke) {
-    let Some(panel) = invoke.target else {
-        return;
-    };
-    let text = world
-        .query_filtered::<(Entity, &Children), With<AddressField>>()
-        .iter(world)
-        .filter(|&(field, _)| is_under(world, field, panel))
-        .flat_map(|(_, children)| children.iter().copied())
-        .find(|&kid| world.get::<EditableText>(kid).is_some());
-    if let Some(text) = text {
-        world
-            .resource_mut::<InputFocus>()
-            .set(text, FocusCause::Navigated);
-    }
-}
-
-/// Whether `node` is under `above`.
-fn is_under(world: &World, node: Entity, above: Entity) -> bool {
-    let mut at = node;
-    while let Some(parent) = world.get::<ChildOf>(at) {
-        at = parent.parent();
-        if at == above {
-            return true;
-        }
-    }
-    false
 }
 
 /// Keeps the page the engine sends keys to and the window's focus as

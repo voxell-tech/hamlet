@@ -139,6 +139,7 @@ and serves the realm again.
 | `clients/` | Connections, request handlers, the state and its changes, transcripts, documents and the chief's `/` commands |
 | `attachments/` | Images and files on a chief's line, and the inbox (C33, S29, H30) |
 | `tools/` | What agents' tools do: built-in, custom, MCP servers' and the society's catalogue |
+| `web_ide.rs` | One OpenVSCode Server per hamlet for the Files panel, on its folders, started by `web-ide` under the sandbox |
 | `terminals/` | Shells on pseudo-terminals and each agent's commands terminal |
 | `providers/` | The model catalogue, provider requests and sign-ins, and what each provider last told of its plan's limits (`limits.rs`) |
 
@@ -178,6 +179,8 @@ Search the module names above first. The ones that are not obvious:
 | The Hubs and desks | `hamlet_app/src/screens/hub.rs`, `desk.rs` |
 | Web panels | `hamlet_app/src/screens/web.rs`, `screens/web/`, `web_helper.rs`; [ADR 0016](adr/0016-web-panels-draw-chromium-through-cef-in-the-scene.md) |
 | Agents' web tools | `hamlet_server/src/web.rs`, `hamlet_protocol/src/client/web.rs`, `hamlet_app/src/screens/web/agents.rs`, `bridge.rs`; [ADR 0017](adr/0017-agents-use-the-web-through-their-own-web-tab.md) |
+| The Files panel | `hamlet_app/src/screens/web/files.rs`; `hamlet_server/src/web_ide.rs` |
+| Add to chat from a page | `hamlet_app/src/screens/web/files/context.rs`, `screens/chat.rs` (`add_to_field`); the IDE fork's `hamlet/workbench/hamlet.js` |
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |
