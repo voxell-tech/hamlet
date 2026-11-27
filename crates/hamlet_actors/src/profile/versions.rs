@@ -77,6 +77,12 @@ fn tag(
     };
     let at = match at {
         Ok(at) => at,
+        // A taken name is refused before what `at` names.
+        Err(_) if taken => {
+            return unit.refuse(TagRefusal::Taken {
+                version: tag.version,
+            });
+        }
         Err(unnamed) => {
             let why = match unnamed {
                 Unnamed::Version(version) => TagRefusal::NoVersion {
@@ -719,7 +725,7 @@ mod tests {
 
         let (tagged, _) = profile
             .once::<Profile, Tag, _>(
-                realm,
+                realm.clone(),
                 asked("hires/2"),
                 |unit| tag(unit, ProfileId(1)),
             )
@@ -731,6 +737,18 @@ mod tests {
                 commit: commit_id(tip).unwrap(),
             }
         );
+
+        let (taken, _) = profile
+            .once::<Profile, Tag, _>(
+                realm,
+                asked("hires/9"),
+                |unit| tag(unit, ProfileId(1)),
+            )
+            .unwrap();
+        let why = TagRefusal::Taken {
+            version: VersionName("v1".into()),
+        };
+        assert_eq!(taken, TagAnswer::Refused { why });
     }
 
     #[test]
