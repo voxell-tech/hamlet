@@ -28,7 +28,7 @@ use hamlet_messages::agent::chat::{Login, Settle};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, ClientMessage, Confinement, Link, LinkState,
-    RequestId, ServerMessage,
+    RequestId, ServerMessage, discovery,
 };
 use hamlet_sandbox::Sandbox;
 use tokio::net::{TcpListener, TcpStream};
@@ -97,6 +97,7 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
         }
     };
     let home = &options.home;
+    discovery::readable(home)?;
     std::fs::create_dir_all(home)
         .with_context(|| format!("making {}", home.display()))?;
     let root = home

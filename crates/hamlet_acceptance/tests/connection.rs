@@ -1,6 +1,8 @@
 //! The connection: the hello, the token, malformed messages, sizes
 //! and closing.
 
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use hamlet_acceptance::*;
@@ -248,6 +250,66 @@ async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
     first.stop().await;
     let again = home.serve(&Faux::new(), QUIET).await;
     assert_eq!(again.token, token);
+}
+
+/// Every file under `folder`, with its bytes.
+fn files(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut found = BTreeMap::new();
+    let mut folders = vec![folder.to_owned()];
+    while let Some(at) = folders.pop() {
+        for entry in std::fs::read_dir(&at).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                found.insert(
+                    path.clone(),
+                    std::fs::read(&path).unwrap(),
+                );
+            }
+        }
+    }
+    found
+}
+
+/// A server and `hamlet` refuse a home holding `older`, a file of
+/// another version's layout, in `words`, and change nothing in it.
+async fn refuses_an_older_layout(older: &str, words: &str) {
+    let mut home = Home::new();
+    let file = home.file(older);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "kept").unwrap();
+    let before = files(home.path());
+    let refusal = format!(
+        "{} holds {words}, from a version of Hamlet this one cannot \
+         read; move the folder aside, or set HAMLET_HOME to another \
+         folder.",
+        home.path().display()
+    );
+    let served = home.try_serve(&Faux::new(), QUIET).await;
+    assert!(served.contains(&refusal), "{served}");
+    let view = home.side().join("view");
+    let view = view.to_str().unwrap();
+    let started = Cli::run(
+        home.path(),
+        &[],
+        "",
+        &[("HAMLET_VIEW", view), ("HAMLET_APP", "false")],
+    )
+    .await;
+    assert_ne!(started.code(), Some(0), "{started:?}");
+    assert!(started.err.contains(&refusal), "{started:?}");
+    assert_eq!(files(home.path()), before);
+}
+
+#[tokio::test]
+async fn refuses_a_home_with_profiles_in_their_older_folder() {
+    refuses_an_older_layout("scholars/1.git/HEAD", "scholars/").await;
+}
+
+#[tokio::test]
+async fn refuses_a_home_kept_in_one_database() {
+    refuses_an_older_layout("realm.sqlite", "realm.sqlite").await;
 }
 
 #[tokio::test]

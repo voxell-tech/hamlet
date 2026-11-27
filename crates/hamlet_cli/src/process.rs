@@ -623,6 +623,7 @@ async fn start(
     home: &Path,
     isolation: Isolation,
 ) -> Result<(Running, ServerAddress)> {
+    discovery::readable(home)?;
     mkdir(home)?;
     let mut log = fs::OpenOptions::new();
     log.create(true).append(true);

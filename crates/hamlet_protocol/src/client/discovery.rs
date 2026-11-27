@@ -62,6 +62,31 @@ pub enum Error {
         .0.display()
     )]
     NoConnectionToken(PathBuf),
+    /// The realm's folder holds `found`, which this version does not
+    /// read.
+    #[error(
+        "{} holds {found}, from a version of Hamlet this one cannot \
+         read; move the folder aside, or set HAMLET_HOME to another \
+         folder.",
+        .home.display()
+    )]
+    OlderLayout { home: PathBuf, found: &'static str },
+}
+
+/// Refuses a realm folder kept by a version whose files this one does
+/// not read, before anything in it changes.
+pub fn readable(home: &Path) -> Result<(), Error> {
+    for (name, found) in
+        [("scholars", "scholars/"), ("realm.sqlite", "realm.sqlite")]
+    {
+        if home.join(name).exists() {
+            return Err(Error::OlderLayout {
+                home: home.to_owned(),
+                found,
+            });
+        }
+    }
+    Ok(())
 }
 
 impl ServerAddress {

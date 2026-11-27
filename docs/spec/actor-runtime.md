@@ -77,6 +77,11 @@ names another:
 The project a hamlet works on stays where the chief cloned it, and nothing
 is copied between it and the realm folder (C20).
 
+A realm folder that holds `scholars/` or `realm.sqlite` is in an older
+version's layout, which this one does not read. The server and `hamlet`
+refuse to start on it, say so, and change nothing in it
+(`discovery::readable` in `crates/hamlet_protocol/src/client/discovery.rs`).
+
 **A5.** Each actor keeps its durable data in its one file. The host opens it
 in write-ahead mode with `synchronous=NORMAL`, in SQLite's exclusive locking
 mode, so no other program opens it while the host runs. The runtime's tables
