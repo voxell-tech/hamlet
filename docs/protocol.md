@@ -59,8 +59,8 @@ are in
 | Schema | Shape and meaning |
 |---|---|
 | `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@<hamlet>`, `hire#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
-| `ScholarId` | An integer naming one scholar of the city. Commands address a scholar as `scholar#<id>`; its name is a label that may change and repeat. |
-| `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
+| `ProfileId` | An integer naming one profile of the city. Commands address a profile as `profile#<id>`; its name is a label that may change and repeat. |
+| `Keeper` | `{profile: ProfileId}` or `{agent: AgentId}`: whose knowledge a document is of, a profile's `main` or an agent's filesystem. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `ImageId` | The SHA-256 of an image's bytes as 64 lowercase hexadecimal digits. The same bytes have the same id however often they are sent. |
@@ -89,13 +89,11 @@ The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
 `AgentId`. An opening `transcript` has `to`; live updates need no request ID.
 A `reply` settles the request, not necessarily all work in a conversation.
 
-The durable conversation inputs have separate request IDs. A chief's line
-uses `chief:<say id>` to admit it once in that conversation.
-A retry uses `retry:<UUID>`; this UUID is independent of the wire
-`retry` request's `id`. A reflection uses
-`reflection:<conversation>:<number>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `talk/chats.rs` and
-`talk/reflections.rs`.
+The agent admits each input once under its own request ID. A chief's line
+is admitted under its `say` request's `id`. A retry uses `retry:<id>`, and a
+reflection `reflection:<conversation>:<number>`. Clients send UUIDs, not
+these internal IDs. The agent makes them in
+`hosts/node/src/agent/commands.ts` and `reflect.ts`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state
@@ -116,7 +114,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
 | `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: AttachedImage[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's lodge under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. Each caption is put in the text at its attachment's `at`, those at one `at` in the order sent, images first, and the model is given the images in the order of their captions; the captions of attachments without `at` follow the text. `text` in the transcript is the words alone, and the transcript item carries each `at`. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
+| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: AttachedImage[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's filesystem under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. Each caption is put in the text at its attachment's `at`, those at one `at` in the order sent, images first, and the model is given the images in the order of their captions; the captions of attachments without `at` follow the text. `text` in the transcript is the words alone, and the transcript item carries each `at`. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
 | `put-image` (`PutImage`) | `size: integer` | Begin sending one image of that many bytes, at most 20 MiB, a PNG, JPEG, WebP or GIF; `reply.upload` identifies the upload for its parts. |
 | `put-image-part` (`PutImagePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the image is answered with `reply.image`, the image's id. |
 | `put-file` (`PutFile`) | `size: integer` | Begin sending one file of that many bytes, at most 256 MiB; `reply.upload` identifies the upload for its parts, or an empty file is answered at once with `reply.file`. |
@@ -169,11 +167,11 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `doc` | Fields | Meaning |
 |---|---|---|
 | `charter` | `text: string \| null` | Replace the charter; `null` restores the built-in charter. |
-| `character` | `scholar: ScholarId`, `text: string` | Replace the scholar's character, as a commit on its `main`. |
-| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
+| `character` | `profile: ProfileId`, `text: string` | Replace the profile's character, as a commit on its `main`. |
+| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a profile's `main` or a hire's filesystem, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent hires starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a profile an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent hires starts from, at most 4000 characters. `workspace` chooses a remote workspace, or none for `null`; the realm keeps it with its credentials, and `move-lodges` copies the agents' lodges there. The agents' tools run in the local workspace. |
 | `catalogue` | `model: string`, `set: {images?: ImageInput \| null, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. `images` says the model takes images within those limits (`maxWidth?`, `maxHeight?`, `maxBytes?`, `perLine?`, none of them zero, the rest at their defaults); `images: null` clears it back to what the model's provider lists. |
 
 ### Read documents
@@ -182,11 +180,11 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
-| `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars` or `errand`). |
+| `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `profiles` or `errand`). |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown), `fast` (whether its provider has a fast tier) and `images?` (what it takes of images: `maxWidth?`, `maxHeight?`, `maxBytes?` and `perLine?`; absent when it takes none). `refresh` refreshes discovery. |
 | `image` | `image: ImageId`, `size?: "original" \| "thumbnail"` | `image: {mime: string, data: string}`: the image's bytes in base64, as they were sent for `original` (the default), or a small copy for `thumbnail`. A refusal replies when the realm keeps no such image. |
-| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
+| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's filesystem `learned` against its profile, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
 ### Login steps
@@ -201,8 +199,8 @@ Each row is a `Login` form with `type: "login"` and `id`.
 
 Sessions belong to the initiating connection. Disconnecting cancels them.
 
-The provider `claude` signs in with `method: "subscription"` alone. pi runs
-Claude's own sign-in and the server sends one `url` step, the link to
+The provider `claude` signs in with `method: "subscription"` alone. The
+Hand's agent runs Claude's own sign-in and the server sends one `url` step, the link to
 Anthropic's sign-in page, then `done` once the Claude program has the login;
 no `reply` is asked for. The credential the server keeps only marks the
 sign-in. The sign-in completes only in a browser on the server's machine.
@@ -213,7 +211,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 
 | Type (schema) | Fields | Meaning | Who receives it |
 |---|---|---|---|
-| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hand: AgentId`, `hamlets: Hamlet[]`, `agents: Agent[]`, `scholars: Scholar[]`, `limits: RealmLimits`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `realm: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
+| `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hand: AgentId`, `hamlets: Hamlet[]`, `agents: Agent[]`, `profiles: Profile[]`, `limits: RealmLimits`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `realm: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
 | `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
 | `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
@@ -223,7 +221,7 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
 
 `Update` replaces the named view or removes it. Its `type` is `hamlet`
-(`hamlet`), `agent` (`agent`), `agent-gone` (`id`), `scholar` (`scholar`), `scholar-gone` (`id`), `wait` (`wait`),
+(`hamlet`), `agent` (`agent`), `agent-gone` (`id`), `profile` (`profile`), `profile-gone` (`id`), `wait` (`wait`),
 `wait-closed` (`id`, `how`), `grants` (`grants`), `settings` (`settings`) or
 `providers` (`providers`). Library and closed-hamlet list changes, and hamlet
 removal, send a whole `state` instead.
@@ -234,16 +232,17 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its scholar's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `profile`, `parent`, a hire's `pin` (the version of its profile it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its profile's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
 `faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
 `conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
-is `{url, running, move?}`: the remote workspace chosen and the
-one the server works in until it restarts, each `null` for the local one. It
-never holds the token. `move` is the latest move of the lodges to the chosen
+is `{url, running, move?}`: the remote workspace chosen, `null` for none,
+and `running`, which is `null`, since the agents work in the local
+workspace. It
+never holds the token. `move` is the latest move of the agents' filesystems to the chosen
 workspace since the server started: `state` (`moving`, `moved` or `failed`),
-lodges `done` of `of`, and its outcome as `text`.
+filesystems `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
@@ -282,11 +281,10 @@ several watches. It receives live `turn` operations only for those chats.
 `close {chat}` ends that connection's watch; disconnect ends all its watches.
 
 A page holds at most **100 items**, not 100 turns or durable entries.
-`clients/requests.rs` takes the last 100 folded items before the
+The agent (`hosts/node/src/agent/transcript.ts`) takes the last 100 folded items before the
 cursor, or before the end when `before` is omitted. Pages are fetched newest
 first, but **items inside each page stay in entry and content-block order,
-oldest to newest**, not reverse timestamp order. Harness history batches
-are separate from the wire page size.
+oldest to newest**, not reverse timestamp order.
 
 `earlier` is the first returned item's ID if older items remain, else
 `null`. Send `open {chat, before: earlier}` to fetch the preceding page,
@@ -295,8 +293,8 @@ watch leaves its live subscription running, even if the page request fails.
 
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
-`rewind` explicitly refuses a peer or past `ChatRef` in
-`clients/requests.rs`. The other five messages take an `AgentId`, not a
+The agent refuses a `rewind` of a peer or past `ChatRef`
+(`hosts/node/src/agent/commands.ts`). The other five messages take an `AgentId`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -319,7 +317,7 @@ A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `destructive`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
 not offered); `fault`; `question` with its `questions`; `objection`; or
-`newcomer` with the `scholar` waiting at the harbor, whose answers are
+`newcomer` with the `profile` waiting at the harbor, whose answers are
 `welcome` and `dismiss`, which leaves it waiting. `subject` is the line of
 `about` a one-line view quotes. A
 refused `edit` changes nothing and replies with an error. `check` replies in words and changes the connection status in
@@ -335,13 +333,13 @@ Every state and change carries the society and realm in full:
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
   `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
-- `Scholar.arrival` is `housed`, `waiting` at the harbor, `turned`
+- `Profile.arrival` is `housed`, `waiting` at the harbor, `turned`
   away, or `apart`: a blank hire's own, which is not of the city and has
-  no house. `Scholar.arrivalBy` names who last changed it, a chief or
-  `hand`, and is `null` while it is as it was made. `Scholar.house` is a housed scholar's spot from the city's
+  no house. `Profile.arrivalBy` names who last changed it, a chief or
+  `hand`, and is `null` while it is as it was made. `Profile.house` is a housed profile's spot from the city's
   middle, `{x, z, turn}`, its door facing `turn` radians about the
   vertical, and `null` for one at the harbor. The server chooses the spot
-  of a scholar let in; `/move-house` sets it elsewhere.
+  of a profile let in; `/move-house` sets it elsewhere.
 - `State.library` and `closed` carry the shared shelf and removed hamlets.
 - `State.limits` are the realm's own limits; `Limits` are a hamlet's.
 - `State.realm` names the realm's folder on the server's machine so local
@@ -371,7 +369,7 @@ A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
 failures close it as described above. The server's
-`clients/connection.rs` and `clients/requests.rs` own these paths. Watch failures use
+`clients/connection.rs` and `front.rs` own these paths. Watch failures use
 the `fault` envelope; an open refused because its chat is not there or
 its agent is not reached is a failure `reply`.
 

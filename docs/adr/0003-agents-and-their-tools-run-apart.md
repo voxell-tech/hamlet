@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, with the workspace actor in the server's place and no harness interface ([ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md))
 ---
 
 # Agents and their tools run apart

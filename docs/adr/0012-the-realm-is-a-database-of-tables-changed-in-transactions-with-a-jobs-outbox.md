@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted in part, since its one `realm.sqlite` and its jobs are superseded by [ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md), under which each actor keeps its own file and work that spans actors runs as rows of steps
 ---
 
 # The realm is a database of tables, changed in transactions, with a jobs outbox

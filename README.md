@@ -25,17 +25,17 @@ and open-source forever.
 - **The Hand**: You are the chief and talk to the Hand, your own agent
   above every hamlet. It founds hamlets, hires into them and starts
   workers for small jobs.
-- **Scholars that learn**: Every agent but the Hand and its workers is a
-  hire of a scholar, a git repository of a character, memory and skills.
+- **Profiles that learn**: Every agent but the Hand and its workers is a
+  hire of a profile, a git repository of a character, memory and skills.
   A hire works on a branch of its own, and what it learns is merged into
-  its scholar's `main`. Tag versions, pin a hire to one, revert or fork a
-  scholar.
+  its profile's `main`. Tag versions, pin a hire to one, revert or fork a
+  profile.
 - **Hamlets that run themselves**: A hamlet's mayor hires, leads and lays
   the roads its agents' letters and questions travel along. Leads review
   their hires' work.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
-  the useful ones in a library every agent shares, and an idle scholar
+  the useful ones in a library every agent shares, and an idle profile
   dreams to tidy what it knows.
 - **Point a hamlet at your code**: Give a hamlet a folder and its agents
   work in it, as a coding agent does.
@@ -55,10 +55,10 @@ Hamlet's words in one minute:
 | Word | Meaning |
 | --- | --- |
 | **Chief** | You, the human who leads. |
-| **Realm** | Everything one server keeps: its chiefs, the Hand, the scholars and the hamlets. |
+| **Realm** | Everything one server keeps: its chiefs, the Hand, the profiles and the hamlets. |
 | **Hand** | Your own agent, always there, above every hamlet. |
-| **Scholar** | Who an agent is: a git repository of its character, memory and skills. |
-| **Hamlet** | Hires of scholars with a budget and, optionally, a folder to work in. |
+| **Profile** | Who an agent is: a git repository of its character, memory and skills. |
+| **Hamlet** | Hires of profiles with a budget and, optionally, a folder to work in. |
 | **Mayor** | The hire that leads a hamlet. |
 | **Road** | A path between two agents that their letters travel along. |
 
@@ -79,9 +79,11 @@ your real files alone.
 
 Early and moving fast.
 
-- **`hamlet_server`** (Rust) owns the realm: the agents, scholars'
-  repositories, roads, letters, library, approvals and budgets.
-- **pi harness** (Node processes) owns conversations and model calls.
+- **`hamlet_server`** (Rust) owns the realm: the society, profiles'
+  repositories, roads, letters, library, approvals and budgets, each kept
+  by an actor in a SQLite file of its own.
+- **The Node host** (a Node process the server starts) runs the agents:
+  their conversations and model calls, on pi-durable.
 - **The window** is a protocol client. Closing it stops no agent.
 - **Tests** use faux and loopback providers. They do not establish
   exhaustive behavior or platform coverage.
@@ -116,7 +118,7 @@ The archives beside them hold the same programs for a terminal; see
 
 ## Quick start
 
-You need Rust, git and Node **24.1.0** (pinned in `harnesses/pi/.nvmrc`).
+You need Rust, git and Node **24.1.0** (pinned in `hosts/node/.nvmrc`).
 From the repository root:
 
 ```sh
@@ -124,11 +126,11 @@ cargo xtask install
 hamlet
 ```
 
-This installs pi's packages, puts `hamlet`, `hamlet_server` and
+This installs the Node host's packages and native module, puts `hamlet`, `hamlet_server` and
 `hamlet_app` in `~/.cargo/bin`, and starts your realm in `~/.hamlet`.
 
 > [!NOTE]
-> A source install uses the checkout's `harnesses/pi/`. Keep the checkout,
+> A source install uses the checkout's `hosts/node/`. Keep the checkout,
 > and run `cargo xtask install` again after pulling.
 
 ## Try it without installing
@@ -170,19 +172,18 @@ HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
 ### Models and credentials
 
 Use an API key, a local model endpoint, or sign in with ChatGPT or
-OpenRouter. Credentials stay on the server, and subscription refreshes are
-saved there before the harness continues.
+OpenRouter. Credentials stay on the server, in `credentials.json` in the
+realm folder.
 
 ### Tools and platforms
 
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
-- Settings can select a remote workspace for the agents' tools and
-  lodges. It takes effect on restart and never falls back to local
-  execution.
+- Settings can choose a remote workspace and copy every agent's filesystem to
+  it. The agents' tools run on the server's machine.
 - Windows has no sandbox. A Windows server starts only in insecure
   mode, with `hamlet --insecure`, and agents' commands then reach whatever
-  your account can. Agents get `powershell`, and `bash` where Git for
-  Windows is installed. Linux and macOS refuse `--insecure`.
+  your account can. Commands run in `bash`, so they need one, such as
+  Git for Windows' Git Bash. Linux and macOS refuse `--insecure`.
 - The window can connect to another machine's server.
 
 ### Environment variables
@@ -194,14 +195,15 @@ saved there before the harness continues.
 | `HAMLET_SERVER_BIN` | An existing server binary. Skips the server build in `dev`. |
 | `HAMLET_APP` | An existing window binary. Skips the window build in `dev`. |
 | `HAMLET_SERVER` | A remote WebSocket URL, never an executable. |
-| `HAMLET_PI_HARNESS` | Pi's `src/main.ts`. |
+| `HAMLET_NODE_HOST` | The Node host's `src/main.ts`. |
 | `HAMLET_NODE` | A Node executable. |
 | `HAMLET_NO_UPDATE` | Set to anything, an installed release stops looking for updates. |
 
 Installed commands look for the server and window beside the CLI, then on
-`PATH`. Without `HAMLET_PI_HARNESS`, the server prefers a sibling
-`pi/src/main.ts`, then the macOS bundle's `Contents/Resources/pi/src/main.ts`,
-then the build checkout's harness. Without `HAMLET_NODE`, it prefers the
+`PATH`. Without `HAMLET_NODE_HOST`, the server prefers a sibling
+`node-host/src/main.ts`, then the macOS bundle's
+`Contents/Resources/node-host/src/main.ts`, then the build checkout's
+`hosts/node/src/main.ts`. Without `HAMLET_NODE`, it prefers the
 Node a release ships beside it, then Node on `PATH`.
 
 An installed app opens `hamlet_launch`, which starts or reuses the server

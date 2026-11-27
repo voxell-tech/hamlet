@@ -9,9 +9,8 @@ in two places:
 
 - The documentation items (C-CRATE-DOC, C-EXAMPLE, C-LINK, C-HIDDEN,
   C-FAILURE) are required only in `hamlet_protocol`, whose doc
-  comments become the descriptions in its two schemas: the runtime
-  one the pi harness carries, and the client one the server checks
-  each message against. The other crates are not libraries anyone
+  comments become the descriptions in the client schema the server
+  checks each message against. The other crates are not libraries anyone
   else builds on, and [the comment convention](comment_convention.md)
   asks for fewer words.
 - The publication items (C-METADATA, C-RELNOTES, C-STABLE, C-SEALED)
@@ -105,7 +104,7 @@ test that only checks another crate's behaviour.
 
 Unit tests are inline in their module. Past roughly 300 lines of
 tests, they move to `tests.rs` in the module's folder
-(`record/tests.rs`), declared with `#[cfg(test)] mod tests;`. Helpers
+(`front/view/tests.rs`), declared with `#[cfg(test)] mod tests;`. Helpers
 shared by tests live in the crate's one `testing` module, never
 imported from another module's tests.
 

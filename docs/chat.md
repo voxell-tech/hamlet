@@ -3,8 +3,10 @@
 An agent's watched conversation, its rows and the links and pictures they
 hold. The drawing is `hamlet_app/src/screens/chat/` and `markdown/`, on
 the Markdown of `hamlet_ui/src/markdown/`. The client
-transcript is `hamlet_client/src/chats.rs`; the server keeps the
-conversations through pi-durable. [The client protocol](protocol.md) describes the
+transcript is `hamlet_client/src/chats.rs`; each agent keeps its
+conversations through pi-durable, in its own file
+([the actor runtime](spec/actor-runtime.md)), and the server's front door
+reads them for the window. [The client protocol](protocol.md) describes the
 wire messages, watch rules and page boundaries; this page covers the window.
 
 ## The conversation and its watch
@@ -76,10 +78,10 @@ path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
 check. The received realm folder is excluded after resolving links, for
-absolute and relative paths alike. No file under an agent's lodge becomes a
+absolute and relative paths alike. No file under an agent's filesystem becomes a
 link or a local picture. The work folder is a path on the server's machine;
 with `hamlet dev` it is local too. Nothing downloads a server file.
-Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+Paths in the agent's filesystem, such as its `memory/` or `skills/`, stay plain
 text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
@@ -96,8 +98,10 @@ unopened.
 
 An `edit` or `write` call can show its change in place of the tool row:
 the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/work/cut.rs` computes the preview and keeps
-at most 200 lines, each cut at 240 characters. It arrives in the tool's
+in red and green. `hosts/node/src/agent/change.ts` computes the preview,
+and `crates/hamlet_actors/src/realm/state/change_shown.rs` the preview of a
+change that waits for a chief; each keeps at most 200 lines, each cut at
+240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 
 A change is open when it arrives and shows its first `change_lines` lines
@@ -322,8 +326,8 @@ A call has 1 to 10 questions, and a question at most 6 options with
 titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
-takes words. `crates/hamlet_server/src/talk/asking.rs` reads and
-checks a call, and a call it refuses tells the agent why.
+takes words. `crates/hamlet_actors/src/realm/oversight/asking.rs` reads
+and checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown
 on the realm's page and over the field of the chat with the agent that asked,

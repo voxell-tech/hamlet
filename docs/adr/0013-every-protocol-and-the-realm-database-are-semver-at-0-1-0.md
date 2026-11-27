@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, except for the runtime protocol and `realm.sqlite`, which [ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md) removed, and the link between the two hosts carries a version in their place
 ---
 
 # Every protocol and the realm database are semver, at 0.1.0 until the first release
