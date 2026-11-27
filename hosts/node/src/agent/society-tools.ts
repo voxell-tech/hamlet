@@ -82,6 +82,10 @@ export const WAITING = "This call waits for a chief's answer.";
 
 export const OBJECTING = "The chief is considering an objection.";
 
+/** The words of a call an answer makes beside its `object` call, which does not run. */
+export const OBJECTED =
+    "The chief is considering an objection, so this call did not run. Make it again if the chief says to go on.";
+
 /** As today's `ask_chief` limits (`crates/hamlet_server/src/talk/asking.rs`). */
 const MOST_QUESTIONS = 10;
 const MOST_OPTIONS = 6;

@@ -4,22 +4,32 @@
  * `replay: "safe"`.
  */
 
+import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
+    type Cursor,
     defineExtension,
     defineTool,
     type Extension,
     GenerationTask,
+    type HookApi,
     hook,
     type ToolExecutionResult,
     type ToolRegistration,
+    ToolTask,
 } from "@earendil-works/pi-durable";
 import { BLOCKED } from "./chat-items.ts";
 import { hasWordsOrCall } from "./compaction.ts";
 import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
 import type { Folder } from "./own-files.ts";
-import { type Definition, OBJECTING, TOOLS, WAITING } from "./society-tools.ts";
+import {
+    type Definition,
+    OBJECTED,
+    OBJECTING,
+    TOOLS,
+    WAITING,
+} from "./society-tools.ts";
 import { callOf, callOut, failed, type Peers, words } from "./turn.ts";
 
 function societyTool<N extends SocietyTool>(
@@ -149,8 +159,43 @@ export function society(
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),
             }),
+            // As today, no other call of an answer that objects runs before
+            // the chief rules (`crates/hamlet_server/src/calls/objections.rs`).
+            hook(ToolTask, {
+                beforeTool: async (call, api, context) =>
+                    call.name !== "object" &&
+                    call.parent === undefined &&
+                    (await objects(api, call.id, context))
+                        ? { block: OBJECTED }
+                        : undefined,
+            }),
         ],
     });
+}
+
+/** Whether the answer that made the call `id` also makes an `object` call. */
+async function objects(
+    api: HookApi,
+    id: string,
+    context: Context,
+): Promise<boolean> {
+    let cursor: Cursor | undefined;
+    do {
+        const page = await api.entries({}, 16, cursor, context);
+        for (const entry of page.items) {
+            for (const message of entry.model ?? []) {
+                if (message.role !== "assistant") continue;
+                const calls = message.content.filter(
+                    (part) => part.type === "toolCall",
+                );
+                if (calls.some((part) => part.id === id)) {
+                    return calls.some((part) => part.name === "object");
+                }
+            }
+        }
+        cursor = page.next;
+    } while (cursor !== undefined);
+    return false;
 }
 
 /**
