@@ -24,7 +24,7 @@ beside the server, else Node on `PATH`. A release includes Node, the Node
 host and its production dependencies, but not the optional ones that carry
 Anthropic's Claude program, so the Node host offers Claude only where
 `npm ci` installed them. `HAMLET_CLAUDE_EXECUTABLE` selects another Claude
-program; the Node host still needs those packages to drive it. From source, Node is
+program; the Node host needs those packages to drive it too. From source, Node is
 installed separately.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
