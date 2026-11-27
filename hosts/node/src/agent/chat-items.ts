@@ -479,7 +479,7 @@ function shownAt(item: ChatItem, end: CallEnd): ChatItem {
 }
 
 /** pi-durable's words before the reason a call was not run. */
-const BLOCKED = "Tool call blocked: ";
+export const BLOCKED = "Tool call blocked: ";
 
 /** A held call's end as today's fold closes it (`clients/fold.rs`). */
 function endingOf(

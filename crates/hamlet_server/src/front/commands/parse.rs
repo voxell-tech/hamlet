@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use hamlet_git::MAIN;
-use hamlet_messages::profile::VersionName;
+use hamlet_messages::profile::{Revision, VersionName};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::hamlets::{
     EraseHamlet, MoveHamlet, NameHamlet, RemoveHamlet, RestoreHamlet,
@@ -165,11 +165,7 @@ pub(super) enum Act {
     CreateProfile(CreateProfile),
     ToolsOff(Target),
     Versions(ProfileId),
-    /// `at` names the commit as the chief wrote it.
-    Tag {
-        tag: TagProfile,
-        at: Option<String>,
-    },
+    Tag(TagProfile),
     Revert {
         profile: ProfileId,
         which: String,
@@ -571,20 +567,22 @@ pub(super) fn parse(
             else {
                 return Err(usage(name));
             };
-            let (address, at) = scholar
-                .split_once('@')
-                .map_or((*scholar, None), |(address, at)| {
-                    (address, Some(at.to_owned()))
-                });
-            Act::Tag {
-                tag: TagProfile {
-                    profile: profile_of(address)?,
-                    version: VersionName((*version).to_owned()),
-                    at: None,
-                    note: note.join(" "),
+            // The profile takes a name after `@` as today's `resolve`
+            // does: a branch's, a version's, then a commit's whole
+            // id.
+            let (address, at) = scholar.split_once('@').map_or(
+                (*scholar, None),
+                |(address, at)| {
+                    let version = VersionName(at.to_owned());
+                    (address, Some(Revision::Version { version }))
                 },
+            );
+            Act::Tag(TagProfile {
+                profile: profile_of(address)?,
+                version: VersionName((*version).to_owned()),
                 at,
-            }
+                note: note.join(" "),
+            })
         }
         "revert" => {
             let [scholar, which, ..] = words.as_slice() else {

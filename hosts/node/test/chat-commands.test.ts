@@ -1195,7 +1195,7 @@ function tasksOf(sent: Parameters<typeof named>[0], name: string): string[] {
     );
 }
 
-test("a line steered into a running turn is asked for and charged under the turn's first task, as today", async (t) => {
+test("a line steered into a running turn is asked for and charged under the turn's first task", async (t) => {
     const workspace = slowRead();
     const { calls, sent } = fakes({ workspace });
     const agent = await wake(t, calls, [

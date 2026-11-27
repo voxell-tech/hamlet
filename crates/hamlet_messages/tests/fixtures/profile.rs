@@ -190,7 +190,12 @@ fn the_versions(fixtures: &mut Fixtures) {
         note: "Before the refactor".into(),
         by: chief(),
     };
-    fixtures.args("profile/tag", &tag(Some(commit(0xab))));
+    fixtures.args(
+        "profile/tag",
+        &tag(Some(Revision::Commit {
+            commit: commit(0xab),
+        })),
+    );
     fixtures.args("profile/tag.main", &tag(None));
     for (arm, answer) in [
         (
@@ -217,6 +222,13 @@ fn the_versions(fixtures: &mut Fixtures) {
             TagAnswer::refused(TagRefusal::NoSuchCommit {
                 profile: ProfileId(4),
                 commit: commit(0xab),
+            }),
+        ),
+        (
+            "refused.no_version",
+            TagAnswer::refused(TagRefusal::NoVersion {
+                profile: ProfileId(4),
+                version: VersionName("hires/9".into()),
             }),
         ),
     ] {

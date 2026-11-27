@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
@@ -648,6 +648,9 @@ async fn walk<S: Steps>(
 #[derive(Default)]
 pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
+    /// Told the kind and number of each running step a caller waits
+    /// for.
+    waits: Option<mpsc::UnboundedSender<(String, u64)>>,
 }
 
 #[must_use]
@@ -746,6 +749,17 @@ impl Drives {
         self.ended(row, within).await;
     }
 
+    /// Drives that tell `waits` of each running step a caller waits
+    /// for.
+    pub fn telling(
+        waits: Option<mpsc::UnboundedSender<(String, u64)>>,
+    ) -> Self {
+        Self {
+            waits,
+            ..Self::default()
+        }
+    }
+
     /// Waits until `row`'s drive ends, at most `within`, and at once
     /// when none runs.
     pub async fn ended(&self, row: StepId, within: Duration) {
@@ -758,6 +772,11 @@ impl Drives {
         else {
             return;
         };
+        if let (Some(waits), Ok(kind)) =
+            (&self.waits, change::case_name(&row.kind))
+        {
+            let _ = waits.send((kind, row.n));
+        }
         // The drive sends nothing: its sender's drop ends the wait.
         let _ = tokio::time::timeout(within, ended.changed()).await;
     }

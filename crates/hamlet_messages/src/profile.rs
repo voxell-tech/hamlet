@@ -200,7 +200,7 @@ pub struct Tag {
     pub id: RequestId,
     pub version: VersionName,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub at: Option<CommitId>,
+    pub at: Option<Revision>,
     pub note: String,
     pub by: By,
 }
@@ -216,6 +216,8 @@ family!(TagRefusal {
     Taken { version: VersionName },
     #[error("`scholar#{}` has no version `{}`", profile.0, commit.0)]
     NoSuchCommit { profile: ProfileId, commit: CommitId },
+    #[error("`scholar#{}` has no version `{}`", profile.0, version.0)]
+    NoVersion { profile: ProfileId, version: VersionName },
 });
 
 answer!(TagAnswer<W = TagRefusal> {

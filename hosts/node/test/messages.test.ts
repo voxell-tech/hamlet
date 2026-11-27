@@ -1821,7 +1821,12 @@ for (const action of ANSWERED_BY_TOOLS) {
             if (plainly !== undefined) {
                 assert.deepEqual(told, [plainly, false], name);
             } else if (given.type === "refused") {
-                assert.deepEqual(told, [given.words, true], name);
+                // Today's gate blocks a letter whose files it may not send.
+                const words =
+                    given.why?.type === "files"
+                        ? `Tool call blocked: ${given.words}`
+                        : given.words;
+                assert.deepEqual(told, [words, true], name);
             } else {
                 const shown = [result.output]
                     .concat(result.diagnostics.map(({ message }) => message))
@@ -2478,7 +2483,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a row the workspace keeps in its own file",
     ],
     [
-        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.merge_branch\.kept|profile\.merge_branch\.merged|profile\.merge_branch\.refused\.commit_gone|profile\.merge_branch\.refused\.not_a_path|profile\.merge_branch\.refused\.part_too_large|profile\.merge_branch\.refused\.withheld|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged|profile\.unmerge\.refused\.commit_gone|profile\.unmerge\.unmerged)$/,
+        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.merge_branch\.kept|profile\.merge_branch\.merged|profile\.merge_branch\.refused\.commit_gone|profile\.merge_branch\.refused\.not_a_path|profile\.merge_branch\.refused\.part_too_large|profile\.merge_branch\.refused\.withheld|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.no_version|profile\.tag\.refused\.taken|profile\.tag\.tagged|profile\.unmerge\.refused\.commit_gone|profile\.unmerge\.unmerged)$/,
         "a row a profile keeps in its own file",
     ],
     [
