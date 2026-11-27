@@ -329,8 +329,9 @@ fn lowered(pattern: &str) -> String {
     source
 }
 
-/// `line` with pi's spaces taken from its end, then cut at [`WIDTH`]
-/// characters, as a search shows it.
+/// `line` with the whitespace JavaScript's `trimEnd` removes taken
+/// from its end, then cut at [`WIDTH`] characters, as a search shows
+/// it.
 fn shown(line: &str) -> String {
     let line = line.trim_end_matches(|c: char| {
         (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'

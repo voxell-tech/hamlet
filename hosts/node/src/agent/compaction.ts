@@ -88,7 +88,6 @@ export function isShortCutOff(answer: AssistantMessage): boolean {
     );
 }
 
-/** Whether an answer stands: it has words or a tool call. */
 export function hasWordsOrCall(answer: AssistantMessage): boolean {
     return answer.content.some(
         (block) =>

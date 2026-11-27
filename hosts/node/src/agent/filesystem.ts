@@ -29,7 +29,7 @@ export interface Found<T> {
 export interface Match {
     readonly path: string;
     readonly line: number;
-    /** The line as a search shows it: trimmed, and cut at 300 characters with `...`. */
+    /** The line as a search shows it: its end trimmed, and cut at 300 characters with `...`. */
     readonly text: string;
 }
 

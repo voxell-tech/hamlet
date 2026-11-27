@@ -391,7 +391,6 @@ fn is_local(address: &str) -> bool {
     })
 }
 
-/// The errand's instructions.
 async fn instructions(
     rows: &Rows<'_>,
     hire: AgentNumber,

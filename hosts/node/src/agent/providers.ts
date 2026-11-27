@@ -19,12 +19,12 @@ import type { Held } from "./copies.ts";
 import type { Endpoint } from "./messages/agent.ts";
 
 /** The built-in providers this host's pi-ai lists that Hamlet does not offer. */
-const NOT_TODAYS: ReadonlySet<string> = new Set([
+const UNOFFERED: ReadonlySet<string> = new Set([
     "qwen-token-plan-individual-cn",
 ]);
 
-/** Hamlet's names for the built-in providers that pi-ai renamed. */
-const TODAYS_NAMES: Readonly<Record<string, string>> = {
+/** Hamlet's names for built-in providers, in place of pi-ai's. */
+const NAMES: Readonly<Record<string, string>> = {
     "openai-codex": "OpenAI Codex (legacy)",
 };
 
@@ -41,11 +41,11 @@ export function hostProviders(): Provider[] {
             (p) =>
                 p.id !== "zai" &&
                 p.id !== "zai-coding-cn" &&
-                !NOT_TODAYS.has(p.id),
+                !UNOFFERED.has(p.id),
         )
         .map((p) => ({
             ...p,
-            name: TODAYS_NAMES[p.id] ?? p.name,
+            name: NAMES[p.id] ?? p.name,
             auth: {
                 ...(p.auth.apiKey === undefined
                     ? {}

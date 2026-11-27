@@ -38,9 +38,9 @@ import {
 export type Folder = () => Promise<string | undefined>;
 
 /**
- * Where `path` leads, normalised. A relative path
- * and a left-out one start from the project `folder`, else from the
- * agent's own filesystem; a path is own when it lands in that filesystem.
+ * Where `path` leads, normalised. A relative path and a left-out one start
+ * from the project `folder`, else from the agent's own filesystem; a path is
+ * own when it lands in that filesystem.
  */
 export async function reached(
     files: AgentFilesystem,

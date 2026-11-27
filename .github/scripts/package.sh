@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Packs the CLI, server, window, the app's launcher, the Node host and
-# Node into
-# dist/: the archive for every platform, and what a chief installs
+# Node into dist/: the archive for every platform, and what a chief installs
 # without a terminal: a disk image on macOS, an installer on Windows,
 # a .deb and an .rpm on Linux.
 # Run on the target platform so npm installs its native dependencies.

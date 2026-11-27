@@ -85,7 +85,7 @@ async fn credential(
 
 /// Writes `stored` as a realm's file, and starts the realm again on
 /// it.
-async fn moved_over(realm: Realm, stored: &Value) -> Realm {
+async fn restarted_on(realm: Realm, stored: &Value) -> Realm {
     std::fs::write(file(&realm), stored.to_string()).unwrap();
     realm.restart().await
 }
@@ -95,11 +95,11 @@ fn stored_file() -> Value {
         "installationId": "a3c1",
         "connection": { "token": "connection-token" },
         "models": {
-            "openai": { "type": "api_key", "key": "sk-today" },
+            "openai": { "type": "api_key", "key": "sk-stored" },
             "chatgpt": {
                 "type": "oauth",
-                "access": "today-access",
-                "refresh": "today-refresh",
+                "access": "stored-access",
+                "refresh": "stored-refresh",
                 "expires": 1_700_000_000_123.0,
                 "accountId": "acc-1",
             },
@@ -190,7 +190,7 @@ async fn two_keeps_at_once_keep_both() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stored_file_keeps_what_the_realm_does_not_read() {
     let realm =
-        moved_over(Realm::start().await, &stored_file()).await;
+        restarted_on(Realm::start().await, &stored_file()).await;
 
     keep(&realm, "anthropic", key("sk-new")).await;
 
@@ -310,7 +310,7 @@ async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
     let mut file = stored_file();
     file["models"]["bedrock"] = json!({ "type": "api_key", "env": { "AWS_PROFILE": "work" } });
     file["models"]["blank"] = json!({ "type": "api_key" });
-    let realm = moved_over(Realm::start().await, &file).await;
+    let realm = restarted_on(Realm::start().await, &file).await;
 
     let given = credential(&realm, Hand::NUMBER, "bedrock").await;
     let blank = credential(&realm, Hand::NUMBER, "blank").await;
@@ -338,7 +338,7 @@ async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stored_file_reads_as_an_agent_keeps_it() {
     let realm =
-        moved_over(Realm::start().await, &stored_file()).await;
+        restarted_on(Realm::start().await, &stored_file()).await;
 
     let oauth = credential(&realm, Hand::NUMBER, "chatgpt").await;
     let api_key = credential(&realm, Hand::NUMBER, "openai").await;
@@ -347,8 +347,8 @@ async fn a_stored_file_reads_as_an_agent_keeps_it() {
         oauth,
         CredentialAnswer::Oauth {
             login: OauthLogin {
-                access: "today-access".to_owned(),
-                refresh: "today-refresh".to_owned(),
+                access: "stored-access".to_owned(),
+                refresh: "stored-refresh".to_owned(),
                 expires: 1_700_000_000,
                 extra: Some(r#"{"accountId":"acc-1"}"#.to_owned()),
             }
@@ -357,7 +357,7 @@ async fn a_stored_file_reads_as_an_agent_keeps_it() {
     assert_eq!(
         api_key,
         CredentialAnswer::Key {
-            key: "sk-today".to_owned(),
+            key: "sk-stored".to_owned(),
             env: Settings::new(),
         }
     );
@@ -368,7 +368,7 @@ async fn a_stored_file_reads_as_an_agent_keeps_it() {
 async fn the_workspace_reads_each_kept_value_under_a_raised_version()
 {
     let realm =
-        moved_over(Realm::start().await, &stored_file()).await;
+        restarted_on(Realm::start().await, &stored_file()).await;
     realm.live(Hand::NUMBER).await;
     let list = async || -> SecretList {
         realm.call_as_workspace(&Secrets).await.unwrap()
@@ -382,9 +382,9 @@ async fn the_workspace_reads_each_kept_value_under_a_raised_version()
     for value in [
         "connection-token",
         "workspace-token",
-        "sk-today",
-        "today-access",
-        "today-refresh",
+        "sk-stored",
+        "stored-access",
+        "stored-refresh",
     ] {
         assert!(
             first.values.iter().any(|held| held == value),
@@ -394,7 +394,7 @@ async fn the_workspace_reads_each_kept_value_under_a_raised_version()
     assert_eq!(second.version, SecretsVersion(2));
     assert!(second.values.iter().any(|held| held == "sk-second"));
     assert!(
-        second.values.iter().any(|held| held == "sk-today"),
+        second.values.iter().any(|held| held == "sk-stored"),
         "a replaced value is still taken out"
     );
     until("the Hand's reach asks for the kept values", || {
@@ -490,7 +490,7 @@ async fn a_workspace_at_no_address_is_refused_and_not_kept() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stored_file_keeps_its_workspace() {
     let realm =
-        moved_over(Realm::start().await, &stored_file()).await;
+        restarted_on(Realm::start().await, &stored_file()).await;
 
     let other =
         chief(&realm, choose(Some(("https://w.invalid", "t-1"))));
@@ -528,7 +528,7 @@ async fn a_start_makes_the_file_0600() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_login_read_and_kept_back_unchanged_changes_nothing() {
     let realm =
-        moved_over(Realm::start().await, &stored_file()).await;
+        restarted_on(Realm::start().await, &stored_file()).await;
     let CredentialAnswer::Oauth { login } =
         credential(&realm, Hand::NUMBER, "chatgpt").await
     else {
@@ -934,7 +934,7 @@ async fn a_restart_keeps_the_credentials_files_version_and_the_keys_the_realm_do
  {
     let mut file = stored_file();
     file["version"] = json!(5);
-    let realm = moved_over(Realm::start().await, &file).await;
+    let realm = restarted_on(Realm::start().await, &file).await;
     let realm = realm.restart().await;
     let untouched = stored(&realm);
 

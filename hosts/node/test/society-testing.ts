@@ -547,8 +547,7 @@ export const OVERLAP_MS = 500;
 
 /**
  * The society tools by kind: every agent's in a chief's chat, a lead's, and
- * the Hand's own; a hire's
- * road tools.
+ * the Hand's own; a hire's road tools.
  */
 export const EVERYONE = [
     "tell",

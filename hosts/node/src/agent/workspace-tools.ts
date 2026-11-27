@@ -181,7 +181,6 @@ const FILE_TOOLS: {
     },
 };
 
-/** The shell tool's definition. */
 const BASH = {
     description:
         "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds. It stops after 120 seconds, or sooner with `timeout`.",

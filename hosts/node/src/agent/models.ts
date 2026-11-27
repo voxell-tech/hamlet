@@ -487,9 +487,8 @@ export async function reached(
 }
 
 /**
- * Asks the model `name` for a hello. It goes to the
- * listing itself, so it is neither admitted to a conversation nor charged,
- * and a repeat asks again.
+ * Asks the model `name` for a hello. It goes to the listing itself, so it is
+ * neither admitted to a conversation nor charged, and a repeat asks again.
  */
 export async function checkModel(
     listed: Models,

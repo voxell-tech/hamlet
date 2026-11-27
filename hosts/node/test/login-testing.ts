@@ -136,8 +136,8 @@ export interface Fixture {
 /**
  * The provider `chatgpt` on loopback, as the OAuth fixture
  * (`test/fixtures/oauth.ts`) has it: its sign-in shows a link, a device code
- * and a progress line, then asks for the code. Its model
- * echoes every token it knows, as A19's does.
+ * and a progress line, then asks for the code. Its model echoes every
+ * token it knows.
  */
 export function subscription(t: TestContext): Fixture {
     const fixture: Fixture = {

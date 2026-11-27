@@ -110,7 +110,7 @@ test("an own search shows each path from where a relative path starts", async (t
     );
 });
 
-test("an own search trims pi's spaces from a line's end, then clips it to 300 characters", async (t) => {
+test("an own search trims a line's end, then clips it to 300 characters", async (t) => {
     const lines = [
         `a${"x".repeat(299)}`,
         `b${"x".repeat(300)}`,
