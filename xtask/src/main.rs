@@ -129,8 +129,13 @@ impl Step {
         Self::ALL.into_iter().find(|step| step.to_string() == name)
     }
 
-    /// Runs the step in `root`, the folder holding the workspace.
-    fn run(self, root: &Path) -> Result<(), Failure> {
+    /// Runs the step in `root`, the folder holding the workspace;
+    /// only the kill kit takes `rest`, its scenario and its runs.
+    fn run(
+        self,
+        root: &Path,
+        rest: &[String],
+    ) -> Result<(), Failure> {
         match self {
             Self::Format => format(),
             Self::Clippy => clippy(),
@@ -138,7 +143,7 @@ impl Step {
             Self::Deny => deny(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
-            Self::Killkit => killkit(root, &[]),
+            Self::Killkit => killkit(root, rest),
             Self::Doc => doc(),
             Self::Node => node(root),
         }
@@ -227,7 +232,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         fynix(&root)?;
     }
     if let Some(step) = Step::parse(task) {
-        return step.run(&root);
+        return step.run(&root, rest);
     }
     match task {
         "build" => {
@@ -274,9 +279,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
                     .args(rest),
             )
         }
-        "check" => {
-            Step::ALL.into_iter().try_for_each(|step| step.run(&root))
-        }
+        "check" => Step::ALL
+            .into_iter()
+            .try_for_each(|step| step.run(&root, &[])),
         "fmt" => {
             install(&root, NODE_HOST)?;
             status(&mut cargo(&[NIGHTLY, "fmt"]))?;
@@ -293,7 +298,6 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
-        "killkit" => killkit(&root, rest),
         "idle" => {
             let options =
                 idle::Options::parse(rest).map_err(Failure::Idle)?;
