@@ -34,20 +34,14 @@ pub(super) async fn list(
     Ok(Ok(words::versions(&list)))
 }
 
-/// Names a commit of `tag`'s profile as its version: the one `at`
-/// names, else `main`'s tip.
+/// Names a commit of `tag`'s profile as its version.
 pub(super) async fn tag(
     calls: &Calls,
     id: &RequestId,
-    mut tag: TagProfile,
-    at: Option<String>,
+    tag: TagProfile,
 ) -> Result<Result<String, Refusal>> {
     let label = match label(calls, tag.profile).await? {
         Ok(label) => label,
-        Err(refusal) => return Ok(Err(refusal)),
-    };
-    tag.at = match tagged_at(calls, &tag, at).await? {
-        Ok(at) => at,
         Err(refusal) => return Ok(Err(refusal)),
     };
     Ok(match ask(calls, id, tag).await? {
@@ -182,23 +176,4 @@ fn revision(list: &VersionList, which: &str) -> (Revision, String) {
             which.into(),
         ),
     }
-}
-
-/// The commit `/tag` names after its `@`, `main`'s tip when it names
-/// none.
-async fn tagged_at(
-    calls: &Calls,
-    tag: &TagProfile,
-    at: Option<String>,
-) -> Result<Result<Option<CommitId>, Refusal>> {
-    let Some(which) = at else {
-        return Ok(Ok(None));
-    };
-    let list = calls.call(&Profile(tag.profile), &Versions).await?;
-    Ok(commit_of(&list, &which).map(Some).ok_or_else(|| {
-        Refusal::NoVersion {
-            name: format!("scholar#{}", tag.profile.0),
-            version: which,
-        }
-    }))
 }

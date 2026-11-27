@@ -6,12 +6,13 @@ use anyhow::{Context, Result};
 use hamlet_git::{Change, Joined, MAIN};
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, By as Who, CommitSeen, DreamId, DreamOpen,
-    Edit, EditRefusal, Erase, MOST_COMMITS_SEEN, MOST_READ, Missing,
-    Paper, PaperList, Papers, Path, Protected, Purge, PurgeAnswer,
-    Read, ReadAnswer, Removal, RemovePath, Revert, RevertAnswer,
-    RevertRefusal, Revision, Tag, TagAnswer, TagRefusal, TooLong,
-    VersionList, VersionName, VersionSeen, Versions,
+    BadCommit, BadPath, By as Who, CommitId, CommitSeen, DreamId,
+    DreamOpen, Edit, EditRefusal, Erase, MOST_COMMITS_SEEN,
+    MOST_READ, Missing, Paper, PaperList, Papers, Path, Protected,
+    Purge, PurgeAnswer, Read, ReadAnswer, Removal, RemovePath,
+    Revert, RevertAnswer, RevertRefusal, Revision, Tag, TagAnswer,
+    TagRefusal, TooLong, VersionList, VersionName, VersionSeen,
+    Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
@@ -64,15 +65,8 @@ fn tag(
     let by = By::from(tag.by);
     let (at, seen, taken) = {
         let git = unit.git()?;
-        let at = match tag.at {
-            Some(at) => {
-                let found = git_commit(at)?;
-                if git.has(found)? { Ok(found) } else { Err(at) }
-            }
-            None => {
-                Ok(git.tip(MAIN)?.context("a profile has a main")?)
-            }
-        };
+        let at =
+            named(git, tag.at.as_ref().unwrap_or(&Revision::Main))?;
         let seen = git
             .versions()?
             .into_iter()
@@ -83,10 +77,16 @@ fn tag(
     };
     let at = match at {
         Ok(at) => at,
-        Err(commit) => {
-            let why = TagRefusal::NoSuchCommit {
-                profile: own,
-                commit,
+        Err(unnamed) => {
+            let why = match unnamed {
+                Unnamed::Version(version) => TagRefusal::NoVersion {
+                    profile: own,
+                    version,
+                },
+                Unnamed::Commit(commit) => TagRefusal::NoSuchCommit {
+                    profile: own,
+                    commit,
+                },
             };
             return unit.refuse(why);
         }
@@ -230,35 +230,52 @@ fn undone(
     Ok(Ok(commit))
 }
 
-/// The commit `what` names, or the refusal of a version or a commit
-/// the profile does not have. A name is a branch's, then a
-/// version's, then a full commit id, as today's `resolve` takes it
+/// A name or a commit the profile does not have.
+enum Unnamed {
+    Version(VersionName),
+    Commit(CommitId),
+}
+
+/// The commit `what` names. A name is a branch's, then a version's,
+/// then a full commit id, as today's `resolve` takes it
 /// (`crates/hamlet_git/src/lib.rs:270-286`).
-fn commit_of<W: From<Missing> + From<BadCommit>>(
+fn named(
     git: &Reads,
     what: &Revision,
-    profile: ProfileId,
-) -> Result<Result<hamlet_git::CommitId, W>> {
+) -> Result<Result<hamlet_git::CommitId, Unnamed>> {
     Ok(match what {
         Revision::Main => {
             Ok(git.tip(MAIN)?.context("a profile has a main")?)
         }
-        Revision::Version { version } => {
-            git.resolve(&version.0)?.ok_or_else(|| {
-                let version = version.clone();
-                Missing::NoVersion { profile, version }.into()
-            })
-        }
+        Revision::Version { version } => git
+            .resolve(&version.0)?
+            .ok_or_else(|| Unnamed::Version(version.clone())),
         Revision::Commit { commit } => {
             let at = git_commit(*commit)?;
             if git.has(at)? {
                 Ok(at)
             } else {
-                let commit = *commit;
-                Err(BadCommit::NoCommit { profile, commit }.into())
+                Err(Unnamed::Commit(*commit))
             }
         }
     })
+}
+
+/// The commit `what` names, or the refusal of a version or a commit
+/// the profile does not have.
+fn commit_of<W: From<Missing> + From<BadCommit>>(
+    git: &Reads,
+    what: &Revision,
+    profile: ProfileId,
+) -> Result<Result<hamlet_git::CommitId, W>> {
+    Ok(named(git, what)?.map_err(|unnamed| match unnamed {
+        Unnamed::Version(version) => {
+            Missing::NoVersion { profile, version }.into()
+        }
+        Unnamed::Commit(commit) => {
+            BadCommit::NoCommit { profile, commit }.into()
+        }
+    }))
 }
 
 impl Takes<Read> for Profile {
@@ -610,7 +627,9 @@ mod tests {
         let (refused, _) = profile
             .once::<Profile, Tag, _>(
                 realm.clone(),
-                asked(Some(commit_id(unknown).unwrap())),
+                asked(Some(Revision::Commit {
+                    commit: commit_id(unknown).unwrap(),
+                })),
                 |unit| tag(unit, ProfileId(1)),
             )
             .unwrap();
@@ -628,7 +647,7 @@ mod tests {
         let (tagged, _) = profile
             .once::<Profile, Tag, _>(
                 realm.clone(),
-                asked(Some(at)),
+                asked(Some(Revision::Commit { commit: at })),
                 |unit| tag(unit, ProfileId(1)),
             )
             .unwrap();
@@ -652,6 +671,66 @@ mod tests {
             at: made,
         };
         assert_eq!(listed.versions, [seen]);
+    }
+
+    #[test]
+    fn a_tag_at_a_branchs_name_names_its_tip() {
+        let dir = Scratch::new("profile-tag-branch");
+        let mut profile = Hostless::profile(&dir, "Careful.");
+        let realm = Caller::Actor(Realm.address().unwrap());
+        let repository =
+            Repository::open(&dir.join("scholars/1.git")).unwrap();
+        let by = Author {
+            name: "agent:2",
+            at: 5000,
+        };
+        let write = Change::Write {
+            path: "memory/a.md".into(),
+            bytes: b"a".to_vec(),
+        };
+        let tip =
+            repository.commit("hires/2", &[write], "a", by).unwrap();
+        let asked = |name: &str| Tag {
+            id: RequestId::new(),
+            version: VersionName("v1".into()),
+            at: Some(Revision::Version {
+                version: VersionName(name.into()),
+            }),
+            note: String::new(),
+            by: Who::Chief { chief: 3 },
+        };
+
+        let (refused, _) = profile
+            .once::<Profile, Tag, _>(
+                realm.clone(),
+                asked("hires/9"),
+                |unit| tag(unit, ProfileId(1)),
+            )
+            .unwrap();
+        let why = TagRefusal::NoVersion {
+            profile: ProfileId(1),
+            version: VersionName("hires/9".into()),
+        };
+        assert_eq!(
+            why.to_string(),
+            "`scholar#1` has no version `hires/9`"
+        );
+        assert_eq!(refused, TagAnswer::Refused { why });
+
+        let (tagged, _) = profile
+            .once::<Profile, Tag, _>(
+                realm,
+                asked("hires/2"),
+                |unit| tag(unit, ProfileId(1)),
+            )
+            .unwrap();
+        assert_eq!(
+            tagged,
+            TagAnswer::Tagged {
+                version: VersionName("v1".into()),
+                commit: commit_id(tip).unwrap(),
+            }
+        );
     }
 
     #[test]

@@ -20,7 +20,8 @@ use hamlet_protocol::client::RequestId;
 
 use super::{
     FOUR, MAYOR, Realm, THREE, charge, error_code, hamlet_with,
-    may_spend, needs, paid, standing, tell, to, tool, worker_shown,
+    may_spend, needs, paid, seen_submits, standing, submits_to, tell,
+    to, tool, worker_shown,
 };
 
 const NO_ROW: AgentNumber = AgentNumber(77);
@@ -231,18 +232,21 @@ async fn a_hires_login_refresh_is_kept_and_its_other_stores_are_refused()
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_spends_on_its_own_task_and_on_a_letters_but_on_no_other()
  {
-    // the mayor tells hire 3 on the mayor's own task. Hire 3 may
-    // spend on its own task and on the letter's; the Hand's task is
-    // refused for a spend and for a read of its budget.
+    // the mayor tells hire 3 on the mayor's own task. Once the
+    // letter reaches it, hire 3 may spend on its own task and on the
+    // letter's; the Hand's task is refused for a spend and for a read
+    // of its budget.
     let (realm, _) = hamlet_with(1).await;
     let own = standing(&realm, THREE);
     let mayors = standing(&realm, MAYOR);
     let hands = standing(&realm, Hand::NUMBER);
     let before = may_spend(&realm, THREE, &mayors).await;
+    let letters = submits_to(&realm, THREE).len();
     realm
         .tool(MAYOR, &paid("t1", &mayors, tell(to(THREE), "hello")))
         .await
         .unwrap();
+    seen_submits(&realm, THREE, letters + 1).await;
 
     let spends = [
         may_spend(&realm, THREE, &own).await,

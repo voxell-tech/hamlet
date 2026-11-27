@@ -14,6 +14,7 @@ import {
     type ToolExecutionResult,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { BLOCKED } from "./chat-items.ts";
 import { hasWordsOrCall } from "./compaction.ts";
 import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
@@ -63,7 +64,9 @@ function societyTool<N extends SocietyTool>(
                     );
                 },
                 definition.name,
-                ({ why }) => {
+                ({ why, words: refusal }) => {
+                    // Today's gate blocks a letter whose files it may not send.
+                    if (why.type === "files") return failed(BLOCKED + refusal);
                     // Today holds such a call until a chief rules, and the
                     // ruling arrives as a notice.
                     const text =
