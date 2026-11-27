@@ -18,9 +18,8 @@ use super::peer::{self, Peers, When};
 use super::profiles::lifecycle;
 use super::workers::errands;
 use super::{
-    Realm, StepTold, calls, dreams, drop_parts, erase, hire,
-    librarian, merges, parcels, retire, reviews, tree, versions,
-    workers,
+    Realm, calls, dreams, drop_parts, erase, hire, librarian, merges,
+    parcels, retire, reviews, tree, versions, workers,
 };
 
 #[derive(
@@ -651,6 +650,21 @@ pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
     told: Told,
 }
+
+/// What the step drives tell a test of a step, by its kind and
+/// number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepTold {
+    /// A caller waits for the step while it runs.
+    Waited { kind: String, n: u64 },
+    /// The step's drive ended: its last change is kept, or the
+    /// realm stops.
+    Ended { kind: String, n: u64 },
+}
+
+/// The host value a test gives the realm to be told of its steps.
+#[cfg(feature = "steps-told")]
+pub struct StepsTold(pub mpsc::UnboundedSender<StepTold>);
 
 type Told = Option<mpsc::UnboundedSender<StepTold>>;
 

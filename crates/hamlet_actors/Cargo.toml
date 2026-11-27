@@ -38,8 +38,14 @@ uuid.workspace = true
 [features]
 # A realm action that panics when `HAMLET_REALM_PANIC` names it.
 faults = []
+# The realm's step drives tell a test, through the host value
+# `realm::StepsTold`, of each step a caller waits for and each drive's
+# end.
+steps-told = []
 
 [dev-dependencies]
+# The crate's own tests are told of the realm's steps.
+hamlet_actors = { workspace = true, features = ["steps-told"] }
 hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
 image.workspace = true

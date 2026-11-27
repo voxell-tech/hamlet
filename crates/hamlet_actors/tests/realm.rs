@@ -40,7 +40,6 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use stand_ins::{Forward, Seen, open};
-use tokio::sync::mpsc;
 
 #[path = "realm/allowance.rs"]
 mod allowance;
@@ -171,17 +170,7 @@ impl Realm {
     ) -> Self {
         let scratch = Scratch::new("realm");
         let seen = Arc::new(seen);
-        let (told, mut telling) = mpsc::unbounded_channel();
-        let options = Some(Arc::new(realm::Options {
-            steps_told: Some(told),
-            ..options.unwrap_or_default()
-        }));
-        let keeping = seen.clone();
-        tokio::spawn(async move {
-            while let Some(told) = telling.recv().await {
-                keeping.steps.lock().unwrap().push(told);
-            }
-        });
+        let options = options.map(Arc::new);
         let host = open(&scratch, &seen, options.as_ref()).await;
         host.get_or_start(&address::Realm.address().unwrap())
             .await

@@ -41,7 +41,7 @@ use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
 use rusqlite::OpenFlags;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use super::profile_stand_in::ProfileStandIn;
 use super::{DEADLINE, THREE, call, stopped_open};
@@ -830,8 +830,16 @@ pub(super) async fn open(
             kind::<LibraryStandIn>(address::Library::KIND),
         ),
     ]);
-    let mut host_options =
-        HostOptions::default().with_value(seen.clone());
+    let (told, mut telling) = mpsc::unbounded_channel();
+    let keeping = seen.clone();
+    tokio::spawn(async move {
+        while let Some(told) = telling.recv().await {
+            keeping.steps.lock().unwrap().push(told);
+        }
+    });
+    let mut host_options = HostOptions::default()
+        .with_value(seen.clone())
+        .with_value(Arc::new(realm::StepsTold(told)));
     if let Some(options) = options {
         host_options = host_options.with_value(options.clone());
     }
