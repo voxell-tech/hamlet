@@ -187,8 +187,8 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<ParcelFile>,
     },
-    /// A letter the agent answers with [`crate::realm::Reply`] when
-    /// its turn on it ends.
+    /// A letter the agent answers with
+    /// [`crate::realm::letters::Reply`] when its turn on it ends.
     Question {
         letter: LetterId,
         from: Author,

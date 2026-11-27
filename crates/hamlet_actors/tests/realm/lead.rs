@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use hamlet_messages::realm::hamlets::FoundAnswer;
 use hamlet_messages::realm::{
-    Asked, Done, DoneTo, End, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Named, Rank,
-    Tool,
+    Asked, Done, DoneTo, End, HamletId, Hire, HireAnswer,
+    HireRefusal, HowEnded, LeadRefusal, Named, Rank, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;

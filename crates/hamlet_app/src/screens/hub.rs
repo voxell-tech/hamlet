@@ -34,7 +34,7 @@ use hamlet_ui::{View, with_cx};
 
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
-pub(crate) use self::rail::under_name;
+pub(crate) use self::rail::lines::under_name;
 pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
@@ -72,7 +72,8 @@ pub fn plugin(app: &mut App) {
     .add_systems(
         Update,
         (
-            thread::leave_prompt.run_if(resource_changed::<Convo>),
+            thread::prompt::leave_prompt
+                .run_if(resource_changed::<Convo>),
             keep_papers.run_if(
                 resource_changed::<Convo>
                     .or_eager(resource_changed::<Showing>),
@@ -137,7 +138,7 @@ fn page() -> impl View {
             }
             Showing::Thread => thread::living().boxed(),
             Showing::Sessions => thread::sessions().boxed(),
-            Showing::Prompt => thread::prompt_page().boxed(),
+            Showing::Prompt => thread::prompt::prompt_page().boxed(),
             Showing::Hamlet(hamlet) => {
                 overview::hamlet(*hamlet).boxed()
             }

@@ -60,7 +60,9 @@ use hamlet_messages::address::{self, Party};
 use hamlet_messages::realm::budget::{
     Charge, MaySpend, OpenTask, ReadBudget, ResetBudget,
 };
-use hamlet_messages::realm::choices::{SetModel, SetNickname};
+use hamlet_messages::realm::choices::{
+    SetModel, SetNickname, SetTools,
+};
 use hamlet_messages::realm::client::{
     Answer, ReadState, ReadWorld, RememberSecret, Say, World,
 };
@@ -69,10 +71,11 @@ use hamlet_messages::realm::documents::{
     ReadCharter, ReadCopies,
 };
 use hamlet_messages::realm::hamlets::{
-    EraseHamlet, MoveHamlet, NameHamlet, ReadRecord, RemoveHamlet,
-    RestoreHamlet, SetFolder, SetMode,
+    EraseHamlet, Found, MoveHamlet, NameHamlet, ReadRecord,
+    RemoveHamlet, RestoreHamlet, SetFolder, SetMode,
 };
 use hamlet_messages::realm::hires::{EraseHire, Merge, Restore};
+use hamlet_messages::realm::letters::{Ask, Reply, Tell};
 use hamlet_messages::realm::lines::{ReadLine, StopAgents, Working};
 use hamlet_messages::realm::models::{
     Credential, KeepCredential, TurnFailed,
@@ -88,13 +91,15 @@ use hamlet_messages::realm::profiles::{
     UnshelveSkill, Welcome,
 };
 use hamlet_messages::realm::prompt::ReadPlace;
+use hamlet_messages::realm::roads::{
+    AgreeRoad, LayRoad, RequestRoad, TakeUpRoad,
+};
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
 use hamlet_messages::realm::{
-    AgreeRoad, Ask, Asked, End, Found, Hire, LayRoad, NeedsChief,
-    ProfileId, ReadOwnPlace, Reply, RequestRoad, Seat, Secrets,
-    SetLimits, SetTier, SetTools, TakeUpRoad, Tell, Tool,
+    Asked, End, Hire, NeedsChief, ProfileId, ReadOwnPlace, Seat,
+    Secrets, SetLimits, SetTier, Tool,
 };
 pub use parcels::store::Store as ParcelStore;
 use serde::Serialize;

@@ -5,9 +5,11 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::roads::{
+    AgreeRefusal, AgreeRoad, Agreed,
+};
 use hamlet_messages::realm::{
-    AgentName, AgentRefusal, AgreeRefusal, AgreeRoad, Agreed,
-    HamletId, Named, Refusable,
+    AgentName, AgentRefusal, HamletId, Named, Refusable,
 };
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};

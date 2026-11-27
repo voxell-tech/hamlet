@@ -488,7 +488,11 @@ fn prompt() -> AnyView {
     section_line(
         Glyph::Notes,
         "Prompt",
-        action(Glyph::Into, "Open", super::thread::show_prompt),
+        action(
+            Glyph::Into,
+            "Open",
+            super::thread::prompt::show_prompt,
+        ),
     )
 }
 

@@ -6,8 +6,8 @@ use hamlet_git::MAIN;
 use hamlet_messages::profile::{Revision, VersionName};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::hamlets::{
-    EraseHamlet, MoveHamlet, NameHamlet, RemoveHamlet, RestoreHamlet,
-    SetFolder, SetMode,
+    EraseHamlet, Found, MoveHamlet, NameHamlet, RemoveHamlet,
+    RestoreHamlet, SetFolder, SetMode,
 };
 use hamlet_messages::realm::profiles::{
     ArchiveProfile, CreateProfile, EraseProfile, ForkProfile,
@@ -16,7 +16,7 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::workers::StartWorker;
 use hamlet_messages::realm::{
-    Found, HamletId, Hire, Named, ProfileId, SetTier, Tier,
+    HamletId, Hire, Named, ProfileId, SetTier, Tier,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;

@@ -3,6 +3,9 @@ use hamlet_messages::profile::{
     Revision, TagAnswer, TagRefusal, VersionName,
 };
 use hamlet_messages::realm::documents::{EditSettings, Setting};
+use hamlet_messages::realm::hamlets::{
+    Found, FoundAnswer, FoundRefusal,
+};
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
     Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
@@ -10,9 +13,8 @@ use hamlet_messages::realm::profiles::{
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, ChiefRequest, Done, Found, FoundAnswer,
-    FoundRefusal, Gate, Hire, HireAnswer, HireRefusal, LeadRefusal,
-    ProfileId,
+    AgentRefusal, Asked, ChiefRequest, Done, Gate, Hire, HireAnswer,
+    HireRefusal, LeadRefusal, ProfileId,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

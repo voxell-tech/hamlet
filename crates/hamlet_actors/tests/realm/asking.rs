@@ -3,14 +3,14 @@ use hamlet_messages::realm::budget::{
     MaySpend, OpenTask, SpendRefusal, TaskOpened, TaskTurn,
 };
 use hamlet_messages::realm::client::AnswerRefusal;
+use hamlet_messages::realm::letters::{
+    Ask, LetterRefusal, Reply, Sent, Tell, Waiting,
+};
 use hamlet_messages::realm::oversight::{
     AskChief, AskChiefRefusal, Hold, Lapse, LapseReason, Object,
     ObjectRefusal, Offer, Question,
 };
-use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, LetterRefusal, Reply, Sent,
-    Tell, Tool, Waiting,
-};
+use hamlet_messages::realm::{AgentRefusal, Done, LetterId, Tool};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,

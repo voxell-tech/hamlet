@@ -2,7 +2,7 @@
 //! the workspace, and the parts an agent fetches from the realm.
 
 use hamlet_messages::bytes::{Base64, Sha256};
-use hamlet_messages::realm::Enclosed;
+use hamlet_messages::realm::letters::Enclosed;
 use hamlet_messages::realm::parcels::{
     FetchPart, ParcelId, Part, PartRefusal,
 };

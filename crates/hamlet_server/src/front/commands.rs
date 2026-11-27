@@ -15,10 +15,12 @@ use hamlet_messages::agent::chat::{
 use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::choices::{
-    ModelOf, SetModel, SetNickname,
+    ModelOf, SetModel, SetNickname, SetTools,
 };
 use hamlet_messages::realm::client::{Answer, ReadState};
-use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::hamlets::{
+    FoundAnswer, ReadRecord, Record,
+};
 use hamlet_messages::realm::hires::{
     EraseHire, Merge, Restore, Restored,
 };
@@ -29,11 +31,11 @@ use hamlet_messages::realm::profiles::{
     Dream, Dreamer, Dreamt as Dreaming, Forked, Lifecycle,
     LifecycleRefusal, Made, MoveHouse, Site,
 };
+use hamlet_messages::realm::roads::{LayRoad, TakeUpRoad};
 use hamlet_messages::realm::workers::{SetAllowance, Started};
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Done, End, FoundAnswer, HireAnswer, LayRoad,
-    Named, Seat, SetTools, TakeUpRoad, ToolName,
+    Asked, ChiefRequest, Done, End, HireAnswer, Named, Seat, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{

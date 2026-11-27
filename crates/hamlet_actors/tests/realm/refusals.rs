@@ -1,7 +1,8 @@
 use hamlet_messages::realm::client::{AnswerRefusal, ReadWorld};
-use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterRefusal, NeedsChief, Sent, Waiting,
+use hamlet_messages::realm::letters::{
+    Ask, LetterRefusal, Sent, Waiting,
 };
+use hamlet_messages::realm::{AgentRefusal, Done, NeedsChief};
 use hamlet_messages::workspace::ConversationId;
 use hamlet_protocol::client::Choice;
 

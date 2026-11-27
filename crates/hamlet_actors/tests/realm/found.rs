@@ -1,8 +1,9 @@
+use hamlet_messages::realm::Asked;
 use hamlet_messages::realm::budget::{
     OpenTask, TaskOpened, TaskTurn,
 };
 use hamlet_messages::realm::client::SayAnswer;
-use hamlet_messages::realm::{Asked, Found, FoundAnswer};
+use hamlet_messages::realm::hamlets::{Found, FoundAnswer};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;

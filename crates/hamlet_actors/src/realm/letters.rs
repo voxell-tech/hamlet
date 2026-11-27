@@ -7,10 +7,12 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{Author, Input, InputId, Submit};
-use hamlet_messages::realm::{
-    AgentName, AgentRefusal, Ask, Done, Enclosed, LetterId,
-    LetterRefusal, Named, Refusable, Reply, ReplyRefusal, Sent, Tell,
+use hamlet_messages::realm::letters::{
+    Ask, Enclosed, LetterRefusal, Reply, ReplyRefusal, Sent, Tell,
     Waiting,
+};
+use hamlet_messages::realm::{
+    AgentName, AgentRefusal, Done, LetterId, Named, Refusable,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,

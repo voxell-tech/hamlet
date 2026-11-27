@@ -6,16 +6,16 @@ use std::time::Duration;
 
 use hamlet_messages::agent::{Input, Submit};
 use hamlet_messages::realm::client::AnswerRefusal;
+use hamlet_messages::realm::letters::{
+    Ask, Enclosed, LetterRefusal, Sent, Waiting,
+};
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::parcels::{
     FetchPart, Measure, PARCEL_PART, ParcelFile, ParcelId, Part,
     PartRefusal,
 };
 use hamlet_messages::realm::world::WaitKind;
-use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, DoneTo, Enclosed, End, LetterRefusal,
-    Sent, Waiting,
-};
+use hamlet_messages::realm::{AgentRefusal, Done, DoneTo, End};
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
 };

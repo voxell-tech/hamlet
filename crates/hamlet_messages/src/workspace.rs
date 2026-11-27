@@ -28,8 +28,9 @@ use self::reach::{Need, Reach};
 use self::refusal::{ChangeNotRun, RunNotRun, RunRefusal};
 use crate::address::{Agent, Realm, Workspace};
 use crate::bytes::Sha256;
+use crate::realm::Refusable;
+use crate::realm::letters::Enclosed;
 use crate::realm::parcels::Part;
-use crate::realm::{Enclosed, Refusable};
 use crate::{Message, worded};
 
 /// The number in an agent actor's file name,

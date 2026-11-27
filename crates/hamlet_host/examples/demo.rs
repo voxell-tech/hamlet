@@ -62,7 +62,8 @@
 //!                               client, in demo/watch.rs
 //! demo --realm-actor realm|agent ...
 //!                               the realm actor's commands, in
-//!                               demo/realm_actor.rs
+//!                               demo/realm_actor.rs and
+//!                               demo/realm_agent.rs
 //! demo --realm-actor pi ...     the real agent's commands, in
 //!                               demo/agent_host.rs
 //! demo --realm-actor profile ...
@@ -115,6 +116,8 @@ mod profile;
 mod realm;
 #[path = "demo/realm_actor.rs"]
 mod realm_actor;
+#[path = "demo/realm_agent.rs"]
+mod realm_agent;
 #[path = "demo/tell.rs"]
 mod tell;
 #[path = "demo/watch.rs"]

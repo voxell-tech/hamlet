@@ -11,10 +11,11 @@ use hamlet_actor::BindParam;
 use hamlet_messages::address::Workspace;
 use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::bytes::Sha256;
+use hamlet_messages::realm::LetterId;
 use hamlet_messages::realm::client::Answer;
+use hamlet_messages::realm::letters::Enclosed;
 use hamlet_messages::realm::parcels::{Measure, ParcelId};
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{Enclosed, LetterId};
 use hamlet_messages::workspace::{
     self, AgentNumber, ConversationId, ParcelAnswer, ParcelEntry,
     ParcelFault, ParcelRefusal,

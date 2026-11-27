@@ -15,10 +15,11 @@ use hamlet_messages::realm::hires::{Merge, MergedTo};
 use hamlet_messages::realm::profiles::{
     EditProfile, RevertProfile, TagProfile,
 };
+use hamlet_messages::realm::roads::{LayRoad, RoadDone, TakeUpRoad};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentName, Done, DoneTo, End, Gate, Hire, HireAnswer, LayRoad,
-    Named, Refusable, RoadDone, SocietyTool, TakeUpRoad, ToolCall,
+    AgentName, Done, DoneTo, End, Gate, Hire, HireAnswer, Named,
+    Refusable, SocietyTool, ToolCall,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

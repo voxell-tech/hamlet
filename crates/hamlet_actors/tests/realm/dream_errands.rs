@@ -7,6 +7,7 @@ use hamlet_messages::profile::{
     DreamId, DreamOpen, EndDream, PurgeAnswer,
 };
 use hamlet_messages::realm::budget::{Budget, Payer, SpendRefusal};
+use hamlet_messages::realm::choices::SetTools;
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt,
     PurgeProfile,
@@ -15,7 +16,7 @@ use hamlet_messages::realm::workers::{
     BUILT_IN, Ended, ErrandDone, SetAllowance,
 };
 use hamlet_messages::realm::{
-    Done, ProfileId, Refusable as _, SetTools, ToolName,
+    Done, ProfileId, Refusable as _, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

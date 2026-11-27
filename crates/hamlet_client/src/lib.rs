@@ -66,10 +66,10 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     messages::receive(world, &message);
     match message {
         protocol::ServerMessage::State(state) => {
-            realm::state(world, state);
+            realm::received::state(world, state);
         }
         protocol::ServerMessage::Change(changes) => {
-            realm::changes(world, changes);
+            realm::received::changes(world, changes);
         }
         message @ (protocol::ServerMessage::Transcript(_)
         | protocol::ServerMessage::Turn(_)) => {

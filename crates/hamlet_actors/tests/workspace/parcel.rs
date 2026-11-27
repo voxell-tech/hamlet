@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use hamlet_messages::bytes::Base64;
-use hamlet_messages::realm::Enclosed;
+use hamlet_messages::realm::letters::Enclosed;
 use hamlet_messages::realm::parcels::{PARCEL_PART, Part};
 use hamlet_messages::workspace::{
     Parcel, ParcelAnswer, ParcelEntry, ParcelFault, ParcelPart,
