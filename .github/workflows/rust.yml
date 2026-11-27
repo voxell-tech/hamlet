@@ -54,7 +54,7 @@ jobs:
         with:
           shared-key: ci
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources; sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo xtask clippy
       - run: cargo xtask cross
       # The server and the CLI compile C, so their cross-check needs
@@ -108,7 +108,7 @@ jobs:
         with:
           shared-key: ci
           save-if: false
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources; sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       - run: cargo xtask doc
 
   # Faux and loopback providers only. `cargo xtask test` runs the doc
@@ -131,7 +131,7 @@ jobs:
           node-version-file: hosts/node/.nvmrc
       # Ubuntu 24.04 blocks bubblewrap's unprivileged user namespaces.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
+      - run: sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources; sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
       - run: cargo xtask test
       - run: cargo xtask acceptance
       - run: cargo xtask killkit

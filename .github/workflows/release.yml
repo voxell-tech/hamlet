@@ -103,6 +103,7 @@ jobs:
       - name: Install what Bevy links against
         if: runner.os == 'Linux'
         run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             pkg-config libasound2-dev libudev-dev \
