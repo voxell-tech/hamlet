@@ -354,8 +354,8 @@ async fn a_move_copies_each_agents_files_to_the_chosen_workspace() {
         (moved.kind, moved.text.as_str()),
         (
             ReplyKind::Notice,
-            "Every lodge is copied to the chosen workspace; \
-             agents' tools still run on this machine."
+            "Every lodge is copied to the chosen workspace; agents' \
+             tools still run on this machine."
         )
     );
     let tea = worker
