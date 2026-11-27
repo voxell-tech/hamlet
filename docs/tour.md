@@ -301,8 +301,9 @@ demo and `demo --realm-actor`. The core's own tests are in
 lines but for the `integration` target, and most run on `TestHost` in
 `src/testing.rs`, a host on one in-memory database.
 
-`cargo xtask killkit` installs the Node host's packages, builds the
-native module and the demo, and runs `hamlet_killkit`. Its scenarios are
+`cargo xtask killkit`, on Linux only, installs the Node host's
+packages, builds the native module and the demo, and runs
+`hamlet_killkit`. Its scenarios are
 rows, one file of them per actor in `src/scenario/`, which `all()` in
 `src/scenario.rs` lists: the commands that set up, the fault point or
 the time to kill at, the commands after each restart, and what each

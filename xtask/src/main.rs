@@ -422,6 +422,10 @@ fn acceptance(root: &Path) -> Result<(), Failure> {
 /// The kill kit on the demo actor host: `rest` names a scenario and
 /// the runs, else every scenario runs once.
 fn killkit(root: &Path, rest: &[String]) -> Result<(), Failure> {
+    if env::consts::OS != "linux" {
+        eprintln!("xtask: killkit: the kill kit runs only on Linux");
+        return Ok(());
+    }
     prepare(root, Profile::Debug)?;
     status(&mut locked(
         "build",

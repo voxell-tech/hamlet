@@ -128,10 +128,11 @@ serve` runs the realm, the workspace, the profiles and the library with
 the real agent; both start `HAMLET_NODE` or `node` from `PATH`, and need
 the Node host's packages and native module in place.
 
-`cargo xtask killkit [<scenario>] --runs <n>` installs the Node host's
-packages, builds the native module and the demo, kills the demo with
-SIGKILL at a scenario's step or at a random time, or lets the Node host
-kill itself at a step, restarts it twice and prints one line per run;
+`cargo xtask killkit [<scenario>] --runs <n>`, on Linux only, installs
+the Node host's packages, builds the native module and the demo, kills
+the demo with SIGKILL at a scenario's step or at a random time, or lets
+the Node host kill itself at a step, restarts it twice and prints one
+line per run;
 with no scenario named it runs every one once, and `--list` names them.
 Each kit process makes a new folder of its own under the system's
 temporary folder, with a folder per run inside it, and removes a run's
@@ -161,7 +162,7 @@ and the native module for Node, `hamlet_actor_node`, for
 no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` (the suite below), `killkit` (every kill kit scenario once,
-as above), `doc` (`cargo doc` with `-D warnings` and every feature, except
+as above, on Linux only; elsewhere the step says so and passes), `doc` (`cargo doc` with `-D warnings` and every feature, except
 that `hamlet_actor_core` is documented on its own at its default features,
 because its `native-runtime` and `wasm-runtime` features exclude each
 other) and `node` (on Linux `declarations`, then the Node host's checks
