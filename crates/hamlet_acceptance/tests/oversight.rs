@@ -451,8 +451,6 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
         ),
         ("bash", json!({"command": "echo done > ruled"})),
     ]);
-    // Under --actors the answer's other call does not run, and the
-    // agent makes it again after the go.
     let script = if home::calls_hold_the_turn() {
         vec![objects, words("Went ahead.")]
     } else {

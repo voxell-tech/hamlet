@@ -159,8 +159,6 @@ export function society(
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),
             }),
-            // As today, no other call of an answer that objects runs before
-            // the chief rules (`crates/hamlet_server/src/calls/objections.rs`).
             hook(ToolTask, {
                 beforeTool: async (call, api, context) =>
                     call.name !== "object" &&

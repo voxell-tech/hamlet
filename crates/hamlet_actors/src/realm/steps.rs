@@ -672,7 +672,6 @@ pub struct StepsTold(pub mpsc::UnboundedSender<StepTold>);
 #[cfg(feature = "steps-told")]
 type Told = Option<mpsc::UnboundedSender<StepTold>>;
 
-/// Nothing to tell, outside the tests.
 #[cfg(not(feature = "steps-told"))]
 #[derive(Clone, Default)]
 struct Told;
