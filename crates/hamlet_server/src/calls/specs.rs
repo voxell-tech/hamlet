@@ -67,7 +67,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
 }
 
 /// A tool's spec from its JSON Schema.
-fn spec(
+pub(crate) fn spec(
     name: &str,
     description: &str,
     parameters: Value,
