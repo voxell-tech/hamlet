@@ -2,28 +2,29 @@
 
 The Rust crate `hamlet_cli` supplies `hamlet`. It manages the server and
 the window as separate processes and uses [the client protocol](protocol.md) for
-everything it asks the server. With the Node version in `harnesses/pi/.nvmrc`,
-run `npm ci --prefix harnesses/pi`. From the repository root:
+everything it asks the server. With the Node version in `hosts/node/.nvmrc`,
+from the repository root:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
+HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
 ```
 
-This builds the server and window. The server starts its Node pi
-harness as a child process. `cargo xtask install` installs all three binaries;
+This installs the Node host's packages and native module, then builds the
+server and window. The server starts the Node host, which runs the agents,
+as its child process. `cargo xtask install` installs all three binaries;
 installing only `hamlet_cli` does not install the server or window.
 
 The CLI selects `HAMLET_SERVER_BIN`, then a sibling `hamlet_server`, then
-PATH. The server selects `HAMLET_PI_HARNESS` (the path to `src/main.ts`),
-then sibling `pi/src/main.ts`, then the macOS app's
-`Contents/Resources/pi/src/main.ts`, then the harness in its build checkout,
-and refuses to start when the entry it selects does not exist.
-`HAMLET_NODE` selects Node, else the `node` a release ships beside the
-server, else Node on `PATH`. A release includes Node, the pi package and
-its production dependencies, but not the optional ones that carry
-Anthropic's Claude program, so pi offers Claude only where `npm ci`
-installed them. `HAMLET_CLAUDE_EXECUTABLE` selects another Claude
-program; pi still needs those packages to drive it. From source, Node is
+PATH. The server selects `HAMLET_NODE_HOST` (the path to the Node host's
+`src/main.ts`), then sibling `node-host/src/main.ts`, then the macOS app's
+`Contents/Resources/node-host/src/main.ts`, then `hosts/node/src/main.ts`
+in its build checkout, and refuses to start when the entry it selects does
+not exist. `HAMLET_NODE` selects Node, else the `node` a release ships
+beside the server, else Node on `PATH`. A release includes Node, the Node
+host and its production dependencies, but not the optional ones that carry
+Anthropic's Claude program, so the Node host offers Claude only where
+`npm ci` installed them. `HAMLET_CLAUDE_EXECUTABLE` selects another Claude
+program; the Node host still needs those packages to drive it. From source, Node is
 installed separately.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
@@ -72,12 +73,12 @@ confinement, and bare `hamlet`, which reuses whatever server runs, prints
 "Attached to a server in insecure mode." when it reuses one in that mode.
 On Windows, `hamlet stop` ends the server's process, since Windows has no
 signal another console can send a background process. The job the server
-runs in then ends pi and every command with it.
+runs in then ends the Node host and every command with it.
 
 ## Typed commands
 
 The server advertises its supported deeds in the state it sends, and
-`commands.rs` carries them out: hamlets and hires, the tree and its roads,
+`crates/hamlet_server/src/front/commands.rs` carries them out: hamlets and hires, the tree and its roads,
 versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
 `/agent` as address changes, and `/attach`. `/hand` talks to the Hand,
@@ -113,7 +114,8 @@ or `HAMLET_APP` selects the corresponding existing binary.
 `hamlet window` finds the app by `HAMLET_APP`, then beside the CLI,
 then PATH. It passes the server address and token through the environment,
 never argv. Players still open an app called Hamlet; only its executable is
-named `hamlet_app`. Releases contain the four binaries, Node and pi.
+named `hamlet_app`. Releases contain the four binaries, Node and the Node
+host.
 
 The window has no realm claim and runs no agent. It finds a local server
 through the realm's `server.json` and connection token, or uses

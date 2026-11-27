@@ -79,9 +79,11 @@ your real files alone.
 
 Early and moving fast.
 
-- **`hamlet_server`** (Rust) owns the realm: the agents, scholars'
-  repositories, roads, letters, library, approvals and budgets.
-- **pi harness** (Node processes) owns conversations and model calls.
+- **`hamlet_server`** (Rust) owns the realm: the society, scholars'
+  repositories, roads, letters, library, approvals and budgets, each kept
+  by an actor in a SQLite file of its own.
+- **The Node host** (a Node process the server starts) runs the agents:
+  their conversations and model calls, on pi-durable.
 - **The window** is a protocol client. Closing it stops no agent.
 - **Tests** use faux and loopback providers. They do not establish
   exhaustive behavior or platform coverage.
@@ -116,7 +118,7 @@ The archives beside them hold the same programs for a terminal; see
 
 ## Quick start
 
-You need Rust, git and Node **24.1.0** (pinned in `harnesses/pi/.nvmrc`).
+You need Rust, git and Node **24.1.0** (pinned in `hosts/node/.nvmrc`).
 From the repository root:
 
 ```sh
@@ -124,11 +126,11 @@ cargo xtask install
 hamlet
 ```
 
-This installs pi's packages, puts `hamlet`, `hamlet_server` and
+This installs the Node host's packages and native module, puts `hamlet`, `hamlet_server` and
 `hamlet_app` in `~/.cargo/bin`, and starts your realm in `~/.hamlet`.
 
 > [!NOTE]
-> A source install uses the checkout's `harnesses/pi/`. Keep the checkout,
+> A source install uses the checkout's `hosts/node/`. Keep the checkout,
 > and run `cargo xtask install` again after pulling.
 
 ## Try it without installing
@@ -170,19 +172,18 @@ HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
 ### Models and credentials
 
 Use an API key, a local model endpoint, or sign in with ChatGPT or
-OpenRouter. Credentials stay on the server, and subscription refreshes are
-saved there before the harness continues.
+OpenRouter. Credentials stay on the server, in `credentials.json` in the
+realm folder.
 
 ### Tools and platforms
 
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
-- Settings can select a remote workspace for the agents' tools and
-  lodges. It takes effect on restart and never falls back to local
-  execution.
+- Settings can choose a remote workspace and copy every agent's lodge to
+  it. The agents' tools run on the server's machine.
 - Windows has no sandbox. A Windows server starts only in insecure
   mode, with `hamlet --insecure`, and agents' commands then reach whatever
-  your account can. Agents get `powershell`, and `bash` where Git for
-  Windows is installed. Linux and macOS refuse `--insecure`.
+  your account can. Commands run in `bash`, so they need one, such as
+  Git for Windows' Git Bash. Linux and macOS refuse `--insecure`.
 - The window can connect to another machine's server.
 
 ### Environment variables
@@ -194,14 +195,15 @@ saved there before the harness continues.
 | `HAMLET_SERVER_BIN` | An existing server binary. Skips the server build in `dev`. |
 | `HAMLET_APP` | An existing window binary. Skips the window build in `dev`. |
 | `HAMLET_SERVER` | A remote WebSocket URL, never an executable. |
-| `HAMLET_PI_HARNESS` | Pi's `src/main.ts`. |
+| `HAMLET_NODE_HOST` | The Node host's `src/main.ts`. |
 | `HAMLET_NODE` | A Node executable. |
 | `HAMLET_NO_UPDATE` | Set to anything, an installed release stops looking for updates. |
 
 Installed commands look for the server and window beside the CLI, then on
-`PATH`. Without `HAMLET_PI_HARNESS`, the server prefers a sibling
-`pi/src/main.ts`, then the macOS bundle's `Contents/Resources/pi/src/main.ts`,
-then the build checkout's harness. Without `HAMLET_NODE`, it prefers the
+`PATH`. Without `HAMLET_NODE_HOST`, the server prefers a sibling
+`node-host/src/main.ts`, then the macOS bundle's
+`Contents/Resources/node-host/src/main.ts`, then the build checkout's
+`hosts/node/src/main.ts`. Without `HAMLET_NODE`, it prefers the
 Node a release ships beside it, then Node on `PATH`.
 
 An installed app opens `hamlet_launch`, which starts or reuses the server

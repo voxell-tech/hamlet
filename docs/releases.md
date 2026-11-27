@@ -16,20 +16,22 @@ Each holds:
 - `hamlet_launch`, what the installed app opens;
 - `hamlet_server`, the server;
 - `hamlet_app`, the window;
-- `node`, the Node of `harnesses/pi/.nvmrc` from nodejs.org, checked
+- `node`, the Node of `hosts/node/.nvmrc` from nodejs.org, checked
   against its published sums;
-- `pi/` with its source, lockfile and production `node_modules`;
+- `node-host/`, the Node host, with its source, lockfile and production
+  `node_modules`, the native module `hamlet_actor_node` among them;
 - licenses, Node's among them, and a README.
 
 Nothing else is installed first: no Node, no checkout, no npm install.
-The server finds sibling `pi/src/main.ts`, then the macOS bundle's
-`Contents/Resources/pi/src/main.ts`, then the checkout it was built from,
-and refuses to start, naming `HAMLET_PI_HARNESS`, when none of them
-exists. It runs pi with `HAMLET_NODE`, else the `node` beside it, else
-Node on `PATH`.
+The server finds sibling `node-host/src/main.ts`, then the macOS bundle's
+`Contents/Resources/node-host/src/main.ts`, then the checkout it was built
+from, and refuses to start, naming `HAMLET_NODE_HOST`, when none of them
+exists. It runs the Node host with `HAMLET_NODE`, else the `node` beside
+it, else Node on `PATH`.
 
-pi's optional packages are left out: they carry Anthropic's Claude program,
-whose terms are Anthropic's, so a released pi offers no Claude
+The Node host's optional packages are left out: they carry Anthropic's
+Claude program, whose terms are Anthropic's, so a released Node host
+offers no Claude
 ([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)).
 
 ## The launcher
@@ -49,9 +51,9 @@ Linux shows it with zenity, which the packages recommend. Given
 
 macOS: the disk image holds `Hamlet.app` beside a link to
 Applications. The bundle opens `hamlet_launch`; the binaries and `node`
-live in `Contents/MacOS`, and pi and the licenses in `Contents/Resources`.
-With a Developer ID the release signs every program with the hardened
-runtime, pi's native modules too, gives Node the JIT entitlements it
+live in `Contents/MacOS`, and the Node host and the licenses in
+`Contents/Resources`. With a Developer ID the release signs every program
+with the hardened runtime, the Node host's native modules too, gives Node the JIT entitlements it
 needs, and has Apple notarize and staple the image. Without one, the
 programs are ad-hoc signed and Gatekeeper refuses the app until the
 chief chooses Open Anyway in Privacy & Security.
@@ -67,23 +69,24 @@ Windows: an Inno Setup installer, `.github/scripts/hamlet.iss`, installs
 for the current account in `%LOCALAPPDATA%\Programs\Hamlet`, with no
 administrator, and adds Hamlet to the Start menu. An update stops the
 running server first, since it holds its programs open, and replaces
-pi whole; uninstalling stops it too. The realm is never touched. Windows
+the Node host whole; uninstalling stops it too. The realm is never touched. Windows
 has no server sandbox, so a server starts only in insecure mode,
 which needs `hamlet.exe --insecure` in a terminal: the installed app
 says so in its dialog. Agents' commands then reach whatever the account
-running it can. Agents get `powershell`, and `bash` where Git for
-Windows is installed. The binaries link the C runtime statically and
+running it can. Commands run in `bash`, so they need one, such as
+Git for Windows' Git Bash. The binaries link the C runtime statically and
 need no Visual C++ runtime.
 
 Neither packaging nor Linux tests prove macOS or Windows behavior.
-Remote workspaces require a separately run workspace worker; it is not
+A remote workspace is a separately run workspace worker; it is not
 included.
 
 ## Building them
 
 Build natively on the target platform: npm's optional/native dependencies
 must match the target. The release job uses the pinned Node version and
-builds the four binaries with `cargo xtask build` before invoking
+builds the four binaries and the native module with `cargo xtask build`
+before invoking
 `.github/scripts/package.sh`:
 
 ```sh
@@ -94,25 +97,27 @@ cargo xtask build --target x86_64-unknown-linux-gnu
 For macOS use `aarch64-apple-darwin`. The script accepts an optional third
 argument for the profile directory, defaults to `release`, and respects
 `CARGO_TARGET_DIR`. It creates a clean staging directory, downloads Node,
-installs pi with `npm ci --omit=dev --omit=optional`, and writes everything
+installs the Node host with `npm ci --omit=dev --omit=optional`, puts the
+native module in it, and writes everything
 under `dist/`. It does not compile TypeScript. Linux needs `dpkg-deb` and
 `rpmbuild`. A tag's version names the packages; a commit's is the
 workspace's version followed by `~g` and the commit, which sorts before the
 tag's.
 
-For Windows, build the four binaries with `cargo build --release --locked
--p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin
-hamlet_server -p hamlet_app --bin hamlet_app --target
-x86_64-pc-windows-msvc`, with `RUSTFLAGS` set to
+For Windows, build the four binaries and the native module with
+`cargo build --release --locked -p hamlet_cli --bin hamlet --bin
+hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin
+hamlet_app -p hamlet_actor_node --lib --target x86_64-pc-windows-msvc`, with `RUSTFLAGS` set to
 `-C target-feature=+crt-static`, then run the script in Git Bash with that
 target. It needs Node, npm, 7-Zip and Inno Setup 6.
 `brand/hamlet-icon.ico` is the installer's and the shortcuts' icon, made
 from `brand/icon/hamlet-icon.png`.
 
 `cargo xtask install` is a different, source-development workflow: it installs
-the CLI, server and window into Cargo's bin directory but leaves pi in the build
-checkout. Retain that checkout, or set `HAMLET_PI_HARNESS` to another fully
-installed pi entry. `cargo xtask uninstall` removes the three binaries, not realms.
+the CLI, server and window into Cargo's bin directory but leaves the Node
+host, with its packages and its release native module, in the build
+checkout. Retain that checkout, or set `HAMLET_NODE_HOST` to another fully
+installed Node host's entry. `cargo xtask uninstall` removes the three binaries, not realms.
 
 ## Signing
 

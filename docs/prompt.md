@@ -1,8 +1,9 @@
 # What an agent is told
 
 The system prompt built before every model request, where each part comes
-from, and how the chief reads and edits it. The server builds the
-sections; the pi harness asks for them before each request.
+from, and how the chief reads and edits it. The agent builds the prompt
+before each request; the realm renders the sections that come from its
+record.
 
 ## The parts, in order
 
@@ -18,8 +19,11 @@ sections; the pi harness asks for them before each request.
 | The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
 | The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
 
-`crates/hamlet_server/src/talk/prompt.rs` composes the sections;
-`talk/prompt/place.rs` renders the place and the realm. The parts are built
+`hosts/node/src/agent/prompt.ts` composes the sections from the agent's
+copies of the realm's documents, its lodge, the library's shelves and the
+workspace's tool list. `crates/hamlet_actors/src/realm/prompt.rs` renders
+the place, the realm and the scholars, which the agent reads with one
+`read_place` per request. The parts are built
 again before each request. None of them follows spending, so the prompt of one
 input matches the next's, and the provider's prompt cache holds across them;
 an agent reads what it may spend with the `read_budget` tool.
@@ -33,13 +37,13 @@ built-in tools alone.
 
 ## The charter and character
 
-The charter is a file of the server's, edited through the protocol. An
+The charter is a document of the realm's, edited through the protocol. An
 unedited charter uses the shipped default, so it follows later defaults. BACK
 TO THE DEFAULT clears the chief's replacement after asking first.
 
 A character is a file, `CHARACTER.md`, in the scholar's repository. A hire's
-lodge is checked out without it, so no tool can write it, and a file by that
-name written there is never committed. A chief edits it on the scholar's
+lodge is filled without it, the agent's own write tool refuses a file by
+that name there, and none is ever committed. A chief edits it on the scholar's
 `main`; a lead gives one only when it makes a scholar with `create_scholar`. A
 hire's prompt reads it at the tip of its own branch, which began at `main` or
 at its pin.
@@ -68,6 +72,6 @@ to the scholar's `main` (see [`society.md`](society.md)).
 
 ## The whole prompt
 
-Prompt in an agent's details sends `read prompt`. The server uses the
-same prompt sections as a model request, and the Hub displays the returned
+Prompt in an agent's details sends `read prompt`. The agent answers with
+the same prompt sections as a model request, and the Hub displays the returned
 text. The window reads no lodge or realm files to build it.

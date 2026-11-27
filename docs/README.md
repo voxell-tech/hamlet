@@ -19,9 +19,10 @@ their design is not built in
 3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
    the rules of working here.
 
-Run `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`. It installs pi's dependencies,
-then the Rust CLI builds the server and window, starts a scratch server
-and opens the window with its own scratch view folder.
+Run `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`. It installs the Node
+host's packages and builds its native module, then the Rust CLI builds the
+server and window, starts a scratch server and opens the window with its
+own scratch view folder.
 Closing the window leaves the server running; Ctrl-C stops it. The full
 setup is in [`../README.md`](../README.md#try-it-without-installing).
 
@@ -31,7 +32,7 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`realm.md`](realm.md) | The realm on disk: its folder, database, scholars and lodges, credentials and claim |
+| [`realm.md`](realm.md) | The realm on disk: its folder, the actors' files, profiles and agents' filesystems, credentials and claim |
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |
@@ -42,12 +43,12 @@ Then read the page for the part you are about to touch.
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
 | [`society.md`](society.md) | The Hand, the city of scholars, hamlets and hires, roads, dreams, the shared library and what waits |
-| [`harness.md`](harness.md) | The harness: runtimes, bindings, the runtime protocol, its IDs and what a harness must be able to do |
+| [`harness.md`](harness.md) | The agent's host: what the Node host holds and how an agent's conversations run there |
 | [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
-| [`releases.md`](releases.md) | Packaging the CLI, server, window and pi for Linux, macOS and Windows, and a release updating itself |
+| [`releases.md`](releases.md) | Packaging the CLI, server, window and Node host for Linux, macOS and Windows, and a release updating itself |
 
 ## The rules
 

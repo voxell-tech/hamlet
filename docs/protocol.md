@@ -89,13 +89,11 @@ The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
 `AgentId`. An opening `transcript` has `to`; live updates need no request ID.
 A `reply` settles the request, not necessarily all work in a conversation.
 
-The durable conversation inputs have separate request IDs. A chief's line
-uses `chief:<say id>` to admit it once in that conversation.
-A retry uses `retry:<UUID>`; this UUID is independent of the wire
-`retry` request's `id`. A reflection uses
-`reflection:<conversation>:<number>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `talk/chats.rs` and
-`talk/reflections.rs`.
+The agent admits each input once under its own request ID. A chief's line
+is admitted under its `say` request's `id`. A retry uses `retry:<id>`, and a
+reflection `reflection:<conversation>:<number>`. Clients send UUIDs, not
+these internal IDs. The agent makes them in
+`hosts/node/src/agent/commands.ts` and `reflect.ts`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state
@@ -173,7 +171,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 | `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a scholar's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent hires starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a scholar an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent hires starts from, at most 4000 characters. `workspace` chooses a remote workspace, or none for `null`; the realm keeps it with its credentials, and `move-lodges` copies the agents' lodges there. The agents' tools run in the local workspace. |
 | `catalogue` | `model: string`, `set: {images?: ImageInput \| null, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. `images` says the model takes images within those limits (`maxWidth?`, `maxHeight?`, `maxBytes?`, `perLine?`, none of them zero, the rest at their defaults); `images: null` clears it back to what the model's provider lists. |
 
 ### Read documents
@@ -201,8 +199,8 @@ Each row is a `Login` form with `type: "login"` and `id`.
 
 Sessions belong to the initiating connection. Disconnecting cancels them.
 
-The provider `claude` signs in with `method: "subscription"` alone. pi runs
-Claude's own sign-in and the server sends one `url` step, the link to
+The provider `claude` signs in with `method: "subscription"` alone. The
+Hand's agent runs Claude's own sign-in and the server sends one `url` step, the link to
 Anthropic's sign-in page, then `done` once the Claude program has the login;
 no `reply` is asked for. The credential the server keeps only marks the
 sign-in. The sign-in completes only in a browser on the server's machine.
@@ -239,8 +237,9 @@ is another machine.
 `conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
-is `{url, running, move?}`: the remote workspace chosen and the
-one the server works in until it restarts, each `null` for the local one. It
+is `{url, running, move?}`: the remote workspace chosen, `null` for none,
+and `running`, which is `null`, since the agents work in the local
+workspace. It
 never holds the token. `move` is the latest move of the lodges to the chosen
 workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
@@ -282,11 +281,10 @@ several watches. It receives live `turn` operations only for those chats.
 `close {chat}` ends that connection's watch; disconnect ends all its watches.
 
 A page holds at most **100 items**, not 100 turns or durable entries.
-`clients/requests.rs` takes the last 100 folded items before the
+The agent (`hosts/node/src/agent/transcript.ts`) takes the last 100 folded items before the
 cursor, or before the end when `before` is omitted. Pages are fetched newest
 first, but **items inside each page stay in entry and content-block order,
-oldest to newest**, not reverse timestamp order. Harness history batches
-are separate from the wire page size.
+oldest to newest**, not reverse timestamp order.
 
 `earlier` is the first returned item's ID if older items remain, else
 `null`. Send `open {chat, before: earlier}` to fetch the preceding page,
@@ -295,8 +293,8 @@ watch leaves its live subscription running, even if the page request fails.
 
 Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
 `rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
-`rewind` explicitly refuses a peer or past `ChatRef` in
-`clients/requests.rs`. The other five messages take an `AgentId`, not a
+The agent refuses a `rewind` of a peer or past `ChatRef`
+(`hosts/node/src/agent/commands.ts`). The other five messages take an `AgentId`, not a
 peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
 fields to them is malformed. Opening a peer watch does not retarget writes.
 
@@ -371,7 +369,7 @@ A fault does not itself imply disconnect. Malformed input after hello,
 second hello and request-handler failures leave the connection open.
 Handshake refusals, message size violations and unexpected connection
 failures close it as described above. The server's
-`clients/connection.rs` and `clients/requests.rs` own these paths. Watch failures use
+`clients/connection.rs` and `front.rs` own these paths. Watch failures use
 the `fault` envelope; an open refused because its chat is not there or
 its agent is not reached is a failure `reply`.
 

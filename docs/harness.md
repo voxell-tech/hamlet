@@ -1,122 +1,71 @@
-# The harness
+# The agent's host
 
-An agent's conversations run in a harness, a process apart from the
-server ([ADR 0001](adr/0001-agents-run-on-a-rust-server-and-harnesses-run-their-conversations.md)).
-This page explains how the server and a harness work together: runtimes
-and bindings, the runtime protocol between them, the IDs each side makes, and what a
-harness must be able to do. The pi harness's files are listed in
-[the tour](tour.md#the-pi-harness).
+Every agent is an actor of the Node host, `hosts/node`, which the server
+starts as its child and talks to over the child's pipe (A2, A3 in
+[the actor runtime](spec/actor-runtime.md)). This page says what is in the
+Node host and how an agent's conversations run there. Its files are listed
+in [the tour](tour.md#the-node-host).
 
-## Harnesses, runtimes and bindings
+## What the Node host holds
 
-A harness is a kind of program that runs conversations. pi, in
-`harnesses/pi/`, is the only one. A runtime is one running process of a
-harness, with a stable ID and its own store under `harnesses/<instance>/`,
-which only it opens. Neither the server nor a runtime opens the other's
-store (ADR 0012).
+| Path in `hosts/node/src/` | What it is |
+|---|---|
+| `main.ts`, `entry.ts` | The entry: it takes the link from the Rust host that started it and serves its kinds until that host's goodbye. `--faux <script>` has the agents' models answer from a script, `--sign-in` lists two providers on loopback to sign in to, and `--kind` serves the demo's kinds |
+| `actor/` | The actor runtime's TypeScript side, under Apache-2.0 alone (A17) |
+| `pi/` | pi-durable, the wrapper that keeps an agent's conversations, turns and timers in the actor's own file, under Apache-2.0 alone |
+| `agent/` | The agent actor: its chats, turns, tools, prompt, filesystem and models |
+| `demo.ts` | The demo's kinds, which `cargo run -p hamlet_host --example demo -- --link` runs |
 
-- An agent has a harness for its new conversations, kept by the server.
-- New conversations of a harness go to its one runtime. An agent is not a
-  process.
-- A conversation has a binding: its runtime, the runtime's ID for the
-  conversation, and the adapter and harness versions it began with. A
-  conversation never moves to another runtime (S17).
-- A runtime's versions never change. A runtime that reports other
-  versions than it began with is refused.
-- A conversation has a kind, which the server tells the runtime when it
-  creates it: `chat`, `letters`, `questions`, `worker`, `errand` or `dream`.
-  A one-off conversation, such as the librarian's answer or a lead's review,
-  is an errand: a conversation like any other, bound to a runtime. The agent
-  it is for is named by its id.
+The native module `@hamlet/actor-node`, built from `crates/hamlet_actor_node`,
+gives the Node host the link, each actor's SQLite file and the agent's
+filesystem, all in Rust. Install the
+package with `npm ci` in `hosts/node`, with the Node version in
+`hosts/node/.nvmrc`.
 
-## The runtime protocol
+## How an agent's conversations run
 
-The server and a runtime talk through one private interface of Hamlet's.
-Its transport is the runtime's standard input and output, which only the
-server holds: one JSON message per line. The messages are the Rust types
-in `hamlet_protocol::runtime`, which a harness written in Rust can use
-directly. `cargo test -p hamlet_protocol` writes their JSON
-Schema to
-`harnesses/pi/src/protocol-schema.ts`, and fails when it was stale so the
-new file is committed; pi takes its types and its checks from that file,
-so both sides are checked against one schema. Its version is semver, 0.1.0
-until Hamlet's first release, and a runtime is taken on when it speaks a
-version compatible with the server's by semver's caret.
+An agent actor is per agent: its key is the agent's number, and its file,
+`actors/agent/<n>.sqlite`, holds all its conversations
+(`agent/sessions.ts`). A chief's chat is a run of sessions, each one
+pi-durable conversation, one of them current. A peer's letters and its
+questions each have a chat of their own (C22). A worker and an errand are
+agents of their own.
 
-Every message carries the protocol version and the sender's ID for it. A
-reply names the ID it answers. Errors are messages, not closed
-connections.
+A turn runs its tool calls one at a time (`toolExecution: "sequential"` in
+`agent/actor.ts`). A chief's line that arrives during a running turn steers
+it: the turn takes the line at its next model call (C23). A tool call that
+has to wait does not hold the turn. It ends with words that say what it
+waits for, and what it waited for comes to the agent as a new input:
 
-### Starting
+| Call | Its words |
+|---|---|
+| A shell command past 5 s (C16) | The command's id; its end arrives as a new input |
+| A call that waits for a chief | "This call waits for a chief's answer." |
+| `ask` | "Waiting for X's answer." |
+| `start_worker` | The worker's answer comes as a reply |
+| `ask_librarian` | "The librarian is looking." |
 
-1. The server starts the runtime with `--runtime <id>`, `--store <path>`
-   and `--transport stdio`. It adds `--fresh` only when the runtime has never
-   begun, the one time its store may be made.
-2. The runtime says `hello`: the protocol versions it speaks, its adapter and
-   harness versions, the runtime ID its store records, whether the store
-   was created, opened or is missing, and its capabilities.
-3. The server refuses a protocol version it does not speak, a missing store, a
-   store that records another runtime or none, versions other than those
-   the runtime began with, and a runtime that lacks a needed capability.
-   The refusal is in words for a chief, never a fallback, and a refused
-   runtime is not started again.
-4. Otherwise the server answers `welcome` with the tools the runtime's
-   conversations may offer and each bound conversation's context window,
-   then creates the conversations it owes and submits the inputs it owes.
+Each tool call and its result are kept in the agent's file, so a call cut
+off by a stop runs again under the same id at the next start (A16).
 
-A runtime that fails stops only its own conversations (S22). The server
-starts it again after 250 ms, doubling with each failure up to 30 s, and
-forgets the failures once it has run for a minute. A runtime whose
-standard input closes stops its work and exits, so no agent runs without
-its server.
+## Request ids
 
-### Admitting inputs
+A chief's line is admitted under its `say` request's id, so a line sent
+again is admitted once. A retry is admitted under `retry:<message id>`
+(`agent/commands.ts`), and a reflection under
+`reflection:<conversation>:<k>` (`agent/reflect.ts`).
 
-The server keeps every input it owes a conversation, in order, before
-submitting it. A runtime admits a request ID once: submitting it again
-admits nothing new and answers as the first time did. The server marks an
-input admitted only when the runtime says it kept it, and submits it
-again after a restart or a lost reply (S23).
+## Timers and images
 
-An input may carry images (C33), as may a tool result (C34). The server sends
-their bytes, fitted to the conversation's model, with the submission or the
-result, and keeps only their ids; pi hands them to the model as image
-content beside the words. A model's `selection` says `images` when the server
-knows it takes images, which a custom endpoint's listing does not say; pi then
-counts the model as taking them.
+pi-durable keeps each timer's sleep in the agent's file, and the host keeps
+one alarm for the earliest (`agent/timers.ts`). The images saved with a
+chief's line are written under `inbox/images/` in the agent's filesystem
+(`agent/parcels.ts`) and handed to the model as image content beside the
+words.
 
-### IDs
+## Tests
 
-| ID | Made by | Unique within |
-|---|---|---|
-| Runtime ID | The server, kept in its store and the runtime's | The realm |
-| Conversation ID | The runtime | Its runtime |
-| Request ID of an input | The server, kept before it is submitted | Its conversation |
-| Operation identity | The runtime ID with a key local to the runtime | The realm |
-| Attempt identity | The runtime ID with a key local to the runtime | The realm |
-
-A request ID begins with its kind, such as `chief:`, `retry:`, `reflection:`,
-`notice:`, `reply:`, `errand:`, `worker:` or `dream:`. Those of letters and
-questions come from the server's record of them. pi's task IDs are numbers
-local to its store, so an operation identity is the runtime ID and the task
-ID together. A provider's tool-call ID is never treated as unique. A model
-attempt names the input it answers with `submission`, the runtime's own ID
-for it.
-
-## Capabilities
-
-A runtime declares what it can do in its `hello`. What Hamlet never gives
-up is not optional: a runtime that lacks it is refused (S24).
-
-| Capability | Promises | Needed |
-|---|---|---|
-| `operations` | Every tool call and change to the record goes through the server as an operation | Always |
-| `attempts` | Every model call is allowed by the server first, and its usage reported with an identity | Always |
-| `admission` | Inputs admitted once by request ID, in order | Always |
-| `cancel` | Stopping a running turn and dropping its queue | Always |
-| `recovery` | Carrying on its own work after a restart | Always |
-| `updates` | Updates of its conversations, sent only once kept | Always |
-| `history` | The transcript in pages | No |
-
-A new harness needs its own check against this table and its own tests;
-what is shown for pi does not carry over to it.
+In `hosts/node`, `npm test` runs the agent's and pi-durable's tests on faux
+models, `npm run test:native` the native module's, and `npm run test:link`
+the link's against a Rust host. `cargo xtask node` runs them all, as the
+checks in `AGENTS.md` list.

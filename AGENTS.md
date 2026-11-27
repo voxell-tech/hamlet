@@ -73,22 +73,28 @@ release or another site.
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
 `crates/hamlet_server`, and the window `hamlet_app` in `crates/hamlet_app`.
-Use the Node version in `harnesses/pi/.nvmrc` and install the harness with
-`npm ci --prefix harnesses/pi`. No global npm command is needed.
-For local work:
+The server runs the agents in the Node host, `hosts/node`, a Node package
+it starts as its child. Use the Node version in `hosts/node/.nvmrc`. The
+Node host needs its packages and its native module, `hamlet_actor_node`:
+`cargo xtask dev`, `cargo xtask install` and every check that runs the
+server install the packages with `npm ci --prefix hosts/node` when they
+are missing or stale, and build the module and put it where it loads. No
+global npm command is needed. For local work:
 
 ```sh
-HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
+HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
 ```
 
 `dev` builds the checkout's server and window. `HAMLET_SERVER_BIN` and
 `HAMLET_APP` select existing binaries and skip their respective builds.
 Use `cargo run -p hamlet_cli -- <command>` for other commands, or install
 all three with `cargo xtask install`. That source install keeps using the
-checkout's pi package. Packaged archives include pi beside the binaries
-on Linux, or in `Contents/Resources/pi` in the macOS app.
-`HAMLET_PI_HARNESS` selects pi's `src/main.ts`; `HAMLET_NODE` selects Node.
-`HAMLET_SERVER` is a remote URL, never a server executable path.
+checkout's Node host, so keep the checkout where it was installed from.
+Packaged archives put the Node host in `node-host/` and Node beside the
+binaries on Linux and Windows, and in `Contents/Resources/node-host` in
+the macOS app. `HAMLET_NODE_HOST` selects the Node host's `src/main.ts`,
+and `HAMLET_NODE` selects Node. `HAMLET_SERVER` is a remote URL, never a
+server executable path.
 
 Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
 the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
@@ -98,15 +104,17 @@ or with `HAMLET_VIEW` set to a scratch folder yourself. Set both scratch
 paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
 window built outside the repository's `target/` folder.
 
-The server keeps the agents' files; the window keeps its size, layout and
-theme in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
-window ends only its process; agents keep working on the server. Stop
-`hamlet dev` with Ctrl-C when done.
+The server keeps the agents' files in the realm folder, one SQLite file
+per actor under `actors/` ([`docs/spec/actor-runtime.md`](docs/spec/actor-runtime.md)).
+A running server holds each actor's file, so open one with
+`sqlite3 -readonly` only after the server stops. The window keeps its
+size, layout and theme in `HAMLET_VIEW`, else the OS's config folder for
+Hamlet. Closing the window ends only its process; agents keep working on
+the server. Stop `hamlet dev` with Ctrl-C when done.
 
-The server does not use the actor runtime. The runtime's host,
-`hamlet_host`, has a demo that runs counter actors, each in one SQLite
-file under `actors/counter/` in `HAMLET_HOME`. Run it only with
-`HAMLET_HOME` set to a scratch folder:
+`hamlet_host` has a demo that runs actors on their own, each in one SQLite
+file under `actors/` in `HAMLET_HOME`. Run it only with `HAMLET_HOME` set
+to a scratch folder:
 
 ```sh
 HAMLET_HOME=/tmp/actors-try cargo run -p hamlet_host --example demo -- increment a
@@ -114,26 +122,25 @@ HAMLET_HOME=/tmp/actors-try cargo run -p hamlet_host --example demo -- increment
 
 `demo serve [<n>]` keeps the host running, starts `n` counters that never
 sleep, and takes one command per line on stdin until stdin ends or the
-process gets SIGTERM. A running host holds `host.lock` and each actor's
-file, so open a file with `sqlite3 -readonly` only after the host stops.
-
-`demo --link serve` runs the agents in a Node host, the demo's child,
-started with `HAMLET_NODE` or `node` from `PATH`; it needs the Node host
-installed and its native module built, as `cargo xtask node` does.
+process gets SIGTERM. `demo --link serve` runs TypeScript stand-ins for
+the agents in a Node host, the demo's child, and `demo --realm-actor
+serve` runs the realm, the workspace, the profiles and the library with
+the real agent; both start `HAMLET_NODE` or `node` from `PATH`, and need
+the Node host's packages and native module in place.
 
 `cargo xtask killkit [<scenario>] --runs <n>` installs the Node host's
 packages, builds the native module and the demo, kills the demo with
 SIGKILL at a scenario's step or at a random time, or lets the Node host
 kill itself at a step, restarts it twice and prints one line per run;
-with no scenario named it runs every one, and `--list` names them. Each kit process makes a new
-folder of its own under the system's temporary folder, with a folder per
-run inside it, and removes a run's folder when the run passes.
-The kit stops the host at a step through `HAMLET_FAULT`, which works only
-in a build with `hamlet_host`'s `faults` feature; the crate's own tests
-and examples turn it on. `cargo xtask idle <command>` starts a command,
-writes each `--send <line>` to its standard input, and reports the
-memory, in MB of 1,000,000 bytes, and wakeups per second of its process
-tree while it is idle, on Linux only.
+with no scenario named it runs every one once, and `--list` names them.
+Each kit process makes a new folder of its own under the system's
+temporary folder, with a folder per run inside it, and removes a run's
+folder when the run passes. The kit stops the host at a step through
+`HAMLET_FAULT`, which works only in a build with `hamlet_host`'s `faults`
+feature; the crate's own tests and examples turn it on. `cargo xtask idle
+<command>` starts a command, writes each `--send <line>` to its standard
+input, and reports the memory, in MB of 1,000,000 bytes, and wakeups per
+second of its process tree while it is idle, on Linux only.
 
 ## Checks
 
@@ -148,23 +155,24 @@ fetches it itself. Nothing inside it changes. `cargo xtask check` runs
 every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` and on the
-native module for Node, `hamlet_actor_node`, for
+`-D warnings` on both), `cross` (clippy on `hamlet_os`, `hamlet_testing`
+and the native module for Node, `hamlet_actor_node`, for
 `x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
 no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
-`acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
-with `-D warnings` and every feature, except that `hamlet_actor_core` is
-documented on its own at its default features, because its
-`native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks, then, on Linux, `declarations`, then the Node
-host's checks and tests, then a debug build of `hamlet_actor_node` and
-the Node host's tests that load it).
+`acceptance` (the suite below), `killkit` (every kill kit scenario once,
+as above), `doc` (`cargo doc` with `-D warnings` and every feature, except
+that `hamlet_actor_core` is documented on its own at its default features,
+because its `native-runtime` and `wasm-runtime` features exclude each
+other) and `node` (on Linux `declarations`, then the Node host's checks
+and tests, a debug build of `hamlet_actor_node` and the Node host's tests
+that load it and drive the demo, then the server's front door with the
+`node-host` feature).
 `deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
-formats Rust and pi.
+formats Rust and the Node host.
 
 ```sh
 cargo +nightly fmt
@@ -179,29 +187,22 @@ example `cargo test -p hamlet_server`.
 Offline tests use faux models or loopback fixtures. Do not run live-provider
 or remote-infrastructure tests unless the owner explicitly asks.
 
-`harnesses/pi/` is a Node package. Run `npm ci` in it, then these checks
-with the Node version in `harnesses/pi/.nvmrc`. They must be clean before
-a commit too. `cargo xtask node` runs both; by hand, in that folder:
-
-```sh
-npm run check   # TypeScript and Biome
-npm test
-```
-
 `hosts/node/` is the Node package of the Node host, with the TypeScript
-actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
-and the same Node version. Its TypeScript and Biome check and its tests,
+actor layer in `src/actor/` and the agent in `src/agent/`. Install it
+with `npm ci --prefix hosts/node` and the Node version in its `.nvmrc`.
+Its TypeScript and Biome check and its tests,
 on Node's own test runner, must be clean before a commit too. The tests
 in `test/native/` load the native module, so `npm test` leaves them out
 and `npm run test:native` runs them; those in `test/link/` drive
 `demo --link` and the Node host's entry `src/main.ts`, and
-`npm run test:link` runs them. `cargo xtask node` runs all four
-after pi's: it builds the module, copies the library into
+`npm run test:link` runs them. `cargo xtask node` runs all four:
+it builds the module, copies the library into
 `crates/hamlet_actor_node/` under the name its `index.js` loads (on
 Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
 `bound`, which the native tests start Node through, then runs them, and
-last builds the demo and runs the link tests.
-By hand, on Linux:
+builds the demo and runs the link tests, and last runs clippy and the
+`front` tests of `hamlet_server` with the `node-host` feature, which start
+the server's front door with its Node host. By hand, on Linux:
 
 ```sh
 npm run check --prefix hosts/node
@@ -212,6 +213,8 @@ cargo build -p hamlet_os --example bound
 npm run test:native --prefix hosts/node
 cargo build -p hamlet_host --example demo
 npm run test:link --prefix hosts/node
+cargo clippy -p hamlet_server --features node-host --all-targets
+cargo test -p hamlet_server --features node-host --test front
 ```
 
 The native tests load whatever library is at that name, so build and
@@ -228,8 +231,9 @@ where CI checks them: the files do not differ by system.
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch realms and drives them through the client protocol, so plain
-`cargo test` compiles none of it. It needs the built CLI and server,
-and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
+`cargo test` compiles none of it. It needs the built CLI and server, and
+the Node host's packages and native module in place. It must be clean
+before a commit too. It never
 contacts a model server or the internet: models are faux, or a loopback
 fake of its own. `cargo xtask acceptance` runs it; by hand, at the root:
 
@@ -239,35 +243,8 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
-The same suite runs against `hamlet_server --actors` when
-`HAMLET_ACCEPTANCE_SERVER` is `target/debug/hamlet_server --actors`.
-`cargo xtask actors` builds the Node host's native module and runs it so,
-skipping the scenarios that fail on that server, each named with the
-place of its test in `xtask/src/main.rs`. CI runs it as a job of its own.
-
-The server's tests that start pi serving a realm, crashes included, are
-its `crashes` target and its tests of the core, compiled only with the
-`harness` feature, so plain `cargo test` needs no Node. They need
-`npm ci --prefix harnesses/pi`, never contact a model server or the
-internet, and must be clean before a commit too. They build the server
-with fault points, so run them after the acceptance suite, which needs
-the plain one, as a command of their own. `cargo xtask harness` runs
-them; by hand, at the root:
-
-```sh
-cargo clippy -p hamlet_server --all-targets --features harness
-cargo test -p hamlet_server --features harness
-```
-
-The runtime protocol, between the server and a harness runtime, is
-defined by the Rust types in `hamlet_protocol::runtime`, which a harness
-written in Rust uses directly. pi reads its types and checks from a schema
-generated from them: `cargo test -p hamlet_protocol` rewrites that schema
-when it is stale and fails, so commit the rewritten file.
-
 `HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet` for the
-acceptance suite. `HAMLET_ACCEPTANCE_SERVER` selects an explicit server
-command; otherwise it tests the default `hamlet server` path.
+acceptance suite, which starts each server with its `server` command.
 
 The client protocol, between the window or CLI and the server, is defined
 by the Rust types in `hamlet_protocol::client`, one module per area. Their
@@ -280,8 +257,8 @@ changes. When a message's shape or a type's name changes,
 `crates/hamlet_protocol/client_schema.fingerprint` and fails once, so
 commit the rewritten file.
 
-Versions are semver. Every version, the crates', the client, runtime
-and workspace protocols' and the realm database's, stays at 0.1.0
+Versions are semver. Every version, the crates', the client protocol's,
+the link's between the two hosts and the workspace protocol's, stays at 0.1.0
 until Hamlet's first release; none moves before it. Peers check that
 their versions are compatible by semver's caret.
 
