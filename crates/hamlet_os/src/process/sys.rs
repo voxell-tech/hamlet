@@ -7,11 +7,9 @@ mod windows;
 pub(super) use self::unix::{
     Group, end_now, has_ended, is_executable, limited, own_session,
     reap_with_server, spawn, spawn_bound, standard_input, take_ends,
-    unenforced,
 };
 #[cfg(windows)]
 pub(super) use self::windows::{
     Group, end_now, has_ended, is_executable, limited,
     reap_with_server, spawn, spawn_bound, standard_input, take_ends,
-    unenforced,
 };

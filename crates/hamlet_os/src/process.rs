@@ -248,11 +248,6 @@ pub fn limited(limits: &Limits, argv: &[String]) -> Vec<String> {
     sys::limited(limits, argv)
 }
 
-/// The names of the `limits` this OS cannot hold for a command.
-pub fn unenforced(limits: &Limits) -> &'static [&'static str] {
-    sys::unenforced(limits)
-}
-
 /// Makes every process this one starts end when it exits, even when
 /// it crashes: on Windows, the leftovers it has not ended yet.
 pub fn reap_with_server() -> io::Result<()> {

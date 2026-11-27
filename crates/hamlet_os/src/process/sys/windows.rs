@@ -397,13 +397,6 @@ pub(crate) fn limited(
     argv.to_vec()
 }
 
-/// No job limit bounds the size of a file.
-pub(crate) fn unenforced(
-    _limits: &Limits,
-) -> &'static [&'static str] {
-    &["max_file_mb"]
-}
-
 pub(crate) fn is_executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
 }

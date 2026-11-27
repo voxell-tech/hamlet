@@ -312,15 +312,6 @@ impl Env {
         &self.hash
     }
 
-    /// The limits this platform cannot hold for a command, named in
-    /// its record, or false when all of them hold.
-    pub fn degraded(&self) -> serde_json::Value {
-        match process::unenforced(&self.policy.limits) {
-            [] => serde_json::Value::Bool(false),
-            names => serde_json::json!(names),
-        }
-    }
-
     /// The absolute path `path` names from the working directory.
     pub fn absolute(&self, path: &str) -> String {
         path::resolve(&self.cwd, path)
@@ -450,16 +441,6 @@ impl Env {
             }
         }
         Ok(infos)
-    }
-
-    pub fn canonical_path(
-        &self,
-        path: &str,
-    ) -> Result<String, FileError> {
-        let at = self.reach(path, Access::Read, Follow::Last)?;
-        at.stat().map(|_| at.real.clone()).map_err(|error| {
-            file_error(&error, "realpath", &at.resolved)
-        })
     }
 
     /// The bytes of a regular file.

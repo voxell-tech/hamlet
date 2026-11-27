@@ -304,12 +304,6 @@ pub(crate) fn limited(
     out
 }
 
-pub(crate) fn unenforced(
-    _limits: &Limits,
-) -> &'static [&'static str] {
-    &[]
-}
-
 pub(crate) fn is_executable(path: &str) -> bool {
     rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
 }
