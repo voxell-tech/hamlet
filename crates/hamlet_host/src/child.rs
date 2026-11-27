@@ -252,9 +252,9 @@ async fn supervise(
 ) -> Option<ExitStatus> {
     let mut pause = Pause(RESTART);
     loop {
+        supervised.port.starting();
         let steady = match spawn(supervised) {
             Ok(mut child) => {
-                supervised.port.starting();
                 let end =
                     session(supervised, &mut child, &mut stop).await;
                 let steady = child
@@ -268,6 +268,7 @@ async fn supervise(
                 steady
             }
             Err(error) => {
+                supervised.port.down();
                 tracing::error!(
                     ?error,
                     argv = ?supervised.argv,
