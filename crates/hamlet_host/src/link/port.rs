@@ -59,6 +59,9 @@ struct Shared {
     theirs: Side,
     link: Mutex<Link>,
     state: watch::Sender<LinkState>,
+    /// Set from a child's start until its link goes down. While it
+    /// is, a call or create out waits for the link to be Ready.
+    starting: watch::Sender<bool>,
 }
 
 /// The link, as one value.
@@ -102,6 +105,7 @@ impl Port {
             theirs: Side::new(theirs, kinds),
             link: Mutex::new(Link::Down),
             state: watch::Sender::new(LinkState::Down),
+            starting: watch::Sender::new(false),
         }))
     }
 
@@ -111,6 +115,12 @@ impl Port {
 
     pub(crate) fn state(&self) -> watch::Receiver<LinkState> {
         self.0.state.subscribe()
+    }
+
+    /// A child has started: calls and creates out wait for its link
+    /// to be Ready, until it goes down.
+    pub(crate) fn starting(&self) {
+        self.0.starting.send_replace(true);
     }
 
     /// Down to Welcomed: a new session on `out`, whose requests from
@@ -136,6 +146,7 @@ impl Port {
     /// `link.lost`, and its later ones with `link.down`.
     pub(crate) fn down(&self) {
         debug_assert_eq!(self.0.ours, Role::Rust);
+        self.0.starting.send_replace(false);
         let lost = self.shift(|link| {
             (!matches!(link, Link::Down)).then_some(Link::Down)
         });
@@ -159,7 +170,8 @@ impl Port {
 
     /// The action `name` of the actor at `to`, for `stamp`, within
     /// `deadline`. It fails:
-    /// - at once with `link.down` unless the link is Ready;
+    /// - with `link.down` unless the link is Ready, or becomes Ready
+    ///   within `deadline` while a child starts;
     /// - with `link.lost` when the link goes down with the call out;
     /// - with `actor.action_timed_out` at the deadline;
     /// - otherwise with the other host's error, as it gave it.
@@ -172,6 +184,9 @@ impl Port {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         let caller = self.caller_of(stamp)?;
+        let asked = tokio::time::Instant::now();
+        let session = self.session_within(Some(deadline)).await?;
+        let deadline = deadline.saturating_sub(asked.elapsed());
         let deadline_ms =
             u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX);
         let ask = Ask::Call {
@@ -179,7 +194,7 @@ impl Port {
             args,
             deadline_ms,
         };
-        self.session()?.ask(caller, to, ask, Some(deadline)).await
+        session.ask(caller, to, ask, Some(deadline)).await
     }
 
     /// Makes the actor at `at` with `input`, for `stamp`. Fails as
@@ -192,7 +207,11 @@ impl Port {
     ) -> Result<()> {
         let caller = self.caller_of(stamp)?;
         let ask = Ask::Create { input };
-        self.session()?.ask(caller, at, ask, None).await.map(drop)
+        self.session_within(None)
+            .await?
+            .ask(caller, at, ask, None)
+            .await
+            .map(drop)
     }
 
     /// Asks the other host to follow `event` of the actor at `to`,
@@ -218,6 +237,37 @@ impl Port {
             self.caller_of(stamp).map_err(Unanswered::Refused)?;
         let session = self.session().map_err(Unanswered::Link)?;
         session.subscribe(caller, to, event, within).await
+    }
+
+    /// The Ready session, waited for within `within` while a child
+    /// starts. Fails with `link.down` when no child starts, when the
+    /// starting one's link goes down, and at `within`.
+    async fn session_within(
+        &self,
+        within: Option<Duration>,
+    ) -> Result<Arc<Session>> {
+        let mut state = self.state();
+        let mut starting = self.0.starting.subscribe();
+        let waited = async {
+            loop {
+                if let Ok(session) = self.session() {
+                    return Ok(session);
+                }
+                if !*starting.borrow_and_update() {
+                    return Err(Down.build());
+                }
+                tokio::select! {
+                    _ = state.changed() => {}
+                    _ = starting.changed() => {}
+                }
+            }
+        };
+        match within {
+            Some(within) => tokio::time::timeout(within, waited)
+                .await
+                .unwrap_or_else(|_| Err(Down.build())),
+            None => waited.await,
+        }
     }
 
     fn session(&self) -> Result<Arc<Session>> {

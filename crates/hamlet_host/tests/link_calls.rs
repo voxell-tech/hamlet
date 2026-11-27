@@ -143,8 +143,9 @@ async fn a_node_actors_call_reaches_a_rust_actor_stamped_with_its_address()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_call_to_the_node_host_before_it_is_ready_fails_with_link_down()
+async fn a_call_to_a_node_host_that_starts_and_is_never_ready_fails_at_its_deadline()
  {
+    let wait = Duration::from_millis(500);
     for (mode, state, read) in [
         ("--hold", LinkState::Down, &["goodbye"][..]),
         (
@@ -158,7 +159,10 @@ async fn a_call_to_the_node_host_before_it_is_ready_fails_with_link_down()
             (home.join("starts"), home.join("frames"));
         let (host, node) = open(
             &home,
-            HostOptions::default(),
+            HostOptions {
+                start_deadline: wait,
+                ..HostOptions::default()
+            },
             &[
                 mode,
                 "--starts",
@@ -175,7 +179,7 @@ async fn a_call_to_the_node_host_before_it_is_ready_fails_with_link_down()
         let agent = at("agent", "a");
         let asked = Instant::now();
         let called =
-            host.call(&agent, Who::NAME, args(&Who), DEADLINE).await;
+            host.call(&agent, Who::NAME, args(&Who), wait).await;
         let created = host.create(&agent, agent_input(None)).await;
         let took = asked.elapsed();
         close(host, node).await;
@@ -183,10 +187,11 @@ async fn a_call_to_the_node_host_before_it_is_ready_fails_with_link_down()
         assert_eq!(code(&called.unwrap_err()), "link.down", "{mode}");
         assert_eq!(
             code(&created.unwrap_err()),
-            "link.down",
+            "actor.not_ready",
             "{mode}"
         );
-        assert!(took < Duration::from_secs(1), "{mode}: {took:?}");
+        assert!(took >= wait * 2, "{mode}: {took:?}");
+        assert!(took < Duration::from_secs(3), "{mode}: {took:?}");
         assert_eq!(frames_read(&frames), read, "{mode}");
     }
 }

@@ -348,6 +348,65 @@ async fn a_request_never_written_fails_with_link_down() {
 }
 
 #[tokio::test]
+async fn a_request_while_a_child_starts_waits_for_its_link() {
+    let mut rust = Linked::new(Role::Rust);
+    rust.port.starting();
+    let called = call(&rust.port, at("agent", "a"), TEN_S);
+    let created = tokio::spawn({
+        let port = rust.port.clone();
+        async move {
+            port.create(
+                &Stamp::PROGRAM,
+                &at("agent", "b"),
+                Vec::new(),
+            )
+            .await
+        }
+    });
+    rust.nothing_written().await;
+    rust.welcome();
+    rust.nothing_written().await;
+    assert!(!called.is_finished() && !created.is_finished());
+    rust.port.ready();
+    for _ in 0..2 {
+        let Frame::Request { id, ask, .. } = rust.next().await else {
+            panic!("a request");
+        };
+        if let Ask::Call { deadline_ms, .. } = ask {
+            assert!(deadline_ms < 10_000, "{deadline_ms}");
+        }
+        assert!(matches!(
+            rust.port.take(reply(id, b"r")),
+            Ok(Taken::Handled)
+        ));
+    }
+    assert_eq!(called.await.unwrap().unwrap(), b"r");
+    created.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_request_waiting_for_a_starting_child_fails_as_its_link_does()
+ {
+    let mut rust = Linked::new(Role::Rust);
+    let agent = at("agent", "a");
+    rust.port.starting();
+    let at_deadline = call(&rust.port, agent.clone(), SHORT);
+    assert_eq!(
+        code(&at_deadline.await.unwrap().unwrap_err()),
+        "link.down"
+    );
+    let called = call(&rust.port, agent.clone(), TEN_S);
+    rust.welcome();
+    rust.port.down();
+    assert_eq!(
+        code(&called.await.unwrap().unwrap_err()),
+        "link.down"
+    );
+    assert_eq!(asked(&rust.port, &agent).await, ["link.down"; 2]);
+    rust.nothing_written().await;
+}
+
+#[tokio::test]
 async fn a_request_on_a_lost_session_fails_with_link_down() {
     let mut rust = Linked::ready(Role::Rust);
     let session = rust.session();

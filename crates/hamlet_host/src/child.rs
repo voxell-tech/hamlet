@@ -254,6 +254,7 @@ async fn supervise(
     loop {
         let steady = match spawn(supervised) {
             Ok(mut child) => {
+                supervised.port.starting();
                 let end =
                     session(supervised, &mut child, &mut stop).await;
                 let steady = child
