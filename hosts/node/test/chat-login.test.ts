@@ -1,19 +1,31 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    type MutableModels,
+} from "@earendil-works/pi-ai";
 import { chatActions } from "../src/agent/chat.ts";
 import { keysOf } from "../src/agent/credentials.ts";
 import { fauxModels } from "../src/agent/faux.ts";
 import { installationOf, signIns } from "../src/agent/login.ts";
-import type { Login, LoginAnswer } from "../src/agent/messages/agent.ts";
+import type {
+    Copies,
+    Login,
+    LoginAnswer,
+} from "../src/agent/messages/agent.ts";
 import { checkModel } from "../src/agent/models.ts";
+import { servingEndpoints } from "../src/agent/providers.ts";
 import {
     credentialsFile,
     dumped,
+    fakeCalls,
     from,
     named,
+    until,
     wakeAgent,
 } from "./agent-testing.ts";
 import {
@@ -417,4 +429,42 @@ test("a sign-in with no first step in time fails with its words", async (t) => {
         words: "No sign-in of yours is open.",
     });
     await agent.stop();
+});
+
+test("a key sign-in for an endpoint the realm holds and has not yet pushed reads the realm's copies first", async (t) => {
+    const server = createServer((_request, response) => {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ data: [] }));
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    t.after(() => server.close());
+    const base_url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    let held: Copies = {};
+    const { calls, sent } = fakeCalls({ realm: { read_copies: () => held } });
+    const agent = await wakeAgent(t, { calls });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "read_copies").length === 1);
+    held = {
+        settings: {
+            version: 2,
+            value: {
+                reflect_every: 0,
+                allow_net: false,
+                endpoints: [{ name: "spare", base_url }],
+            },
+        },
+    };
+    const models = agent.config.models as MutableModels;
+    const hand = client(
+        {
+            ...agent,
+            config: { ...agent.config, serve: servingEndpoints(models) },
+        },
+        signIns(models),
+    );
+
+    const answer = await hand.start("spare", "key");
+
+    assert.notEqual(answer.type, "failed", JSON.stringify(answer));
+    assert.equal(named(sent, "read_copies").length, 2);
 });

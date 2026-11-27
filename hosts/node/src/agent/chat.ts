@@ -10,6 +10,7 @@ import {
     wrongCaller,
 } from "./actor.ts";
 import { newSession, reflectNow, resume, retry, rewind } from "./commands.ts";
+import { refreshed } from "./copies.ts";
 import { rotationsKept, secretsLoaded } from "./credentials.ts";
 import {
     type Checked,
@@ -92,10 +93,17 @@ export function chatActions(config: AgentConfig): ChatHandlers {
             if (config.signIns === undefined) {
                 throw new Error("this host signs no one in");
             }
-            return config.signIns.step(
-                login,
-                generationOf(c).peers.reach.keep_credential,
-            );
+            const { peers, copies } = generationOf(c);
+            if (
+                "start" in login &&
+                config.models.getProvider(login.start.provider) === undefined
+            ) {
+                // The settings that name it may be in the realm's push
+                // after the edit that added it, still on its way.
+                await refreshed(c, peers);
+                config.serve?.(await copies());
+            }
+            return config.signIns.step(login, peers.reach.keep_credential);
         }),
         settle: askedBy("settle", async () => {
             await Promise.all([rotationsKept(), config.signIns?.close()]);
