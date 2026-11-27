@@ -13,6 +13,7 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
+use hamlet_os::process::own_session;
 use rustix::fs::{FlockOperation, flock};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -348,7 +349,6 @@ async fn execute(
         "--unshare-all",
         "--share-net",
         "--die-with-parent",
-        "--new-session",
         "--as-pid-1",
         "--cap-drop",
         "ALL",
@@ -413,6 +413,8 @@ async fn execute(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Its own session leaves the sandbox no terminal.
+    own_session(command.as_std_mut());
     let mut child = command.spawn()?;
     let mut input =
         child.stdin.take().context("Missing supervisor input")?;

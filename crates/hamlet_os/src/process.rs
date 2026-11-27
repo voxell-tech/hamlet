@@ -270,6 +270,14 @@ pub fn has_ended(pid: u32) -> io::Result<bool> {
     sys::has_ended(pid)
 }
 
+/// Makes `command`'s process the leader of a session of its own, and
+/// so of a group whose id is its own: no terminal is left to its
+/// processes, and they stay in the group the leader's end kills.
+#[cfg(unix)]
+pub fn own_session(command: &mut std::process::Command) {
+    sys::own_session(command);
+}
+
 /// Kills this process at once.
 pub fn end_now() -> ! {
     sys::end_now()

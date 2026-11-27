@@ -34,4 +34,5 @@ tokio-tungstenite.workspace = true
 uuid.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+hamlet_os.workspace = true
 rustix = { workspace = true, features = ["process", "termios"] }

@@ -4852,6 +4852,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "futures",
+ "hamlet_os",
  "hamlet_protocol",
  "hamlet_update",
  "rfd",
@@ -5146,6 +5147,7 @@ name = "hamlet_workspace"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hamlet_os",
  "hamlet_testing",
  "hamlet_workspace_wire",
  "http-body-util",

@@ -11,7 +11,7 @@ use std::io::{self, PipeWriter, Write};
 use std::os::fd::{
     AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd,
 };
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{ExitStatus, Stdio};
 #[cfg(target_os = "linux")]
 use std::sync::mpsc;
@@ -173,7 +173,7 @@ pub(crate) fn spawn_bound(
 
 fn start(mut spawn: tokio::process::Command) -> io::Result<Group> {
     let exits = signal(SignalKind::child())?;
-    session(&mut spawn);
+    own_session(spawn.as_std_mut());
     let leader = spawn.spawn()?;
     let id = leader
         .id()
@@ -261,15 +261,14 @@ fn end_with_forking_thread(spawn: &mut tokio::process::Command) {
     }
 }
 
-/// Makes `spawn`'s process the leader of a session of its own, and so
-/// of a group whose id is its own: no terminal is left to its
-/// processes, and they stay in the group the leader's end kills.
-fn session(spawn: &mut tokio::process::Command) {
+pub(crate) fn own_session(
+    command: &mut std::process::Command,
+) {
     // SAFETY: the child calls only setsid, which is
     // async-signal-safe, before exec, allocates nothing and touches
     // no shared state.
     unsafe {
-        spawn.pre_exec(|| {
+        command.pre_exec(|| {
             rustix::process::setsid()?;
             Ok(())
         });

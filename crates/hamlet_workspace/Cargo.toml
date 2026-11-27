@@ -15,6 +15,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+hamlet_os.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 libc.workspace = true
