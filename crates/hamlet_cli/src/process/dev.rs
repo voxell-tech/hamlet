@@ -17,10 +17,10 @@ use rustix::process::Signal;
 use tokio::process::Child;
 use tokio::time::{sleep, timeout};
 
-#[cfg(windows)]
-use super::own_session;
 #[cfg(unix)]
 use super::signal;
+#[cfg(windows)]
+use super::{CREATE_NEW_PROCESS_GROUP, kernel32, own_session};
 use super::{
     Isolation, Stops, exit_code, is_answering, mkdir, nonempty, repo,
     running, server_command, window_command,
