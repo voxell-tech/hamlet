@@ -1,0 +1,19 @@
+# The shared library every plugin links against, and an app that loads
+# plugins. A workspace of its own, apart from Hamlet's.
+[workspace]
+resolver = "3"
+members = ["hamlet_core", "app", "app_static"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# The features `hamlet_app` uses.
+bevy = { version = "=0.20.1", default-features = false, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize", "bevy_clipboard", "bevy_winit", "custom_cursor"] }
+hamlet_core = { path = "hamlet_core" }
+# Hamlet's widget kit and the fynix it is built on, for plugins' panels.
+bevy_fynix = { path = "../../../vendor/fynix/crates/bevy_fynix" }
+hamlet_ui = { path = "../../../crates/hamlet_ui" }
+libloading = "0.8"

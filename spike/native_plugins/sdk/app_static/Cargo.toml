@@ -1,0 +1,9 @@
+# The app's scene with Bevy linked in, to compare size and start time.
+[package]
+name = "app_static"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy.workspace = true

@@ -1,0 +1,4 @@
+# std must come from the toolchain's own shared library, or the SDK holds a
+# copy of it that the app and the plugins cannot share.
+[build]
+rustflags = ["-C", "prefer-dynamic"]

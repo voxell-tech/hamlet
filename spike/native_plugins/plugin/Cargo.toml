@@ -1,0 +1,18 @@
+# A plugin: a workspace of its own, built by its own `cargo` call.
+[workspace]
+
+[package]
+name = "pulse"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+# The code reaches Bevy through `hamlet_core`. Bevy is named only so that
+# its derives find it when cargo builds the plugin. No features: the SDK's
+# are the only ones, and one more would make a Bevy the app does not have.
+bevy = { version = "=0.20.1", default-features = false }
+hamlet_core = { path = "../sdk/hamlet_core" }
