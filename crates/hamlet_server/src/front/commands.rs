@@ -714,9 +714,7 @@ async fn perform(
         Act::Versions(profile) => {
             versions::list(calls, profile).await?
         }
-        Act::Tag { tag, at } => {
-            versions::tag(calls, id, tag, at).await?
-        }
+        Act::Tag(tag) => versions::tag(calls, id, tag).await?,
         Act::Revert {
             profile,
             which,

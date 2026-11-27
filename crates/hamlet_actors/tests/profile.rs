@@ -25,8 +25,9 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::profile::{
     Branch, By, Character, CommitId, CommitSeen, Missing, Moved,
-    ProfileInput, Removal, RemovePath, Sha1, Tag, TagAnswer,
-    TagRefusal, VersionList, VersionName, VersionSeen, Versions,
+    ProfileInput, Removal, RemovePath, Revision, Sha1, Tag,
+    TagAnswer, TagRefusal, VersionList, VersionName, VersionSeen,
+    Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
@@ -411,7 +412,9 @@ async fn a_tag_at_a_commit_git_fails_to_read_fails_and_tags_nothing()
     std::fs::write(folder.join(&hex[2..]), b"not a git object")
         .unwrap();
     let asked = Tag {
-        at: Some(commit_id(damaged)),
+        at: Some(Revision::Commit {
+            commit: commit_id(damaged),
+        }),
         ..tag(&RequestId::new(), "v1", "")
     };
     call_as(&host, &realm(), &asked).await.unwrap_err();
