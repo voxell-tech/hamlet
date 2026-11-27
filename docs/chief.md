@@ -22,7 +22,7 @@ the roof's tip. The roof takes the colour of the chief's cloak, and the
 orb and the waystone's ring the colour of their light.
 
 It belongs to a chief and not to a hamlet, and stands on the city island
-with the Hand's tower, the Library and the scholars' houses
+with the Hand's tower, the Library and the profiles' houses
 (`docs/islands.md`). The chief can pick it up and set it down elsewhere
 there. It answers the pointer as `Thing::ChiefPlace`, and selecting it
 shows the chief's page in the Hub. `chief::place::stand` is the one place

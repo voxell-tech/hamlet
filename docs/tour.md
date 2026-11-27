@@ -64,7 +64,7 @@ it, and it is not edited here.
 |---|---|
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy; and `hamlet_launch`, what an installed app opens (`src/launch.rs`) |
 | `hamlet_server` | `hamlet_server`, the front door: the client protocol's connections, the chief's commands, the state clients are shown, credentials, and the host of the realm's actors with the Node host as its child |
-| `hamlet_git` | Scholars' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a folder out |
+| `hamlet_git` | Profiles' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a folder out |
 | `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, the secrets taken out of what it gives back, and a file replaced only while it holds what was read |
 | `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, a file replaced by a new one renamed over it, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the eight examples that draw the world and the panels |
@@ -108,7 +108,7 @@ each frame it hands over; `hamlet_app/src/window.rs` inserts one that wakes wini
 reactive loop, so a frame is drawn at once rather than at the loop's
 next timeout. `connection::Contact` is the window's standing
 with its server: connecting, connected, lost or refused. `index.rs` finds
-a hamlet, an agent, a scholar, a wait or a chat by its protocol id, kept by the
+a hamlet, an agent, a profile, a wait or a chat by its protocol id, kept by the
 components' hooks.
 
 `RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene, then the
@@ -570,7 +570,7 @@ a client only through `askedBy`.
 - `prompt.ts` builds the system prompt before every model call from the
   copies, memory, the list of skills, the library's shelves and the
   workspace's tool list, each cut to its limit. The place, realm and
-  scholars sections are the realm's, read with one `read_place` per
+  profiles sections are the realm's, read with one `read_place` per
   request; a request the realm does not answer fails.
 - `compaction.ts` sizes compaction for the model that runs, and asks once
   more after an answer cut off with nothing in it. `reflect.ts` asks for a
@@ -684,7 +684,7 @@ and a line whose input is a notice, such as the librarian's answer.
 A hire is one transaction, then six steps in `hire.rs`, each recorded
 done by a transaction of its own (`steps.rs`). The first four call
 another actor: the profile's actor, created from the realm's character
-for a blank hire and started for a scholar's; its branch `hires/<n>`,
+for a blank hire and started for a profile's; its branch `hires/<n>`,
 at the version the hire names when it names one; the agent made with
 its place, its task and its copies; and the agent's filesystem filled,
 which the agent pages from its profile. A version the profile lacks
@@ -744,7 +744,7 @@ a chief's answer to one;
 `documents.rs` and `settings.rs` keep the charter, the catalogue and
 the settings and push each agent its copies; `profiles.rs` keeps each
 profile's name and label, makes and reads profiles for
-`create_scholar` and `read_scholar`, keeps `edit_scholar`, `tag` and
+`create_profile` and `read_profile`, keeps `edit_profile`, `tag` and
 `revert` for a chief, and answers a chief's own change from the
 profile's answer, and `profiles/lifecycle.rs` a profile's fork,
 archive, return and erasure, which erases its hires first, and its
@@ -753,7 +753,7 @@ at a time in the realm and none while its profile is purged: the
 profile checks `main`, and a hire's branch, out under `dreams/<n>/`,
 an errand dreams in main's checkout with the hire's network
 (`Reach::Dream`), and the profile commits what it changed when it
-ends; `prompt.rs` renders the place, realm and scholars sections of an
+ends; `prompt.rs` renders the place, realm and profiles sections of an
 agent's prompt for `ReadPlace`;
 `librarian.rs` runs `ask_librarian` and `submit_skill` as
 errands, reads an offer from the library before the librarian judges
@@ -776,7 +776,7 @@ as a client, and as an agent or the workspace through a stand-in's
 `hamlet_actors/src/profile.rs`
 and `src/profile/` are the kind `profile`, one actor per profile keyed
 by its `ProfileId`: the only writer of the repository
-`scholars/<n>.git` and of the store beside it. `main` is what the
+`profiles/<n>.git` and of the store beside it. `main` is what the
 profile knows, `hires/<agent>` each hire's branch, and annotated tags
 its versions. `versions.rs` tags, reverts, edits, purges and erases,
 and reads the files of a revision (`Read`); `hires.rs` makes a hire's
@@ -864,7 +864,7 @@ the demo's kinds. The native module `@hamlet/actor-node` is
 | Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Who may do what | `hamlet_actors/src/realm/callers.rs`; which actor may call which in `hamlet_server/src/front/host.rs` (`routes`) |
 | Founding, hiring, ending, restoring, seating a mayor, the tree | `hamlet_actors/src/realm/chiefs.rs`, `hire.rs`, `tree.rs`, `tree/lead.rs`; the tools in `hosts/node/src/agent/society-tools.ts` |
-| Scholars and their versions | `hamlet_actors/src/realm/profiles.rs`, `profile/versions.rs`, `hamlet_server/src/front/commands/versions.rs`; the repositories in `hamlet_git` |
+| Profiles and their versions | `hamlet_actors/src/realm/profiles.rs`, `profile/versions.rs`, `hamlet_server/src/front/commands/versions.rs`; the repositories in `hamlet_git` |
 | Merging and splitting hires | `hamlet_actors/src/realm/merges.rs`, `profile/merges.rs`, `hosts/node/src/agent/inbox.ts` |
 | Workers | `hamlet_actors/src/realm/workers.rs`, `workspace/workers.rs`, `hosts/node/src/agent/brief.ts` |
 | Letters, questions and roads | `hamlet_actors/src/realm/letters.rs`, `roads.rs`, `laid.rs`, `society.rs` |
@@ -885,11 +885,11 @@ the demo's kinds. The native module `@hamlet/actor-node` is
 | Images on a line: upload, fitting, what a model takes, the read tool's images | `hamlet_server/src/front/uploads.rs`, `images.rs`, `hamlet_actors/src/workspace/image.rs`, `hosts/node/src/agent/parcels.ts`; in the window `hamlet_client/src/images.rs`, `hamlet_desktop/src/clipboard.rs`, `hamlet_app/src/screens/chat/attach.rs` and, for a custom model's limits, `hamlet_app/src/models/home.rs`; in the CLI `hamlet_cli/src/chat.rs` and `terminal.rs` |
 | Files and folders on a line, and sent with `tell` or `ask`: upload, the inbox, the cap | `hamlet_server/src/front/uploads.rs`, `hamlet_actors/src/realm/parcels.rs`, `realm/parcels/`, `workspace/parcel.rs`, `hosts/node/src/agent/parcels.ts`; in the window `hamlet_client/src/files.rs`, `hamlet_desktop/src/choose.rs`, `hamlet_app/src/screens/chat/attach.rs`; in the CLI `hamlet_cli/src/client.rs`, `chat.rs` and `mentions.rs` (the `@path` tokens) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
-| The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
+| The Hub: its rail, a thread, its details sheet, profile and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `profile.rs`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
 | The starting desk | `hamlet_app/src/dock.rs` |
 | The two islands, where the hamlet island lies | `hamlet_realm/src/generator/land.rs`, `land/`; [`islands.md`](islands.md) |
-| The city: the Hand's tower, scholars' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_actors/src/realm/profiles.rs`, newcomers in `realm/newcomers.rs` |
+| The city: the Hand's tower, profiles' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_actors/src/realm/profiles.rs`, newcomers in `realm/newcomers.rs` |
 | The piers, boats and the sea route | `hamlet_realm/src/harbor.rs`, `harbor/` |
 | What things are called in the world | `pick::Names` in `hamlet_realm/src/pick.rs`, the signs in `pick/signs.rs` |
 | Panels' colors, sizes, controls and icons | `assets/themes/`, `measures.toml`, `effects.toml`; `hamlet_app/src/appearance.rs`, `screens/settings/appearance.rs`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
@@ -938,7 +938,7 @@ the demo's kinds. The native module `@hamlet/actor-node` is
 | An owed delivery the realm makes again after a failure | `hamlet_actors/src/realm/calls.rs` (`Delivery::owed`, `again`), `steps.rs` (`retried`) |
 | The realm actor's hires, ends and steps | `hamlet_actors/src/realm/tree/lead.rs`, `hire.rs`, `steps.rs` |
 | The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
-| The place, realm and scholars sections of an agent's prompt | `hamlet_actors/src/realm/prompt.rs`; the agent's side in `hosts/node/src/agent/prompt.ts` |
+| The place, realm and profiles sections of an agent's prompt | `hamlet_actors/src/realm/prompt.rs`; the agent's side in `hosts/node/src/agent/prompt.ts` |
 | A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
 | A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
 | The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs`; the agent's side in `hosts/node/src/agent/branch.ts` |

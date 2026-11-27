@@ -29,7 +29,7 @@ on one machine as across a network. A server refuses a connection without
 the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
-the state of the realm (the Hand, hamlets, scholars, living and ended
+the state of the realm (the Hand, hamlets, profiles, living and ended
 agents, roads, budgets, the shared library, removed hamlets and what waits)
 and its changes, the live events of turns (C30), and conversations on
 request, including read-only letters and questions between agents (C22). A
@@ -63,7 +63,7 @@ includes uploads never sent with a line.
 A file a chief attaches (C33) is kept the same way in the realm's store, of
 any kind and at most 256 MiB, and a client names it by its id and the name the
 agent finds it under. Each file named by a line is copied into the `inbox/` of
-the agent's lodge; the realm's store of files is never in any agent's reach. A
+the agent's filesystem; the realm's store of files is never in any agent's reach. A
 file named by no kept input, transcript item or tool result, last touched a day
 ago, is removed.
 
@@ -102,17 +102,17 @@ mode (ADR 0008).
 
 **S26.** What the realm keeps about who exists, who answers to whom, roads,
 letters, waits and spend is in the realm actor's file, each agent's
-conversations are in that agent's file, and a scholar's knowledge is in git
+conversations are in that agent's file, and a profile's knowledge is in git
 (A1, ADR 0011). Every change to an actor's file is one transaction and is
 checked in one place before it is made; a change that is refused leaves
 nothing. What the clients see again after a change is what that transaction
 touched.
 
 **S27.** A change that needs an effect in another actor, such as making a
-branch, filling an agent's lodge, merging or erasing, begins a row of steps in
+branch, filling an agent's filesystem, merging or erasing, begins a row of steps in
 the same transaction. The steps run after the commit, and again after a
 restart until they are done, and each is safe to run twice (A12). A
-scholar's repository is changed only by its scholar's actor, and a lodge only
+profile's repository is changed only by its profile's actor, and an agent's filesystem only
 by its agent.
 
 **S28.** The client protocol, the link between the two hosts and the
@@ -169,7 +169,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `chat [--to <hand\|hire#id\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
-| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <profile#id>`, `edit memory <profile#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
 | `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 | `models images <model> [off \| [--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says that a model takes images and sets its limits, or clears them (S30) |
@@ -184,5 +184,5 @@ credentials the chief's machine has, which their commands can read.
 Reaching a git host needs the network like any other command (C19, H11).
 Agents may write hooks and config, including in nested repositories; the
 chief accepts that these may run under the chief's own git later (C18,
-ADR 0007). Scholars' repositories are another matter: the server alone
+ADR 0007). Profiles' repositories are another matter: the server alone
 writes them, and no git program is run on them (ADR 0011).

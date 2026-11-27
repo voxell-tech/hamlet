@@ -7,8 +7,8 @@ is not built is in [`docs/proposals/`](../proposals/).
 
 | File | Holds | IDs |
 |---|---|---|
-| [`core.md`](core.md) | One agent: its lodge, what it is told, its tools, what they reach, its conversations | C |
-| [`hamlet.md`](hamlet.md) | The society: chiefs, the Hand, the city of scholars and their versions, hamlets, hires and their tree, workers, roads, letters, tasks, budgets, dreams, the library, what waits for a chief | H |
+| [`core.md`](core.md) | One agent: its filesystem, what it is told, its tools, what they reach, its conversations | C |
+| [`hamlet.md`](hamlet.md) | The society: chiefs, the Hand, the city of profiles and their versions, hamlets, hires and their tree, workers, roads, letters, tasks, budgets, dreams, the library, what waits for a chief | H |
 | [`server.md`](server.md) | Where agents run, how the window reaches them, credentials, and the `hamlet` command | S |
 | [`actor-runtime.md`](actor-runtime.md) | The actors that keep the realm: their kinds, their files on disk, who may call whom, and what survives a stop | A |
 
@@ -31,8 +31,8 @@ that held its asker. **S17** (a conversation stays with its harness), **S24**
 (what a harness must let the server decide) and **S25** (a missing part of a
 realm is an error) are retired with the harness and the one database. Their
 IDs are not used again. The rebuilt society changed what some requirements
-govern, not what they are about: C8 and C9 name the lodge and the agent's id
-where they named a house and a hamlet-and-number; C10 names scholars; H18,
+govern, not what they are about: C8 and C9 name the agent's filesystem and the agent's id
+where they named a house and a hamlet-and-number; C10 names profiles; H18,
 H19, H14 and H6 lost votes, requests to remove another hamlet's and moving an
 agent between hamlets (`agree_move`); H5 and H20 govern hires.
 

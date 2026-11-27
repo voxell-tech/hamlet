@@ -42,7 +42,7 @@ Then read the page for the part you are about to touch.
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
-| [`society.md`](society.md) | The Hand, the city of scholars, hamlets and hires, roads, dreams, the shared library and what waits |
+| [`society.md`](society.md) | The Hand, the city of profiles, hamlets and hires, roads, dreams, the shared library and what waits |
 | [`harness.md`](harness.md) | The agent's host: what the Node host holds and how an agent's conversations run there |
 | [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
