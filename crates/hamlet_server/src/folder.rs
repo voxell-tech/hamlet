@@ -2,18 +2,15 @@
 //! only through its open directory and never through a link: the
 //! agent's filesystem.
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use hamlet_git::{Entry, blob_id};
-use hamlet_os::fs::{
-    Directory, Kind, LastLink, Missing, Open, TreePath,
-};
+use hamlet_os::fs::{Directory, Kind, LastLink, Open};
 
-/// The largest file a lodge commits. Larger ones stay in the lodge
-/// alone.
-pub(crate) const MOST_BYTES: u64 = 4 << 20;
+/// The largest file read. Larger ones stay where they are.
+const MOST_BYTES: u64 = 4 << 20;
 
 pub(crate) struct Folder(Directory);
 
@@ -22,10 +19,6 @@ impl Folder {
     pub fn make(path: &Path) -> Result<Self> {
         std::fs::create_dir_all(path)
             .with_context(|| format!("making {}", path.display()))?;
-        Self::open(path)
-    }
-
-    pub fn open(path: &Path) -> Result<Self> {
         Ok(Self(
             Directory::open(path, LastLink::Refuse).with_context(
                 || format!("opening {}", path.display()),
@@ -34,34 +27,19 @@ impl Folder {
     }
 
     /// Every regular file with one name and at most [`MOST_BYTES`],
-    /// with its blob id, but under the paths `skip` names. Links and
-    /// what they reach are left out.
-    pub fn list(
-        &self,
-        skip: &dyn Fn(&str) -> bool,
-    ) -> Result<Vec<Entry>> {
-        let mut out = Vec::new();
-        walk(&self.0, "", skip, &mut out)?;
-        out.sort_by(|a, b| a.path.cmp(&b.path));
+    /// with its bytes and whether it runs, by path. Links and what
+    /// they reach are left out.
+    pub fn files(&self) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
+        let mut out = BTreeMap::new();
+        walk(&self.0, "", &mut out)?;
         Ok(out)
-    }
-
-    pub fn read(&self, path: &str) -> Result<Vec<u8>> {
-        let path = TreePath::parse(path)?;
-        let (dir, name) = self.0.parent(&path, Missing::Fail)?;
-        let mut bytes = Vec::new();
-        dir.file(name, Open::Read)?
-            .into_file()
-            .read_to_end(&mut bytes)?;
-        Ok(bytes)
     }
 }
 
 fn walk(
     dir: &Directory,
     prefix: &str,
-    skip: &dyn Fn(&str) -> bool,
-    out: &mut Vec<Entry>,
+    out: &mut BTreeMap<String, (Vec<u8>, bool)>,
 ) -> Result<()> {
     for name in dir.names()? {
         let Some(text) = name.to_str() else {
@@ -75,15 +53,12 @@ fn walk(
         } else {
             format!("{prefix}/{text}")
         };
-        if skip(&path) {
-            continue;
-        }
         let Some(stat) = dir.stat(&name)? else {
             continue;
         };
         match stat.kind {
             Kind::Directory => {
-                walk(&dir.child(&name)?, &path, skip, out)?;
+                walk(&dir.child(&name)?, &path, out)?;
             }
             Kind::File
                 if stat.links == 1 && stat.size <= MOST_BYTES =>
@@ -92,11 +67,10 @@ fn walk(
                 dir.file(&name, Open::Read)?
                     .into_file()
                     .read_to_end(&mut bytes)?;
-                out.push(Entry {
+                out.insert(
                     path,
-                    blob: blob_id(&bytes),
-                    executable: stat.mode.bits() & 0o100 != 0,
-                });
+                    (bytes, stat.mode.bits() & 0o100 != 0),
+                );
             }
             Kind::File | Kind::Link | Kind::Special => {}
         }

@@ -52,22 +52,6 @@ async fn remote(session: &Session) -> Result<BTreeMap<String, File>> {
         .collect())
 }
 
-/// The agent's filesystem's regular files with their bytes, by path.
-fn local(
-    folder: &Folder,
-) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
-    folder
-        .list(&|_| false)?
-        .into_iter()
-        .map(|entry| {
-            Ok((
-                entry.path.clone(),
-                (folder.read(&entry.path)?, entry.executable),
-            ))
-        })
-        .collect()
-}
-
 /// Makes the remote copy hold what the agent's filesystem at
 /// `filesystem` holds: what differs is written and what it lacks is
 /// removed. A file past what one request carries stays as it is
@@ -76,9 +60,8 @@ pub(crate) async fn push(
     session: &Session,
     filesystem: &Path,
 ) -> Result<()> {
-    let folder = Folder::make(filesystem)?;
     let theirs = remote(session).await?;
-    let ours = local(&folder)?;
+    let ours = Folder::make(filesystem)?.files()?;
     for (path, (bytes, executable)) in &ours {
         if bytes.len() > MAX_FILE {
             continue;

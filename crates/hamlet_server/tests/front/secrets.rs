@@ -304,8 +304,8 @@ fn settled(home: &Path) {
     .unwrap();
     let behind: i64 = realm
         .query_row(
-            "SELECT count(*) FROM reach WHERE applied IS NULL \
-             OR applied < wanted",
+            "SELECT count(*) FROM reach WHERE applied IS NULL OR \
+             applied < wanted",
             [],
             |row| row.get(0),
         )
