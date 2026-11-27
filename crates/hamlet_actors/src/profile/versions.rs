@@ -97,8 +97,14 @@ fn tag(
             return unit.refuse(why);
         }
     };
+    // A run that ended kept its answer, so a tag no answer names is
+    // what a run a kill cut off left for its repeat.
+    let answered = unit.answered()?.into_iter().any(|answer| {
+        matches!(answer, TagAnswer::Tagged { version, .. } if version == tag.version)
+    });
     let left_by_a_cut_off_run = |seen: &hamlet_git::Version| {
-        seen.note == tag.note
+        !answered
+            && seen.note == tag.note
             && seen.by == by.name()
             && seen.commit == at
     };

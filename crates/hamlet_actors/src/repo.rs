@@ -453,6 +453,14 @@ impl<A: Admits<M::From>, M: Message> Look<'_, A, M> {
         self.from
     }
 
+    /// The answers kept for the calls of this action that ended.
+    pub fn answered(&self) -> Result<Vec<M::Output>>
+    where
+        M: Changes,
+    {
+        marker::answers::<M>(self.sql)
+    }
+
     pub fn git(&self) -> Result<&Reads> {
         self.held.reads()
     }

@@ -678,6 +678,37 @@ async fn a_tag_of_a_version_that_exists_is_refused_once_main_moved() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_same_tag_asked_again_under_another_id_is_refused() {
+    let dir = Scratch::new("profile-tag-same");
+    let host = made(&dir).await;
+    let tagged = call_as(
+        &host,
+        &realm(),
+        &tag(&RequestId::new(), "v1", "first"),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(tagged, TagAnswer::Tagged { .. }), "{tagged:?}");
+
+    let again = call_as(
+        &host,
+        &realm(),
+        &tag(&RequestId::new(), "v1", "first"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        again,
+        TagAnswer::Refused {
+            why: TagRefusal::Taken {
+                version: VersionName("v1".into())
+            }
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_profile_keeps_its_repository_under_its_own_number() {
     let dir = Scratch::new("profile-own");
     let host = open(&dir);

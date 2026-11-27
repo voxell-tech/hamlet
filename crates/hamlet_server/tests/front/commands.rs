@@ -662,6 +662,22 @@ async fn tag_names_the_commit_after_the_at() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_same_tag_asked_twice_is_refused_the_second_time() {
+    let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
+    let hand = chief.hand();
+    note(&mut chief, "Metric.").await;
+    let first = chief.command(hand, "/tag scholar#2 v1").await;
+    let again = chief.refused(hand, "/tag scholar#2 v1").await;
+    assert_eq!(first, "Tagged scholar#2 (ada) as v1.");
+    assert_eq!(
+        again,
+        "the version `v1` exists already; choose another"
+    );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn tag_names_a_hires_branch_by_its_name() {
     let (mut server, home, _side, mut chief) =
         with_ada(&[json!("Here.")]).await;

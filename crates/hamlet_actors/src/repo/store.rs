@@ -323,4 +323,22 @@ pub(crate) mod marker {
         )?;
         Ok(())
     }
+
+    /// The answers kept for every call of `M`, by any caller.
+    pub fn answers<M: Changes>(
+        sql: &dyn Sql,
+    ) -> Result<Vec<M::Output>> {
+        sql.select(
+            "SELECT answer FROM marker WHERE action = ?1",
+            vec![BindParam::Text(M::NAME.to_owned())],
+        )?
+        .iter()
+        .map(|row| match row.as_slice() {
+            [ColumnValue::Blob(answer)] => {
+                Ok(ciborium::from_reader(answer.as_slice())?)
+            }
+            _ => anyhow::bail!("a marker's answer is not a blob"),
+        })
+        .collect()
+    }
 }
