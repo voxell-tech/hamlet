@@ -258,7 +258,7 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     ask: {
         name: "ask",
         description:
-            "Ask an agent you have a road to a question. The call ends at once, and the answer comes to you as a new input. Ask only what you need; a question to someone waiting on you is refused.",
+            "Ask an agent you have a road to a question. The call ends at once, and the answer comes to you as a new input. Ask only what you need.",
         parameters: object(
             { to: address, question: string("The question."), paths: PATHS },
             ["to", "question"],
