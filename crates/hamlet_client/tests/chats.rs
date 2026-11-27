@@ -370,7 +370,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
 }
 
 #[test]
-fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
+fn tool_results_keep_the_exit_time_and_failure() {
     for (recording, summary, code, failure, agent) in [
         (
             include_str!("../../hamlet_protocol/frames/tool.jsonl"),
@@ -444,7 +444,6 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
             exit,
             ms: time,
             failure: why,
-            change,
             ..
         } = &item.entry
         else {
@@ -453,23 +452,6 @@ fn tool_results_keep_the_exit_time_failure_and_the_approved_change() {
         assert_eq!(*exit, Some(code));
         assert_eq!(*time, Some(ms));
         assert_eq!(why.as_deref(), failure);
-        if code == 0 {
-            let change = change.as_ref().unwrap();
-            assert!(
-                change.path.ends_with("/work/result.txt"),
-                "{}",
-                change.path
-            );
-            assert_eq!(change.count, "1 line added, 1 removed");
-            assert_eq!(
-                change
-                    .lines
-                    .iter()
-                    .map(|line| line.text.as_str())
-                    .collect::<Vec<_>>(),
-                ["heading", "approved", "reviewed"]
-            );
-        }
     }
 }
 

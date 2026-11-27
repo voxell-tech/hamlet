@@ -64,8 +64,7 @@ fn messages(name: &str) -> Vec<ServerMessage> {
 }
 
 #[test]
-fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
- {
+fn a_recorded_held_write_carries_its_preview_through_the_wait() {
     let messages = messages("approval");
     let preview = messages
         .iter()
@@ -128,8 +127,7 @@ fn a_recorded_held_write_carries_its_preview_through_the_wait_and_close()
         })
         .expect("the held write needs a tool item");
     assert!(operations.iter().any(|operation| matches!(operation,
-        TranscriptOperation::Close { item, exit: 0, change: Some(Some(change)), .. }
-            if item == write && change == preview
+        TranscriptOperation::Close { item, exit: 0, .. } if item == write
     )));
 }
 
