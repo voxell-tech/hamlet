@@ -402,7 +402,8 @@ export function failedTurns(
  * Places the writes queued behind a run that ended on a held request, as
  * the end of an answered run would: pi-durable keeps them queued behind a
  * failed run until another submission comes, and a notice of the chief's
- * ruling may be the last one.
+ * ruling may be the last one. A reset and what is queued after it wait for
+ * pi-durable's own boundary, which places them in their order.
  */
 async function placeWrites(
     tx: Tx,
@@ -412,10 +413,11 @@ async function placeWrites(
     const { items } = await tx.doc(InboxDoc, conversation);
     for (let at = 0; at < items.length; ) {
         const item = items[at];
-        if (item?.mode !== "write" || item.entry.head !== undefined) {
+        if (item?.mode !== "write") {
             at += 1;
             continue;
         }
+        if (item.entry.head !== undefined) return;
         const entry = await tx.appendEntry(
             conversation,
             item.entry as unknown as EntryDraft,

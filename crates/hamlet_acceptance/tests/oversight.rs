@@ -509,3 +509,42 @@ async fn withdrawing_an_objection_stops_the_turns_calls() {
     assert!(!s.home.agent_files(1, "hand").join("ruled").exists());
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }
+
+#[tokio::test]
+async fn an_object_call_without_a_reason_leaves_the_others_running() {
+    let mut s = Session::start(Faux::new().responses([
+        calls([
+            ("object", json!({"reason": "  "})),
+            ("bash", json!({"command": "echo done > ruled"})),
+        ]),
+        words("Done."),
+    ]))
+    .await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "Make the file.").await;
+    s.chief.shows(&now, "Done.").await;
+    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
+    assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
+}
+
+#[tokio::test]
+async fn a_call_before_the_object_call_runs() {
+    let mut s = Session::start(Faux::new().responses([calls([
+        ("bash", json!({"command": "echo done > ruled"})),
+        ("object", json!({"reason": "Leave the file."})),
+    ])]))
+    .await;
+    let hand = s.hand();
+    let now = chat(hand);
+    s.chief.open(&now).await;
+    s.chief.tell(hand, "Make the file.").await;
+    s.chief
+        .wait_for("the objection", |w| {
+            matches!(w.detail, WaitDetail::Objection {})
+        })
+        .await;
+    s.chief.settle(Duration::from_millis(500)).await;
+    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
+}

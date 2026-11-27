@@ -299,6 +299,62 @@ test("a notice queued behind a run that ends on a withdrawn request is placed wi
     assert.equal(woken.faux.state.callCount, 1, "the notice started no run");
 });
 
+test("a write queued after a reset behind a run that ends on a withdrawn request stays queued with the reset", async (t) => {
+    const write = (requestId: string, kind: string, head?: "self") => ({
+        type: "write" as const,
+        requestId,
+        entry: {
+            kind,
+            data: {},
+            edits: [],
+            ...(head === undefined ? {} : { head }),
+        },
+    });
+    let agent: Woken | undefined;
+    let asked = 0;
+    const { calls } = fakeCalls({
+        realm: {
+            may_spend: async () => {
+                asked += 1;
+                if (asked === 1 || agent === undefined) return { type: "done" };
+                const harness = await agent.harness();
+                const root = await harness.root(context);
+                await root.submit(write("before", "test.before"), context);
+                await root.submit(
+                    write("reset", "test.reset", "self"),
+                    context,
+                );
+                await root.submit(write("after", "test.after"), context);
+                return {
+                    type: "refused",
+                    why: { type: "withdrawn", task: "task-1" },
+                    words: "The chief withdrew the instruction, so this call did not run.",
+                };
+            },
+        },
+    });
+    agent = await wake(t, calls, [
+        toolCall("read_budget", {}),
+        fauxAssistantMessage("Never asked."),
+    ]);
+    const woken = agent;
+    await woken.actions.submit(woken.by(from.realm), {
+        id: "input-1",
+        task: "task-1",
+        input: { type: "line", text: "Read the budget." },
+    });
+    const harness = await woken.harness();
+    const root = await harness.root(context);
+    const status = (requestId: string) =>
+        harness.commit(
+            (tx) => tx.submissionByRequest(root.id, requestId),
+            context,
+        );
+    await until(async () => (await status("before"))?.status === "done");
+    assert.equal((await status("reset"))?.status, "queued");
+    assert.equal((await status("after"))?.status, "queued");
+});
+
 const CANCELLED: Outcome = {
     type: "run",
     end: {

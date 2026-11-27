@@ -18,7 +18,7 @@ import {
     type ToolRegistration,
     ToolTask,
 } from "@earendil-works/pi-durable";
-import { BLOCKED } from "./chat-items.ts";
+import { BLOCKED, textOf } from "./chat-items.ts";
 import { hasWordsOrCall } from "./compaction.ts";
 import type { Place } from "./messages/agent.ts";
 import { REALM, type SocietyTool } from "./messages/realm.ts";
@@ -161,9 +161,8 @@ export function society(
             }),
             hook(ToolTask, {
                 beforeTool: async (call, api, context) =>
-                    call.name !== "object" &&
                     call.parent === undefined &&
-                    (await objects(api, call.id, context))
+                    (await objectedBefore(api, call.id, context))
                         ? { block: OBJECTED }
                         : undefined,
             }),
@@ -171,23 +170,40 @@ export function society(
     });
 }
 
-/** Whether the answer that made the call `id` also makes an `object` call. */
-async function objects(
+/**
+ * Whether an `object` call before the call `id` in the answer that made it
+ * opened an objection. The round runs its calls one at a time, so each
+ * earlier call's result is in the history first, newer than the answer.
+ */
+async function objectedBefore(
     api: HookApi,
     id: string,
     context: Context,
 ): Promise<boolean> {
+    const opened = new Set<string>();
     let cursor: Cursor | undefined;
     do {
         const page = await api.entries({}, 16, cursor, context);
         for (const entry of page.items) {
             for (const message of entry.model ?? []) {
+                if (message.role === "toolResult") {
+                    if (!message.isError && textOf(entry) === OBJECTING) {
+                        opened.add(message.toolCallId);
+                    }
+                    continue;
+                }
                 if (message.role !== "assistant") continue;
                 const calls = message.content.filter(
                     (part) => part.type === "toolCall",
                 );
-                if (calls.some((part) => part.id === id)) {
-                    return calls.some((part) => part.name === "object");
+                const at = calls.findIndex((part) => part.id === id);
+                if (at !== -1) {
+                    return calls
+                        .slice(0, at)
+                        .some(
+                            (part) =>
+                                part.name === "object" && opened.has(part.id),
+                        );
                 }
             }
         }
