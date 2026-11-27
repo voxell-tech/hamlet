@@ -1,4 +1,4 @@
-# The core: one agent
+# One agent
 
 An agent, the place it works in, what it is told, the tools it works with,
 what they may reach, and the conversations it keeps. The society around it is
@@ -12,8 +12,8 @@ An agent is the Hand, a hire or a worker (H37, H40, H42).
 holding its memory (`memory/`), its skills (`skills/`, one folder each, with
 a `SKILL.md`) and an inbox (`inbox/`) for what a chief hands it. They are
 writable files. A lodge holds no character: the character is a file of the
-agent's scholar, and the conversations are kept in the harness's storage,
-all out of reach of file tools. A worker has no lodge, only a scratch folder
+agent's scholar, and the conversations are kept in the agent's own file
+(A1), all out of reach of file tools. A worker has no lodge, only a scratch folder
 that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
@@ -64,8 +64,8 @@ edited its charter gets each later default. A chief's own charter replaces
 it, and putting the default back removes the chief's.
 
 **C13.** An agent cannot write its own character, by any tool. A lodge is
-checked out without `CHARACTER.md`, and a file by that name written there is
-never committed. A chief writes a character on the scholar's `main`; a
+filled without `CHARACTER.md`, the agent's own write tool refuses a file by
+that name there, and none is ever committed. A chief writes a character on the scholar's `main`; a
 lead gives one only when it makes a scholar (H38) and has no tool that changes
 one after.
 
@@ -76,14 +76,17 @@ that would have had it.
 
 ## Tools
 
-**C16.** Every agent has these tools, with calls run one at a time:
+**C16.** Every agent has these tools. An answer's tool calls run one at a
+time, in call order. No call holds its turn while the agent waits on
+someone else: a call that waits for a chief ends at once, and its end comes
+to the agent as a new input.
 
 | Tool | Does |
 |---|---|
 | `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
 | `write` | Creates or replaces a whole file and makes its parent folders |
 | `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the lodge, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the lodge, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills. A shell command that runs past 5 s ends its call with the command's id; its end comes to the agent as a new input |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
@@ -161,15 +164,16 @@ run, refuses it, or holds it for a chief (H11).
 
 **C22.** Every conversation is with one agent and is kept. An agent has a
 conversation with each chief who talks to it, one with each agent that
-writes it letters, and one with each agent that asks it something and
-waits (H30). A worker has one, begun with its task (H42), and a dream, a
+writes it letters, and one with each agent that asks it questions (H30). A worker has one, begun with its task (H42), and a dream, a
 librarian's call and a lead's review each have one of their own. A chief
 can watch either kind of peer conversation read-only, with paging. The
 chief chooses the receiving agent, the sender, and letters or questions;
 letters are shown unless the chief chooses questions.
 
-**C23.** A conversation answers one message at a time. Messages that arrive
-while it works wait in order.
+**C23.** A conversation answers one message at a time. A chief's line that
+arrives while a turn runs steers that turn: the model reads it at its next
+call. Other messages that arrive while it works wait in order, and each
+starts a turn of its own.
 
 **C24.** A chief can start a new conversation with an agent. `/new` moves
 to it at once, while the old conversation finishes its queue and, unless
@@ -222,8 +226,7 @@ or GIF, animated or not) is also given to the agent's model beside the line, as
 many as the model takes in a message [20 at most]; a line with images is
 refused, and nothing is kept, when the model takes no images, and only images
 are held back for such a model. Every file, an image too, is saved in the
-`inbox/` of the agent's lodge, in its remote workspace when it works there,
-and the line names where each file or folder is saved, a path the agent can
+`inbox/` of the agent's lodge, and the line names where each file or folder is saved, a path the agent can
 open, in the words where the attachment sits, and after them for one with no
 place. The model is given the images in the order the line names them. A
 file is not given to the model as content, so any model takes any file, and
@@ -242,16 +245,13 @@ images; otherwise it answers in words that the file is an image.
 
 **C5.** An agent reflects after every [10] answered turns in each chief
 conversation, including retries, when a chief asks it to, and on owed turns
-when a conversation is put away or the server stops in an orderly way.
+when a chief leaves the conversation.
 Zero means the agent reflects only when a chief asks it to. An automatic
 reflection is queued behind inputs already waiting, and reflects on those
 turns too. A client's end of input triggers no reflection.
 
-When the count is nonzero, an orderly close submits owed reflections and
-waits up to 120 s for those able to run. A running chief turn is suspended
-promptly; its owed reflection stays queued if the count is nonzero.
-Unfinished work carries on at the next start. A second stop signal closes
-at once.
+A turn that a stop of the server cuts off carries on at the next start
+(S3).
 
 The agent is asked to keep in its memory what is worth remembering about
 the chiefs and its lessons, and to save or improve a skill for anything

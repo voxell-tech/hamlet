@@ -25,8 +25,12 @@ defaults, which the chief's limits or the settings change.
 
 ### Retired
 
-**H13** (votes) is retired with votes, ballots and the pass fraction; its ID
-is not used again. The rebuilt society changed what some requirements
+**H13** (votes) is retired with votes, ballots and the pass fraction, and
+**H31** (no letters while another agent waits on a reply) with the question
+that held its asker. **S17** (a conversation stays with its harness), **S24**
+(what a harness must let the server decide) and **S25** (a missing part of a
+realm is an error) are retired with the harness and the one database. Their
+IDs are not used again. The rebuilt society changed what some requirements
 govern, not what they are about: C8 and C9 name the lodge and the agent's id
 where they named a house and a hamlet-and-number; C10 names scholars; H18,
 H19, H14 and H6 lost votes, requests to remove another hamlet's and moving an
@@ -34,9 +38,8 @@ agent between hamlets (`agree_move`); H5 and H20 govern hires.
 
 ### Added
 
-In `server.md`: **S21** (a harness runs only while its server does, which code
-already cited), **S26** to **S28** (records in one transaction, effects as
-jobs, versions in semver), **S29** (images and files kept once by hash) and **S30**
+In `server.md`: **S21** (the Node host runs only while its server does), **S26** to
+**S28** (records in one transaction, effects as steps, versions in semver), **S29** (images and files kept once by hash) and **S30**
 (a model's image capability and limits). In `core.md`: **C33** (images
 and files attached to a line) and **C34** (the read tool shows an image). In
 `hamlet.md`: **H37** (the Hand), **H38** (the city),

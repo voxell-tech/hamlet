@@ -1,8 +1,9 @@
 # The server: where agents run
 
 Agents run on a server and keep working whether or not a window is open; the
-window is how chiefs see and steer them. The decisions behind these
-requirements are in [`docs/adr/`](../adr/).
+window is how chiefs see and steer them. How the server keeps the realm, in
+actors, is in [`actor-runtime.md`](actor-runtime.md). The decisions behind
+these requirements are in [`docs/adr/`](../adr/).
 
 ## The server and the window
 
@@ -10,11 +11,11 @@ requirements are in [`docs/adr/`](../adr/).
 stops no agent; stopping the server stops them all.
 
 **S2.** One server keeps one realm, and a realm is claimed by one server at a
-time. The harnesses a server runs are part of its claim: each opens only
-its own store, only while that server runs.
+time. The Node host a server runs is part of its claim: it opens the agents'
+files only while that server runs (A6).
 
-**S21.** A harness goes on working only while its server runs: one whose
-connection to the server closes stops its work and exits, so no agent runs
+**S21.** The Node host goes on working only while its server runs: when its
+link to the server closes, it stops its work and exits, so no agent runs
 without its server.
 
 **S3.** Nothing an agent does is shown before it is kept. A server that
@@ -54,17 +55,15 @@ it. Only a PNG, JPEG, WebP or GIF of at most 20 MiB is kept (C33). The
 server also keeps a small copy of each image, made once when a client first
 asks for it, which the transcript shows; the image itself is read only when a
 chief opens it. An image given to an agent is copied into that agent's own
-folder, inside its sandbox's reach, and into its remote workspace when there is
-one (an image too large to send there is only named); the realm's own folder of
-images is never in any agent's reach. An image no kept input, transcript item or
+folder, inside its sandbox's reach; the realm's own store of images is never
+in any agent's reach. An image no kept input, transcript item or
 agent's folder names, and that was last touched a day ago, is removed, which
 includes uploads never sent with a line.
 
-A file a chief attaches (C33) is kept the same way in the realm's `files/`
-folder, of any kind and at most 256 MiB, and a client names it by its id and
-the name the agent finds it under. The server copies each file named by a line
-into the `inbox/` of the agent's lodge, and into its remote workspace when
-there is one; the realm's folder of files is never in any agent's reach. A
+A file a chief attaches (C33) is kept the same way in the realm's store, of
+any kind and at most 256 MiB, and a client names it by its id and the name the
+agent finds it under. Each file named by a line is copied into the `inbox/` of
+the agent's lodge; the realm's store of files is never in any agent's reach. A
 file named by no kept input, transcript item or tool result, last touched a day
 ago, is removed.
 
@@ -101,67 +100,52 @@ mode (ADR 0008).
 
 ## The realm's records and effects
 
-**S26.** Everything the server keeps about who exists, who answers to whom,
-roads, conversations, waits and spend is in one database, and a scholar's
-knowledge is in git (ADR 0011). Every change to the database is one
-transaction and is checked in one place before it is made; a change that is
-refused leaves nothing. What the clients see again after a change is what that
-transaction touched.
+**S26.** What the realm keeps about who exists, who answers to whom, roads,
+letters, waits and spend is in the realm actor's file, each agent's
+conversations are in that agent's file, and a scholar's knowledge is in git
+(A1, ADR 0011). Every change to an actor's file is one transaction and is
+checked in one place before it is made; a change that is refused leaves
+nothing. What the clients see again after a change is what that transaction
+touched.
 
-**S27.** A change that needs an effect after it commits, such as making a
-repository, checking out or committing a lodge, merging or erasing, keeps the
-effect as a job in the same transaction. Jobs run after the commit, on a
-thread of their own, and again after a crash until they are done, and each is
-safe to run twice (ADR 0012). A repository or a lodge is changed only by the
-server.
+**S27.** A change that needs an effect in another actor, such as making a
+branch, filling an agent's lodge, merging or erasing, begins a row of steps in
+the same transaction. The steps run after the commit, and again after a
+restart until they are done, and each is safe to run twice (A12). A
+scholar's repository is changed only by its scholar's actor, and a lodge only
+by its agent.
 
-**S28.** The client protocol, the runtime protocol, the workspace protocol and
-the realm's database each carry a version in semver, and all stay at 0.1.0
-until Hamlet's first release (ADR 0013). A peer, or a database, is taken on
-only when its version is compatible with the server's by semver's caret; one
-that is not is refused in words.
+**S28.** The client protocol, the link between the two hosts and the
+workspace protocol each carry a version in semver, and all stay at 0.1.0
+until Hamlet's first release (ADR 0013). A peer is taken on only when its
+version is compatible by semver's caret; one that is not is refused in
+words.
 
-## Harnesses
+## Agents' turns
 
-An agent's conversations run in a harness, apart from the server that
-keeps the rules (ADR 0001).
+An agent's conversations run in its agent actor, in the Node host (A1, A2).
 
-**S17.** An agent has a harness for its new conversations. A conversation
-stays with the harness, and the version of it, it began in, for as long as
-it is kept. Changing an agent's harness changes only its later
-conversations, and keeps its identity, lodge, roads and permissions.
-
-**S18.** The server allows every tool call and every change to the record
-when it is carried out, under the permissions, waits, limits and budget as
-they are then. A permission refused, taken back or lapsed by then allows
-nothing, even for a call a harness began before a restart. Taking a
+**S18.** The realm and the workspace allow every tool call and every change
+to the record when it is carried out, under the permissions, waits, limits
+and budget as they are then. A permission refused, taken back or lapsed by
+then allows nothing, even for a call a turn began before a restart. Taking a
 permission back undoes nothing it already allowed.
 
 **S19.** A change to the record made by a tool call, and its charge, happen
 once however often the call runs; running it again gives back its first
 result. The same call asked for again with different arguments is refused.
 
-**S20.** A model call's usage is charged once, however often its harness
-reports it. Work that the budget decides does not go on while usage a
-harness recorded is not yet charged.
+**S20.** A model call's usage is charged once, however often its agent
+reports it.
 
-**S22.** A harness that fails stops only the conversations it runs. The
-rest of the realm goes on, and work waiting on an answer from those
-conversations waits. They carry on from where they stopped when the
-harness runs again (S3).
+**S22.** When the Node host fails, only the agents stop. The rest of the
+realm goes on, and a call to an agent fails until the Node host runs again.
+The agents' conversations carry on from where they stopped (S3).
 
 **S23.** A typed line, letter, question, reply, reflection, worker's task or
 dream is taken into its conversation once, in order, however often it is
 delivered. A stopped turn stays stopped through a restart: nothing it had
 queued is taken in again.
-
-**S24.** A harness is used only if the server's permissions and budget
-decide every tool call and model call it makes. What a harness cannot do,
-such as taking a conversation back, is refused in words for a chief, never
-done another way.
-
-**S25.** A part of a realm that is missing, or belongs to another realm, is
-an error, never replaced by an empty one.
 
 ## Working on Hamlet
 
@@ -169,7 +153,7 @@ an error, never replaced by an empty one.
 run with `cargo run -p hamlet_cli -- <command>` or installed with
 `cargo xtask install`. It manages the server and window as separate
 processes and uses the client protocol for terminal operations.
-The server needs Node for the pi harness. `HAMLET_HOME` names the realm's
+The server needs Node for the Node host. `HAMLET_HOME` names the realm's
 folder; development uses a scratch folder.
 The window's executable is `hamlet_app`; the app is called Hamlet.
 Bare `hamlet` serves the realm in the background, or reuses its running
@@ -181,7 +165,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `hamlet` | Serves the realm in the background or reuses its server, and opens a window |
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
-| `server [--port <n>] [--faux <script.json>]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
+| `server [--port <n>] [--faux <script.json>] [--insecure]` | Serves the realm in the foreground; stopping it closes in order |
 | `chat [--to <hand\|hire#id\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
