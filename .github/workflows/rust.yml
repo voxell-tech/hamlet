@@ -128,34 +128,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
-          node-version-file: harnesses/pi/.nvmrc
+          node-version-file: hosts/node/.nvmrc
       # Ubuntu 24.04 blocks bubblewrap's unprivileged user namespaces.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
       - run: cargo xtask test
       - run: cargo xtask acceptance
-      - run: cargo xtask harness
+      - run: cargo xtask killkit
       - run: cargo xtask node
-
-  test-actors:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: test
-          save-if: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: harnesses/pi/.nvmrc
-      # Ubuntu 24.04 blocks bubblewrap's unprivileged user namespaces.
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev bubblewrap
-      - run: cargo xtask actors
 
   # The test job's steps on macOS, where tools run under Seatbelt.
   test-macos:
@@ -175,10 +155,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
-          node-version-file: harnesses/pi/.nvmrc
+          node-version-file: hosts/node/.nvmrc
       - run: cargo xtask test
       - run: cargo xtask acceptance
-      - run: cargo xtask harness
+      - run: cargo xtask killkit
       - run: cargo xtask node
 
   # The window on Windows.
@@ -215,14 +195,19 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v4
         with:
-          node-version-file: harnesses/pi/.nvmrc
-      - run: npm ci --prefix harnesses/pi
+          node-version-file: hosts/node/.nvmrc
+      - run: npm ci --prefix hosts/node
       - run: cargo test --locked ${{ env.WINDOWS_SERVER_TESTS }}
-      - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
-      # The CLI starts a server in insecure mode in the foreground and
-      # in the background, reports it and stops it. The window is a
-      # program that exits at once, and the background server's model
-      # is a loopback address nothing answers.
+      - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app -p hamlet_actor_node
+      # The Node host loads the native module from its crate, under
+      # the name its loader gives this system.
+      - shell: bash
+        run: cp target/debug/hamlet_actor_node.dll crates/hamlet_actor_node/actor-node.win32-x64-msvc.node
+      # The CLI starts a server in insecure mode in the foreground,
+      # has the Hand answer a line, and stops it; then in the
+      # background, reports it and stops it. The window is a program
+      # that exits at once, and the background server's model is a
+      # loopback address nothing answers.
       - name: Start, report and stop a server
         shell: bash
         run: |
@@ -245,6 +230,8 @@ jobs:
           export HAMLET_HOME="$RUNNER_TEMP/foreground"
           "$hamlet" server --insecure --port 0 --faux "$RUNNER_TEMP/faux.json" &
           ready
+          answer=$(printf 'Hello.\n' | "$hamlet" chat)
+          test "$answer" = hi || { echo "the Hand answered: $answer"; cat "$HAMLET_HOME/server.log" || true; exit 1; }
           stopped
           export HAMLET_HOME="$RUNNER_TEMP/background"
           export HAMLET_APP="$SYSTEMROOT/System32/whoami.exe"

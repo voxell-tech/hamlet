@@ -1,5 +1,5 @@
 //! Faux scripts: the answers a server gives in a model's place, in
-//! the format `harnesses/pi/src/faux.ts` reads.
+//! the format `hosts/node/src/agent/faux.ts` reads.
 
 use std::collections::BTreeMap;
 use std::path::Path;

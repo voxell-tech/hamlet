@@ -206,7 +206,6 @@ impl Activity {
     }
 
     /// The agent writes `text`, as the door folds it.
-    #[cfg(unix)]
     pub fn said(&mut self, text: &str, thought: bool) {
         self.think();
         self.speak(text, thought);

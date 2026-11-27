@@ -14,7 +14,6 @@ mod diagnostic;
 mod dreaming;
 mod fault;
 mod files;
-#[cfg(unix)]
 mod front;
 mod images;
 mod inbox;

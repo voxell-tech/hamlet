@@ -1,4 +1,4 @@
-//! `hamlet_server --actors`: the client protocol served from the
+//! The client protocol served from the
 //! actors. The realm, the workspace, the profiles and the library run
 //! in this process and the agents in a Node child; a client's
 //! messages become calls of the realm and the agents, and an agent's
@@ -89,8 +89,12 @@ pub(crate) async fn serve(options: Options) -> Result<()> {
     log_host();
     let sandbox = Sandbox::open(options.isolation)?;
     sandbox.probe()?;
-    let confinement = Confinement::Sandbox {
-        name: sandbox.name().into(),
+    let confinement = if sandbox.is_insecure() {
+        Confinement::Insecure
+    } else {
+        Confinement::Sandbox {
+            name: sandbox.name().into(),
+        }
     };
     let home = &options.home;
     std::fs::create_dir_all(home)

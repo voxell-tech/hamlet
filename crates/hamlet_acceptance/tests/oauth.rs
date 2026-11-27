@@ -1,11 +1,10 @@
-//! Public sign-in and refresh through the real server and Pi, with
-//! offline providers.
+//! Public sign-in and refresh through the real server and the Node
+//! host, with offline providers.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hamlet_acceptance::Home;
-use hamlet_acceptance::home::serves_actors;
 use hamlet_testing::{Scratch, Server, Socket, send};
 use serde_json::{Value, json};
 
@@ -25,25 +24,12 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
         "models": {"openai":{"type":"api_key","key":"test-openai-separate-key"},
             "other":{"type":"api_key","key":"test-other-provider-secret"}}
     }).to_string()).unwrap();
-    let (seam, folder, fixture_entry) = if serves_actors() {
-        (
-            "HAMLET_NODE_HOST",
-            "HAMLET_ACTOR_OAUTH_FIXTURE",
-            "../../hosts/node/test/fixtures/oauth.ts",
-        )
-    } else {
-        (
-            "HAMLET_PI_HARNESS",
-            "HAMLET_OAUTH_FIXTURE",
-            "../../harnesses/pi/test/fixtures/oauth.ts",
-        )
-    };
-    let entry =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_entry);
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../hosts/node/test/fixtures/oauth.ts");
     let server = home
         .serve_providers(&[
-            (seam, entry.to_str().unwrap()),
-            (folder, fixture.to_str().unwrap()),
+            ("HAMLET_NODE_HOST", entry.to_str().unwrap()),
+            ("HAMLET_ACTOR_OAUTH_FIXTURE", fixture.to_str().unwrap()),
             ("HAMLET_REFLECT_EVERY", "0"),
             ("HAMLET_MODEL", "chatgpt::offline"),
             ("OPENAI_API_KEY", "ambient-must-not-be-used"),
@@ -58,7 +44,7 @@ async fn start(home: &mut Home, fixture: &Scratch) -> Server {
             .is_some_and(|p| p.iter().any(|p| p["id"] == "chatgpt"))
         {
             assert!(
-                !serves_actors() || fixture.join("started").exists(),
+                fixture.join("started").exists(),
                 "the Node host's OAuth fixture is not the one \
                  serving"
             );
@@ -183,30 +169,9 @@ fn files_under(folder: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Checks the realm's and the agents' stores: today's realm database
-/// and harnesses' stores, or the actors' databases.
+/// Checks the actors' databases.
 fn no_store_secrets(home: &Path) {
-    let files = if serves_actors() {
-        files_under(&home.join("actors"))
-    } else {
-        let mut files = vec![home.join("realm.sqlite")];
-        files.extend(
-            ["realm.sqlite-wal", "realm.sqlite-shm"]
-                .map(|name| home.join(name))
-                .into_iter()
-                .filter(|path| path.exists()),
-        );
-        for runtime in
-            std::fs::read_dir(home.join("harnesses")).unwrap()
-        {
-            for entry in
-                std::fs::read_dir(runtime.unwrap().path()).unwrap()
-            {
-                files.push(entry.unwrap().path());
-            }
-        }
-        files
-    };
+    let files = files_under(&home.join("actors"));
     assert!(files.len() > 1);
     for path in files {
         let bytes = std::fs::read(&path).unwrap();
@@ -360,17 +325,14 @@ async fn concurrent_refresh_persists_after_disconnect_and_retired_tokens_never_r
         .await;
     file(&fixture.join("refresh-started")).await;
     let check = send(&mut second, json!({"type":"check","what":"model","model":"chatgpt::offline"})).await;
-    let (waited, lines) = if serves_actors() {
-        ("read-while-refreshing", 1)
-    } else {
-        ("acquires", 3)
-    };
     tokio::time::timeout(Duration::from_secs(10), async {
-        while std::fs::read_to_string(fixture.join(waited))
-            .unwrap_or_default()
-            .lines()
-            .count()
-            < lines
+        while std::fs::read_to_string(
+            fixture.join("read-while-refreshing"),
+        )
+        .unwrap_or_default()
+        .lines()
+        .count()
+            < 1
         {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

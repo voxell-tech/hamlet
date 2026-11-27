@@ -33,7 +33,7 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
     )
     .await;
     let hand = s.hand();
-    let inbox = s.home.agent_files(1, "hand").join("inbox");
+    let inbox = s.home.agent_files(1).join("inbox");
     let now = chat(hand);
     s.chief.open(&now).await;
 
@@ -120,13 +120,7 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
 
     s.chief.tell(ada, "Send cy the report.").await;
     s.chief.shows(&now, "Sent.").await;
-    let inbox = s
-        .home
-        .agent_files(
-            3,
-            &format!("hamlets/{}/3", s.chief.hamlet_id("docs")),
-        )
-        .join("inbox/from-hire-2");
+    let inbox = s.home.agent_files(3).join("inbox/from-hire-2");
     assert_eq!(
         fs::read_to_string(inbox.join("out/report.txt")).unwrap(),
         "findings"
@@ -191,13 +185,7 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     s.hire(ada, "cy", "dig").await;
     let now = chat(ada);
     s.chief.open(&now).await;
-    let inbox = s
-        .home
-        .agent_files(
-            3,
-            &format!("hamlets/{}/3", s.chief.hamlet_id("docs")),
-        )
-        .join("inbox/from-hire-2/big");
+    let inbox = s.home.agent_files(3).join("inbox/from-hire-2/big");
 
     s.chief.tell(ada, "Send cy everything.").await;
     let ask = s
@@ -213,16 +201,12 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     assert!(!inbox.exists());
     s.chief.choose(&ask.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Sent.").await;
-    if !home::calls_hold_the_turn() {
-        s.chief
-            .until("the 1001 files", |_| {
-                fs::read_dir(&inbox)
-                    .is_ok_and(|files| files.count() == 1001)
-            })
-            .await;
-    } else {
-        assert_eq!(fs::read_dir(&inbox).unwrap().count(), 1001);
-    }
+    s.chief
+        .until("the 1001 files", |_| {
+            fs::read_dir(&inbox)
+                .is_ok_and(|files| files.count() == 1001)
+        })
+        .await;
 
     s.chief.tell(ada, "Once more.").await;
     let ask = s
@@ -233,27 +217,11 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
         .choose(&ask.id, Choice::Deny, Some("too much"))
         .await;
     s.chief.shows(&now, "Refused.").await;
-    if !home::calls_hold_the_turn() {
-        s.chief
-            .until("the refusal", |c| {
-                c.texts(&now)
-                    .iter()
-                    .any(|text| text.contains("too much"))
-            })
-            .await;
-        assert!(!inbox.with_file_name("big-2").exists());
-        return;
-    }
-    let refusals = s
-        .chief
-        .items(&now)
-        .into_iter()
-        .filter_map(|item| item.tool?.failure)
-        .collect::<Vec<_>>();
-    assert!(
-        refusals.iter().any(|words| words.contains("too much")),
-        "{refusals:?}"
-    );
+    s.chief
+        .until("the refusal", |c| {
+            c.texts(&now).iter().any(|text| text.contains("too much"))
+        })
+        .await;
     assert!(!inbox.with_file_name("big-2").exists());
 }
 

@@ -23,7 +23,7 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         fs::write(&secret, "outside-canary").unwrap();
         // The mayor's lodge, in a hamlet whose id is made once it
         // is founded.
-        let lodge = home.agent_files(2, "hamlets/{{docs}}/2");
+        let lodge = home.agent_files(2);
         let attempts = [
             (format!("cat '{}'", secret.display()), open),
             (
@@ -67,10 +67,7 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         )
         .await;
         let ada = s.found("docs", "ada", "keep the docs").await;
-        let lodge = s.home.agent_files(
-            2,
-            &format!("hamlets/{}/2", s.chief.hamlet_id("docs")),
-        );
+        let lodge = s.home.agent_files(2);
         let root = if open { &work } else { &lodge };
         std::os::unix::fs::symlink(&secret, root.join("escape"))
             .unwrap();
@@ -139,10 +136,7 @@ async fn the_file_tools_keep_to_the_lodge_and_never_write_a_character()
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let lodge = s.home.agent_files(
-        2,
-        &format!("hamlets/{}/2", s.chief.hamlet_id("docs")),
-    );
+    let lodge = s.home.agent_files(2);
     let now = chat(ada);
     s.chief.open(&now).await;
     s.chief.tell(ada, "Write files.").await;
@@ -175,9 +169,7 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
             json!({"command": "sh fetch.sh", "network": true}),
         ),
     ];
-    if !home::calls_hold_the_turn() {
-        script.push(words("Asked."));
-    }
+    script.push(words("Asked."));
     script.extend([
         words("Fetched."),
         command("sh fetch.sh"),
@@ -188,10 +180,7 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         Session::start_in(home, Faux::new().agent(2, script), QUIET)
             .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let lodge = s.home.agent_files(
-        2,
-        &format!("hamlets/{}/2", s.chief.hamlet_id("docs")),
-    );
+    let lodge = s.home.agent_files(2);
     let now = chat(ada);
     s.chief.open(&now).await;
     while !lodge.is_dir() {

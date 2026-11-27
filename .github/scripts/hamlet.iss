@@ -34,8 +34,9 @@ Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm
 Source: "{#Stage}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
-; An update replaces pi whole, so no module an older pi had is left.
-Type: filesandordirs; Name: "{app}\pi"
+; An update replaces the Node host whole, so no module an older one had
+; is left.
+Type: filesandordirs; Name: "{app}\node-host"
 
 [Icons]
 Name: "{autoprograms}\Hamlet"; Filename: "{app}\hamlet_launch.exe"; IconFilename: "{app}\hamlet.ico"

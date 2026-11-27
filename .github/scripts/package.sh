@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Packs the CLI, server, window, the app's launcher, pi and Node into
+# Packs the CLI, server, window, the app's launcher, the Node host and
+# Node into
 # dist/: the archive for every platform, and what a chief installs
 # without a terminal: a disk image on macOS, an installer on Windows,
 # a .deb and an .rpm on Linux.
@@ -55,9 +56,9 @@ mkdir -p "$stage"
 mkdir -p dist
 cp LICENSE-MIT LICENSE-APACHE "$stage/"
 
-required=$(tr -d '\r\n' < harnesses/pi/.nvmrc)
+required=$(tr -d '\r\n' < hosts/node/.nvmrc)
 [[ $(node --version) == "v$required" ]] || {
-  echo "Packaging requires Node $required (harnesses/pi/.nvmrc)" >&2
+  echo "Packaging requires Node $required (hosts/node/.nvmrc)" >&2
   exit 1
 }
 
@@ -93,29 +94,45 @@ esac
 if [[ $target == *-apple-darwin ]]; then
   app=$stage/Hamlet.app
   bin=$app/Contents/MacOS
-  pi=$app/Contents/Resources/pi
+  host=$app/Contents/Resources/node-host
 else
   bin=$stage
-  pi=$bin/pi
+  host=$bin/node-host
 fi
-mkdir -p "$bin" "$pi"
+mkdir -p "$bin" "$(dirname "$host")"
 exe=
 [[ $target == *-windows-* ]] && exe=.exe
 for binary in hamlet hamlet_server hamlet_app hamlet_launch; do
   cp "$built/$binary$exe" "$bin/"
 done
-# The server runs pi with the Node beside it.
+# The server runs the Node host with the Node beside it.
 if [[ -n $exe ]]; then
   cp "$node_dir/node.exe" "$bin/"
 else
   cp "$node_dir/bin/node" "$bin/"
 fi
 cp "$node_dir/LICENSE" "$stage/LICENSE-node"
-cp -R harnesses/pi/src "$pi/"
-cp harnesses/pi/{package.json,package-lock.json,.nvmrc} "$pi/"
-# The Claude program is Anthropic's, under its own terms: pi offers Claude only
-# where its optional packages are installed (ADR 0014).
-npm ci --omit=dev --omit=optional --prefix "$pi"
+# The Node host's package names its native module by its place in the
+# checkout, so it is installed in a copy of that layout, with the
+# module copied in rather than linked.
+case $target in
+  aarch64-apple-darwin) native=(libhamlet_actor_node.dylib actor-node.darwin-arm64.node) ;;
+  x86_64-unknown-linux-gnu) native=(libhamlet_actor_node.so actor-node.linux-x64-gnu.node) ;;
+  x86_64-pc-windows-msvc) native=(hamlet_actor_node.dll actor-node.win32-x64-msvc.node) ;;
+esac
+layout=$scratch/layout
+mkdir -p "$layout/hosts/node" "$layout/crates/hamlet_actor_node"
+cp -R hosts/node/src "$layout/hosts/node/"
+cp hosts/node/{package.json,package-lock.json,.nvmrc} "$layout/hosts/node/"
+cp crates/hamlet_actor_node/{package.json,index.js,index.d.ts,LICENSE,NOTICE} \
+  "$layout/crates/hamlet_actor_node/"
+# The Claude program is Anthropic's, under its own terms: the Node host
+# offers Claude only where its optional packages are installed (ADR 0014).
+npm ci --omit=dev --omit=optional --install-links --prefix "$layout/hosts/node"
+module=$layout/hosts/node/node_modules/@hamlet/actor-node
+cp "$built/${native[0]}" "$module/${native[1]}"
+cp crates/hamlet_actor_node/NOTICE "$module/"
+cp -R "$layout/hosts/node" "$host"
 cat > "$stage/README.txt" <<INFO
 Hamlet $version
 
@@ -124,8 +141,9 @@ instead of this archive: Hamlet.dmg on macOS, the Setup .exe on Windows,
 the .deb or .rpm on Linux.
 
 This archive holds the same programs. Keep its layout: the four binaries,
-Node and pi/ side by side, with pi/ under Hamlet.app/Contents/Resources
-on macOS. Node $required is included; HAMLET_NODE selects another.
+Node and node-host/ side by side, with node-host/ under
+Hamlet.app/Contents/Resources on macOS. Node $required is included;
+HAMLET_NODE selects another.
 
 hamlet_launch is what the installed app opens: it starts the server, or
 reuses the one running, and opens the window, showing any failure in a
@@ -179,8 +197,8 @@ case $target in
 PLIST
     if [[ -n ${APPLE_SIGNING_IDENTITY:-} ]]; then
       # A Developer ID signature with the hardened runtime, which
-      # notarization asks of every program in the app, pi's native
-      # modules among them. Node compiles JavaScript as it runs.
+      # notarization asks of every program in the app, the Node host's
+      # native modules among them. Node compiles JavaScript as it runs.
       cat > "$scratch/node.entitlements" <<ENTITLEMENTS
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -199,7 +217,7 @@ ENTITLEMENTS
         if file -b "$file" | grep -q Mach-O; then
           sign "$file"
         fi
-      done < <(find "$pi" -type f -print0)
+      done < <(find "$host" -type f -print0)
       sign --entitlements "$scratch/node.entitlements" "$bin/node"
       for binary in hamlet hamlet_server hamlet_app; do
         sign "$bin/$binary"
@@ -308,8 +326,8 @@ Release: 1
 Summary: $summary
 License: MIT OR Apache-2.0
 URL: https://github.com/voxell-tech/hamlet
-# pi's native modules would add what they link against; these are
-# what the window and the sandbox need.
+# The Node host's native modules would add what they link against;
+# these are what the window and the sandbox need.
 AutoReqProv: no
 Requires: bubblewrap, alsa-lib, systemd-libs, libwayland-client, libxkbcommon, libX11, libXcursor, libXi, libXrandr, vulkan-loader
 Recommends: zenity, mesa-vulkan-drivers

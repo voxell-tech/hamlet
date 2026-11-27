@@ -43,9 +43,10 @@ env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
      HAMLET_APP (window executable), HAMLET_VIEW (window settings),
      HAMLET_SERVER_BIN (server executable), HAMLET_NODE (Node \
                      executable),
-     HAMLET_PI_HARNESS (Pi harness entry).
-Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
-                     before starting a server from source.";
+     HAMLET_NODE_HOST (Node host entry).
+Use Node from hosts/node/.nvmrc. From source, cargo xtask dev and \
+                     cargo xtask install put the Node host's \
+                     packages and native module in place.";
 
 enum Command {
     Help,

@@ -85,19 +85,23 @@ async fn approval() {
     );
     let mut c = Capture::start_in(
         home,
+        // A call that waits for the chief does not hold its turn,
+        // and its end starts a turn of its own, so the write is
+        // asked for in the turn the command's end starts, once the
+        // file is there.
         Faux::new().agent(
             2,
             [
-                calls([
-                    ("bash", json!({"command": command})),
-                    (
-                        "write",
-                        json!({
-                            "path": result,
-                            "content": "heading\nreviewed\n",
-                        }),
-                    ),
-                ]),
+                call("bash", json!({"command": command})),
+                words("The command waits."),
+                call(
+                    "write",
+                    json!({
+                        "path": result,
+                        "content": "heading\nreviewed\n",
+                    }),
+                ),
+                words("The write waits."),
                 words("The approved command finished."),
             ],
         ),
@@ -109,24 +113,22 @@ async fn approval() {
     c.open(2).await;
     c.say(2, &format!("/folder {}", folder.display())).await;
     c.send(json!({"type":"say","to":2,"text":"Run the command and write in manual mode."})).await;
-    let mut preview = Value::Null;
     for danger in ["command", "edit"] {
         c.until(|c| wait(c, "danger", danger).is_some()).await;
         let held = wait(&c, "danger", danger).unwrap();
         if danger == "edit" {
-            preview = held["change"].clone();
             assert_eq!(
-                preview["lines"],
+                held["change"]["lines"],
                 json!([{"mark":" ","text":"heading"},{"mark":"-","text":"approved"},{"mark":"+","text":"reviewed"}])
             );
         }
         assert_eq!(c.ask(json!({"type":"answer","wait":held["id"],"choice":"allow"})).await["kind"], "notice");
     }
     c.shows(2, "The approved command finished.").await;
-    assert!(c.has(|m| m["ops"].as_array().is_some_and(|ops| {
-        ops.iter()
-            .any(|o| o["op"] == "close" && o["change"] == preview)
-    })));
+    assert_eq!(
+        std::fs::read_to_string(&result).unwrap(),
+        "heading\nreviewed\n"
+    );
     c.say(2, "/mode auto").await;
     c.finish("approval").await;
 }
@@ -171,7 +173,7 @@ async fn stop() {
     c.open(HAND).await;
     c.send(json!({"type":"say","to":HAND,"text":"Run until I stop you."}))
         .await;
-    let started = c.home.agent_files(1, "hand").join("started");
+    let started = c.home.agent_files(1).join("started");
     let deadline = tokio::time::Instant::now()
         + std::time::Duration::from_secs(20);
     while !started.exists() {

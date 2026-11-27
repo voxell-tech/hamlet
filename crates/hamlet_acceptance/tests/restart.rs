@@ -38,12 +38,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     chief.tell(ada, "Fetch it.").await;
     let wait = chief.wait_for("the approval", |_| true).await;
     let before = chief.realm();
-    let lodge = home
-        .agent_files(
-            2,
-            &format!("hamlets/{}/2", before.hamlets[0].id),
-        )
-        .join("out");
+    let lodge = home.agent_files(2).join("out");
     server.kill();
 
     let server = home
@@ -73,9 +68,7 @@ async fn the_turn_after_a_command_cut_off_by_a_restart_asks_its_chief()
         "bash",
         json!({"command": "echo curl > one; sleep 60"}),
     )];
-    if !home::calls_hold_the_turn() {
-        before.push(words("Waiting."));
-    }
+    before.push(words("Waiting."));
     let mut server =
         home.serve(&Faux::new().responses(before), QUIET).await;
     let mut chief = Client::join(&server).await;
@@ -85,7 +78,7 @@ async fn the_turn_after_a_command_cut_off_by_a_restart_asks_its_chief()
     chief.tell(hand, "Fetch it.").await;
     let approval = chief.wait_for("the approval", |_| true).await;
     chief.choose(&approval.id, Choice::Allow, None).await;
-    let started = home.agent_files(1, "hand").join("one");
+    let started = home.agent_files(1).join("one");
     chief.until("the command", |_| started.exists()).await;
     assert_eq!(server.stop().await, Some(0));
 

@@ -44,12 +44,14 @@ async fn edit(s: &Session, doc: &[&str], editor: &Editor) -> Ended {
         .await
 }
 
+/// The second line reaches the Hand while its command runs, so it
+/// steers that turn: the model sees it at its next call, and one
+/// answer follows both lines.
 #[tokio::test]
 async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
     let mut s = Session::start(Faux::new().responses([
-        call("bash", json!({"command": "echo hi"})),
+        call("bash", json!({"command": "sleep 1; echo hi"})),
         words("It says hi."),
-        words("Nothing else."),
     ]))
     .await;
     let chat = Cli::run(
@@ -60,10 +62,21 @@ async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
     )
     .await;
     assert_eq!(chat.code(), Some(0), "{chat:?}");
-    assert_eq!(chat.out, "It says hi.\nNothing else.\n");
+    assert_eq!(chat.out, "It says hi.\n");
     assert!(
-        chat.err.contains("\n  [bash] {\"command\":\"echo hi\"}\n"),
+        chat.err.contains(
+            "\n  [bash] {\"command\":\"sleep 1; echo hi\"}\n"
+        ),
         "{chat:?}"
+    );
+    let now = hamlet_acceptance::chat(s.hand());
+    s.chief.open(&now).await;
+    let texts = s.chief.texts(&now);
+    let steered = texts.iter().position(|t| t == "Anything else?");
+    let answer = texts.iter().position(|t| t == "It says hi.");
+    assert!(
+        steered.is_some() && steered < answer,
+        "the second line comes before the answer: {texts:?}"
     );
     assert!(s.server.is_running());
 }
@@ -111,7 +124,7 @@ async fn attaches_a_file_and_a_folder_to_the_first_line() {
         placed,
         [("c.txt", Some(5)), ("notes/a.txt", None), ("b.txt", None)]
     );
-    let inbox = s.home.agent_files(1, "hand").join("inbox");
+    let inbox = s.home.agent_files(1).join("inbox");
     assert_eq!(
         std::fs::read_to_string(inbox.join("notes/a.txt")).unwrap(),
         "alpha"
@@ -167,8 +180,13 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     )
     .await;
     assert_eq!(chat.code(), Some(0), "{chat:?}");
+    // Each line goes to its own agent at once, so the answers come in
+    // the order the agents give them.
+    let mut answers = chat.out.lines().collect::<Vec<_>>();
+    answers.sort_unstable();
     assert_eq!(
-        chat.out, "Bo answer.\nAda answer.\nHand answer.\n",
+        answers,
+        ["Ada answer.", "Bo answer.", "Hand answer."],
         "{chat:?}"
     );
     let switched = Cli::run(
@@ -243,9 +261,8 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     .await;
     next.write("/allow\n").await;
     next.out_shows("After restart.\n").await;
-    let read = std::fs::read_to_string(
-        home.agent_files(1, "hand").join("two"),
-    );
+    let read =
+        std::fs::read_to_string(home.agent_files(1).join("two"));
     let Ok(two) = read else {
         let mut chief = chief;
         let hand = hamlet_acceptance::chat(chief.hand());

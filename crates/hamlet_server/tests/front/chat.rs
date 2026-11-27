@@ -855,7 +855,7 @@ async fn a_realm_with_an_endpoint_shows_its_model_checked_once_started()
     let endpoint = openai::Endpoint::start().await;
     let home = Scratch::new("front-home");
     let mut server = Server::start(
-        &[SERVER.to_owned(), "--actors".to_owned()],
+        &[SERVER.to_owned()],
         &home,
         Models::Providers,
         &[

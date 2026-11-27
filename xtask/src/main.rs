@@ -14,11 +14,14 @@ const USAGE: &str =
     "\
 Usage: cargo xtask <task> [args]
 
-  build            build the CLI, server, window and the app's \
-     launcher (release); args go to cargo build
+  build            build the CLI, server, window, the app's launcher \
+     and the native module for Node (release); args go to cargo \
+     build
   all              build every binary of the workspace (release); \
      args go to cargo build
-  install          put the CLI, server and window in ~/.cargo/bin
+  install          put the CLI, server and window in ~/.cargo/bin, \
+     and the native module for Node (release) where the Node host \
+     loads it
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
      picks it); --hot reloads saved shaders and tuning in the window
@@ -33,27 +36,24 @@ Usage: cargo xtask <task> [args]
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
-  actors           the acceptance suite on `hamlet_server --actors`, \
-     with the Node host and its native module, but the scenarios \
-     that fail there
-  harness          the server's tests that start pi, built with \
-     fault points
+  killkit          every kill kit scenario once (see below)
   doc              the documentation, with warnings as errors
-  node             pi's TypeScript, Biome and tests, the native \
-     module's declarations (Linux only), the Node host's \
-     TypeScript, Biome and tests, then the native module for Node \
-     (debug) and the Node host's tests that load it, the demo actor \
-     host and the Node host's tests that drive it, and the server's \
-     front door, linted and tested with the actors' Node host
+  node             the native module's declarations (Linux only), \
+     the Node host's TypeScript, Biome and tests, then the native \
+     module for Node (debug) and the Node host's tests that load \
+     it, the demo actor host and the Node host's tests that drive \
+     it, and the server's front door, linted and tested with the \
+     actors' Node host
   declarations     write the native module's index.d.ts and index.js \
      from its Rust, and fail if either changed
-  fmt              format Rust, with the latest nightly, and pi
+  fmt              format Rust, with the latest nightly, and the \
+     Node host
   workspace-image  build the remote workspace image; args go to \
      docker build
   killkit          build the demo actor host and the Node host's \
      native module, and kill the demo at a scenario's step: \
-     [<scenario>] --runs <n>, every scenario when none is named, or \
-     --list
+     [<scenario>] [--runs <n>], every scenario once when none is \
+     named, or --list
   idle             a command tree's memory, in MB of 1,000,000 \
      bytes, and wakeups per second while idle: [--settle <s>] \
      [--window <s>] [--send <line>]... <command> [args], 30 and 60 \
@@ -61,20 +61,17 @@ Usage: cargo xtask <task> [args]
      Linux only
 
 Every task but help and uninstall first fetches the vendored fynix
-when it is missing. Tasks that build, run or check pi install its
-packages when they are missing or stale, and node installs the Node
-host's too. The installed server finds
-pi in this checkout, so keep it where it was installed from, and run
-`cargo xtask install` again after pulling.
+when it is missing. Tasks that run or check the server install the
+Node host's packages when they are missing or stale, and put its
+native module where it loads. The installed server finds the Node
+host in this checkout, so keep it where it was installed from, and
+run `cargo xtask install` again after pulling.
 
 deny needs cargo-deny: `cargo install --locked cargo-deny`. With CI
 set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
-
-/// The pi harness's Node package.
-const PI: &str = "harnesses/pi";
 
 /// The Node host's package, which holds the TypeScript actor layer.
 const NODE_HOST: &str = "hosts/node";
@@ -108,7 +105,7 @@ enum Step {
     Deny,
     Test,
     Acceptance,
-    Harness,
+    Killkit,
     Doc,
     Node,
 }
@@ -122,10 +119,7 @@ impl Step {
         Self::Deny,
         Self::Test,
         Self::Acceptance,
-        // The harness tests rebuild the server with fault points,
-        // so they run after the acceptance suite, which needs the
-        // plain one.
-        Self::Harness,
+        Self::Killkit,
         Self::Doc,
         Self::Node,
     ];
@@ -144,7 +138,7 @@ impl Step {
             Self::Deny => deny(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
-            Self::Harness => harness(root),
+            Self::Killkit => killkit(root, &[]),
             Self::Doc => doc(),
             Self::Node => node(root),
         }
@@ -160,7 +154,7 @@ impl fmt::Display for Step {
             Self::Deny => "deny",
             Self::Test => "test",
             Self::Acceptance => "acceptance",
-            Self::Harness => "harness",
+            Self::Killkit => "killkit",
             Self::Doc => "doc",
             Self::Node => "node",
         })
@@ -237,7 +231,6 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
     }
     match task {
         "build" => {
-            prepare(&root)?;
             let mut build =
                 cargo(&["build", "--release", "--locked"]);
             for (package, binary) in
@@ -245,23 +238,16 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             {
                 build.args(["-p", package, "--bin", binary]);
             }
+            build.args(["-p", "hamlet_actor_node", "--lib"]);
             status(build.args(rest))
         }
-        "all" => {
-            prepare(&root)?;
-            status(
-                cargo(&[
-                    "build",
-                    "--release",
-                    "--locked",
-                    "--workspace",
-                ])
+        "all" => status(
+            cargo(&["build", "--release", "--locked", "--workspace"])
                 .arg("--bins")
                 .args(rest),
-            )
-        }
+        ),
         "install" => {
-            prepare(&root)?;
+            prepare(&root, Profile::Release)?;
             for (package, binary) in BINARIES {
                 let path = Path::new("crates").join(package);
                 status(
@@ -282,7 +268,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             Ok(())
         }
         "dev" => {
-            prepare(&root)?;
+            prepare(&root, Profile::Debug)?;
             status(
                 cargo(&["run", "-p", "hamlet_cli", "--", "dev"])
                     .args(rest),
@@ -292,7 +278,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             Step::ALL.into_iter().try_for_each(|step| step.run(&root))
         }
         "fmt" => {
-            prepare(&root)?;
+            install(&root, NODE_HOST)?;
             status(&mut cargo(&[NIGHTLY, "fmt"]))?;
             status(&mut cargo(&[
                 NIGHTLY,
@@ -300,33 +286,14 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
                 "--manifest-path",
                 XTASK,
             ]))?;
-            status(&mut npm(PI, &["run", "format"]))
+            status(&mut npm(NODE_HOST, &["run", "format"]))
         }
         "declarations" => {
             install(&root, NODE_HOST)?;
             declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
-        "actors" => actors(&root),
-        "killkit" => {
-            install(&root, NODE_HOST)?;
-            native(
-                &root,
-                "killkit",
-                "the Node host's native module",
-            )?;
-            status(&mut cargo(&[
-                "build",
-                "-p",
-                "hamlet_host",
-                "--example",
-                "demo",
-            ]))?;
-            status(
-                cargo(&["run", "-q", "-p", "hamlet_killkit", "--"])
-                    .args(rest),
-            )
-        }
+        "killkit" => killkit(&root, rest),
         "idle" => {
             let options =
                 idle::Options::parse(rest).map_err(Failure::Idle)?;
@@ -425,7 +392,7 @@ fn test() -> Result<(), Failure> {
 }
 
 fn acceptance(root: &Path) -> Result<(), Failure> {
-    prepare(root)?;
+    prepare(root, Profile::Debug)?;
     status(&mut locked(
         "build",
         &["-p", "hamlet_cli", "-p", "hamlet_server"],
@@ -449,73 +416,18 @@ fn acceptance(root: &Path) -> Result<(), Failure> {
     ))
 }
 
-/// The scenarios `actors` skips, each with the place of its test:
-/// they fail on `hamlet_server --actors`.
-const ACTORS_SKIP: &[(&str, &str)] = &[
-    (
-        "chats_with_answers_on_stdout_and_the_rest_on_stderr",
-        "tests/cli.rs:48",
-    ),
-    (
-        "starts_at_another_hamlet_and_switches_agents_and_hamlets",
-        "tests/cli.rs:149",
-    ),
-];
-
-fn actors(root: &Path) -> Result<(), Failure> {
-    prepare(root)?;
-    install(root, NODE_HOST)?;
-    if !native(root, "actors", "the acceptance suite on the actors")?
-    {
-        return Ok(());
-    }
+/// The kill kit on the demo actor host: `rest` names a scenario and
+/// the runs, else every scenario runs once.
+fn killkit(root: &Path, rest: &[String]) -> Result<(), Failure> {
+    prepare(root, Profile::Debug)?;
     status(&mut locked(
         "build",
-        &["-p", "hamlet_cli", "-p", "hamlet_server"],
+        &["-p", "hamlet_host", "--example", "demo"],
     ))?;
-    let server = target(root)
-        .join("debug")
-        .join(format!("hamlet_server{}", env::consts::EXE_SUFFIX));
-    let mut test = locked(
-        "test",
-        &[
-            "-p",
-            "hamlet_acceptance",
-            "--features",
-            "acceptance",
-            "--no-fail-fast",
-            "--",
-            "--exact",
-        ],
-    );
-    for (scenario, _) in ACTORS_SKIP {
-        test.args(["--skip", scenario]);
-    }
-    status(test.env(
-        "HAMLET_ACCEPTANCE_SERVER",
-        format!("{} --actors", server.display()),
-    ))
-}
-
-fn harness(root: &Path) -> Result<(), Failure> {
-    prepare(root)?;
-    status(&mut locked(
-        "clippy",
-        &[
-            "-p",
-            "hamlet_server",
-            "--all-targets",
-            "--features",
-            "harness",
-            "--",
-            "-D",
-            "warnings",
-        ],
-    ))?;
-    status(&mut locked(
-        "test",
-        &["-p", "hamlet_server", "--features", "harness"],
-    ))
+    status(
+        locked("run", &["-q", "-p", "hamlet_killkit", "--"])
+            .args(rest),
+    )
 }
 
 /// `hamlet_actor_core`'s `native-runtime` and `wasm-runtime` features
@@ -550,9 +462,6 @@ fn doc() -> Result<(), Failure> {
 }
 
 fn node(root: &Path) -> Result<(), Failure> {
-    prepare(root)?;
-    status(&mut npm(PI, &["run", "check"]))?;
-    status(&mut npm(PI, &["test"]))?;
     install(root, NODE_HOST)?;
     if env::consts::OS == "linux" {
         declarations(root)?;
@@ -564,7 +473,8 @@ fn node(root: &Path) -> Result<(), Failure> {
     }
     status(&mut npm(NODE_HOST, &["run", "check"]))?;
     status(&mut npm(NODE_HOST, &["test"]))?;
-    if !native(root, "node", "the native module and its tests")? {
+    if !native(root, Profile::Debug)? {
+        unnamed("node", "the native module and its tests");
         return Ok(());
     }
     status(&mut locked(
@@ -637,20 +547,34 @@ fn native_names() -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// Builds the native module and puts it in its crate under the name
-/// its loader looks for, so the Node host loads this build. Answers
-/// false, saying that `task` skips `what`, where the loader has no
-/// name for this system.
-fn native(
-    root: &Path,
-    task: &str,
-    what: &str,
-) -> Result<bool, Failure> {
+/// How cargo builds the native module.
+#[derive(Clone, Copy)]
+enum Profile {
+    Debug,
+    Release,
+}
+
+impl Profile {
+    /// Cargo's flags for the profile, and the folder it builds into.
+    fn cargo(self) -> (&'static [&'static str], &'static str) {
+        match self {
+            Self::Debug => (&[], "debug"),
+            Self::Release => (&["--release"], "release"),
+        }
+    }
+}
+
+/// Builds the native module with `profile` and puts it in its crate
+/// under the name its loader looks for, so the Node host loads this
+/// build. Answers false where the loader has no name for this system.
+fn native(root: &Path, profile: Profile) -> Result<bool, Failure> {
     let Some((library, loaded)) = native_names() else {
-        unnamed(task, what);
         return Ok(false);
     };
-    status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
+    let (flags, folder_name) = profile.cargo();
+    status(
+        locked("build", &["-p", "hamlet_actor_node"]).args(flags),
+    )?;
     let target = target(root);
     let folder = root.join(NATIVE);
     // A new file renamed over the old one, never the old one
@@ -658,7 +582,7 @@ fn native(
     // changed in place. The partial name ends in .node, which git
     // ignores there.
     let partial = folder.join(format!("partial-{loaded}"));
-    fs::copy(target.join("debug").join(library), &partial)
+    fs::copy(target.join(folder_name).join(library), &partial)
         .and_then(|_| fs::rename(&partial, folder.join(loaded)))
         .map_err(Failure::Native)?;
     Ok(true)
@@ -776,9 +700,14 @@ fn fynix(root: &Path) -> Result<(), Failure> {
     ]))
 }
 
-/// Installs pi's packages when they are missing or stale.
-fn prepare(root: &Path) -> Result<(), Failure> {
-    install(root, PI)
+/// Installs the Node host's packages when they are missing or stale,
+/// and puts its native module, built with `profile`, where it loads.
+fn prepare(root: &Path, profile: Profile) -> Result<(), Failure> {
+    install(root, NODE_HOST)?;
+    if !native(root, profile)? {
+        unnamed("prepare", "the native module");
+    }
+    Ok(())
 }
 
 /// Installs the packages of the Node package in `package` when they

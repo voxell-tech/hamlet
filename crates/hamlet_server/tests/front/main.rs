@@ -1,7 +1,7 @@
-//! `hamlet_server --actors` served to a client: the realm and the
-//! agents run as actors, the agent in a Node child, behind the
-//! client protocol. Every server here starts that Node host, so the
-//! target needs Node and the `node-host` feature.
+//! `hamlet_server` served to a client: the realm and the agents run
+//! as actors, the agent in a Node child, behind the client protocol.
+//! Every server here starts that Node host, so the target needs Node
+//! and the `node-host` feature.
 
 #![cfg(unix)]
 
@@ -39,7 +39,7 @@ const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
 /// Has the Node host list two loopback providers to sign in to.
 const SIGN_IN: (&str, &str) = ("HAMLET_DEMO_SIGN_IN", "1");
 
-/// A server started with `--actors` on a new realm, its faux model
+/// A server started on a new realm, its faux model
 /// answering with `responses` in order, and the folders it uses.
 async fn serve(
     responses: serde_json::Value,
@@ -63,7 +63,7 @@ async fn serve_with(
     (server, home, side)
 }
 
-/// A server started with `--actors` on `home`, as [`serve_with`]
+/// A server started on `home`, as [`serve_with`]
 /// made it, its faux model answering from the script in `side` from
 /// the first step.
 async fn serve_again(
@@ -72,7 +72,7 @@ async fn serve_again(
     env: &[(&str, &str)],
 ) -> Server {
     Server::start(
-        &[SERVER.to_owned(), "--actors".to_owned()],
+        &[SERVER.to_owned()],
         home,
         Models::Faux(&side.join("faux.json")),
         env,

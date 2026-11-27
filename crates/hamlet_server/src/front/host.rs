@@ -3,7 +3,7 @@
 //! Node child.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,12 +22,13 @@ use hamlet_sandbox::Sandbox;
 
 /// The Node host of the agents, in the checkout this server was
 /// built from.
-const ENTRY: &str = concat!(
+const CHECKOUT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../hosts/node/src/main.ts"
 );
 
-/// Names a Node host entry to start in place of [`ENTRY`], for tests.
+/// Names the Node host's `src/main.ts` to start in place of the one
+/// beside the server or in the checkout.
 const NODE_HOST: &str = "HAMLET_NODE_HOST";
 
 /// Set to `1`, the Node host lists two loopback providers to sign in
@@ -47,22 +48,19 @@ const READ_WITHIN: Duration = Duration::from_secs(10);
 pub(crate) const HAND: AgentNumber = AgentNumber(1);
 
 /// Opens the folder `root`, with the Node host's model answering
-/// from the script `faux` when given. The program is `HAMLET_NODE`,
-/// or `node`. Shut the supervisor down first, then the host.
+/// from the script `faux` when given. Shut the supervisor down first,
+/// then the host.
 pub(crate) fn open(
     root: &Path,
     sandbox: Sandbox,
     faux: Option<&Path>,
 ) -> Result<(Host, Supervisor)> {
-    let node = std::env::var("HAMLET_NODE")
-        .unwrap_or_else(|_| "node".into());
-    let entry =
-        std::env::var(NODE_HOST).unwrap_or_else(|_| ENTRY.to_owned());
+    let (node, entry) = node_host()?;
     // Node before 24.3 warns at each start that it strips types.
     let mut argv = vec![
-        node,
+        text(&node)?,
         "--disable-warning=ExperimentalWarning".to_owned(),
-        entry,
+        text(&entry)?,
     ];
     if let Some(faux) = faux {
         let script =
@@ -72,10 +70,7 @@ pub(crate) fn open(
                     faux.display()
                 )
             })?;
-        let script = script
-            .to_str()
-            .context("the faux script's path is not UTF-8")?;
-        argv.extend(["--faux".to_owned(), script.to_owned()]);
+        argv.extend(["--faux".to_owned(), text(&script)?]);
     }
     if std::env::var(SIGN_IN).is_ok_and(|set| set == "1") {
         argv.push("--sign-in".to_owned());
@@ -101,6 +96,57 @@ pub(crate) fn open(
         kinds: vec![address::Agent::KIND.to_owned()],
     };
     child::open(root, factories, options, child)
+}
+
+/// The Node program and the Node host's entry the environment gives:
+/// `HAMLET_NODE` and [`NODE_HOST`], else the Node a release ships
+/// beside the server, or Node on the path, and the entry beside the
+/// server or in the checkout it was built from.
+fn node_host() -> Result<(PathBuf, PathBuf)> {
+    let set = |name| std::env::var_os(name).filter(|v| !v.is_empty());
+    let executable = std::env::current_exe()?;
+    let directory = executable
+        .parent()
+        .context("Cannot locate the server's directory")?;
+    let entry = if let Some(path) = set(NODE_HOST) {
+        let path = PathBuf::from(path);
+        ensure!(
+            path.is_file(),
+            "{NODE_HOST} names {}, which is not a file.",
+            path.display()
+        );
+        path
+    } else {
+        [
+            directory.join("node-host/src/main.ts"),
+            directory.join("../Resources/node-host/src/main.ts"),
+            PathBuf::from(CHECKOUT),
+        ]
+        .into_iter()
+        .find(|path| path.is_file())
+        .with_context(|| {
+            format!(
+                "No Node host beside the server in {} or in the \
+                 checkout it was built from. Set {NODE_HOST} to its \
+                 src/main.ts.",
+                directory.display()
+            )
+        })?
+    };
+    let shipped = directory
+        .join(format!("node{}", std::env::consts::EXE_SUFFIX));
+    let node = match set("HAMLET_NODE") {
+        Some(node) => node.into(),
+        None if shipped.is_file() => shipped,
+        None => "node".into(),
+    };
+    Ok((node, entry))
+}
+
+fn text(path: &Path) -> Result<String> {
+    path.to_str()
+        .map(str::to_owned)
+        .with_context(|| format!("{} is not UTF-8", path.display()))
 }
 
 pub(crate) async fn start_realm(host: &Host) -> Result<()> {

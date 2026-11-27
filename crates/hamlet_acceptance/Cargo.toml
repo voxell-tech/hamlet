@@ -11,8 +11,9 @@ description = "A black-box acceptance suite for Hamlet's server, driven through 
 workspace = true
 
 [features]
-# Compiles real-process scenarios, which need the CLI, server
-# and Node with `npm ci --prefix harnesses/pi`.
+# Compiles real-process scenarios, which need the CLI, the server,
+# and the Node host with its packages and native module in place, as
+# `cargo xtask acceptance` puts them.
 acceptance = []
 
 [dependencies]

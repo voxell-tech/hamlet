@@ -13,7 +13,6 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 
 use crate::client::PATIENCE;
-use crate::home::serves_actors;
 
 /// Which stream a piece of output came on.
 #[derive(Clone, Copy)]
@@ -76,14 +75,10 @@ impl Cli {
         env: &[(&str, &str)],
     ) -> Ended {
         let mut cli = Self::start(home, args, env);
-        if serves_actors() {
-            match cli.written(input).await {
-                Err(error)
-                    if error.kind() == io::ErrorKind::BrokenPipe => {}
-                written => written.unwrap(),
-            }
-        } else {
-            cli.write(input).await;
+        match cli.written(input).await {
+            Err(error)
+                if error.kind() == io::ErrorKind::BrokenPipe => {}
+            written => written.unwrap(),
         }
         cli.end().await
     }

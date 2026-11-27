@@ -44,7 +44,7 @@ async fn the_product_entry_answers_from_a_faux_script() {
     )
     .unwrap();
     let mut server = Server::start(
-        &[SERVER.to_owned(), "--actors".to_owned()],
+        &[SERVER.to_owned()],
         &home,
         Models::Faux(&side.join("faux.json")),
         &[],

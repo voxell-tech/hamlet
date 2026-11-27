@@ -1,5 +1,5 @@
-//! The server from start to stop: the claim (S2), the harness, the
-//! published address, then the ordered close (S3).
+//! How the server is started, the address it publishes, and the
+//! signals that stop it.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -7,26 +7,16 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::Confinement;
-use hamlet_sandbox::{Isolation, Sandbox};
+use hamlet_sandbox::Isolation;
 use serde_json::json;
-use tokio::net::TcpListener;
-use tokio::sync::watch;
 
-use crate::clients::connection::GRACE;
-use crate::core::Core;
 use crate::credentials::write_whole;
-use crate::realm::Realm;
-use crate::settings::{self, Overrides};
-use crate::talk::Env;
-use crate::talk::process::Pi;
 
-/// How long a closing realm waits for its runtimes to stop.
-const STOPPING: Duration = Duration::from_secs(30);
 /// How long a closing realm waits for a credential rotation begun.
 pub(crate) const ROTATING: Duration = Duration::from_secs(15);
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
-                     <n>] [--faux <file>] [--insecure] [--actors]";
+                     <n>] [--faux <file>] [--insecure]";
 
 /// How the server is started.
 pub struct Options {
@@ -34,8 +24,6 @@ pub struct Options {
     pub port: u16,
     pub faux: Option<PathBuf>,
     pub isolation: Isolation,
-    /// Whether the realm and its agents run as actors.
-    pub actors: bool,
 }
 
 impl Options {
@@ -48,12 +36,10 @@ impl Options {
         let mut port = 7313;
         let mut faux = None;
         let mut isolation = Isolation::Sandboxed;
-        let mut actors = false;
         while let Some(flag) = args.next() {
             let mut value = || args.next().context(USAGE);
             match flag.to_str() {
                 Some("--insecure") => isolation = insecure()?,
-                Some("--actors") => actors = with_actors()?,
                 Some("--home") => home = Some(value()?.into()),
                 Some("--port") => {
                     port = value()?
@@ -77,7 +63,6 @@ impl Options {
             port,
             faux,
             isolation,
-            actors,
         })
     }
 }
@@ -95,17 +80,6 @@ fn insecure() -> Result<Isolation> {
         "Insecure mode is only for Windows. This platform has a \
          sandbox."
     )
-}
-
-/// `--actors`, which only a Unix build takes.
-#[cfg(unix)]
-fn with_actors() -> Result<bool> {
-    Ok(true)
-}
-
-#[cfg(not(unix))]
-fn with_actors() -> Result<bool> {
-    bail!("The actors do not run on this platform.")
 }
 
 /// The published address, removed when the server stops.
@@ -161,81 +135,10 @@ pub(crate) fn chief_name() -> String {
         .unwrap_or_else(|| "chief".into())
 }
 
-/// Serves until SIGTERM or Ctrl-C, closing every client before
-/// letting the realm go.
+/// Serves the realm at `options.home` from the actors until SIGTERM
+/// or Ctrl-C.
 pub async fn serve(options: Options) -> Result<()> {
-    #[cfg(unix)]
-    if options.actors {
-        return crate::front::serve(options).await;
-    }
-    let mut signals = Signals::new()?;
-    hamlet_os::process::reap_with_server()?;
-    let sandbox = Sandbox::open(options.isolation)?;
-    sandbox.probe()?;
-    let realm = Realm::open(
-        &options.home,
-        &chief_name(),
-        crate::clock::now(),
-    )?;
-    let overrides = Overrides::from_env(options.faux.is_some());
-    let mut realm = realm;
-    let saved = settings::stored(realm.store().connection())?;
-    let env = Env {
-        settings: overrides.apply(saved),
-        overrides,
-    };
-    let pi = Pi::from_env(options.faux.clone())?;
-    let (shutdown, closing) = watch::channel(false);
-    let (mut core, mut inbox) =
-        Core::start(realm, env, pi, sandbox, closing).await?;
-    let listener = TcpListener::bind((
-        std::net::Ipv4Addr::LOCALHOST,
-        options.port,
-    ))
-    .await?;
-    let url = format!("ws://{}", listener.local_addr()?);
-    inbox.listen(listener);
-    let published = publish(
-        core.realm.layout().server(),
-        &url,
-        &core.confinement(),
-    )?;
-    announce(core.realm.layout().root(), &url);
-    let served = async {
-        loop {
-            core.step(&mut inbox, Duration::from_secs(60)).await?;
-        }
-        #[expect(
-            unreachable_code,
-            reason = "the loop ends with an error or a signal"
-        )]
-        Ok::<_, anyhow::Error>(())
-    };
-    let result = tokio::select! {
-        result = served => result,
-        () = signals.next() => Ok(()),
-    };
-    shutdown.send_replace(true);
-    let tasks = &mut core.clients.tasks;
-    let drained =
-        async { while tasks.join_next().await.is_some() {} };
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        _ = tokio::time::timeout(GRACE, drained) => {}
-    }
-    core.clients.tasks.abort_all();
-    let closed = core.close(&mut inbox, ROTATING);
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        closed = closed => closed?,
-    }
-    let stopped = core.stop(STOPPING);
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        stopped = stopped => stopped?,
-    }
-    drop(published);
-    result
+    crate::front::serve(options).await
 }
 
 pub(crate) struct Signals {

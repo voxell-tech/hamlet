@@ -6,9 +6,6 @@ use hamlet_testing::{Models, Scratch, Server, Unstarted, cli};
 
 use crate::Faux;
 
-/// Selects the command that starts a server.
-const SERVER_VAR: &str = "HAMLET_ACCEPTANCE_SERVER";
-
 /// A home and the folder beside it for scripts and fixtures, kept
 /// across the servers started on it.
 pub struct Home {
@@ -41,15 +38,10 @@ impl Home {
         self.path().join(relative)
     }
 
-    /// The folder of agent `agent`'s own files: `today`, such as
-    /// `hand` or `hamlets/<id>/<n>`, else the agent's filesystem in
-    /// the realm's actor folder when the server serves the actors.
-    pub fn agent_files(&self, agent: u64, today: &str) -> PathBuf {
-        if serves_actors() {
-            self.file(&format!("actors/agent/{agent}.fs"))
-        } else {
-            self.file(today)
-        }
+    /// The folder of agent `agent`'s own files, its filesystem in the
+    /// realm's actor folder.
+    pub fn agent_files(&self, agent: u64) -> PathBuf {
+        self.file(&format!("actors/agent/{agent}.fs"))
     }
 
     /// Starts a server on this home answering with `faux`, with
@@ -118,49 +110,14 @@ impl Default for Home {
     }
 }
 
-/// Whether the server under test serves the actors
-/// (`hamlet_server --actors`).
-pub fn serves_actors() -> bool {
-    std::env::var(SERVER_VAR).is_ok_and(|command| {
-        command.split_whitespace().any(|w| w == "--actors")
-    })
-}
-
-/// Whether a call that waits for a chief, a question or a worker
-/// holds its turn. On `hamlet_server --actors` it does not: the turn
-/// goes on, and the call's end comes to the agent as a new input.
-pub fn calls_hold_the_turn() -> bool {
-    !serves_actors()
-}
-
 /// The command that starts a server, before `--port 0` and
-/// `--faux <file>`: [`SERVER_VAR`], else the `hamlet` CLI's
-/// `server`.
+/// `--faux <file>`: the `hamlet` CLI's `server`.
 fn server_command() -> Vec<String> {
-    if let Some(command) = std::env::var(SERVER_VAR)
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-    {
-        let mut words = command
-            .split_whitespace()
-            .map(String::from)
-            .collect::<Vec<_>>();
-        let program = Path::new(&words[0]);
-        if program.is_relative() && program.components().count() > 1 {
-            words[0] = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join(program)
-                .display()
-                .to_string();
-        }
-        return words;
-    }
     let cli = cli();
     assert!(
         cli.is_file(),
         "{} is missing: build it with `cargo build -p hamlet_cli`, \
-         set HAMLET_CLI to a built CLI, or set {SERVER_VAR} to the \
-         command that starts a server",
+         or set HAMLET_CLI to a built CLI",
         cli.display()
     );
     vec![cli.display().to_string(), "server".into()]

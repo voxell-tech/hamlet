@@ -60,7 +60,6 @@ impl Credentials {
 
     /// Opens the credentials of a realm whose actors own the file,
     /// writing it only to make it.
-    #[cfg(unix)]
     pub(crate) fn open_beside_actors(root: &Path) -> Result<Self> {
         let file = root.join("credentials.json");
         match read(&file)? {

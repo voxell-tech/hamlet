@@ -20,13 +20,11 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         bash("echo curl three > three"),
         words("Done."),
     ];
-    if !home::calls_hold_the_turn() {
-        script.extend([
-            words("Noted."),
-            words("Noted."),
-            words("Noted."),
-        ]);
-    }
+    script.extend([
+        words("Noted."),
+        words("Noted."),
+        words("Noted."),
+    ]);
     script.extend([
         bash("echo curl four > four"),
         bash("echo curl five > five"),
@@ -34,7 +32,7 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
     ]);
     let mut s = Session::start(Faux::new().responses(script)).await;
     let hand = s.hand();
-    let lodge = s.home.agent_files(1, "hand");
+    let lodge = s.home.agent_files(1);
     let now = chat(hand);
     s.chief.open(&now).await;
     s.chief.tell(hand, "Try the network.").await;
@@ -73,18 +71,16 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         !lodge.join("two").exists() && !lodge.join("three").exists()
     );
     assert!(s.chief.waits().is_empty());
-    if !home::calls_hold_the_turn() {
-        s.chief
-            .until("the three ends heard", |c| {
-                !c.is_working(&now)
-                    && c.texts(&now)
-                        .iter()
-                        .filter(|t| *t == "Noted.")
-                        .count()
-                        == 3
-            })
-            .await;
-    }
+    s.chief
+        .until("the three ends heard", |c| {
+            !c.is_working(&now)
+                && c.texts(&now)
+                    .iter()
+                    .filter(|t| *t == "Noted.")
+                    .count()
+                    == 3
+        })
+        .await;
 
     // Allowed for good: no later command asks.
     s.chief.tell(hand, "Once more.").await;
@@ -94,19 +90,11 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .await;
     s.chief.choose(&fourth.id, Choice::Always, None).await;
     s.chief.shows(&now, "Done again.").await;
-    if !home::calls_hold_the_turn() {
-        s.chief
-            .until("four and five", |_| {
-                lodge.join("four").exists()
-                    && lodge.join("five").exists()
-            })
-            .await;
-    } else {
-        assert!(
-            lodge.join("four").exists()
-                && lodge.join("five").exists()
-        );
-    }
+    s.chief
+        .until("four and five", |_| {
+            lodge.join("four").exists() && lodge.join("five").exists()
+        })
+        .await;
     assert!(s.chief.waits().is_empty());
     let grants = s.chief.realm().grants;
     assert_eq!(grants.len(), 1);
@@ -166,7 +154,7 @@ async fn the_settings_can_allow_the_network_to_every_agent() {
     s.chief.tell(hand, "Go.").await;
     s.chief.shows(&now, "Done.").await;
     assert!(s.chief.waits().is_empty());
-    assert!(s.home.agent_files(1, "hand").join("open").exists());
+    assert!(s.home.agent_files(1).join("open").exists());
 }
 
 #[tokio::test]
@@ -178,8 +166,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     let home = Home::new();
     // The mayor's lodge, in a hamlet whose id is made once it is
     // founded.
-    let lodge_file =
-        home.agent_files(2, "hamlets/{{docs}}/2").join("lodge-file");
+    let lodge_file = home.agent_files(2).join("lodge-file");
     let mut s = Session::start_in(
         home,
         Faux::new().agent(
@@ -203,13 +190,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     assert_eq!(ada, AgentId(2));
-    let lodge_file = s
-        .home
-        .agent_files(
-            2,
-            &format!("hamlets/{}/2", s.chief.hamlet_id("docs")),
-        )
-        .join("lodge-file");
+    let lodge_file = s.home.agent_files(2).join("lodge-file");
     s.chief
         .command(ada, &format!("/folder {}", folder.display()))
         .await;
@@ -345,11 +326,7 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
             .await;
         assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     }
-    if !home::calls_hold_the_turn() {
-        assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
-    } else {
-        assert_eq!(s.chief.waits().len(), 1);
-    }
+    assert!(s.chief.waits().iter().any(|w| w.id == asked.id));
     let reply = s
         .chief
         .request(|id| {
@@ -378,27 +355,15 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
         .command(hand, &format!("/reply #{} yes, plant", sure.id))
         .await;
     s.chief.shows(&now, "Planted.").await;
-    if !home::calls_hold_the_turn() {
-        s.chief
-            .until("an answer in the chat", |c| {
-                c.items(&now)
-                    .iter()
-                    .any(|i| i.kind == ItemKind::Answered)
-            })
-            .await;
-    } else {
-        let answers = s
-            .chief
-            .items(&now)
-            .into_iter()
-            .filter(|i| i.kind == ItemKind::Answered)
-            .count();
-        assert!(answers >= 1);
-    }
+    s.chief
+        .until("an answer in the chat", |c| {
+            c.items(&now).iter().any(|i| i.kind == ItemKind::Answered)
+        })
+        .await;
     assert!(s.chief.waits().is_empty());
 }
 
-/// Under --actors an approval does not hold the turn: the chief
+/// An approval does not hold the turn: the chief
 /// allows once the turn ends, and the command's end starts a turn of
 /// its own, under the chief's task.
 #[tokio::test]
@@ -407,16 +372,12 @@ async fn the_turn_after_an_approved_command_asks_its_chief() {
         "ask_chief",
         json!({"questions": [{"question": "Next?"}]}),
     );
-    let script = if !home::calls_hold_the_turn() {
-        vec![
-            bash("echo curl one > one"),
-            words("Waiting."),
-            asks,
-            words("Done."),
-        ]
-    } else {
-        vec![bash("echo curl one > one"), asks, words("Done.")]
-    };
+    let script = vec![
+        bash("echo curl one > one"),
+        words("Waiting."),
+        asks,
+        words("Done."),
+    ];
     let mut s = Session::start(Faux::new().responses(script)).await;
     let hand = s.hand();
     let now = chat(hand);
@@ -426,9 +387,7 @@ async fn the_turn_after_an_approved_command_asks_its_chief() {
         .chief
         .wait_for("the approval", |w| w.subject.contains("one"))
         .await;
-    if !home::calls_hold_the_turn() {
-        s.chief.shows(&now, "Waiting.").await;
-    }
+    s.chief.shows(&now, "Waiting.").await;
 
     s.chief.choose(&approval.id, Choice::Allow, None).await;
     let asked = s
@@ -439,7 +398,7 @@ async fn the_turn_after_an_approved_command_asks_its_chief() {
         .await;
 
     assert_eq!(asked.agent, Some(hand));
-    assert!(s.home.agent_files(1, "hand").join("one").exists());
+    assert!(s.home.agent_files(1).join("one").exists());
 }
 
 #[tokio::test]
@@ -451,11 +410,11 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
         ),
         ("bash", json!({"command": "echo done > ruled"})),
     ]);
-    let script = if home::calls_hold_the_turn() {
-        vec![objects, words("Went ahead.")]
-    } else {
-        vec![objects, bash("echo done > ruled"), words("Went ahead.")]
-    };
+    let script = vec![
+        objects,
+        bash("echo done > ruled"),
+        words("Went ahead."),
+    ];
     let mut s = Session::start(Faux::new().responses(script)).await;
     let hand = s.hand();
     let now = chat(hand);
@@ -471,12 +430,12 @@ async fn an_objection_holds_the_turn_until_the_chief_rules() {
     assert!(objection.about.contains("better left alone"));
     s.chief.settle(Duration::from_millis(500)).await;
     assert!(
-        !s.home.agent_files(1, "hand").join("ruled").exists(),
+        !s.home.agent_files(1).join("ruled").exists(),
         "the other call is held"
     );
     s.chief.command(hand, "/go carry on").await;
     s.chief.shows(&now, "Went ahead.").await;
-    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
+    assert!(s.home.agent_files(1).join("ruled").exists());
 }
 
 #[tokio::test]
@@ -506,7 +465,7 @@ async fn withdrawing_an_objection_stops_the_turns_calls() {
         .until("the turn over", |c| !c.is_working(&now))
         .await;
     s.chief.settle(Duration::from_millis(500)).await;
-    assert!(!s.home.agent_files(1, "hand").join("ruled").exists());
+    assert!(!s.home.agent_files(1).join("ruled").exists());
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }
 
@@ -525,7 +484,7 @@ async fn an_object_call_without_a_reason_leaves_the_others_running() {
     s.chief.open(&now).await;
     s.chief.tell(hand, "Make the file.").await;
     s.chief.shows(&now, "Done.").await;
-    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
+    assert!(s.home.agent_files(1).join("ruled").exists());
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }
 
@@ -546,5 +505,5 @@ async fn a_call_before_the_object_call_runs() {
         })
         .await;
     s.chief.settle(Duration::from_millis(500)).await;
-    assert!(s.home.agent_files(1, "hand").join("ruled").exists());
+    assert!(s.home.agent_files(1).join("ruled").exists());
 }

@@ -21,13 +21,18 @@ faults = []
 # Compiles the tests that start the pi harness, which need Node and
 # `npm ci --prefix harnesses/pi`.
 harness = ["faults"]
-# Compiles the tests of `--actors`, which start the actors' Node host
+# Compiles the front door's tests, which start the actors' Node host
 # and need `npm ci --prefix hosts/node` and the native module that
 # `cargo xtask node` builds.
 node-host = []
 
 [dependencies]
+hamlet_actor.workspace = true
+hamlet_actor_error.workspace = true
+hamlet_actors.workspace = true
 hamlet_git.workspace = true
+hamlet_host.workspace = true
+hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_sandbox.workspace = true
@@ -36,6 +41,7 @@ hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 chrono.workspace = true
+ciborium.workspace = true
 diesel.workspace = true
 futures.workspace = true
 image.workspace = true
@@ -51,22 +57,13 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
+tracing-subscriber.workspace = true
 unicode-normalization = "0.1"
 url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
-
-# The actors, which `--actors` serves from.
-[target.'cfg(unix)'.dependencies]
-ciborium.workspace = true
-hamlet_actor.workspace = true
-hamlet_actor_error.workspace = true
-hamlet_actors.workspace = true
-hamlet_host.workspace = true
-hamlet_messages.workspace = true
-tracing-subscriber.workspace = true
 
 # Its fixtures stop servers with Unix signals.
 [target.'cfg(unix)'.dev-dependencies]

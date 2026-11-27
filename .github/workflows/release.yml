@@ -94,7 +94,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: harnesses/pi/.nvmrc
+          node-version-file: hosts/node/.nvmrc
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -125,7 +125,7 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         shell: bash
-        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target "$TARGET"
+        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app -p hamlet_actor_node --lib --target "$TARGET"
 
       - name: Sign the programs on Windows
         if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
