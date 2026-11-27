@@ -54,6 +54,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     chief.choose(&wait.id, Choice::Allow, None).await;
     chief.shows(&now, "Finished.").await;
     // The command ran once, after the answer.
+    assert_eq!(chief.ended(&now, "curl x").await.exit, Some(0));
     assert_eq!(std::fs::read_to_string(&lodge).unwrap(), "curl x\n");
     assert!(chief.waits().is_empty());
 }

@@ -59,6 +59,7 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .chief
         .wait_for("the second ask", |w| w.subject.contains("two"))
         .await;
+    assert_eq!(s.chief.ended(&now, "curl one").await.exit, Some(0));
     assert!(lodge.join("one").exists());
 
     // Refused: the command does not run, and the rest of the turn's
@@ -219,6 +220,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
             )
         })
         .await;
+    assert_eq!(s.chief.ended(&now, "notes.txt").await.exit, Some(0));
     assert_eq!(fs::read_to_string(&edited).unwrap(), "hello\n");
     assert!(command.subject.contains("echo ran"));
     s.chief
@@ -227,6 +229,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
 
     // The hire's own lodge is free.
     s.chief.shows(&now, "Done.").await;
+    assert_eq!(s.chief.ended(&now, "echo ran").await.exit, Some(0));
     assert_eq!(fs::read_to_string(&ran_file).unwrap(), "ran\n");
     assert!(lodge_file.exists());
     assert!(s.chief.waits().is_empty());

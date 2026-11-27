@@ -252,7 +252,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
             QUIET,
         )
         .await;
-    let chief = Client::join(&again).await;
+    let mut chief = Client::join(&again).await;
     assert_eq!(chief.waits(), std::slice::from_ref(&wait));
     let mut next = Cli::start(home.path(), &["chat"], &[]);
     next.err_shows(
@@ -261,25 +261,14 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
     .await;
     next.write("/allow\n").await;
     next.out_shows("After restart.\n").await;
-    let read =
-        std::fs::read_to_string(home.agent_files(1).join("two"));
-    let Ok(two) = read else {
-        let mut chief = chief;
-        let hand = hamlet_acceptance::chat(chief.hand());
-        let tools = chief
-            .open(&hand)
-            .await
-            .items
-            .into_iter()
-            .filter_map(|item| item.tool)
-            .collect::<Vec<_>>();
-        panic!(
-            "hand/two: {read:?}\ntools: {tools:#?}\nerr: {}\nlog: {}",
-            next.err(),
-            again.log()
-        );
-    };
-    assert_eq!(two, "curl two\n");
+    let hand = hamlet_acceptance::chat(chief.hand());
+    chief.open(&hand).await;
+    assert_eq!(chief.ended(&hand, "curl two").await.exit, Some(0));
+    assert_eq!(
+        std::fs::read_to_string(home.agent_files(1).join("two"))
+            .unwrap(),
+        "curl two\n"
+    );
     assert_eq!(next.end().await.code(), Some(0));
 }
 

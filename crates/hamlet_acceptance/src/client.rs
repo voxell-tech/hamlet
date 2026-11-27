@@ -633,6 +633,27 @@ impl Client {
         .await;
     }
 
+    /// Waits until the tool call of a watched chat whose arguments
+    /// hold `shown` has ended, and gives its item. A call held for a
+    /// chief ends after its answer, as a later input, so neither the
+    /// answer nor the turn's next step means it ran.
+    pub async fn ended(
+        &mut self,
+        chat: &ChatRef,
+        shown: &str,
+    ) -> ItemTool {
+        let ended = |c: &Self| {
+            c.items(chat).into_iter().filter_map(|i| i.tool).find(
+                |t| t.summary.contains(shown) && t.exit.is_some(),
+            )
+        };
+        self.until(&format!("the end of {shown:?}"), |c| {
+            ended(c).is_some()
+        })
+        .await;
+        ended(self).unwrap()
+    }
+
     /// Closes the connection.
     pub async fn close(mut self) {
         self.wire.close().await;

@@ -430,6 +430,7 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
     );
     s.chief.command(hand, "/allow").await;
     s.chief.shows(&now, "Edited.").await;
+    assert_eq!(s.chief.ended(&now, "farm.md").await.exit, Some(0));
     let papers = s.chief.papers(Keeper::Profile(profile.id)).await;
     assert_eq!(papers.memory.len(), 1);
     assert_eq!(papers.memory[0].path, "farm.md");
