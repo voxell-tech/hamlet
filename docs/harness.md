@@ -39,7 +39,7 @@ waits for, and what it waited for comes to the agent as a new input:
 
 | Call | Its words |
 |---|---|
-| A shell command past 5 s (C16) | The command's id; its end arrives as a new input |
+| A shell command past 5 s (C16) | The command's id. Its end arrives as a new input |
 | A call that waits for a chief | "This call waits for a chief's answer." |
 | `ask` | "Waiting for X's answer." |
 | `start_worker` | The worker's answer comes as a reply |

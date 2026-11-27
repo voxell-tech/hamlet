@@ -159,7 +159,7 @@ found by name as Windows finds programs, so commands run only where a
 
 Settings can name a workspace URL and token, kept in `credentials.json`.
 At a chief's word, `move-lodges` copies the filesystem of every agent that
-is not a worker to that workspace (`front/answers.rs` and
+has not left and is not a worker to that workspace (`front/answers.rs` and
 `workspace/lodges.rs` in `hamlet_server`): a push makes the remote `/lodge`
 hold what the server's copy holds. The agents' tools run in the local
 workspace actor; running them remotely is in

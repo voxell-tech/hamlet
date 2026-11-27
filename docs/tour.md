@@ -9,8 +9,8 @@ for the checks and conventions.
 The server, `hamlet_server`, is the front door: it serves the client
 protocol and is the Rust host of the realm, the workspace, the profiles and
 the library. Its child, the Node host, runs the agents. The window and the
-CLI are its clients, over the client protocol; neither opens an actor's file
-nor runs an agent.
+CLI are its clients, over the client protocol. Neither opens an actor's
+file nor runs an agent.
 
 ```text
 Window / terminal -- client protocol --> hamlet_server: the front door
@@ -24,7 +24,7 @@ Window / terminal -- client protocol --> hamlet_server: the front door
 ```
 
 `front/route.rs` says what each client message becomes. A line that begins
-with `/` is a command (`front/commands.rs`); other words go to the realm's
+with `/` is a command (`front/commands.rs`). Other words go to the realm's
 `say`, which keeps the line and gives it to the agent. Every change an actor
 makes is one transaction of its own file, and the realm's acts run through
 `act::exec` (`realm/act.rs`). After a commit the realm pushes places,
@@ -813,9 +813,9 @@ takes a path out of a repository's whole history.
 
 Paths below are under `crates/hamlet_server/src/`. The crate exports only
 `serve`. `hamlet_server [--home <folder>] [--port <n>] [--faux <file>]
-[--insecure]` is `serve.rs`; `--insecure` is taken only on Windows. The
+[--insecure]` is `serve.rs`, and only a Windows build takes `--insecure`. The
 `node-host` feature compiles the `front` target, `tests/front/`, which
-starts the server with its Node host; `cargo xtask node` runs it once the
+starts the server with its Node host. `cargo xtask node` runs it once the
 Node host's packages and native module are in place. `tests/worker/` is a
 loopback double of the remote workspace's worker.
 
@@ -824,9 +824,9 @@ loopback double of the remote workspace's worker.
 | `front.rs` | `serve` from start to stop: probes the sandbox, claims the folder, opens the credentials and the host, publishes `server.json` once the realm answers, starts the agents, checks each connection's token and every message with `clients/check.rs`, applies one connection's requests in the order sent, and carries frames through `clients/connection.rs`. At a stop it closes the clients and settles the Hand before the Node host stops |
 | `front/host.rs` | The host on the realm folder: the realm, workspace, profile and library actors in this process, the agent in a Node child, and the route table (A7). It finds the Node host and Node |
 | `front/route.rs`, `front/call.rs` | What a client message becomes, and `Calls`, the one executor of the actors' calls, with their deadlines and error words. A chief's line goes to the realm's `say` once, and the door reads it with `read_line` until its agent takes it |
-| `front/hub.rs`, `hub/` | An agent's `chat` subscription, held while a watch, an owed reply or a busy period needs it; `hub/folded.rs` folds what an agent does and says, and `hub/owed.rs` holds the reply a line is owed |
+| `front/hub.rs`, `hub/` | An agent's `chat` subscription, held while a watch, an owed reply or a busy period needs it. `hub/folded.rs` folds what an agent does and says, and `hub/owed.rs` holds the reply a line is owed |
 | `front/frames.rs`, `front/words.rs` | The actors' answers and chat events as frames, and the words a chief reads |
-| `front/commands.rs`, `commands/` | The chief's `/` commands, each to one act of one actor or to the door's own words; `commands.rs` at the crate's root holds their table, advertised to clients as deeds |
+| `front/commands.rs`, `commands/` | The chief's `/` commands, each to one act of one actor or to the door's own words. `commands.rs` at the crate's root holds their table, advertised to clients as deeds |
 | `front/answers.rs` | A client's reads and edits of a profile, the library and an agent, and `move_lodges`, the copy of the agents' filesystems to a remote workspace |
 | `front/sign_in.rs` | The sign-ins a client starts |
 | `front/uploads.rs` | A client's images and files, kept in the realm's parcel store under their SHA-256 |
@@ -841,13 +841,13 @@ loopback double of the remote workspace's worker.
 
 `hosts/node/` is the Node package the server starts as its child. What it
 holds and how an agent's conversations run there is in
-[`harness.md`](harness.md); the agent is [the agent actor](#the-agent-actor).
+[`harness.md`](harness.md), and the agent is [the agent actor](#the-agent-actor).
 `src/main.ts` is its entry: it takes the link before the actor layer loads
 and serves through `src/entry.ts`, which runs `serveLink` of
 `src/actor/registry/link.ts`, and exits 1 on any failure. `src/actor/` is
 the actor runtime's TypeScript side, `src/pi/` pi-durable, and `src/demo.ts`
 the demo's kinds. The native module `@hamlet/actor-node` is
-`crates/hamlet_actor_node`; `cargo xtask declarations` writes its
+`crates/hamlet_actor_node`, and `cargo xtask declarations` writes its
 `index.d.ts` and `index.js`. `npm test` runs `test/*.test.ts` and
 `src/pi/tests/`, `npm run test:native` `test/native/`, and
 `npm run test:link` `test/link/`.

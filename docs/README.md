@@ -61,6 +61,7 @@ Then read the page for the part you are about to touch.
 ## Adding a page
 
 A page here explains something that exists. It has no status line, no
-"not yet" list and no screenshots: a design for something not built, and
-what is unfinished, are kept outside this repository.
+"not yet" list and no screenshots. A design for something not built is a
+proposal in [`proposals/`](proposals/), and what is unfinished is kept
+outside this repository.
 Add the new page to the table above.
