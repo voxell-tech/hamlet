@@ -18,22 +18,6 @@ async fn character(s: &mut Session, profile: ProfileId, text: &str) {
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
 }
 
-/// Waits until the hire `agent` holds `text` as its character.
-async fn wait_for_character(
-    s: &mut Session,
-    agent: AgentId,
-    text: &str,
-) {
-    tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        while !s.chief.prompt(agent).await.contains(text) {
-            tokio::time::sleep(std::time::Duration::from_millis(50))
-                .await;
-        }
-    })
-    .await
-    .expect("the hire takes the character in");
-}
-
 #[tokio::test]
 async fn names_pins_reverts_and_forks_versions() {
     let mut s = Session::start(Faux::new()).await;
@@ -85,7 +69,9 @@ async fn names_pins_reverts_and_forks_versions() {
         s.chief.refused(hand, &line).await;
     }
 
-    wait_for_character(&mut s, docs, "Brave.").await;
+    s.chief
+        .prompt_until(docs, "the character", |p| p.contains("Brave."))
+        .await;
     // A pinned hire takes no later learning, until it follows main
     // again.
     let said = s.chief.command(hand, "/pin hire#2 v1 steady").await;
@@ -107,7 +93,11 @@ async fn names_pins_reverts_and_forks_versions() {
         s.chief.command(hand, "/pin hire#2 main").await,
         "hire#2 (ada) follows its profile's main again."
     );
-    wait_for_character(&mut s, docs, "Careful.").await;
+    s.chief
+        .prompt_until(docs, "the character", |p| {
+            p.contains("Careful.")
+        })
+        .await;
 
     // A revert undoes the commit a version names.
     s.chief.command(hand, &format!("/tag {at} v2")).await;

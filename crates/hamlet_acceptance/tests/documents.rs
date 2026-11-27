@@ -374,12 +374,19 @@ async fn a_hamlets_folder_and_mode_reach_the_prompt() {
     std::fs::write(work.join("AGENTS.md"), "Use tabs.").unwrap();
     let folder = work.display().to_string();
     s.chief.command(ada, &format!("/folder {folder}")).await;
-    let prompt = s.chief.prompt(ada).await;
-    assert!(prompt.contains("Use tabs."), "{prompt}");
+    let prompt = s
+        .chief
+        .prompt_until(ada, "the project's instructions", |prompt| {
+            prompt.contains("Use tabs.")
+        })
+        .await;
     assert!(prompt.contains(&folder), "{prompt}");
     s.chief.command(ada, "/folder none").await;
-    let prompt = s.chief.prompt(ada).await;
-    assert!(!prompt.contains("Use tabs."));
+    s.chief
+        .prompt_until(ada, "no project", |prompt| {
+            !prompt.contains("Use tabs.")
+        })
+        .await;
     s.chief
         .until("folders remembered", |c| {
             c.hamlet("docs").unwrap().before == [folder.clone()]

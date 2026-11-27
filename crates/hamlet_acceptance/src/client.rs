@@ -429,6 +429,27 @@ impl Client {
         }
     }
 
+    /// Reads `agent`'s prompt until `holds` is true of it, which the
+    /// realm's pushes after an answer make true later.
+    pub async fn prompt_until(
+        &mut self,
+        agent: AgentId,
+        what: &str,
+        holds: impl Fn(&str) -> bool,
+    ) -> String {
+        tokio::time::timeout(PATIENCE, async {
+            loop {
+                let prompt = self.prompt(agent).await;
+                if holds(&prompt) {
+                    return prompt;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the prompt never showed {what}"))
+    }
+
     /// Reads the character, memory and skills of `of`.
     pub async fn papers(&mut self, of: Keeper) -> Papers {
         match self
