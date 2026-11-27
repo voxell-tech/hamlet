@@ -102,14 +102,29 @@ async fn a_model_the_chief_says_takes_images_is_given_them() {
     let image =
         s.chief.put_image(&png, png.len()).await.image.unwrap();
 
+    // The agent judges a line by its copy of the catalogue, which
+    // the realm's push after the edit's answer brings; a refused line
+    // changes nothing.
     let three = vec![AttachedImage::last(image.clone()); 3];
-    let refused = s.chief.say_with(hand, "Look.", three).await;
-    assert_eq!(refused.kind, ReplyKind::Error);
-    assert_eq!(
-        refused.text,
-        "the model `local::org/large` takes at most 2 images in a \
-         line"
-    );
+    let began = std::time::Instant::now();
+    loop {
+        let refused =
+            s.chief.say_with(hand, "Look.", three.clone()).await;
+        assert_eq!(refused.kind, ReplyKind::Error);
+        if refused.text
+            == "the model `local::org/large` takes at most 2 images \
+                in a line"
+        {
+            break;
+        }
+        assert!(
+            began.elapsed() < client::PATIENCE,
+            "{}",
+            refused.text
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50))
+            .await;
+    }
 
     let said = s
         .chief

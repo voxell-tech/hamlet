@@ -373,20 +373,45 @@ impl Client {
 
     /// Watches `chat` and gives its newest page.
     pub async fn open(&mut self, chat: &ChatRef) -> Transcript {
-        let chat = chat.clone();
-        match self
-            .ask(|id| {
-                ClientMessage::Open(Open {
-                    id,
-                    chat,
-                    before: None,
-                })
-            })
-            .await
-        {
+        match self.opened(chat).await {
             ServerMessage::Transcript(t) => t,
             other => panic!("open got {other:?}, not a transcript"),
         }
+    }
+
+    /// Watches `chat` once its agent holds it, and gives its newest
+    /// page. The realm records a letter before its push after the
+    /// answer reaches the receiver, whose agent refuses to open the
+    /// lane until then.
+    pub async fn open_held(&mut self, chat: &ChatRef) -> Transcript {
+        let began = Instant::now();
+        loop {
+            match self.opened(chat).await {
+                ServerMessage::Transcript(t) => return t,
+                ServerMessage::Reply(r)
+                    if r.kind == ReplyKind::Error
+                        && began.elapsed() < PATIENCE =>
+                {
+                    tokio::time::sleep(Duration::from_millis(50))
+                        .await;
+                }
+                other => {
+                    panic!("open got {other:?}, not a transcript")
+                }
+            }
+        }
+    }
+
+    async fn opened(&mut self, chat: &ChatRef) -> ServerMessage {
+        let chat = chat.clone();
+        self.ask(|id| {
+            ClientMessage::Open(Open {
+                id,
+                chat,
+                before: None,
+            })
+        })
+        .await
     }
 
     /// The page of `chat` before the item `before`, or the fault.
