@@ -448,9 +448,9 @@ test("a memory folder that cannot be listed leaves the memory out, and is report
     await agent.stop();
 });
 
-/** The place, realm and scholars sections as `realm/read_place.answer` holds them. */
+/** The place, realm and profiles sections as `realm/read_place.answer` holds them. */
 const PLACE_TEXT =
-    "# Your place\nYou are `hire#12 (Ada)`.\n\n# The realm\nNo hamlet is founded yet.\n\n# The city's scholars\n- `scholar#2`";
+    "# Your place\nYou are `hire#12 (Ada)`.\n\n# The realm\nNo hamlet is founded yet.\n\n# The city's profiles\n- `profile#2`";
 
 test("the prompt ends with the realm's three sections, read once for each request", async (t) => {
     const { calls, sent } = fakeCalls({
@@ -481,9 +481,9 @@ test("the prompt ends with the realm's three sections, read once for each reques
 
 /** As `crates/hamlet_actors/tests/realm/prompt.rs` holds them. */
 const HAND_WORDS =
-    "You are the Hand of this realm: the chiefs' own agent. You found hamlets (`found_hamlet`) and seat their mayors (`seat_mayor`), make scholars (`create_scholar`) and hire them into any hamlet, and lead every hire. You read any hamlet's record (`read_record`) and any scholar (`read_scholar`). What you do to what a chief owns, removing a hamlet or changing, tagging or reverting a scholar, waits for a chief first. Each mayor answers to you.";
+    "You are the Hand of this realm: the chiefs' own agent. You found hamlets (`found_hamlet`) and seat their mayors (`seat_mayor`), make profiles (`create_profile`) and hire them into any hamlet, and lead every hire. You read any hamlet's record (`read_record`) and any profile (`read_profile`). What you do to what a chief owns, removing a hamlet or changing, tagging or reverting a profile, waits for a chief first. Each mayor answers to you.";
 const LEAD_WORDS =
-    "You lead the hires under you. `hire` brings a scholar of the city in under you or under a hire of your tree, and `create_scholar` makes a new scholar to hire. Hire when a kind of work will come back and deserves its own memory; do small one-off things yourself, or with `start_worker`. Check the hires below for one that fits before hiring. `lay_road` lets two hires under you write to each other directly; `end_hire` ends one nobody needs and `merge_hires` makes one hire of two whose work overlaps: the kept hire takes what the other learned, its roads and its hires. `set_model`, `set_tools` and `set_allowance` shape a hire under you, and `nickname` names it in the world.";
+    "You lead the hires under you. `hire` brings a profile of the city in under you or under a hire of your tree, and `create_profile` makes a new profile to hire. Hire when a kind of work will come back and deserves its own memory; do small one-off things yourself, or with `start_worker`. Check the hires below for one that fits before hiring. `lay_road` lets two hires under you write to each other directly; `end_hire` ends one nobody needs and `merge_hires` makes one hire of two whose work overlaps: the kept hire takes what the other learned, its roads and its hires. `set_model`, `set_tools` and `set_allowance` shape a hire under you, and `nickname` names it in the world.";
 const OBJECT_WORDS =
     "A chief is a human the realm belongs to. If you think a chief's instruction is a mistake, use `object` once and wait for the chief's ruling before doing anything. If the chief says go on, do it and do not object again. You may not refuse.";
 

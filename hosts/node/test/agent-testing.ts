@@ -835,3 +835,16 @@ export async function dumped(agent: Woken): Promise<string> {
     }
     return text;
 }
+
+export const line = (id: string, text: string, task?: string) => ({
+    id,
+    ...(task === undefined ? {} : { task }),
+    input: { type: "line" as const, text },
+});
+
+/** The text of each tool result of the agent's turns, in order. */
+export async function resultTexts(agent: Woken): Promise<string[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+}

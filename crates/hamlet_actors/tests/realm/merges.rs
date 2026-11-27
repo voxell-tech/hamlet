@@ -3,13 +3,13 @@
 use std::time::Duration;
 
 use hamlet_messages::profile::{CommitId, Sha1, Source};
+use hamlet_messages::realm::hamlets::{Found, FoundAnswer};
 use hamlet_messages::realm::hires::{
     EraseHire, Merge, MergeRefusal, MergedTo, Restore, Restored,
 };
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Done, End, Found, FoundAnswer, Gate,
-    LeadRefusal, Limit, Named, ProfileId, ReservedAct, SetLimits,
-    Tier,
+    Asked, ChiefRequest, Done, End, Gate, LeadRefusal, Limit, Named,
+    ProfileId, ReservedAct, SetLimits, Tier,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

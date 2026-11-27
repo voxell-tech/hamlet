@@ -6,13 +6,14 @@ use hamlet_messages::agent::chat::{
     ResumeRefusal, RetryRefusal, RewindRefusal,
 };
 use hamlet_messages::realm::budget::{Budget, Payer};
+use hamlet_messages::realm::letters::LetterRefusal;
 use hamlet_messages::realm::oversight::{
     AskChiefRefusal, Hold, ObjectRefusal,
 };
+use hamlet_messages::realm::roads::{LayRefusal, RequestRoadRefusal};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentName, EndRefusal, Gate, HamletId, HowEnded, LayRefusal,
-    Left, LetterRefusal, RequestRoadRefusal,
+    AgentName, EndRefusal, Gate, HamletId, HowEnded, Left,
 };
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 
@@ -94,7 +95,7 @@ fn each_refusal_reads_in_its_words() {
         ),
         (
             words(ended(HowEnded::ProfileArchived)),
-            "its scholar left the city",
+            "its profile left the city",
         ),
         (
             words(ended(HowEnded::HamletRemoved { by: None })),

@@ -205,7 +205,7 @@ impl Handler<Read> for ProfileStandIn {
             },
             Some(path) if path == HELD_FILE => ReadAnswer::Text {
                 text: format!(
-                    "scholar#{}'s character",
+                    "profile#{}'s character",
                     self.profile.0
                 ),
                 cut: false,

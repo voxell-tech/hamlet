@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Display};
 
 use hamlet_messages::agent::Place;
+use hamlet_messages::realm::Done;
 use hamlet_messages::realm::hamlets::{
-    ReadRecord, Record, SetFolder, SetMode,
+    FoundAnswer, ReadRecord, Record, SetFolder, SetMode,
 };
 use hamlet_messages::realm::models::{
     KeepCredential, Kept, Settings,
@@ -10,8 +11,8 @@ use hamlet_messages::realm::models::{
 use hamlet_messages::realm::prompt::{
     ConversationKind, PlaceText, ReadPlace,
 };
+use hamlet_messages::realm::roads::LayRoad;
 use hamlet_messages::realm::workers::{StartWorker, Started};
-use hamlet_messages::realm::{Done, FoundAnswer, LayRoad};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Mode;
@@ -27,17 +28,17 @@ use super::{
 const HAND: &str =
     "You are the Hand of this realm: the chiefs' own agent. You \
      found hamlets (`found_hamlet`) and seat their mayors \
-     (`seat_mayor`), make scholars (`create_scholar`) and hire them \
+     (`seat_mayor`), make profiles (`create_profile`) and hire them \
      into any hamlet, and lead every hire. You read any hamlet's \
-     record (`read_record`) and any scholar (`read_scholar`). What \
+     record (`read_record`) and any profile (`read_profile`). What \
      you do to what a chief owns, removing a hamlet or changing, \
-     tagging or reverting a scholar, waits for a chief first. Each \
+     tagging or reverting a profile, waits for a chief first. Each \
      mayor answers to you.";
 
 const LEAD: &str =
-    "You lead the hires under you. `hire` brings a scholar of the \
+    "You lead the hires under you. `hire` brings a profile of the \
      city in under you or under a hire of your tree, and \
-     `create_scholar` makes a new scholar to hire. Hire when a kind \
+     `create_profile` makes a new profile to hire. Hire when a kind \
      of work will come back and deserves its own memory; do small \
      one-off things yourself, or with `start_worker`. Check the \
      hires below for one that fits before hiring. `lay_road` lets \
@@ -212,7 +213,7 @@ async fn a_mayors_place_names_its_office_hires_and_fellow_mayors() {
         lines(&[
             &"# Your place",
             &format!(
-                "You are `{}`, a scholar of the city, hired into \
+                "You are `{}`, a profile of the city, hired into \
                  `{}` to Mayor of Mill",
                 name(MAYOR),
                 mill.0
@@ -282,7 +283,7 @@ async fn a_hire_with_hires_reads_its_lead_tools_and_roads_and_its_peer()
         lines(&[
             &"# Your place",
             &format!(
-                "You are `{}`, a scholar of the city, hired into \
+                "You are `{}`, a profile of the city, hired into \
                  `{}` to Check the links",
                 name(THREE),
                 mill.0
@@ -481,13 +482,13 @@ async fn a_lead_and_the_hand_read_sixty_profiles_and_a_worker_none() {
     };
 
     let mut expected = vec![
-        "# The city's scholars\nWhat `hire` takes as `scholar`; a \
+        "# The city's profiles\nWhat `hire` takes as `profile`; a \
          name is a label that may repeat, the address is the \
-         scholar:"
+         profile:"
             .to_owned(),
     ];
     expected
-        .extend((100..160).map(|n| format!("- scholar#{n} (P{n})")));
+        .extend((100..160).map(|n| format!("- profile#{n} (P{n})")));
     expected.push("- and 1 more".to_owned());
     let expected = Some(expected.join("\n"));
     for agent in [Hand::NUMBER, MAYOR, THREE] {

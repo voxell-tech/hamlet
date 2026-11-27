@@ -97,11 +97,11 @@ impl Client {
             .id
     }
 
-    /// The scholar named `name`, living or archived.
-    pub fn scholar(&self, name: &str) -> Option<Scholar> {
+    /// The profile named `name`, living or archived.
+    pub fn profile(&self, name: &str) -> Option<Profile> {
         let mut found = self
             .realm()
-            .scholars
+            .profiles
             .into_iter()
             .filter(|s| s.name == name)
             .collect::<Vec<_>>();

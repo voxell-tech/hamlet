@@ -92,10 +92,10 @@ pub(super) fn tap(
         && !shift
         && !taken.click
         && travel.0 <= camera.click_slop
-        // A scholar's figure in the city as well as a hamlet's robot.
+        // A profile's figure in the city as well as a hamlet's robot.
         && matches!(
             thing,
-            Thing::Keeper | Thing::Agent(_) | Thing::Scholar(_)
+            Thing::Keeper | Thing::Agent(_) | Thing::Profile(_)
         )
         && robots.contains(parent.parent())
     {

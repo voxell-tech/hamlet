@@ -7,11 +7,14 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::roads::{
+    LayRefusal, LayRoad, RequestRoad, RequestRoadRefusal,
+    TakeUpRefusal, TakeUpRoad,
+};
 use hamlet_messages::realm::world::RoadSeen;
 use hamlet_messages::realm::{
-    AgentName, AgentRefusal, Done, HamletId, LayRefusal, LayRoad,
-    LetterId, Named, Refusable, RequestRoad, RequestRoadRefusal,
-    TakeUpRefusal, TakeUpRoad,
+    AgentName, AgentRefusal, Done, HamletId, LetterId, Named,
+    Refusable,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

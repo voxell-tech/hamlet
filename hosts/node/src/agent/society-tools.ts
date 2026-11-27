@@ -97,7 +97,7 @@ function why(reason: string | undefined): { why?: string } {
 
 /** Read as an `i64`, or `undefined` when the act's `u32` cannot carry it. */
 function numberOf(
-    kind: "hire" | "worker" | "scholar",
+    kind: "hire" | "worker" | "profile",
     text: string,
 ): number | undefined {
     const found = new RegExp(`^${kind}#([+-]?)([0-9]+)$`).exec(text);
@@ -133,7 +133,7 @@ function named(given: string): Named | Invalid {
 function profileNamed(text: string): ProfileId | Invalid {
     const given = text.trim();
     return (
-        numberOf("scholar", given) ?? {
+        numberOf("profile", given) ?? {
             invalid: `\`${given}\` is not an address`,
         }
     );
@@ -290,15 +290,15 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         said: () => "Your lead has the request.",
     },
     create_profile: {
-        name: "create_scholar",
+        name: "create_profile",
         description:
-            "Make a new scholar of the city, to hire next. Without a character it starts from the realm's own. A scholar you make may wait at the harbor until it is let into the city; its hires work all the same.",
+            "Make a new profile of the city, to hire next. Without a character it starts from the realm's own. A profile you make may wait at the harbor until it is let into the city; its hires work all the same.",
         parameters: object(
             {
                 name: string(
                     "A short name, one line with no colon. It is a label and may repeat.",
                 ),
-                character: string("Who the scholar is and how it works."),
+                character: string("Who the profile is and how it works."),
             },
             ["name"],
         ),
@@ -309,24 +309,24 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(character === undefined ? {} : { character }),
             };
         },
-        // The realm keeps no harbor: a scholar it makes lives in the city.
+        // The realm keeps no harbor: a profile it makes lives in the city.
         said: (answer) =>
-            `The scholar ${answer.label} lives in the city; hire it next.`,
+            `The profile ${answer.label} lives in the city; hire it next.`,
     },
     read_profile: {
-        name: "read_scholar",
+        name: "read_profile",
         description:
-            "List a scholar's files, or read one, at its `main` or a version.",
+            "List a profile's files, or read one, at its `main` or a version.",
         parameters: object(
             {
-                scholar: string("The scholar's address, `scholar#<id>`."),
+                profile: string("The profile's address, `profile#<id>`."),
                 path: string("A file to read."),
                 version: string("A version or commit."),
             },
-            ["scholar"],
+            ["profile"],
         ),
-        act: (args: { scholar: string; path?: string; version?: string }) => {
-            const profile = profileNamed(args.scholar);
+        act: (args: { profile: string; path?: string; version?: string }) => {
+            const profile = profileNamed(args.profile);
             if (typeof profile === "object") return profile;
             const path = present(args.path);
             const version = present(args.version);
@@ -336,35 +336,35 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(path === undefined ? {} : { path }),
             };
         },
-        said: (answer, args: { scholar: string }) => {
+        said: (answer, args: { profile: string }) => {
             if (answer.type === "text") {
                 return answer.cut ? `${answer.text}\n[cut here]` : answer.text;
             }
             return answer.paths.length === 0
-                ? `${args.scholar.trim()} has no files.`
+                ? `${args.profile.trim()} has no files.`
                 : answer.paths.map(({ path }) => `- ${path}`).join("\n");
         },
     },
     edit_profile: {
-        name: "edit_scholar",
+        name: "edit_profile",
         description:
-            "Write a file of a scholar's `main`; a chief approves it first.",
+            "Write a file of a profile's `main`; a chief approves it first.",
         parameters: object(
             {
-                scholar: string("The scholar's address, `scholar#<id>`."),
+                profile: string("The profile's address, `profile#<id>`."),
                 path: string("The file."),
                 content: string("Its new text; empty removes it."),
                 message: string("What the change does."),
             },
-            ["scholar", "path", "content", "message"],
+            ["profile", "path", "content", "message"],
         ),
         act: (args: {
-            scholar: string;
+            profile: string;
             path: string;
             content: string;
             message?: string;
         }) => {
-            const profile = profileNamed(args.scholar);
+            const profile = profileNamed(args.profile);
             if (typeof profile === "object") return profile;
             const message = present(args.message);
             return {
@@ -378,17 +378,17 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     tag: {
         name: "tag",
         description:
-            "Name the scholar's `main` as a version; a chief approves it first.",
+            "Name the profile's `main` as a version; a chief approves it first.",
         parameters: object(
             {
-                scholar: string("The scholar's address, `scholar#<id>`."),
+                profile: string("The profile's address, `profile#<id>`."),
                 tag: string("The version's name."),
                 note: string("What it holds."),
             },
-            ["scholar", "tag"],
+            ["profile", "tag"],
         ),
-        act: (args: { scholar: string; tag: string; note?: string }) => {
-            const profile = profileNamed(args.scholar);
+        act: (args: { profile: string; tag: string; note?: string }) => {
+            const profile = profileNamed(args.profile);
             if (typeof profile === "object") return profile;
             const note = present(args.note);
             return {
@@ -401,17 +401,17 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     revert: {
         name: "revert",
         description:
-            "Undo a commit of a scholar's `main`; a chief approves it first.",
+            "Undo a commit of a profile's `main`; a chief approves it first.",
         parameters: object(
             {
-                scholar: string("The scholar's address, `scholar#<id>`."),
+                profile: string("The profile's address, `profile#<id>`."),
                 commit: string("The commit or version to undo."),
                 reason,
             },
-            ["scholar", "commit"],
+            ["profile", "commit"],
         ),
-        act: (args: { scholar: string; commit: string; reason?: string }) => {
-            const profile = profileNamed(args.scholar);
+        act: (args: { profile: string; commit: string; reason?: string }) => {
+            const profile = profileNamed(args.profile);
             if (typeof profile === "object") return profile;
             const why = present(args.reason);
             return {
@@ -474,21 +474,21 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     found: {
         name: "found_hamlet",
         description:
-            "Found a hamlet with a scholar as its mayor, or a blank agent when `scholar` is left out.",
+            "Found a hamlet with a profile as its mayor, or a blank agent when `profile` is left out.",
         parameters: object(
             {
                 name: string(
                     "The name it is shown by: one line, up to 40 characters, no colon. Its id is made for it.",
                 ),
-                scholar: string(
-                    "The address, `scholar#<id>`, of the scholar its mayor is a hire of.",
+                profile: string(
+                    "The address, `profile#<id>`, of the profile its mayor is a hire of.",
                 ),
                 purpose: string("What the hamlet is for."),
             },
             ["name", "purpose"],
         ),
-        act: (args: { name: string; scholar?: string; purpose: string }) => {
-            const mayor = profileOf(args.scholar);
+        act: (args: { name: string; profile?: string; purpose: string }) => {
+            const mayor = profileOf(args.profile);
             if (typeof mayor === "object") return mayor;
             return {
                 name: args.name,
@@ -515,13 +515,13 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     hire: {
         name: "hire",
         description:
-            "Hire a scholar into your hamlet under you, or under a hire of your tree. Leave out `scholar` to hire a blank agent instead, which starts from the realm's character and the library's skills and is not a scholar of the city.",
+            "Hire a profile into your hamlet under you, or under a hire of your tree. Leave out `profile` to hire a blank agent instead, which starts from the realm's character and the library's skills and is not a profile of the city.",
         parameters: object(
             {
-                scholar: string(
-                    "The scholar's address, `scholar#<id>`, with `@<version>` to pin a version.",
+                profile: string(
+                    "The profile's address, `profile#<id>`, with `@<version>` to pin a version.",
                 ),
-                name: string("A blank agent's name, in place of `scholar`."),
+                name: string("A blank agent's name, in place of `profile`."),
                 purpose: string("What the hire is for."),
                 under: string("The hire it answers to; you when left out."),
                 hamlet: string("The hamlet, for the Hand."),
@@ -529,27 +529,27 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             ["purpose"],
         ),
         act: (args: {
-            scholar?: string;
+            profile?: string;
             name?: string;
             purpose: string;
             under?: string;
             hamlet?: string;
         }) => {
             // The realm finds the hamlet and `under` after this checks
-            // `scholar` and `name`.
+            // `profile` and `name`.
             const given = present(args.under);
             const under = given === undefined ? undefined : named(given);
             if (under !== undefined && "invalid" in under) return under;
             if (
-                present(args.scholar) !== undefined &&
+                present(args.profile) !== undefined &&
                 present(args.name) !== undefined
             ) {
                 return {
                     invalid:
-                        "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
+                        "Give `profile` to hire one of the city, or `name` for a blank agent, not both.",
                 };
             }
-            const [pinned, version] = splitOnce(present(args.scholar), "@");
+            const [pinned, version] = splitOnce(present(args.profile), "@");
             const profile = profileOf(pinned);
             if (typeof profile === "object") return profile;
             const hamlet = present(args.hamlet);
@@ -567,7 +567,7 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     },
     end: {
         name: "end_hire",
-        description: "End a hire under you. Its work stays in its scholar.",
+        description: "End a hire under you. Its work stays in its profile.",
         parameters: object({ hire: address, reason }, ["hire"]),
         act: (args: { hire: string; reason?: string }) =>
             withNamed({ hire: args.hire }, ({ hire }) => ({

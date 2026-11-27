@@ -19,7 +19,7 @@ pub enum ConversationKind {
     Other,
 }
 
-/// Asks the realm for the prompt's place, realm and scholars
+/// Asks the realm for the prompt's place, realm and profiles
 /// sections, as they read in a conversation of `conversation`'s kind
 /// with `peer`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

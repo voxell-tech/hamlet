@@ -828,10 +828,10 @@ async fn a_profile_made_and_founded_under_in_one_answer_has_its_papers()
  {
     let (mut server, _home, _side) = serve(json!([
         {"calls": [
-            {"name": "create_scholar",
+            {"name": "create_profile",
              "arguments": {"name": "bo", "character": "Careful."}},
             {"name": "found_hamlet",
-             "arguments": {"name": "bog", "scholar": "scholar#2",
+             "arguments": {"name": "bog", "profile": "profile#2",
                            "purpose": "drain"}}
         ]},
         "Founded."
@@ -842,8 +842,8 @@ async fn a_profile_made_and_founded_under_in_one_answer_has_its_papers()
     chief.open(&chat(hand)).await;
     chief.tell(hand, "Found a hamlet.").await;
     chief.shows(&chat(hand), "Founded.").await;
-    let scholar = chief.scholar("bo").unwrap().id;
-    let papers = chief.papers(Keeper::Scholar(scholar)).await;
+    let profile = chief.profile("bo").unwrap().id;
+    let papers = chief.papers(Keeper::Profile(profile)).await;
     assert_eq!(papers.character, "Careful.");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());

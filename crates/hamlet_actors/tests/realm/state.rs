@@ -422,9 +422,9 @@ async fn an_archived_profile_shows_when_who_and_why_it_left() {
     chief(&realm, made).await;
     let newbie = |state: protocol::State| {
         state
-            .scholars
+            .profiles
             .into_iter()
-            .find(|scholar| scholar.name == "Newbie")
+            .find(|profile| profile.name == "Newbie")
             .expect("the profile is shown")
     };
     let id = newbie(state(&realm).await).id;
@@ -460,9 +460,9 @@ async fn a_profile_shows_its_house_who_brought_it_and_since() {
     let state = state(&realm).await;
     let shown = |name: &str| {
         state
-            .scholars
+            .profiles
             .iter()
-            .find(|scholar| scholar.name == name)
+            .find(|profile| profile.name == name)
             .expect("the profile is shown")
             .clone()
     };
@@ -483,9 +483,9 @@ async fn a_profile_shows_the_skills_and_versions_its_repository_holds()
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     let mason = |state: protocol::State| {
         state
-            .scholars
+            .profiles
             .into_iter()
-            .find(|scholar| scholar.name == "Mason")
+            .find(|profile| profile.name == "Mason")
             .expect("the profile is shown")
     };
     let made = mason(state(&realm).await);

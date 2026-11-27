@@ -6,12 +6,14 @@ pub mod client;
 pub mod documents;
 pub mod hamlets;
 pub mod hires;
+pub mod letters;
 pub mod lines;
 pub mod models;
 pub mod oversight;
 pub mod parcels;
 pub mod profiles;
 pub mod prompt;
+pub mod roads;
 pub mod workers;
 pub mod world;
 
@@ -576,7 +578,7 @@ pub enum HowEnded {
         by: Option<AgentName>,
     },
     /// A hire of a profile a chief archived.
-    #[error("its scholar left the city")]
+    #[error("its profile left the city")]
     ProfileArchived,
     /// A hire of a hamlet removed by `by`, or by the chief when
     /// absent.
@@ -585,89 +587,6 @@ pub enum HowEnded {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         by: Option<AgentName>,
     },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Found {
-    pub name: String,
-    /// The mayor's profile. Absent makes a blank one for it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mayor: Option<ProfileId>,
-    /// The mayor's version of its profile; absent, `main`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<VersionName>,
-    pub tier: Tier,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<String>,
-}
-
-impl ChiefRequest for Found {
-    const NAME: &'static str = "chief_found";
-    type Answer = FoundAnswer<FoundRefusal>;
-}
-
-/// Only the Hand calls it.
-impl ToolCall for Found {
-    const TOOL: SocietyTool = SocietyTool::Found;
-    type Answer = FoundAnswer<FoundRefusal>;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "snake_case",
-    bound(
-        serialize = "W: Serialize + std::fmt::Display",
-        deserialize = "W: Deserialize<'de>"
-    )
-)]
-pub enum FoundAnswer<W> {
-    /// The mayor is still being hired.
-    Founded {
-        hamlet: HamletId,
-        mayor: AgentNumber,
-    },
-    #[serde(serialize_with = "worded")]
-    Refused { why: W },
-}
-
-impl<W> Refusable for FoundAnswer<W> {
-    type Why = W;
-    fn refused(why: W) -> Self {
-        Self::Refused { why }
-    }
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum FoundRefusal {
-    #[error(
-        "`{name}` is not a name: use one line of 1 to 40 characters \
-         with no colon"
-    )]
-    BadName { name: String },
-    #[error("no scholar has the address `scholar#{}`", profile.0)]
-    NoSuchProfile { profile: ProfileId },
-    #[error("say what it is for")]
-    NoPurpose,
-    /// `label` is `scholar#<id> (<name>)`.
-    #[error("`{label}` has no version `{}`", version.0)]
-    NoVersion { label: String, version: VersionName },
-    /// `label` is `scholar#<id> (<name>)`.
-    #[error(
-        "`{label}` did not answer in time to show its version `{}`; \
-         try again",
-        version.0
-    )]
-    Unanswered { label: String, version: VersionName },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -756,17 +675,17 @@ pub enum HireRefusal {
     LeadLeft { lead: AgentName, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
-    #[error("no scholar has the address `scholar#{}`", profile.0)]
+    #[error("no profile has the address `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error(
-        "`{label}` is a blank hire's own, not a scholar of the city"
+        "`{label}` is a blank hire's own, not a profile of the city"
     )]
     Apart { label: String },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error("`{label}` has no version `{}`", version.0)]
     NoVersion { label: String, version: VersionName },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error(
         "`{label}` did not answer in time to show its version `{}`; \
          try the hire again",
@@ -865,347 +784,6 @@ pub enum OnlyAHire {
     NotAHire { name: String },
     #[error("`{hire}` has left: {left}")]
     Left { hire: AgentName, left: Left },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Tell {
-    pub to: Named,
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub paths: Vec<Enclosed>,
-}
-
-/// A file or a folder a letter sends, in the sender's filesystem
-/// or its hamlet's folder.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Enclosed {
-    pub path: PathBuf,
-}
-
-impl ToolCall for Tell {
-    const TOOL: SocietyTool = SocietyTool::Tell;
-    type Answer = Sent<AgentRefusal<LetterRefusal>>;
-}
-
-answer!(
-    /// The answer of a [`Tell`].
-    Sent<W> {
-        Sent { to: AgentName },
-    }
-);
-
-/// A question; its answer arrives later as an input to
-/// `conversation`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Ask {
-    pub to: Named,
-    pub text: String,
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub paths: Vec<Enclosed>,
-}
-
-impl ToolCall for Ask {
-    const TOOL: SocietyTool = SocietyTool::Ask;
-    type Answer = Waiting<AgentRefusal<LetterRefusal>>;
-}
-
-answer!(
-    /// The answer of an [`Ask`]: `question` is the letter its answer
-    /// names.
-    Waiting<W> {
-        Waiting { on: AgentName, question: LetterId },
-    }
-);
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum LetterRefusal {
-    #[error("That is you.")]
-    Yourself,
-    #[error("Say what to send.")]
-    Empty,
-    #[error("no agent has the address `{address}`")]
-    NoSuchAgent { address: String },
-    #[error(
-        "You have no road to {to}. Ask your lead for one with \
-         request_road."
-    )]
-    NoRoad { to: AgentName },
-    #[error("no road yet to `{to}`: it is still being hired")]
-    StillHiring { to: AgentName },
-    #[error(
-        "The chief withdrew the instruction, so this call did not \
-         run."
-    )]
-    Withdrawn,
-    /// The files it names cannot be sent, as the workspace measured
-    /// them under the sender's reach.
-    #[error("{words}")]
-    Files { words: String },
-}
-
-/// The answer to a question, when the asked agent's turn on it ends.
-/// The question is its key, and a repeat keeps the first.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Reply {
-    pub question: LetterId,
-    pub text: String,
-}
-
-impl Action for Reply {
-    type Output = Done<ReplyRefusal>;
-    const NAME: &'static str = "reply";
-}
-
-impl Message for Reply {
-    type To = Realm;
-    type From = Agent;
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReplyRefusal {
-    #[error("there is no such question")]
-    NoSuchQuestion,
-    #[error("the question was asked of another agent")]
-    NotAsked,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LayRoad {
-    pub a: Named,
-    pub b: Named,
-    /// Why, for the record.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-impl ChiefRequest for LayRoad {
-    const NAME: &'static str = "chief_lay_road";
-    type Answer = Done<LayRefusal>;
-}
-
-impl ToolCall for LayRoad {
-    const TOOL: SocietyTool = SocietyTool::LayRoad;
-    type Answer = RoadDone<LeadRefusal<LayRefusal>>;
-}
-
-answer!(
-    /// The answer of an act on the road between `a` and `b`.
-    RoadDone<W> {
-        Done { a: AgentName, b: AgentName },
-    }
-);
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum LayRefusal {
-    #[error("no agent has the address `{address}`")]
-    NoSuchAgent { address: String },
-    #[error("a road needs two different hires")]
-    SameEnds,
-    #[error("a road joins hires only")]
-    NotHires,
-    #[error("`{hire}` is in another hamlet")]
-    OtherHamlet { hire: AgentName },
-    #[error("`{hire}` has left: {left}")]
-    Left { hire: AgentName, left: Left },
-    #[error("`{a}` and `{b}` already have a road")]
-    RoadExists { a: AgentName, b: AgentName },
-    #[error("the hamlet `{}` has its most roads, {most}", hamlet.0)]
-    Full { hamlet: HamletId, most: u32 },
-}
-
-/// A mayor's half of a road between a hire of its hamlet and a hire
-/// of another. The road is laid once the other hamlet's mayor agrees
-/// to it too.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgreeRoad {
-    pub mine: Named,
-    pub theirs: Named,
-    /// Why, for the record.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-impl ToolCall for AgreeRoad {
-    const TOOL: SocietyTool = SocietyTool::AgreeRoad;
-    type Answer = Agreed<AgentRefusal<AgreeRefusal>>;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "type",
-    rename_all = "snake_case",
-    bound(
-        serialize = "W: Serialize + std::fmt::Display",
-        deserialize = "W: Deserialize<'de>"
-    )
-)]
-pub enum Agreed<W> {
-    /// The other mayor has not agreed yet.
-    Waiting {
-        mine: AgentName,
-        theirs: AgentName,
-    },
-    Laid {
-        mine: AgentName,
-        theirs: AgentName,
-    },
-    #[serde(serialize_with = "worded")]
-    Refused {
-        why: W,
-    },
-}
-
-impl<W> Refusable for Agreed<W> {
-    type Why = W;
-    fn refused(why: W) -> Self {
-        Self::Refused { why }
-    }
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AgreeRefusal {
-    #[error("only a mayor may do that")]
-    NotAMayor,
-    #[error("no agent has the address `{address}`")]
-    NoSuchAgent { address: String },
-    #[error("the chief allows no roads between hamlets")]
-    NoRoadsBetween,
-    #[error("a road joins hires only")]
-    NotHires,
-    #[error(
-        "both ends of an agreed road must be in different hamlets"
-    )]
-    SameHamlet,
-    #[error("`{a}` and `{b}` already have a road")]
-    RoadExists { a: AgentName, b: AgentName },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TakeUpRoad {
-    pub a: Named,
-    pub b: Named,
-    /// Why, for the record.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-impl ChiefRequest for TakeUpRoad {
-    const NAME: &'static str = "chief_take_up_road";
-    type Answer = Done<TakeUpRefusal>;
-}
-
-impl ToolCall for TakeUpRoad {
-    const TOOL: SocietyTool = SocietyTool::TakeUpRoad;
-    type Answer = RoadDone<LeadRefusal<TakeUpRefusal>>;
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum TakeUpRefusal {
-    #[error("no agent has the address `{address}`")]
-    NoSuchAgent { address: String },
-    #[error("`{a}` and `{b}` have no road to take up")]
-    NoRoad { a: AgentName, b: AgentName },
-}
-
-/// Asks the caller's lead for a road to `to`, as a letter to the
-/// lead.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RequestRoad {
-    pub to: Named,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-impl ToolCall for RequestRoad {
-    const TOOL: SocietyTool = SocietyTool::RequestRoad;
-    type Answer = Done<AgentRefusal<RequestRoadRefusal>>;
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum RequestRoadRefusal {
-    #[error("no agent has the address `{address}`")]
-    NoSuchAgent { address: String },
-    #[error("a road joins hires only")]
-    NoLead,
-    #[error("your lead `{lead}` is still being hired")]
-    StillHiring { lead: AgentName },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetTools {
-    pub hire: Named,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub off: Vec<ToolName>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub on: Vec<ToolName>,
-    /// Why, for the record.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-impl ChiefRequest for SetTools {
-    const NAME: &'static str = "chief_set_tools";
-    type Answer = Done<OnlyAHire>;
-}
-
-impl ToolCall for SetTools {
-    const TOOL: SocietyTool = SocietyTool::SetTools;
-    type Answer = DoneTo<LeadRefusal<OnlyAHire>>;
 }
 
 /// Raises or lowers a hamlet's tier (H6).
@@ -1363,7 +941,7 @@ pub enum HamletRefusal {
     #[error("the hamlet `{}` is still living; remove it first", id.0)]
     Living { id: HamletId },
     /// A hire the removal ended is of a profile that left the city;
-    /// `label` is `scholar#<id> (<name>)`.
-    #[error("the scholar `{label}` no longer lives in the city")]
+    /// `label` is `profile#<id> (<name>)`.
+    #[error("the profile `{label}` no longer lives in the city")]
     ProfileGone { label: String },
 }

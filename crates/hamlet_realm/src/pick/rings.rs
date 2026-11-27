@@ -87,7 +87,7 @@ fn rings(
             Ring::Selected => selected.0,
             Ring::Also => also.0.filter(|a| selected.0 != Some(*a)),
         };
-        // A thing that stands in more than one place, as a scholar
+        // A thing that stands in more than one place, as a profile
         // in its house and out walking, is ringed about the widest:
         // its house.
         let found = wanted.and_then(|w| {

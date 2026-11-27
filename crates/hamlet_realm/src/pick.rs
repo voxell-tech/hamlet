@@ -129,9 +129,9 @@ pub enum Thing {
     Library,
     /// The Hand's tower, at the middle of the city.
     Hand,
-    /// The house of a scholar: the entity that carries its
-    /// `Scholar` and `Name`.
-    Scholar(Entity),
+    /// The house of a profile: the entity that carries its
+    /// `Profile` and `Name`.
+    Profile(Entity),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -140,7 +140,7 @@ pub enum Thing {
 }
 
 /// The names things go by in the world: an agent's `Shown` name, a
-/// hire's nickname or else its scholar's name, over its `Name`.
+/// hire's nickname or else its profile's name, over its `Name`.
 pub type Names<'w, 's> =
     Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
 
@@ -172,8 +172,8 @@ impl Thing {
             }
             Thing::Library => "The Library".into(),
             Thing::Hand => "The Hand's Tower".into(),
-            Thing::Scholar(scholar) => {
-                format!("{}'s House", named(scholar))
+            Thing::Profile(profile) => {
+                format!("{}'s House", named(profile))
             }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
@@ -210,9 +210,9 @@ impl Thing {
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
-            // A scholar's house carries its scholar's name.
-            Thing::Scholar(scholar) => {
-                Thing::Agent(scholar).name(names)
+            // A profile's house carries its profile's name.
+            Thing::Profile(profile) => {
+                Thing::Agent(profile).name(names)
             }
             other => other.name(names),
         }

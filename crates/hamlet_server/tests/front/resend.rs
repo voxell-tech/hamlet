@@ -46,9 +46,9 @@ async fn hire_of(
 #[tokio::test(flavor = "multi_thread")]
 async fn each_command_sent_again_under_its_id_answers_as_it_did() {
     let (mut server, _home, _side) = serve(json!([
-        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        {"calls": [{"name": "create_profile", "arguments": {"name": "ada"}}]},
         "Ada is made.",
-        {"calls": [{"name": "create_scholar", "arguments": {"name": "bob"}}]},
+        {"calls": [{"name": "create_profile", "arguments": {"name": "bob"}}]},
         "Bob is made.",
     ]))
     .await;
@@ -75,7 +75,7 @@ async fn each_command_sent_again_under_its_id_answers_as_it_did() {
     let (docs, yard) = (id_of("Docs"), id_of("Yard"));
     let one = hire_blank(&mut chief, &docs).await;
     let two = hire_blank(&mut chief, &docs).await;
-    let three = hire_of(&mut chief, "scholar#2", &docs).await;
+    let three = hire_of(&mut chief, "profile#2", &docs).await;
 
     let mut differ = Vec::new();
     // Each first answer is waited on until a client is shown what it
@@ -124,14 +124,14 @@ async fn each_command_sent_again_under_its_id_answers_as_it_did() {
         .command(mayor, &format!("/remove-hamlet {yard}"))
         .await;
     twice(format!("/erase-hamlet {yard}"), &|_| true).await;
-    twice("/fork scholar#2 ada2".to_owned(), &|_| true).await;
-    twice("/remove-scholar scholar#3".to_owned(), &|_| true).await;
-    twice("/restore-scholar scholar#3".to_owned(), &|_| true).await;
-    chief.command(mayor, "/remove-scholar scholar#3").await;
-    twice("/erase-scholar scholar#3".to_owned(), &|_| true).await;
-    twice("/turn-away scholar#2".to_owned(), &|_| true).await;
-    twice("/welcome scholar#2".to_owned(), &|_| true).await;
-    twice("/move-house scholar#2 30 40".to_owned(), &|_| true).await;
+    twice("/fork profile#2 ada2".to_owned(), &|_| true).await;
+    twice("/remove-profile profile#3".to_owned(), &|_| true).await;
+    twice("/restore-profile profile#3".to_owned(), &|_| true).await;
+    chief.command(mayor, "/remove-profile profile#3").await;
+    twice("/erase-profile profile#3".to_owned(), &|_| true).await;
+    twice("/turn-away profile#2".to_owned(), &|_| true).await;
+    twice("/welcome profile#2".to_owned(), &|_| true).await;
+    twice("/move-house profile#2 30 40".to_owned(), &|_| true).await;
 
     assert_eq!(differ, Vec::<String>::new());
     chief.close().await;

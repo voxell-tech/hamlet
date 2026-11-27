@@ -135,8 +135,8 @@ pub enum EndedRefusal {
     NotLeft { hire: AgentName },
     #[error("the hamlet `{}` was removed; restore it first", hamlet.0)]
     HamletRemoved { hamlet: HamletId },
-    /// `label` is `scholar#<id> (<name>)`.
-    #[error("the scholar `{label}` no longer lives in the city")]
+    /// `label` is `profile#<id> (<name>)`.
+    #[error("the profile `{label}` no longer lives in the city")]
     ProfileGone { label: String },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },

@@ -6,7 +6,7 @@ use hamlet_messages::agent::{
 use hamlet_messages::realm::budget::{
     BudgetRead, OpenTask, Payer, ReadBudget, TaskOpened, TaskTurn,
 };
-use hamlet_messages::realm::choices::{ModelOf, SetModel};
+use hamlet_messages::realm::choices::{ModelOf, SetModel, SetTools};
 use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
@@ -15,7 +15,7 @@ use hamlet_messages::realm::workers::{
 use hamlet_messages::realm::world::Status;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left, Named,
-    SetTools, Tool, ToolName,
+    Tool, ToolName,
 };
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{

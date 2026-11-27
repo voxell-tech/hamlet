@@ -211,9 +211,9 @@ pub(crate) async fn read(
         .iter()
         .filter_map(|agent| {
             let profile = state
-                .scholars
+                .profiles
                 .iter()
-                .find(|shown| Some(shown.id) == agent.scholar)?;
+                .find(|shown| Some(shown.id) == agent.profile)?;
             Some((
                 super::route::number(agent.id)?,
                 profile.name.clone(),

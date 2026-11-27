@@ -33,9 +33,9 @@ const MESSAGES: &str =
 
 /// A lead's part: what it may do over the hires under it.
 const LEAD: &str =
-    "You lead the hires under you. `hire` brings a scholar of the \
+    "You lead the hires under you. `hire` brings a profile of the \
      city in under you or under a hire of your tree, and \
-     `create_scholar` makes a new scholar to hire. Hire when a kind \
+     `create_profile` makes a new profile to hire. Hire when a kind \
      of work will come back and deserves its own memory; do small \
      one-off things yourself, or with `start_worker`. Check the \
      hires below for one that fits before hiring. `lay_road` lets \
@@ -62,8 +62,8 @@ const TOLD: &str = "A chief can instruct the hires under you \
 /// The most decisions and instructions a place tells.
 const MOST_TOLD: usize = 12;
 
-/// The most scholars the prompt lists.
-const MOST_SCHOLARS: usize = 60;
+/// The most profiles the prompt lists.
+const MOST_PROFILES: usize = 60;
 
 /// The most of a chief's lines to one hire its lead is told.
 const LINES_PER_HIRE: u32 = 3;
@@ -123,12 +123,12 @@ async fn place(
         AgentKind::Hand => lines.push(
             "You are the Hand of this realm: the chiefs' own agent. \
              You found hamlets (`found_hamlet`) and seat their \
-             mayors (`seat_mayor`), make scholars \
-             (`create_scholar`) and hire them into any hamlet, and \
+             mayors (`seat_mayor`), make profiles \
+             (`create_profile`) and hire them into any hamlet, and \
              lead every hire. You read any hamlet's record \
-             (`read_record`) and any scholar (`read_scholar`). What \
+             (`read_record`) and any profile (`read_profile`). What \
              you do to what a chief owns, removing a hamlet or \
-             changing, tagging or reverting a scholar, waits for a \
+             changing, tagging or reverting a profile, waits for a \
              chief first. Each mayor answers to you."
                 .into(),
         ),
@@ -243,12 +243,12 @@ async fn hire(
     let purpose = purpose.trim().trim_end_matches('.');
     lines.push(if purpose.is_empty() {
         format!(
-            "You are `{name}`, a scholar of the city, hired into \
+            "You are `{name}`, a profile of the city, hired into \
              `{id}`."
         )
     } else {
         format!(
-            "You are `{name}`, a scholar of the city, hired into \
+            "You are `{name}`, a profile of the city, hired into \
              `{id}` to {purpose}"
         )
     });
@@ -403,7 +403,7 @@ async fn mayor_of(
 }
 
 /// The shared profiles `agent` may hire, for the Hand and for hires:
-/// what `hire` takes as `scholar`.
+/// what `hire` takes as `profile`.
 async fn profiles_to_hire(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -429,15 +429,15 @@ async fn profiles_to_hire(
     if lines.is_empty() {
         return Ok(None);
     }
-    let more = lines.len().saturating_sub(MOST_SCHOLARS);
-    lines.truncate(MOST_SCHOLARS);
+    let more = lines.len().saturating_sub(MOST_PROFILES);
+    lines.truncate(MOST_PROFILES);
     if more > 0 {
         lines.push(format!("- and {more} more"));
     }
     Ok(Some(format!(
-        "# The city's scholars\nWhat `hire` takes as `scholar`; a \
+        "# The city's profiles\nWhat `hire` takes as `profile`; a \
          name is a label that may repeat, the address is the \
-         scholar:\n{}",
+         profile:\n{}",
         lines.join("\n")
     )))
 }

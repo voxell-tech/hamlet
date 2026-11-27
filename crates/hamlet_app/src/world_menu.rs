@@ -7,7 +7,7 @@ mod founding;
 mod hire;
 mod items;
 mod model;
-mod new_scholar;
+mod new_profile;
 mod road;
 
 use bevy::app::{App, Update};
@@ -72,7 +72,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<founding::FolderAsker>()
         .init_resource::<founding::Awaited>()
         .add_observer(founding::chosen)
-        .init_resource::<new_scholar::Making>()
+        .init_resource::<new_profile::Making>()
         .init_resource::<hire::Hiring>()
         .init_resource::<road::Roading>()
         .init_resource::<deed::Reason>()
@@ -116,9 +116,9 @@ pub(crate) enum Open {
     Ground(Vec2),
     /// The form a hamlet is founded with.
     Founding(Vec2),
-    /// The form a scholar is made in the city with.
-    NewScholar(Vec2),
-    /// The form a scholar is hired under a lead with.
+    /// The form a profile is made in the city with.
+    NewProfile(Vec2),
+    /// The form a profile is hired under a lead with.
     Hire(Entity, Vec2),
     /// The form a road from an agent is built with.
     Road(Entity, Vec2),
@@ -133,7 +133,7 @@ impl Open {
             self,
             Open::Question(..)
                 | Open::Founding(_)
-                | Open::NewScholar(_)
+                | Open::NewProfile(_)
                 | Open::Hire(..)
         )
     }
@@ -145,7 +145,7 @@ fn submit(world: &mut World) {
     match world.resource::<Open>().clone() {
         Open::Question(deed, _) => deed::answer(world, &deed),
         Open::Founding(_) => founding::submit(world),
-        Open::NewScholar(_) => new_scholar::submit(world),
+        Open::NewProfile(_) => new_profile::submit(world),
         Open::Hire(lead, _) => hire::submit(world, lead),
         _ => {}
     }
@@ -345,17 +345,17 @@ pub(crate) fn ask_found(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Founding(at);
 }
 
-/// Opens the form a scholar is made in the city with, at the
+/// Opens the form a profile is made in the city with, at the
 /// pointer.
-pub(crate) fn ask_new_scholar(world: &mut World) {
-    if !Deeds::is_allowed(world, "scholar") {
+pub(crate) fn ask_new_profile(world: &mut World) {
+    if !Deeds::is_allowed(world, "profile") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::NewScholar(at);
+    *world.resource_mut::<Open>() = Open::NewProfile(at);
 }
 
-/// Opens the form a scholar is hired under `lead` with, at the
+/// Opens the form a profile is hired under `lead` with, at the
 /// pointer.
 pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
     if !Deeds::is_allowed(world, "hire") {
@@ -462,8 +462,8 @@ fn menus() -> AnyView {
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
-            Open::NewScholar(at) => {
-                new_scholar::new_scholar(at).boxed()
+            Open::NewProfile(at) => {
+                new_profile::new_profile(at).boxed()
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),

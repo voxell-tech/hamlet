@@ -55,18 +55,18 @@ pub(crate) fn changes(
             out.push(Update::AgentGone { id: gone.id });
         }
     }
-    for scholar in &new.scholars {
-        if old.scholars.iter().find(|s| s.id == scholar.id)
-            != Some(scholar)
+    for profile in &new.profiles {
+        if old.profiles.iter().find(|s| s.id == profile.id)
+            != Some(profile)
         {
-            out.push(Update::Scholar {
-                scholar: scholar.clone(),
+            out.push(Update::Profile {
+                profile: profile.clone(),
             });
         }
     }
-    for gone in &old.scholars {
-        if !new.scholars.iter().any(|s| s.id == gone.id) {
-            out.push(Update::ScholarGone { id: gone.id });
+    for gone in &old.profiles {
+        if !new.profiles.iter().any(|s| s.id == gone.id) {
+            out.push(Update::ProfileGone { id: gone.id });
         }
     }
     for wait in &new.waits {

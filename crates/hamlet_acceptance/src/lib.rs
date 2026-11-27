@@ -10,7 +10,7 @@ pub mod realm;
 pub use cli::{Cli, Ended};
 pub use client::{Client, Ending, Wire, chat};
 pub use faux::Faux;
-pub use hamlet_protocol::client::{AgentId, ScholarId};
+pub use hamlet_protocol::client::{AgentId, ProfileId};
 use hamlet_testing::openai;
 pub use hamlet_testing::{Server, call, calls, failure, words};
 pub use home::Home;
@@ -92,44 +92,44 @@ impl Session {
         self.chief.hand()
     }
 
-    /// The id of the city's living scholar `name`, made first when
+    /// The id of the city's living profile `name`, made first when
     /// there is none.
-    pub async fn scholar(&mut self, name: &str) -> ScholarId {
+    pub async fn profile(&mut self, name: &str) -> ProfileId {
         let living = |c: &Client| {
-            c.scholar(name).filter(|scholar| scholar.left.is_none())
+            c.profile(name).filter(|profile| profile.left.is_none())
         };
-        if let Some(scholar) = living(&self.chief) {
-            return scholar.id;
+        if let Some(profile) = living(&self.chief) {
+            return profile.id;
         }
         let hand = self.hand();
         self.chief
-            .command(hand, &format!("/scholar new {name}"))
+            .command(hand, &format!("/profile new {name}"))
             .await;
         self.chief
-            .until(&format!("scholar {name}"), |c| {
+            .until(&format!("profile {name}"), |c| {
                 living(c).is_some()
             })
             .await;
-        living(&self.chief).expect("the scholar is made").id
+        living(&self.chief).expect("the profile is made").id
     }
 
-    /// Founds the hamlet named `hamlet` under the scholar called
-    /// `scholar`, made if the city has none, keeps its id in
+    /// Founds the hamlet named `hamlet` under the profile called
+    /// `profile`, made if the city has none, keeps its id in
     /// [`NAMES`] and gives the mayor's id.
     pub async fn found(
         &mut self,
         hamlet: &str,
-        scholar: &str,
+        profile: &str,
         purpose: &str,
     ) -> AgentId {
-        let scholar = self.scholar(scholar).await;
+        let profile = self.profile(profile).await;
         let hand = self.hand();
         self.chief
             .command(
                 hand,
                 &format!(
-                    "/create-hamlet scholar#{} {hamlet}: {purpose}",
-                    scholar.0
+                    "/create-hamlet profile#{} {hamlet}: {purpose}",
+                    profile.0
                 ),
             )
             .await;
@@ -161,38 +161,38 @@ impl Session {
         found.mayor
     }
 
-    /// Has `lead` hire the scholar called `scholar`, made if the
+    /// Has `lead` hire the profile called `profile`, made if the
     /// city has none, and gives the new hire's id.
     pub async fn hire(
         &mut self,
         lead: AgentId,
-        scholar: &str,
+        profile: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, "", purpose).await
+        self.hired(lead, profile, "", purpose).await
     }
 
-    /// Has `lead` hire the scholar called `scholar` under the agent
+    /// Has `lead` hire the profile called `profile` under the agent
     /// at `under`, and gives the new hire's id.
     pub async fn hire_under(
         &mut self,
         lead: AgentId,
-        scholar: &str,
+        profile: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, &format!("under {under} "), purpose)
+        self.hired(lead, profile, &format!("under {under} "), purpose)
             .await
     }
 
     async fn hired(
         &mut self,
         lead: AgentId,
-        scholar: &str,
+        profile: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        let scholar = self.scholar(scholar).await;
+        let profile = self.profile(profile).await;
         let hamlet = self
             .chief
             .realm()
@@ -205,7 +205,7 @@ impl Session {
                 .agents
                 .into_iter()
                 .filter(|a| {
-                    a.scholar == Some(scholar)
+                    a.profile == Some(profile)
                         && a.hamlet == hamlet
                         && a.left.is_none()
                 })
@@ -216,8 +216,8 @@ impl Session {
             .command(
                 lead,
                 &format!(
-                    "/hire scholar#{} {under}{purpose}",
-                    scholar.0
+                    "/hire profile#{} {under}{purpose}",
+                    profile.0
                 ),
             )
             .await;

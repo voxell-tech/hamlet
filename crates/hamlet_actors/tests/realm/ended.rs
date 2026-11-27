@@ -113,7 +113,7 @@ async fn a_restore_refuses_in_order() {
     realm.write("UPDATE hamlet SET status = 'living';").await;
     assert_eq!(
         refused(restore(THREE)).await,
-        "the scholar `scholar#3 (Hire 1)` no longer lives in the \
+        "the profile `profile#3 (Hire 1)` no longer lives in the \
          city"
     );
     realm.host.shutdown().await.unwrap();

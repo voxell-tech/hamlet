@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     AgentName, ChiefRequest, Done, DoneTo, HamletId, LeadRefusal,
-    Left, Named, SocietyTool, ToolCall,
+    Left, Named, OnlyAHire, SocietyTool, ToolCall, ToolName,
 };
 
 /// Sets the name a hire is shown by; absent gives it back its own.
@@ -96,4 +96,26 @@ pub enum ChoiceRefusal {
     ChiefChose { hire: AgentName },
     #[error("only a chief sets a hamlet's model")]
     HamletFromAnAgent,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetTools {
+    pub hire: Named,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<ToolName>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on: Vec<ToolName>,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ChiefRequest for SetTools {
+    const NAME: &'static str = "chief_set_tools";
+    type Answer = Done<OnlyAHire>;
+}
+
+impl ToolCall for SetTools {
+    const TOOL: SocietyTool = SocietyTool::SetTools;
+    type Answer = DoneTo<LeadRefusal<OnlyAHire>>;
 }

@@ -400,7 +400,7 @@ mod tests {
     fn dreaming(dir: &Scratch) -> (Hostless, Repository) {
         let mut profile = Hostless::profile(dir, "Careful.");
         let repository =
-            Repository::open(&dir.join("scholars/1.git")).unwrap();
+            Repository::open(&dir.join("profiles/1.git")).unwrap();
         let first = repository.tip(MAIN).unwrap().unwrap();
         repository.branch("hires/7", first).unwrap();
         profile

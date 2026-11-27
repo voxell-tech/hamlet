@@ -452,7 +452,7 @@ async fn start(
                 .map(|chosen| chosen.model);
             let instructions = format!(
                 "You are dreaming, between your work as `{who}`, a \
-                 hire of the scholar `{label}`. Your lodge at {} \
+                 hire of the profile `{label}`. Your lodge at {} \
                  holds what you learned as this hire: your memory/ \
                  and skills/. `{label}`'s shared knowledge, its \
                  main, is checked out at {}; every hire of \
@@ -473,7 +473,7 @@ async fn start(
         }
         None => {
             let instructions = format!(
-                "You are tidying the knowledge of the scholar \
+                "You are tidying the knowledge of the profile \
                  `{label}`, checked out at {}: its memory/ and \
                  skills/. Merge what is said twice, correct or \
                  remove what is stale, keep the root memory files \

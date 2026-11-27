@@ -11,7 +11,7 @@ use hamlet_actors::realm;
 use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::bytes::{Base64, Sha256};
-use hamlet_messages::realm::Enclosed;
+use hamlet_messages::realm::letters::Enclosed;
 use hamlet_messages::realm::parcels::{
     PARCEL_PART, Part, part_start,
 };

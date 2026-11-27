@@ -1,7 +1,6 @@
 use hamlet_messages::agent::Place;
-use hamlet_messages::realm::{
-    Asked, End, FoundAnswer, Named, ReadOwnPlace,
-};
+use hamlet_messages::realm::hamlets::FoundAnswer;
+use hamlet_messages::realm::{Asked, End, Named, ReadOwnPlace};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use hamlet_protocol::client::RequestId;

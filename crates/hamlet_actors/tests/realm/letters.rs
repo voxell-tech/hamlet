@@ -4,10 +4,11 @@ use hamlet_actors::realm;
 use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
+use hamlet_messages::realm::letters::{
+    Ask, LetterRefusal, Reply, ReplyRefusal, Sent, Tell, Waiting,
+};
 use hamlet_messages::realm::{
-    Ask, Done, End, Hire, HireAnswer, HowEnded, LetterId,
-    LetterRefusal, Named, Reply, ReplyRefusal, Sent, Standing, Tell,
-    Waiting,
+    Done, End, Hire, HireAnswer, HowEnded, LetterId, Named, Standing,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};

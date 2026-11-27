@@ -11,10 +11,11 @@ use hamlet_messages::realm::choices::ChoiceRefusal;
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::prompt::{PlaceText, ReadPlace};
+use hamlet_messages::realm::roads::RoadDone;
 use hamlet_messages::realm::{
     AgentName, Asked, ChiefRequest, Done, DoneTo, Gate, HamletId,
     LeadRefusal, OnlyAHire, ProfileId, Rank, ReadOwnPlace, Refusable,
-    RoadDone, Seated, SecretList, Secrets, Standing, Tool, ToolCall,
+    Seated, SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
     Client, Hand, Scrubber, Sender, sender, wrong_caller,

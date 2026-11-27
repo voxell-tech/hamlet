@@ -22,8 +22,8 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
                      <path>]...
        hamlet edit <charter|limits|settings> [--hamlet <id>]
-       hamlet edit character <scholar#id>
-       hamlet edit memory <scholar#id|hire#<id>> [path]
+       hamlet edit character <profile#id>
+       hamlet edit memory <profile#id|hire#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
        hamlet models images <model> [off | [--width <px>] [--height \
@@ -239,7 +239,7 @@ fn parse(args: &[String]) -> Result<Command> {
                             })
                             .ok_or_else(|| {
                                 anyhow::anyhow!(
-                                    "edit {doc} needs a scholar or \
+                                    "edit {doc} needs a profile or \
                                      agent address"
                                 )
                             })?

@@ -4,8 +4,8 @@
 use hamlet_acceptance::{Client, chat};
 use hamlet_protocol::client::{
     AgentId, Check, ClientMessage, Edit, EditSettingsSet,
-    EditSettingsSetWorkspace, Keeper, MoveLodges, ReplyKind,
-    RequestId, ScholarId, SettingsViewWorkspaceMoveState,
+    EditSettingsSetWorkspace, Keeper, MoveLodges, ProfileId,
+    ReplyKind, RequestId, SettingsViewWorkspaceMoveState,
 };
 use hamlet_testing::{Models, Scratch, Server};
 use serde_json::json;
@@ -104,7 +104,7 @@ async fn a_chiefs_memory_edit_of_an_agent_is_in_its_papers() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_profiles_character_and_memory_edits_are_in_its_papers() {
     let (mut server, _home, _side) = serve(json!([
-        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        {"calls": [{"name": "create_profile", "arguments": {"name": "ada"}}]},
         "Ada is made.",
     ]))
     .await;
@@ -114,12 +114,12 @@ async fn a_profiles_character_and_memory_edits_are_in_its_papers() {
     chief.open(&chat).await;
     chief.say(hand, "Make ada.").await;
     chief.shows(&chat, "Ada is made.").await;
-    let ada = ScholarId(2);
+    let ada = ProfileId(2);
     let character = chief
         .request(|id| {
             ClientMessage::Edit(Edit::Character {
                 id,
-                scholar: ada,
+                profile: ada,
                 text: "Careful with numbers.".into(),
             })
         })
@@ -128,7 +128,7 @@ async fn a_profiles_character_and_memory_edits_are_in_its_papers() {
         .request(|id| {
             ClientMessage::Edit(Edit::Memory {
                 id,
-                of: Keeper::Scholar(ada),
+                of: Keeper::Profile(ada),
                 path: "memory/units.md".into(),
                 text: "---\ndescription: The units\n---\nMetric.\n"
                     .into(),
@@ -139,12 +139,12 @@ async fn a_profiles_character_and_memory_edits_are_in_its_papers() {
         .request(|id| {
             ClientMessage::Edit(Edit::Character {
                 id,
-                scholar: ScholarId(9),
+                profile: ProfileId(9),
                 text: "Nobody.".into(),
             })
         })
         .await;
-    let papers = chief.papers(Keeper::Scholar(ada)).await;
+    let papers = chief.papers(Keeper::Profile(ada)).await;
 
     assert_eq!(
         (character.kind, character.text.as_str()),
@@ -156,7 +156,7 @@ async fn a_profiles_character_and_memory_edits_are_in_its_papers() {
     );
     assert_eq!(
         (missing.kind, missing.text.as_str()),
-        (ReplyKind::Error, "no scholar has the address `scholar#9`")
+        (ReplyKind::Error, "no profile has the address `profile#9`")
     );
     assert_eq!(papers.character, "Careful with numbers.");
     assert_eq!(papers.memory.len(), 1, "{papers:?}");
@@ -218,7 +218,7 @@ async fn the_settings_are_saved_and_a_blank_character_is_refused() {
         (blank.kind, blank.text.as_str()),
         (
             ReplyKind::Error,
-            "A blank scholar needs a character to start from."
+            "A blank profile needs a character to start from."
         )
     );
     assert_eq!(

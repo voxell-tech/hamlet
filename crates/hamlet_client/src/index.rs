@@ -1,4 +1,4 @@
-//! The hamlets, agents, scholars, waits and chats by the ids the
+//! The hamlets, agents, profiles, waits and chats by the ids the
 //! server names them with, kept by their components' hooks.
 
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::realm::{
-    HamletId, Identity, Left, LivesIn, Mayor, Scholar,
+    HamletId, Identity, Left, LivesIn, Mayor, Profile,
 };
 use crate::waits::Waiting;
 
@@ -36,14 +36,14 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The entities of the server's hamlets, agents, scholars, waits and
+/// The entities of the server's hamlets, agents, profiles, waits and
 /// chats by their protocol ids.
 #[derive(Resource, Default)]
 pub(crate) struct Index {
     hamlets: HashMap<String, Entity>,
     agents: HashMap<Entity, Filed>,
     ids: HashMap<protocol::AgentId, Vec<Entity>>,
-    scholars: HashMap<protocol::ScholarId, Entity>,
+    profiles: HashMap<protocol::ProfileId, Entity>,
     /// Agents that have not left, by address.
     names: HashMap<String, Vec<Entity>>,
     /// Agents in office that have not left, by hamlet.
@@ -92,12 +92,12 @@ impl Index {
         (!self.agents.get(&agent)?.left).then_some(agent)
     }
 
-    /// A scholar by its id.
-    pub(crate) fn scholar(
+    /// A profile by its id.
+    pub(crate) fn profile(
         &self,
-        id: protocol::ScholarId,
+        id: protocol::ProfileId,
     ) -> Option<Entity> {
-        self.scholars.get(&id).copied()
+        self.profiles.get(&id).copied()
     }
 
     /// A living agent by its address.
@@ -146,10 +146,10 @@ impl Index {
         self.agents.keys().copied()
     }
 
-    pub(crate) fn scholars(
+    pub(crate) fn profiles(
         &self,
     ) -> impl Iterator<Item = Entity> + '_ {
-        self.scholars.values().copied()
+        self.profiles.values().copied()
     }
 
     pub(crate) fn waits(&self) -> impl Iterator<Item = Entity> + '_ {
@@ -337,33 +337,33 @@ pub(crate) fn unfile_hamlet(
     }
 }
 
-pub(crate) fn file_scholar(
+pub(crate) fn file_profile(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
     let Some(id) =
-        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+        world.get::<Profile>(context.entity).map(|s| s.0.id)
     else {
         return;
     };
     if let Some(mut index) = world.get_resource_mut::<Index>() {
-        index.scholars.insert(id, context.entity);
+        index.profiles.insert(id, context.entity);
     }
 }
 
-pub(crate) fn unfile_scholar(
+pub(crate) fn unfile_profile(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
     let Some(id) =
-        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+        world.get::<Profile>(context.entity).map(|s| s.0.id)
     else {
         return;
     };
     if let Some(mut index) = world.get_resource_mut::<Index>()
-        && index.scholars.get(&id) == Some(&context.entity)
+        && index.profiles.get(&id) == Some(&context.entity)
     {
-        index.scholars.remove(&id);
+        index.profiles.remove(&id);
     }
 }
 

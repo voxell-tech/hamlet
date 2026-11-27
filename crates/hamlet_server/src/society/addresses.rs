@@ -1,5 +1,5 @@
 //! Addresses: how chiefs and agents name the Hand, mayors, hires,
-//! workers and scholars, by ids and never by a scholar's name (C30,
+//! workers and profiles, by ids and never by a profile's name (C30,
 //! H14).
 
 use std::fmt;
@@ -71,10 +71,10 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     }
 }
 
-/// Reads a scholar's address, `scholar#<id>`, to its number.
-pub(crate) fn parse_scholar(text: &str) -> Result<i64, Refusal> {
+/// Reads a profile's address, `profile#<id>`, to its number.
+pub(crate) fn parse_profile(text: &str) -> Result<i64, Refusal> {
     let text = text.trim();
-    text.strip_prefix("scholar#")
+    text.strip_prefix("profile#")
         .and_then(|id| id.parse::<i64>().ok())
         .ok_or_else(|| Refusal::BadAddress {
             address: text.into(),

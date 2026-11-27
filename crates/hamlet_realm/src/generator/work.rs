@@ -92,7 +92,7 @@ impl Robot {
 }
 
 impl Robot {
-    /// The robot of a scholar's house in the city, which stands at
+    /// The robot of a profile's house in the city, which stands at
     /// `at` with its door turned `turn` and `door_out` before it.
     pub(crate) fn in_city(
         land: &Land,

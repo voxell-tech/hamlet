@@ -116,13 +116,13 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "tag",
-        usage: "/tag <scholar#id>[@<commit>] <version> [note]",
-        does: "Name a version of a scholar",
+        usage: "/tag <profile#id>[@<commit>] <version> [note]",
+        does: "Name a version of a profile",
     },
     Command {
         name: "versions",
-        usage: "/versions <scholar#id>",
-        does: "List a scholar's versions and latest commits",
+        usage: "/versions <profile#id>",
+        does: "List a profile's versions and latest commits",
     },
     Command {
         name: "pin",
@@ -131,18 +131,18 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "revert",
-        usage: "/revert <scholar#id> <commit|version> [reason]",
-        does: "Undo a commit of a scholar's main",
+        usage: "/revert <profile#id> <commit|version> [reason]",
+        does: "Undo a commit of a profile's main",
     },
     Command {
         name: "fork",
-        usage: "/fork <scholar#id>[@<version>] <new name>",
-        does: "Make a new scholar from a version of another",
+        usage: "/fork <profile#id>[@<version>] <new name>",
+        does: "Make a new profile from a version of another",
     },
     Command {
         name: "purge",
-        usage: "/purge <scholar#id> <path>",
-        does: "Take a file out of a scholar's whole history",
+        usage: "/purge <profile#id> <path>",
+        does: "Take a file out of a profile's whole history",
     },
     Command {
         name: "unshelve",
@@ -151,8 +151,8 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "dream",
-        usage: "/dream <scholar#id|address>",
-        does: "Have a hire bring its learning home, or a scholar \
+        usage: "/dream <profile#id|address>",
+        does: "Have a hire bring its learning home, or a profile \
                tidy",
     },
     Command {
@@ -162,8 +162,8 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "create-hamlet",
-        usage: "/create-hamlet [scholar#id|blank] <name>[: purpose]",
-        does: "Create a hamlet named <name> under a scholar as its \
+        usage: "/create-hamlet [profile#id|blank] <name>[: purpose]",
+        does: "Create a hamlet named <name> under a profile as its \
                mayor, or a blank agent named Mayor if none is given",
     },
     Command {
@@ -203,10 +203,10 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "hire",
-        usage: "/hire <scholar#id>[@<version>]|blank [in <hamlet>] \
+        usage: "/hire <profile#id>[@<version>]|blank [in <hamlet>] \
                 [under <address>] [purpose]",
-        does: "Hire a scholar into this hamlet, or a blank agent \
-               that is not a scholar of the city",
+        does: "Hire a profile into this hamlet, or a blank agent \
+               that is not a profile of the city",
     },
     Command {
         name: "end",
@@ -296,50 +296,50 @@ const TABLE: &[Command] = &[
         does: "Show this hamlet's decisions",
     },
     Command {
-        name: "scholars",
-        usage: "/scholars",
-        does: "List the city's scholars",
+        name: "profiles",
+        usage: "/profiles",
+        does: "List the city's profiles",
     },
     Command {
-        name: "scholar",
-        usage: "/scholar new <name>[: <character>]",
-        does: "Make a scholar in the city; a name is a label with \
+        name: "profile",
+        usage: "/profile new <name>[: <character>]",
+        does: "Make a profile in the city; a name is a label with \
                no colon, and the character follows the colon",
     },
     Command {
-        name: "name-scholar",
-        usage: "/name-scholar <scholar#id> <name>",
-        does: "Give a scholar a new name",
+        name: "name-profile",
+        usage: "/name-profile <profile#id> <name>",
+        does: "Give a profile a new name",
     },
     Command {
-        name: "remove-scholar",
-        usage: "/remove-scholar <scholar#id> [reason]",
-        does: "Archive a scholar and end its hires",
+        name: "remove-profile",
+        usage: "/remove-profile <profile#id> [reason]",
+        does: "Archive a profile and end its hires",
     },
     Command {
-        name: "restore-scholar",
-        usage: "/restore-scholar <scholar#id> [reason]",
-        does: "Bring an archived scholar back with its hires",
+        name: "restore-profile",
+        usage: "/restore-profile <profile#id> [reason]",
+        does: "Bring an archived profile back with its hires",
     },
     Command {
-        name: "erase-scholar",
-        usage: "/erase-scholar <scholar#id>",
-        does: "Erase an archived scholar for good",
+        name: "erase-profile",
+        usage: "/erase-profile <profile#id>",
+        does: "Erase an archived profile for good",
     },
     Command {
         name: "move-house",
-        usage: "/move-house <scholar#id> <x> <z> [degrees]",
-        does: "Set a scholar's house down elsewhere in the city",
+        usage: "/move-house <profile#id> <x> <z> [degrees]",
+        does: "Set a profile's house down elsewhere in the city",
     },
     Command {
         name: "welcome",
-        usage: "/welcome <scholar#id> [reason]",
-        does: "Let a scholar waiting at the harbor into the city",
+        usage: "/welcome <profile#id> [reason]",
+        does: "Let a profile waiting at the harbor into the city",
     },
     Command {
         name: "turn-away",
-        usage: "/turn-away <scholar#id> [reason]",
-        does: "Keep a scholar at the harbor, or send it back there",
+        usage: "/turn-away <profile#id> [reason]",
+        does: "Keep a profile at the harbor, or send it back there",
     },
 ];
 

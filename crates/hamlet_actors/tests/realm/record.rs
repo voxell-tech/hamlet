@@ -3,7 +3,7 @@ use std::sync::Arc;
 use hamlet_actors::realm;
 use hamlet_messages::agent::Input;
 use hamlet_messages::realm::choices::{
-    ModelOf, SetModel, SetNickname,
+    ModelOf, SetModel, SetNickname, SetTools,
 };
 use hamlet_messages::realm::hamlets::{
     EraseHamlet, NameHamlet, ReadRecord, Record, RecordLine,
@@ -11,7 +11,7 @@ use hamlet_messages::realm::hamlets::{
 };
 use hamlet_messages::realm::profiles::EraseProfile;
 use hamlet_messages::realm::{
-    Done, DoneTo, HamletId, HamletRefusal, SetTools, ToolName,
+    Done, DoneTo, HamletId, HamletRefusal, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

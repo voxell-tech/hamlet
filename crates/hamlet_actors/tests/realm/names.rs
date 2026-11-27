@@ -1,15 +1,18 @@
 use hamlet_actor::Action;
 use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::choices::{
-    ChoiceRefusal, ModelOf, SetModel, SetNickname,
+    ChoiceRefusal, ModelOf, SetModel, SetNickname, SetTools,
+};
+use hamlet_messages::realm::letters::{Ask, LetterRefusal, Sent};
+use hamlet_messages::realm::roads::{
+    AgreeRoad, LayRoad, RequestRoad, TakeUpRoad,
 };
 use hamlet_messages::realm::workers::{
     Ended, SetAllowance, StartWorker, Started, WorkerDone,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, AgreeRoad, Ask, Done, DoneTo, End, EndRefusal,
-    LayRoad, LeadRefusal, LetterRefusal, Named, RequestRoad, Seat,
-    Sent, SetTools, TakeUpRoad, Tool, ToolName,
+    AgentRefusal, Done, DoneTo, End, EndRefusal, LeadRefusal, Named,
+    Seat, Tool, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};

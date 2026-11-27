@@ -4,8 +4,9 @@
 use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::choices::SetTools;
 use hamlet_messages::realm::{
-    AgentName, OnlyAHire, Refusable, SetTools, ToolName,
+    AgentName, OnlyAHire, Refusable, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 

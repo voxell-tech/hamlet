@@ -1,5 +1,5 @@
 //! The form an agent is hired with, under a lead: a blank agent or a
-//! scholar of the city found by a search, and folded under them the
+//! profile of the city found by a search, and folded under them the
 //! version and what it is hired to do, which may be left out.
 
 use bevy::ecs::entity::Entity;
@@ -13,7 +13,7 @@ use bevy_fynix::views::{
     frame, label, popup, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
-use hamlet_client::realm::{self as agents, Deeds, Scholar};
+use hamlet_client::realm::{self as agents, Deeds, Profile};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
@@ -27,15 +27,15 @@ use hamlet_ui::{AnyView, View, built};
 use super::{TakesFocus, close, optional};
 use crate::words;
 
-/// How tall the list of scholars grows before it scrolls.
+/// How tall the list of profiles grows before it scrolls.
 const LIST: f32 = 220.0;
 
 /// What is typed and chosen in the form.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Hiring {
     search: String,
-    /// The scholar chosen; a blank agent while None.
-    chosen: Option<protocol::ScholarId>,
+    /// The profile chosen; a blank agent while None.
+    chosen: Option<protocol::ProfileId>,
     /// The version it is pinned to; its newest work when None.
     version: Option<String>,
     purpose: String,
@@ -43,35 +43,35 @@ pub(crate) struct Hiring {
     more: bool,
 }
 
-/// A scholar that can be hired: its id, its name and how many hires
+/// A profile that can be hired: its id, its name and how many hires
 /// it has.
 #[derive(Clone, PartialEq)]
 struct Choice {
-    id: protocol::ScholarId,
+    id: protocol::ProfileId,
     name: String,
     hires: usize,
 }
 
-/// The scholars of the city that are not archived whose names hold
+/// The profiles of the city that are not archived whose names hold
 /// `search`, by name.
 fn choices(world: &World, search: &str) -> Vec<Choice> {
-    let Some(mut scholars) = world.try_query::<&Scholar>() else {
+    let Some(mut profiles) = world.try_query::<&Profile>() else {
         return Vec::new();
     };
     let search = search.trim().to_lowercase();
-    let mut found = scholars
+    let mut found = profiles
         .iter(world)
-        .filter(|scholar| {
-            scholar.0.left.is_none()
-                && scholar.0.arrival != protocol::Arrival::Apart
+        .filter(|profile| {
+            profile.0.left.is_none()
+                && profile.0.arrival != protocol::Arrival::Apart
         })
-        .filter(|scholar| {
-            scholar.0.name.to_lowercase().contains(&search)
+        .filter(|profile| {
+            profile.0.name.to_lowercase().contains(&search)
         })
-        .map(|scholar| Choice {
-            id: scholar.0.id,
-            name: scholar.0.name.clone(),
-            hires: scholar.0.hires.len(),
+        .map(|profile| Choice {
+            id: profile.0.id,
+            name: profile.0.name.clone(),
+            hires: profile.0.hires.len(),
         })
         .collect::<Vec<_>>();
     found.sort_by(|a, b| {
@@ -85,12 +85,12 @@ fn choices(world: &World, search: &str) -> Vec<Choice> {
 fn row_of(
     name: String,
     under: String,
-    id: Option<protocol::ScholarId>,
+    id: Option<protocol::ProfileId>,
     on: bool,
 ) -> AnyView {
-    // What it is to hire a blank agent or a scholar.
+    // What it is to hire a blank agent or a profile.
     let tip = match id {
-        Some(_) => words::HIRED_SCHOLAR,
+        Some(_) => words::HIRED_PROFILE,
         None => words::BLANK,
     };
     button(
@@ -116,8 +116,8 @@ fn row_of(
     .boxed()
 }
 
-/// One scholar of the list.
-fn scholar_row(choice_of: &Choice, on: bool) -> AnyView {
+/// One profile of the list.
+fn profile_row(choice_of: &Choice, on: bool) -> AnyView {
     let hires = match choice_of.hires {
         0 => "No hires".to_string(),
         1 => "1 hire".to_string(),
@@ -126,17 +126,17 @@ fn scholar_row(choice_of: &Choice, on: bool) -> AnyView {
     row_of(choice_of.name.clone(), hires, Some(choice_of.id), on)
 }
 
-/// The versions of `scholar`, newest first.
+/// The versions of `profile`, newest first.
 fn versions_of(
     world: &World,
-    scholar: protocol::ScholarId,
+    profile: protocol::ProfileId,
 ) -> Vec<String> {
-    let Some(mut scholars) = world.try_query::<&Scholar>() else {
+    let Some(mut profiles) = world.try_query::<&Profile>() else {
         return Vec::new();
     };
-    scholars
+    profiles
         .iter(world)
-        .find(|s| s.0.id == scholar)
+        .find(|s| s.0.id == profile)
         .map(|s| {
             s.0.versions
                 .iter()
@@ -147,7 +147,7 @@ fn versions_of(
         .unwrap_or_default()
 }
 
-/// The version the chosen scholar is hired at, while it has named
+/// The version the chosen profile is hired at, while it has named
 /// versions to pin.
 fn version() -> impl View {
     keyed(
@@ -155,7 +155,7 @@ fn version() -> impl View {
             let hiring = world.resource::<Hiring>();
             let versions = hiring
                 .chosen
-                .map(|scholar| versions_of(world, scholar))
+                .map(|profile| versions_of(world, profile))
                 .unwrap_or_default();
             (versions, hiring.version.clone())
         })
@@ -196,7 +196,7 @@ fn version() -> impl View {
     .within(column(()))
 }
 
-/// A blank agent, then the scholars that match the search.
+/// A blank agent, then the profiles that match the search.
 fn list() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -214,7 +214,7 @@ fn list() -> impl View {
             rows.extend(
                 found
                     .iter()
-                    .map(|c| scholar_row(c, *chosen == Some(c.id))),
+                    .map(|c| profile_row(c, *chosen == Some(c.id))),
             );
             column(rows).gap(2.0).boxed()
         },
@@ -227,13 +227,13 @@ fn list() -> impl View {
 fn command(world: &World, lead: Entity) -> String {
     let hiring = world.resource::<Hiring>();
     let hired = match hiring.chosen {
-        Some(scholar) => {
+        Some(profile) => {
             let pinned = hiring
                 .version
                 .as_ref()
                 .map(|version| format!("@{version}"))
                 .unwrap_or_default();
-            format!("{}{pinned}", agents::scholar_address(scholar))
+            format!("{}{pinned}", agents::profile_address(profile))
         }
         None => "blank".into(),
     };
@@ -281,7 +281,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                 .size(heading)
                 .bold(true),
             crate::search::search(
-                "Search scholars",
+                "Search profiles",
                 String::new(),
                 |world, text| {
                     world.resource_mut::<Hiring>().search = text;
@@ -350,7 +350,7 @@ mod tests {
     use crate::testing::{panel_app, press};
 
     #[test]
-    fn a_scholar_chosen_from_the_list_is_hired_under_the_lead() {
+    fn a_profile_chosen_from_the_list_is_hired_under_the_lead() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)
@@ -363,19 +363,19 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         let ada = agents::named(app.world_mut(), "hire#2").unwrap();
-        let (id, scholar) = app
+        let (id, profile) = app
             .world_mut()
-            .query::<&Scholar>()
+            .query::<&Profile>()
             .iter(app.world())
             .find(|s| s.0.left.is_none())
             .map(|s| (s.0.id, s.0.name.clone()))
-            .expect("a living scholar");
+            .expect("a living profile");
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
             hire(ada, Vec2::ZERO),
         );
         app.update();
-        press(&mut app, &scholar);
+        press(&mut app, &profile);
         assert_eq!(app.world().resource::<Hiring>().chosen, Some(id));
         app.world_mut().resource_mut::<Hiring>().purpose =
             "Mend the fences".into();
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(
             say.text,
             format!(
-                "/hire scholar#{} under hire#2 Mend the fences",
+                "/hire profile#{} under hire#2 Mend the fences",
                 id.0
             )
         );

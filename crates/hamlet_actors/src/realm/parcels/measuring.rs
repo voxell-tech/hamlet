@@ -7,9 +7,10 @@ use anyhow::Result;
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Workspace};
-use hamlet_messages::realm::{
-    AgentRefusal, Ask, Enclosed, LetterRefusal, Refusable, Tell, Tool,
+use hamlet_messages::realm::letters::{
+    Ask, Enclosed, LetterRefusal, Tell,
 };
+use hamlet_messages::realm::{AgentRefusal, Refusable, Tool};
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::{
     self, AgentNumber, ParcelAnswer, ParcelRefusal,

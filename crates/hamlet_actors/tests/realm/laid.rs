@@ -1,13 +1,19 @@
 use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::budget::Payer;
+use hamlet_messages::realm::choices::SetTools;
 use hamlet_messages::realm::client::ReadWorld;
-use hamlet_messages::realm::hamlets::{ReadRecord, Record};
+use hamlet_messages::realm::hamlets::{
+    FoundAnswer, ReadRecord, Record,
+};
+use hamlet_messages::realm::letters::{LetterRefusal, Sent};
+use hamlet_messages::realm::roads::{
+    LayRefusal, LayRoad, RequestRoad, RequestRoadRefusal, RoadDone,
+    TakeUpRefusal, TakeUpRoad,
+};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, DoneTo, End, FoundAnswer, HamletId,
-    Hire, LayRefusal, LayRoad, LeadRefusal, LetterRefusal, Named,
-    OnlyAHire, Rank, RequestRoad, RequestRoadRefusal, RoadDone, Sent,
-    SetTier, SetTools, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
+    AgentRefusal, Asked, Done, DoneTo, End, HamletId, Hire,
+    LeadRefusal, Named, OnlyAHire, Rank, SetTier, Tier, TierRefusal,
     ToolName,
 };
 use hamlet_messages::sender::Hand;

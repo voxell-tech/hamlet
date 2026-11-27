@@ -45,7 +45,7 @@ pub(super) struct Shown {
     spent: BTreeMap<AgentNumber, Spending>,
     hamlets: Vec<Place>,
     closed: Vec<protocol::ClosedHamlet>,
-    scholars: Vec<protocol::Scholar>,
+    profiles: Vec<protocol::Profile>,
     grants: Vec<protocol::Grant>,
     waits: Vec<protocol::Wait>,
     limits: Option<protocol::RealmLimits>,
@@ -123,7 +123,7 @@ impl Look<Client> for ReadState {
             providers: Vec::new(),
             realm: String::new(),
             revision: 0,
-            scholars: shown.scholars.clone(),
+            profiles: shown.profiles.clone(),
             settings,
             waits: shown.waits.clone(),
         };
@@ -201,7 +201,7 @@ pub(super) async fn read(
         spent,
         hamlets,
         closed: closed(rows, &chief).await?,
-        scholars: scholars(rows, &chief).await?,
+        profiles: profiles(rows, &chief).await?,
         grants: grants(rows, &workers, &chief).await?,
         waits: waits(rows, seen, &workers).await?,
         limits: Some(limits::realm_shown(rows).await?),
@@ -277,7 +277,7 @@ async fn agent_shown(
         )
         .await?
         .is_some();
-    let (kind, parent, scholar) = if n == Hand::NUMBER {
+    let (kind, parent, profile) = if n == Hand::NUMBER {
         (protocol::AgentKind::Hand, None, Some(HAND_PROFILE.0))
     } else if worker {
         let starter = match agent.worker {
@@ -323,8 +323,7 @@ async fn agent_shown(
             text: String::new(),
             thought: false,
         },
-        scholar: scholar
-            .map(|profile| protocol::ScholarId(profile.into())),
+        profile: profile.map(|id| protocol::ProfileId(id.into())),
         since: time(since),
         skills: Vec::new(),
         spent: protocol::AgentSpent {
@@ -372,7 +371,7 @@ async fn left_shown(
             (by_name(by), protocol::LeftHow::Merged)
         }
         HowEnded::ProfileArchived => {
-            (chief.to_owned(), protocol::LeftHow::Scholar)
+            (chief.to_owned(), protocol::LeftHow::Profile)
         }
         HowEnded::HamletRemoved { by } => {
             (by_name(by), protocol::LeftHow::Hamlet)
@@ -432,11 +431,11 @@ async fn closed(
     Ok(closed)
 }
 
-async fn scholars(
+async fn profiles(
     rows: &Rows<'_>,
     chief: &str,
-) -> Result<Vec<protocol::Scholar>> {
-    let mut scholars = Vec::new();
+) -> Result<Vec<protocol::Profile>> {
+    let mut profiles = Vec::new();
     for row in rows
         .select(
             "SELECT id, kind, name, status, arrival, house_x, \
@@ -482,7 +481,7 @@ async fn scholars(
             .await?;
         let holds =
             profiles::holds::Holds::read(rows, ProfileId(id)).await?;
-        scholars.push(protocol::Scholar {
+        profiles.push(protocol::Profile {
             arrival: match (kind, arrival) {
                 (
                     profiles::Kind::Blank | profiles::Kind::Empty,
@@ -514,10 +513,10 @@ async fn scholars(
                 }
                 _ => None,
             },
-            id: protocol::ScholarId(id.into()),
+            id: protocol::ProfileId(id.into()),
             left: match status {
                 profiles::Status::Archived => {
-                    Some(protocol::ScholarLeft {
+                    Some(protocol::ProfileLeft {
                         at: time(
                             Option::<i64>::of(left_at)?
                                 .unwrap_or_default(),
@@ -547,7 +546,7 @@ async fn scholars(
                 .collect(),
         });
     }
-    Ok(scholars)
+    Ok(profiles)
 }
 
 /// The conversations other agents keep with `agent`, by sender and
@@ -720,7 +719,7 @@ fn wait_shown(
         WaitKind::Newcomer { profile } => (
             Kind::Newcomer.answers(false),
             WaitDetail::Newcomer {
-                scholar: protocol::ScholarId(profile.0.into()),
+                profile: protocol::ProfileId(profile.0.into()),
             },
         ),
         WaitKind::Reserved => approval(WaitDanger::Reserved, None),

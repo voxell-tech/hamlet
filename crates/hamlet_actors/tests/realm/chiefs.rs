@@ -2,11 +2,11 @@ use std::path::{Path, PathBuf};
 
 use hamlet_messages::address::{Agent, Party};
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, ReadRecord, Record, SetFolder, SetMode,
+    FoundAnswer, FoundRefusal, MoveHamlet, NameHamlet, ReadRecord,
+    Record, SetFolder, SetMode,
 };
 use hamlet_messages::realm::{
-    Asked, ChiefRequest, Done, FoundAnswer, FoundRefusal, HamletId,
-    HamletRefusal, Seat, Seated,
+    Asked, ChiefRequest, Done, HamletId, HamletRefusal, Seat, Seated,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;

@@ -59,12 +59,12 @@ pub(crate) const LIMITS_UNFIT: &str =
 pub(crate) const NO_WORKSPACE: &str =
     "Choose a remote workspace in the settings first.";
 
-/// The answer to `/scholars` when the city has no profile.
+/// The answer to `/profiles` when the city has no profile.
 pub(crate) const NO_PROFILE_YET: &str =
-    "The city has no scholar yet.";
+    "The city has no profile yet.";
 
 pub(crate) const DREAM_USAGE: &str =
-    "Use /dream <scholar#id|address>";
+    "Use /dream <profile#id|address>";
 
 pub(crate) const DREAM_BEGAN: &str = "The dream began.";
 
@@ -78,7 +78,7 @@ pub(crate) fn pinned(hire: &str, version: &str) -> String {
 }
 
 pub(crate) fn follows_main(hire: &str) -> String {
-    format!("{hire} follows its scholar's main again.")
+    format!("{hire} follows its profile's main again.")
 }
 
 pub(crate) fn unshelved(skill: &str) -> String {
@@ -86,7 +86,7 @@ pub(crate) fn unshelved(skill: &str) -> String {
 }
 
 pub(crate) fn profile_named(label: &str) -> String {
-    format!("The scholar is now named `{label}`.")
+    format!("The profile is now named `{label}`.")
 }
 
 pub(crate) const MERGED_BY_THE_CHIEF: &str = "merged by the chief";
@@ -464,7 +464,7 @@ pub(crate) fn tools_off(hire: &str, off: &[String]) -> String {
     }
 }
 
-pub(crate) fn scholars<'a>(
+pub(crate) fn profiles<'a>(
     shown: impl Iterator<Item = (String, bool)> + 'a,
 ) -> String {
     let list = shown
@@ -522,7 +522,7 @@ pub(crate) fn versions(list: &VersionList) -> String {
 }
 
 pub(crate) fn profile_made(profile: &str) -> String {
-    format!("The scholar `{profile}` lives in the city.")
+    format!("The profile `{profile}` lives in the city.")
 }
 
 pub(crate) fn tagged(profile: &str, version: &str) -> String {

@@ -20,7 +20,7 @@ use super::documents::{self, Copied, Part, Readers};
 use super::{Realm, marker, secrets, world};
 use crate::cbor;
 
-const CHARACTER: &str = "You are a scholar new to this realm. You \
+const CHARACTER: &str = "You are a profile new to this realm. You \
                          know nothing of your own yet: use the \
                          library's skills, learn from the work you \
                          are given, and keep what is worth keeping \

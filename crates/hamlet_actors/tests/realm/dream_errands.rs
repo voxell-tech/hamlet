@@ -7,6 +7,7 @@ use hamlet_messages::profile::{
     DreamId, DreamOpen, EndDream, PurgeAnswer,
 };
 use hamlet_messages::realm::budget::{Budget, Payer, SpendRefusal};
+use hamlet_messages::realm::choices::SetTools;
 use hamlet_messages::realm::profiles::{
     Dream, DreamAskedRefusal, DreamRefusal, Dreamer, Dreamt,
     PurgeProfile,
@@ -15,7 +16,7 @@ use hamlet_messages::realm::workers::{
     BUILT_IN, Ended, ErrandDone, SetAllowance,
 };
 use hamlet_messages::realm::{
-    Done, ProfileId, Refusable as _, SetTools, ToolName,
+    Done, ProfileId, Refusable as _, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -113,12 +114,12 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
     assert_eq!(made.kind, AgentKind::Errand);
     assert_eq!(made.place.folder, Some(folder.join("main")));
     let brief = made.brief.unwrap();
-    let label = "scholar#3 (Hire 1)";
+    let label = "profile#3 (Hire 1)";
     assert_eq!(
         brief.instructions,
         Some(format!(
             "You are dreaming, between your work as `{HIRE_3}`, a \
-             hire of the scholar `{label}`. Your lodge at {} holds \
+             hire of the profile `{label}`. Your lodge at {} holds \
              what you learned as this hire: your memory/ and \
              skills/. `{label}`'s shared knowledge, its main, is \
              checked out at {}; every hire of `{label}` starts from \
@@ -213,8 +214,8 @@ async fn a_profiles_dream_tidies_its_main_in_its_words() {
     assert_eq!(
         brief.unwrap().instructions,
         Some(format!(
-            "You are tidying the knowledge of the scholar \
-             `scholar#3 (Mason)`, checked out at {}: its memory/ \
+            "You are tidying the knowledge of the profile \
+             `profile#3 (Mason)`, checked out at {}: its memory/ \
              and skills/. Merge what is said twice, correct or \
              remove what is stale, keep the root memory files short \
              and every memory file's `description:` true, and make \

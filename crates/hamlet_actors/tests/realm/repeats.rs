@@ -5,17 +5,18 @@ use hamlet_messages::realm::budget::{
     BudgetLimit, Payer, ResetBudget,
 };
 use hamlet_messages::realm::choices::{
-    ModelOf, SetModel, SetNickname,
+    ModelOf, SetModel, SetNickname, SetTools,
 };
 use hamlet_messages::realm::documents::{
     EditCharter, EditSettings, Setting,
 };
 use hamlet_messages::realm::hamlets::{MoveHamlet, NameHamlet};
+use hamlet_messages::realm::letters::Ask;
 use hamlet_messages::realm::oversight::{AskChief, Object, Question};
+use hamlet_messages::realm::roads::{LayRoad, TakeUpRoad};
 use hamlet_messages::realm::workers::SetAllowance;
 use hamlet_messages::realm::{
-    Ask, Asked, LayRoad, Seat, SetLimits, SetTier, SetTools,
-    TakeUpRoad, Tier, ToolName,
+    Asked, Seat, SetLimits, SetTier, Tier, ToolName,
 };
 use hamlet_messages::workspace::ConversationId;
 use hamlet_protocol::client::RequestId;

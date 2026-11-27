@@ -213,8 +213,8 @@ pub enum Scene {
     Prompt,
     /// The Hub with its rail open over a realm at work.
     Hub,
-    /// The Hub's page of a scholar.
-    Scholar,
+    /// The Hub's page of a profile.
+    Profile,
     /// The Hub's page of the realm, over a realm at work.
     Realm,
     /// The starting desk, narrow enough for the rail's icons.

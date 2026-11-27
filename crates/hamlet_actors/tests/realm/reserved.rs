@@ -4,12 +4,13 @@ use hamlet_messages::agent::Input;
 use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
+use hamlet_messages::realm::roads::{LayRoad, TakeUpRoad};
 use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LayRoad,
-    LeadRefusal, Limit, NeedsChief, ProfileId, Refusable,
-    ReservedAct, SetLimits, TakeUpRoad, Tool,
+    Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LeadRefusal,
+    Limit, NeedsChief, ProfileId, Refusable, ReservedAct, SetLimits,
+    Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -227,7 +228,7 @@ async fn a_reserved_hire_shows_the_chief_the_version_it_asked_for() {
     };
     assert_eq!(
         subject,
-        r#"hire {"purpose":"Check the links","scholar":"scholar#3@v1"}"#
+        r#"hire {"profile":"profile#3@v1","purpose":"Check the links"}"#
     );
     realm.host.shutdown().await.unwrap();
 }

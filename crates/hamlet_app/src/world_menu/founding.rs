@@ -22,7 +22,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    self, Deeds, HamletId, Scholar, scholar_address,
+    self, Deeds, HamletId, Profile, profile_address,
 };
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
@@ -42,13 +42,13 @@ use crate::{chat, words};
 const WAIT: f64 = 60.0;
 
 /// The name of a hamlet being founded, the folder it works on, the
-/// scholar that is its mayor, and its purpose.
+/// profile that is its mayor, and its purpose.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
     folder: Option<PathBuf>,
     /// A blank agent while None.
-    mayor: Option<protocol::ScholarId>,
+    mayor: Option<protocol::ProfileId>,
     purpose: String,
     /// Whether what may be left out is shown.
     more: bool,
@@ -92,7 +92,7 @@ impl Founding {
         // the command reads as a mayor stays whole.
         let mayor = self
             .mayor
-            .map_or_else(|| "blank".to_string(), scholar_address);
+            .map_or_else(|| "blank".to_string(), profile_address);
         (!name.is_empty()).then(|| match purpose {
             "" => format!("/create-hamlet {mayor} {name}"),
             _ => format!("/create-hamlet {mayor} {name}: {purpose}"),
@@ -100,25 +100,25 @@ impl Founding {
     }
 }
 
-/// The scholars of the city that can be the mayor: living ones, by
+/// The profiles of the city that can be the mayor: living ones, by
 /// name.
-fn candidates(world: &World) -> Vec<(protocol::ScholarId, String)> {
-    let Some(mut scholars) = world.try_query::<&Scholar>() else {
+fn candidates(world: &World) -> Vec<(protocol::ProfileId, String)> {
+    let Some(mut profiles) = world.try_query::<&Profile>() else {
         return Vec::new();
     };
-    let mut found = scholars
+    let mut found = profiles
         .iter(world)
-        .filter(|scholar| {
-            scholar.0.left.is_none()
-                && scholar.0.arrival != protocol::Arrival::Apart
+        .filter(|profile| {
+            profile.0.left.is_none()
+                && profile.0.arrival != protocol::Arrival::Apart
         })
-        .map(|scholar| (scholar.0.id, scholar.0.name.clone()))
+        .map(|profile| (profile.0.id, profile.0.name.clone()))
         .collect::<Vec<_>>();
     found.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.0.cmp(&b.0.0)));
     found
 }
 
-/// Who is to be the mayor: a blank agent, or one of the scholars.
+/// Who is to be the mayor: a blank agent, or one of the profiles.
 fn mayor() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -135,9 +135,9 @@ fn mayor() -> impl View {
                 })
                 .map_or(0, |at| at + 1);
             let found = found.clone();
-            // What it is to have a blank agent or a scholar as mayor.
+            // What it is to have a blank agent or a profile as mayor.
             let meaning = match chosen {
-                Some(_) => words::HIRED_SCHOLAR,
+                Some(_) => words::HIRED_PROFILE,
                 None => words::BLANK,
             };
             hamlet_ui::styles::close((
@@ -391,7 +391,7 @@ mod tests {
         app.insert_resource(Founding {
             name: "mill".into(),
             folder: None,
-            mayor: Some(protocol::ScholarId(2)),
+            mayor: Some(protocol::ProfileId(2)),
             purpose: "Grinds flour".into(),
             more: false,
         });
@@ -415,7 +415,7 @@ mod tests {
         };
         assert_eq!(
             say.text,
-            "/create-hamlet scholar#2 mill: Grinds flour"
+            "/create-hamlet profile#2 mill: Grinds flour"
         );
         assert_eq!(say.to, protocol::AgentId(1));
     }

@@ -27,7 +27,7 @@ fn text(
 }
 
 fn repository(dir: &Scratch) -> Repository {
-    Repository::create(&dir.join("scholar.git")).unwrap()
+    Repository::create(&dir.join("profile.git")).unwrap()
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn a_kept_commit_is_told_from_a_missing_one_and_a_failed_read() {
 
     let damaged: CommitId = "cd".repeat(20).parse().unwrap();
     let hex = damaged.to_string();
-    let folder = dir.join("scholar.git/objects").join(&hex[..2]);
+    let folder = dir.join("profile.git/objects").join(&hex[..2]);
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join(&hex[2..]), b"not a git object")
         .unwrap();
@@ -359,7 +359,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
 }
 
 #[test]
-fn a_fork_starts_from_a_version_of_another_scholar() {
+fn a_fork_starts_from_a_version_of_another_profile() {
     let dir = Scratch::new("git-fork");
     let from = repository(&dir);
     let at = from
@@ -383,7 +383,7 @@ fn a_fork_starts_from_a_version_of_another_scholar() {
 #[test]
 fn a_purge_leaves_nothing_of_the_path() {
     let dir = Scratch::new("git-purge");
-    let path = dir.join("scholar.git");
+    let path = dir.join("profile.git");
     let repo = Repository::create(&path).unwrap();
     let first = repo
         .commit(

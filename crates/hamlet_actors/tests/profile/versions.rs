@@ -148,7 +148,7 @@ async fn a_revert_is_refused_a_commit_main_does_not_hold() {
     .to_string();
     assert_eq!(
         words,
-        format!("`scholar#1` has no version `{}`", unknown.0)
+        format!("`profile#1` has no version `{}`", unknown.0)
     );
     host.shutdown().await.unwrap();
 }
@@ -799,7 +799,7 @@ async fn an_erase_removes_the_repository_and_the_profile() {
     };
     let done = call_as(&host, &realm(), &erase).await.unwrap();
     assert_eq!(done, Done::Done);
-    assert!(!dir.join("scholars/1.git").exists());
+    assert!(!dir.join("profiles/1.git").exists());
     tokio::time::timeout(Duration::from_secs(5), async {
         while host.is_running(&profile_at(1)) {
             tokio::time::sleep(Duration::from_millis(10)).await;

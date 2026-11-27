@@ -12,7 +12,7 @@ use crate::client::RequestId;
 pub struct SettingsView {
     #[serde(rename = "allowNet")]
     pub allow_net: bool,
-    /// The character a scholar made blank starts from.
+    /// The character a profile made blank starts from.
     pub character: String,
     #[serde(deserialize_with = "Option::deserialize")]
     pub effort: Option<crate::Effort>,
@@ -26,7 +26,7 @@ pub struct SettingsView {
     pub workspace: SettingsViewWorkspace,
 }
 
-/// Who lets a scholar an agent made into the city. One a chief makes
+/// Who lets a profile an agent made into the city. One a chief makes
 /// is always let in.
 #[derive(
     Clone,

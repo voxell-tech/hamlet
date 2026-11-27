@@ -15,10 +15,11 @@ use hamlet_messages::realm::hires::{Merge, MergedTo};
 use hamlet_messages::realm::profiles::{
     EditProfile, RevertProfile, TagProfile,
 };
+use hamlet_messages::realm::roads::{LayRoad, RoadDone, TakeUpRoad};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    AgentName, Done, DoneTo, End, Gate, Hire, HireAnswer, LayRoad,
-    Named, Refusable, RoadDone, SocietyTool, TakeUpRoad, ToolCall,
+    AgentName, Done, DoneTo, End, Gate, Hire, HireAnswer, Named,
+    Refusable, SocietyTool, ToolCall,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -71,7 +72,7 @@ impl Held {
                 arg("name", hire.name.clone());
                 arg("purpose", hire.purpose.clone());
                 arg(
-                    "scholar",
+                    "profile",
                     hire.profile.map(|profile| {
                         let address = profiles::address(profile);
                         match &hire.version {
@@ -108,8 +109,8 @@ impl Held {
                 arg("content", Some(act.text.clone()));
                 arg("message", act.message.clone());
                 arg("path", Some(act.path.clone()));
-                arg("scholar", Some(profiles::address(act.profile)));
-                "edit_scholar"
+                arg("profile", Some(profiles::address(act.profile)));
+                "edit_profile"
             }
             Self::Tag(Carried { act, .. }) => {
                 arg(
@@ -117,14 +118,14 @@ impl Held {
                     Some(act.note.clone())
                         .filter(|note| !note.is_empty()),
                 );
-                arg("scholar", Some(profiles::address(act.profile)));
+                arg("profile", Some(profiles::address(act.profile)));
                 arg("tag", Some(act.version.0.clone()));
                 "tag"
             }
             Self::Revert(Carried { act, .. }) => {
                 arg("commit", Some(revision(&act.what)));
                 arg("reason", act.reason.clone());
-                arg("scholar", Some(profiles::address(act.profile)));
+                arg("profile", Some(profiles::address(act.profile)));
                 "revert"
             }
             Self::MergeHires(Merge {
