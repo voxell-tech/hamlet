@@ -26,22 +26,23 @@
 //! `status/<command>/cut_off 0`. A refusal prints `refused/<call> 1`
 //! and logs why. When the workspace calls the agent with a command's
 //! end, the agent keeps it in its `finished` table and prints
-//! `finished/<call> <exit code>`. An end with no exit code prints the
-//! code 0 after the name of its end, as in `done/<call>/timed_out 0`.
-//! An end whose output was cut first prints `cut/<call> <bytes>`, the
-//! size of all the command printed, kept in the file the end names.
-//! `write` prints `changed/<call> 1` when it made the file and
-//! `changed/<call> 0` when it replaced one, or `refused/<call> 1` or
-//! `failed/<call> 1` and logs why, and `not_run/<call> 1` when the
-//! file changed after the write was asked for. A repeat of a run or
-//! a write whose wait ended without it running for another reason
-//! prints `refused/<call> 1`. A call that waits for a chief prints
-//! `waits/<call> <needs>`, how many things it needs. When the wait
-//! ends, the agent is called with how the call ended: a command
-//! prints `finished/<call> <exit code>` as above, a change
-//! `finished/<call>/changed <created>` or `finished/<call>/failed 1`,
-//! and a call that did not run `finished/<call>/not_run 1`; each logs
-//! why.
+//! `finished/<call> <exit code>`, once for a call: a repeat of the
+//! same call's end is neither kept nor printed again. An end with no
+//! exit code prints the code 0 after the name of its end, as in
+//! `done/<call>/timed_out 0`. An end whose output was cut first
+//! prints `cut/<call> <bytes>`, the size of all the command printed,
+//! kept in the file the end names. `write` prints `changed/<call> 1`
+//! when it made the file and `changed/<call> 0` when it replaced one,
+//! or `refused/<call> 1` or `failed/<call> 1` and logs why, and
+//! `not_run/<call> 1` when the file changed after the write was asked
+//! for. A repeat of a run or a write whose wait ended without it
+//! running for another reason prints `refused/<call> 1`. A call that
+//! waits for a chief prints `waits/<call> <needs>`, how many things
+//! it needs. When the wait ends, the agent is called with how the
+//! call ended: a command prints `finished/<call> <exit code>` as
+//! above, a change `finished/<call>/changed <created>` or
+//! `finished/<call>/failed 1`, and a call that did not run
+//! `finished/<call>/not_run 1`; each logs why.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -118,9 +119,9 @@ impl Actor for Agent {
         std::fs::create_dir_all(folder)?;
         ctx.sql()
             .exec(
-                "CREATE TABLE IF NOT EXISTS finished (call TEXT NOT \
-                 NULL, command INTEGER NOT NULL, exit TEXT NOT \
-                 NULL) STRICT",
+                "CREATE TABLE IF NOT EXISTS finished (call TEXT \
+                 PRIMARY KEY NOT NULL, command INTEGER NOT NULL, \
+                 exit TEXT NOT NULL) STRICT",
             )
             .await?;
         Ok(Self)
@@ -156,7 +157,6 @@ impl Handler<Finished> for Agent {
             Outcome::Run {
                 end: RunEnd::Ran(end),
             } => {
-                print_cut(call, end)?;
                 let (word, code) = exit_word(&end.exit);
                 (end.command.0, word, code)
             }
@@ -182,10 +182,11 @@ impl Handler<Finished> for Agent {
                 (0, "/failed", 1)
             }
         };
-        ctx.sql()
+        let kept = ctx
+            .sql()
             .execute(
                 "INSERT INTO finished (call, command, exit) VALUES \
-                 (?1, ?2, ?3)",
+                 (?1, ?2, ?3) ON CONFLICT (call) DO NOTHING",
                 Some(vec![
                     BindParam::Text(call.clone()),
                     BindParam::Integer(i64::from(command)),
@@ -193,6 +194,15 @@ impl Handler<Finished> for Agent {
                 ]),
             )
             .await?;
+        if kept.changes == 0 {
+            return Ok(());
+        }
+        if let Outcome::Run {
+            end: RunEnd::Ran(end),
+        } = &finished.outcome
+        {
+            print_cut(call, end)?;
+        }
         writeln!(std::io::stdout(), "finished/{call}{word} {code}")?;
         Ok(())
     }
