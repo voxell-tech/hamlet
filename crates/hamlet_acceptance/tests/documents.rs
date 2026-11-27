@@ -85,8 +85,12 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     assert!(learned.contains(&"memory/own.md"), "{learned:?}");
     assert!(papers.memory.iter().any(|m| m.path == "own.md"));
 
-    let prompt = s.chief.prompt(ada).await;
-    assert!(prompt.starts_with("Be brief."), "{prompt}");
+    let prompt = s
+        .chief
+        .prompt_until(ada, "the charter", |prompt| {
+            prompt.starts_with("Be brief.")
+        })
+        .await;
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
     assert!(prompt.contains("You are `hire#2 (ada)`"), "{prompt}");
 
