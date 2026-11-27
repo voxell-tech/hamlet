@@ -680,6 +680,59 @@ async fn a_leads_letter_on_a_hires_task_it_was_never_given_goes_at_once()
     realm.host.shutdown().await.unwrap();
 }
 
+/// Hire 3's letter gives the mayor hire 3's task, so the mayor's
+/// letter on it waits while the mayor's review objects to hire 3's
+/// line. On Go, hire 3 refuses the line every time, and the held
+/// letter still reaches hire 4.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_line_on_go_still_gives_the_held_letters() {
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Always).await;
+    tells_three(&realm, "Odd line.").await;
+    let task = RealmTask(briefed(&realm, 0).await.2);
+    let mayor_before = submits_to(&realm, MAYOR).len();
+    realm
+        .tool(THREE, &paid("t0", &task, tell(to(MAYOR), "Started.")))
+        .await
+        .unwrap();
+    seen_submits(&realm, MAYOR, mayor_before + 1).await;
+    ends(
+        &realm,
+        0,
+        answered("OBJECT: the odd line breaks the plan."),
+    )
+    .await;
+    let wait = waits_of_three(&realm).await[0].0.to_string();
+    let told = realm
+        .tool(
+            MAYOR,
+            &paid("t1", &task, tell(to(FOUR), "Wait for the chief.")),
+        )
+        .await
+        .unwrap();
+    realm.seen.fail_for_good(Callee::Submit, THREE);
+    let before = submits_to(&realm, FOUR);
+
+    let ruled =
+        realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
+    let given = seen_submits(&realm, FOUR, 1).await;
+
+    assert_eq!((told, ruled), (sent(FOUR), Done::Done));
+    assert_eq!(before, []);
+    assert_eq!(given.len(), 1, "{given:?}");
+    assert_eq!(given[0].task, Some(task));
+    assert!(
+        matches!(
+            &given[0].input,
+            Input::Letter { text, .. } if text == "Wait for the chief."
+        ),
+        "{given:?}"
+    );
+    assert!(realm.seen.refused(Callee::Submit, THREE) > 0);
+    assert!(lines(&realm, THREE).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
 /// The kept line's give is held at 3 while the chief says a second
 /// line, which no review keeps. The test looks for the second line
 /// at 3 for 500 ms, over a hundred times what a delivery that is not
