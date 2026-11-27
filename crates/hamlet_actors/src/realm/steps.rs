@@ -18,8 +18,9 @@ use super::peer::{self, Peers, When};
 use super::profiles::lifecycle;
 use super::workers::errands;
 use super::{
-    Realm, calls, dreams, drop_parts, erase, hire, librarian, merges,
-    parcels, retire, reviews, tree, versions, workers,
+    Realm, StepTold, calls, dreams, drop_parts, erase, hire,
+    librarian, merges, parcels, retire, reviews, tree, versions,
+    workers,
 };
 
 #[derive(
@@ -648,15 +649,30 @@ async fn walk<S: Steps>(
 #[derive(Default)]
 pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
-    /// Told the kind and number of each running step a caller waits
-    /// for.
-    waits: Option<mpsc::UnboundedSender<(String, u64)>>,
+    told: Told,
+}
+
+type Told = Option<mpsc::UnboundedSender<StepTold>>;
+
+/// Tells `told` that `row` ended, or else that a caller waits for it.
+fn tell(told: &Told, row: StepId, ended: bool) {
+    let (Some(told), Ok(kind)) = (told, change::case_name(&row.kind))
+    else {
+        return;
+    };
+    let n = row.n;
+    let _ = told.send(if ended {
+        StepTold::Ended { kind, n }
+    } else {
+        StepTold::Waited { kind, n }
+    });
 }
 
 #[must_use]
 pub(super) struct Reserved {
     rows: Vec<(StepId, watch::Sender<()>)>,
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
+    told: Told,
 }
 
 impl Reserved {
@@ -671,6 +687,7 @@ impl Reserved {
     pub fn start(mut self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
         for (row, ended) in std::mem::take(&mut self.rows) {
             let running = self.running.clone();
+            let told = self.told.clone();
             let realm = realm.clone();
             let driving = ctx.clone();
             ctx.register_task(async move {
@@ -679,6 +696,7 @@ impl Reserved {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .remove(&row);
+                tell(&told, row, true);
                 drop(ended);
             });
         }
@@ -726,6 +744,7 @@ impl Drives {
         Reserved {
             rows,
             running: self.running.clone(),
+            told: self.told.clone(),
         }
     }
 
@@ -749,13 +768,11 @@ impl Drives {
         self.ended(row, within).await;
     }
 
-    /// Drives that tell `waits` of each running step a caller waits
-    /// for.
-    pub fn telling(
-        waits: Option<mpsc::UnboundedSender<(String, u64)>>,
-    ) -> Self {
+    /// Drives that tell `told` of each step a caller waits for while
+    /// it runs and of each drive's end.
+    pub fn telling(told: Told) -> Self {
         Self {
-            waits,
+            told,
             ..Self::default()
         }
     }
@@ -772,11 +789,7 @@ impl Drives {
         else {
             return;
         };
-        if let (Some(waits), Ok(kind)) =
-            (&self.waits, change::case_name(&row.kind))
-        {
-            let _ = waits.send((kind, row.n));
-        }
+        tell(&self.told, row, false);
         // The drive sends nothing: its sender's drop ends the wait.
         let _ = tokio::time::timeout(within, ended.changed()).await;
     }

@@ -147,10 +147,21 @@ pub struct Options {
     /// The agents' models answer from a faux script, so each runs
     /// the faux model.
     pub faux: bool,
-    /// Told the kind and number of each running step an act waits
-    /// for, for a test that orders its calls by those waits.
-    pub step_waits:
-        Option<tokio::sync::mpsc::UnboundedSender<(String, u64)>>,
+    /// Told what the step drives do, for a test that orders its
+    /// calls by the realm's steps.
+    pub steps_told:
+        Option<tokio::sync::mpsc::UnboundedSender<StepTold>>,
+}
+
+/// What the realm's step drives tell of a step, by its kind and
+/// number.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepTold {
+    /// A caller waits for the step while it runs.
+    Waited { kind: String, n: u64 },
+    /// The step's drive ended: its last change is kept, or the
+    /// realm stops.
+    Ended { kind: String, n: u64 },
 }
 
 impl Default for Options {
@@ -161,7 +172,7 @@ impl Default for Options {
             answer_within: ANSWER_WITHIN,
             chief: "chief".to_owned(),
             faux: false,
-            step_waits: None,
+            steps_told: None,
         }
     }
 }
@@ -346,9 +357,9 @@ impl Actor for Realm {
         async {
             let host = HostRef::of(ctx.inner())?;
             ctx.sql().exec(SCHEMA).await?;
-            let step_waits = host
+            let told = host
                 .value::<Options>()
-                .and_then(|options| options.step_waits.clone());
+                .and_then(|options| options.steps_told.clone());
             Ok(Self {
                 folder: std::path::absolute(host.folder())?,
                 hiring_wait: host
@@ -369,7 +380,7 @@ impl Actor for Realm {
                 )?,
                 peers: peer::Peers::new(host),
                 world: world::Held::load(ctx).await?,
-                drives: steps::Drives::telling(step_waits),
+                drives: steps::Drives::telling(told),
                 lanes: lanes::Lanes::default(),
                 lines: lines::Lines::default(),
                 purging: Mutex::default(),

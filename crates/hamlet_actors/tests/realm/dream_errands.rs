@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
 
+use hamlet_actors::realm::StepTold;
 use hamlet_messages::agent::chat::Count;
 use hamlet_messages::agent::{AgentInput, AgentKind, BuiltIn};
 use hamlet_messages::profile::{
@@ -26,8 +27,8 @@ use super::profiles::{asked, create};
 use super::stand_ins::Callee;
 use super::{
     HIRE_3, Realm, THREE, charge, dream_ends, errand, hamlet_with,
-    hire_3_ends, made, made_until, may_spend, of_hire, standing, to,
-    until,
+    hire_3_ends, made, made_until, may_spend, of_hire, standing,
+    steps_told, to, until,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's
@@ -38,8 +39,23 @@ async fn errand_ends(realm: &Realm, n: u32, ended: Ended) {
     realm.tool(errand(n), &ErrandDone { ended }).await.unwrap();
 }
 
+/// The ends the profile was told, once each of those dreams' end
+/// step has ended.
 async fn ends(realm: &Realm) -> Vec<EndDream> {
-    until("the dream ends", || !dream_ends(realm).is_empty()).await;
+    until("the dream ends", || {
+        let ends = dream_ends(realm);
+        !ends.is_empty()
+            && ends.iter().all(|(_, end)| {
+                steps_told(
+                    realm,
+                    &StepTold::Ended {
+                        kind: "dream_end".to_owned(),
+                        n: u64::from(end.dream.0),
+                    },
+                )
+            })
+    })
+    .await;
     dream_ends(realm).into_iter().map(|(_, end)| end).collect()
 }
 
