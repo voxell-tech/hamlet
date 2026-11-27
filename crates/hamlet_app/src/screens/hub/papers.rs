@@ -9,7 +9,7 @@ use bevy::ecs::world::World;
 use hamlet_client::chats::TalksTo;
 use hamlet_client::messages::{JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
-use hamlet_client::realm::{OfScholar, Scholar, id_of};
+use hamlet_client::realm::{OfProfile, Profile, id_of};
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
 
@@ -21,11 +21,11 @@ use crate::convo::Convo;
 const NEW_FILE: &str = "---\ndescription: \n---\n\n";
 
 /// The memory, character and skills received for the agent or the
-/// scholar the Hub shows.
+/// profile the Hub shows.
 #[derive(Resource, Default, PartialEq)]
 pub struct Papers {
     pub(super) memory: Vec<protocol::MemoryFile>,
-    /// The paths its lodge changed against its scholar.
+    /// The paths its lodge changed against its profile.
     pub(super) learned: Vec<String>,
     pub(super) character: String,
     pub(super) skills: Vec<(String, String)>,
@@ -44,7 +44,7 @@ pub(super) struct Requests {
 /// What a document in the editor is of.
 #[derive(Clone, PartialEq)]
 enum Target {
-    Character(protocol::ScholarId),
+    Character(protocol::ProfileId),
     Memory(protocol::Keeper, String),
 }
 
@@ -69,14 +69,14 @@ pub(super) fn selected(world: &World) -> Option<protocol::AgentId> {
     id_of(world, world.resource::<Convo>().agent)
 }
 
-/// Whose papers the Hub shows: a scholar's on its page, otherwise
+/// Whose papers the Hub shows: a profile's on its page, otherwise
 /// those of the agent the chat is with.
 pub(super) fn keeper(world: &World) -> Option<protocol::Keeper> {
-    if let Some(&Showing::Scholar(scholar)) =
+    if let Some(&Showing::Profile(profile)) =
         world.get_resource::<Showing>()
     {
-        let id = world.get::<Scholar>(scholar)?.0.id;
-        return Some(protocol::Keeper::Scholar(id));
+        let id = world.get::<Profile>(profile)?.0.id;
+        return Some(protocol::Keeper::Profile(id));
     }
     selected(world).map(protocol::Keeper::Agent)
 }
@@ -94,7 +94,7 @@ fn read(world: &mut World, of: protocol::Keeper) {
     requests.pending.insert(id, Request::Papers(of));
 }
 
-/// The papers read for a newly shown agent or scholar.
+/// The papers read for a newly shown agent or profile.
 pub fn keep_papers(world: &mut World) {
     let wanted = keeper(world);
     if world.resource::<Requests>().selected == wanted {
@@ -122,16 +122,16 @@ pub(super) fn prompt(world: &mut World) {
     requests.pending.insert(id, Request::Prompt(agent));
 }
 
-/// The scholar whose character the Hub shows.
-fn scholar_shown(
+/// The profile whose character the Hub shows.
+fn profile_shown(
     world: &World,
     of: protocol::Keeper,
-) -> Option<protocol::ScholarId> {
+) -> Option<protocol::ProfileId> {
     match of {
-        protocol::Keeper::Scholar(scholar) => Some(scholar),
-        // The Hand is no scholar's hire: it has no character.
+        protocol::Keeper::Profile(profile) => Some(profile),
+        // The Hand is no profile's hire: it has no character.
         protocol::Keeper::Agent(_) => world
-            .get::<OfScholar>(world.resource::<Convo>().agent)
+            .get::<OfProfile>(world.resource::<Convo>().agent)
             .map(|of| of.0),
     }
 }
@@ -159,13 +159,13 @@ pub(super) fn edit_character(world: &mut World) {
     let Some(of) = keeper(world) else {
         return;
     };
-    match scholar_shown(world, of) {
-        Some(scholar) => {
-            read_whole(world, Target::Character(scholar));
+    match profile_shown(world, of) {
+        Some(profile) => {
+            read_whole(world, Target::Character(profile));
         }
         None => {
             world.resource_mut::<Papers>().failed = Some(
-                "This agent has no scholar, so no character to edit."
+                "This agent has no profile, so no character to edit."
                     .into(),
             );
         }
@@ -273,10 +273,10 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
         };
         let id = world.resource_mut::<Outbox>().send(|id| {
             protocol::ClientMessage::Edit(match target {
-                Target::Character(scholar) => {
+                Target::Character(profile) => {
                     protocol::Edit::Character {
                         id,
-                        scholar,
+                        profile,
                         text: saved.text.clone(),
                     }
                 }

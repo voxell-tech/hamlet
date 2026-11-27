@@ -1,5 +1,5 @@
 //! Repositories the server alone writes, through gix and never a git
-//! program: a scholar's character, memory and skills with their whole
+//! program: a profile's character, memory and skills with their whole
 //! history, its hires' branches and its versions.
 //!
 //! Files are read and written by the caller, so a lodge on this
@@ -27,7 +27,7 @@ use gix::refs::transaction::PreviousValue;
 pub use purge::{purge, settle};
 use serde::{Deserialize, Serialize};
 
-/// The branch that is the scholar itself.
+/// The branch that is the profile itself.
 pub const MAIN: &str = "main";
 
 macro_rules! object_id {
@@ -137,7 +137,7 @@ pub struct Commit {
     pub message: String,
 }
 
-/// A tag of a scholar's history.
+/// A tag of a profile's history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Version {
     pub name: String,

@@ -1,4 +1,4 @@
-//! The Hub's page of a scholar: who it is, what it knows, its
+//! The Hub's page of a profile: who it is, what it knows, its
 //! versions and hires, and what a chief can do with it.
 
 use bevy::ecs::component::Component;
@@ -15,7 +15,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Deeds, LivesIn, Pin, Scholar, name_of, scholar_address,
+    Deeds, LivesIn, Pin, Profile, name_of, profile_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -35,10 +35,10 @@ use crate::overview::typed;
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
-/// The deeds a scholar's page offers, in the names the server
+/// The deeds a profile's page offers, in the names the server
 /// advertises them by.
 const DEEDS: [&str; 13] = [
-    "name-scholar",
+    "name-profile",
     "welcome",
     "turn-away",
     "move-house",
@@ -48,12 +48,12 @@ const DEEDS: [&str; 13] = [
     "fork",
     "purge",
     "dream",
-    "remove-scholar",
-    "restore-scholar",
-    "erase-scholar",
+    "remove-profile",
+    "restore-profile",
+    "erase-profile",
 ];
 
-/// What a scholar's page is asking for words to do.
+/// What a profile's page is asking for words to do.
 #[derive(Resource, Default, Clone, PartialEq, Eq)]
 pub struct Form {
     act: Option<Act>,
@@ -69,7 +69,7 @@ enum Act {
     /// The taking of one file out of its whole history.
     Purge(String),
     Remove,
-    /// The erasing for good of a scholar that was archived.
+    /// The erasing for good of a profile that was archived.
     Erase,
     /// An undoing of the commit a version names.
     Revert(String),
@@ -103,7 +103,7 @@ fn place_of(world: &World, hire: Entity) -> String {
     }
 }
 
-/// A hire of the scholar as the page shows it.
+/// A hire of the profile as the page shows it.
 #[derive(Clone, PartialEq)]
 struct HireShown {
     entity: Entity,
@@ -114,19 +114,19 @@ struct HireShown {
     pin: Option<String>,
 }
 
-/// A scholar and its hires as the page reads them.
+/// A profile and its hires as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
-    /// The scholar's entity, for what acts on it in the world.
+    /// The profile's entity, for what acts on it in the world.
     entity: Entity,
-    scholar: protocol::Scholar,
+    profile: protocol::Profile,
     hires: Vec<HireShown>,
     allowed: Vec<&'static str>,
 }
 
 fn shown(world: &World, entity: Entity) -> Option<Shown> {
-    let scholar = world.get::<Scholar>(entity)?.0.clone();
-    let hires = scholar
+    let profile = world.get::<Profile>(entity)?.0.clone();
+    let hires = profile
         .hires
         .iter()
         .filter_map(|id| hamlet_client::realm::agent(world, *id))
@@ -150,13 +150,13 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
         .collect();
     Some(Shown {
         entity,
-        scholar,
+        profile,
         hires,
         allowed,
     })
 }
 
-/// Gives the Hand a command about the scholar.
+/// Gives the Hand a command about the profile.
 fn tell_hand(world: &mut World, text: String) {
     chat::command(world, text);
 }
@@ -168,7 +168,7 @@ fn ask(world: &mut World, act: Act) {
     };
 }
 
-/// The command `act` makes of the scholar at `address`, called
+/// The command `act` makes of the profile at `address`, called
 /// `name`, and the words typed.
 fn command(
     address: &str,
@@ -194,12 +194,12 @@ fn command(
         }
         Act::Fork(None) => format!("/fork {address} {first}"),
         Act::Purge(path) => format!("/purge {address} {path}"),
-        Act::Remove => format!("/remove-scholar {address} {first}")
+        Act::Remove => format!("/remove-profile {address} {first}")
             .trim_end()
             .to_string(),
         // Only when its name is typed, as nothing brings it back.
         Act::Erase if first == name => {
-            format!("/erase-scholar {address}")
+            format!("/erase-profile {address}")
         }
         Act::Erase => return None,
         Act::Revert(to) => format!("/revert {address} {to} {first}"),
@@ -232,13 +232,13 @@ fn form(address: String, name: String, act: Act) -> AnyView {
             Some("note"),
         ),
         Act::Fork(Some(from)) => (
-            format!("Make a new scholar from {from}."),
-            Some("new scholar's name"),
+            format!("Make a new profile from {from}."),
+            Some("new profile's name"),
             None,
         ),
         Act::Fork(None) => (
-            "Make a new scholar from its main.".to_string(),
-            Some("new scholar's name"),
+            "Make a new profile from its main.".to_string(),
+            Some("new profile's name"),
             None,
         ),
         Act::Purge(path) => (
@@ -347,13 +347,13 @@ fn form_view(
     .within(bare())
 }
 
-/// Whether `act` changes the scholar for good.
+/// Whether `act` changes the profile for good.
 fn is_careful(act: &Act) -> bool {
     matches!(act, Act::Purge(_) | Act::Remove | Act::Erase)
 }
 
 /// Whether `act` is done from the foot of the page, where what ends
-/// the scholar is.
+/// the profile is.
 fn is_of_foot(act: &Act) -> bool {
     matches!(act, Act::Remove | Act::Erase)
 }
@@ -368,15 +368,15 @@ fn is_of_versions(act: &Act) -> bool {
     matches!(act, Act::Tag | Act::Fork(Some(_)) | Act::Revert(_))
 }
 
-/// Whether `act` is done from the buttons under the scholar's name.
+/// Whether `act` is done from the buttons under the profile's name.
 fn is_of_header(act: &Act) -> bool {
     matches!(act, Act::Fork(None))
 }
 
-/// Where the scholar stands, said beside its name: in the city, at
+/// Where the profile stands, said beside its name: in the city, at
 /// the harbor or archived.
-fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
-    match (&scholar.left, scholar.arrival) {
+fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
+    match (&profile.left, profile.arrival) {
         (Some(_), _) => ("Archived", Tone::Dim),
         (None, protocol::Arrival::Housed) => {
             ("In the city", Tone::Dim)
@@ -396,30 +396,30 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
 /// The deeds under its name: what changes where it stands short of
 /// sending it away. A double click on its name renames it.
 fn arrival(shown: &Shown) -> AnyView {
-    let address = scholar_address(shown.scholar.id);
+    let address = profile_address(shown.profile.id);
     let can = |deed| shown.allowed.contains(&deed);
     let mut buttons_row = Vec::new();
-    if shown.scholar.left.is_none() && can("fork") {
+    if shown.profile.left.is_none() && can("fork") {
         buttons_row.push(
             action(
-                Glyph::Scholar,
-                "New scholar from this one",
+                Glyph::Profile,
+                "New profile from this one",
                 |world| {
                     ask(world, Act::Fork(None));
                 },
             )
             .tooltip(|| {
                 note(
-                    "Start another scholar knowing all this one \
+                    "Start another profile knowing all this one \
                      knows now",
                 )
             })
             .boxed(),
         );
     }
-    match (&shown.scholar.left, shown.scholar.arrival) {
+    match (&shown.profile.left, shown.profile.arrival) {
         (Some(_), _) => {
-            if can("restore-scholar") {
+            if can("restore-profile") {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Restore,
@@ -427,7 +427,7 @@ fn arrival(shown: &Shown) -> AnyView {
                     move |world| {
                         tell_hand(
                             world,
-                            format!("/restore-scholar {address}"),
+                            format!("/restore-profile {address}"),
                         );
                     },
                 ));
@@ -437,11 +437,11 @@ fn arrival(shown: &Shown) -> AnyView {
         // at the harbor.
         (None, protocol::Arrival::Housed) => {
             if can("move-house") {
-                let scholar = shown.entity;
+                let profile = shown.entity;
                 buttons_row.push(
                     action(Glyph::Move, "Move house", move |world| {
                         hamlet_realm::orders::carry_house(
-                            world, scholar,
+                            world, profile,
                         );
                     })
                     .tooltip(|| {
@@ -478,15 +478,15 @@ fn arrival(shown: &Shown) -> AnyView {
 /// and the form of what was asked for from them.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
-    let address = scholar_address(shown.scholar.id);
-    let scholar = shown.scholar.name.clone();
+    let address = profile_address(shown.profile.id);
+    let profile = shown.profile.name.clone();
     let mut parts = Vec::new();
-    if shown.scholar.versions.is_empty() {
+    if shown.profile.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
     // Newest first; each with its own menu of what can be done from
     // it, named in full there.
-    for version in shown.scholar.versions.iter().rev() {
+    for version in shown.profile.versions.iter().rev() {
         let name = version.name.clone();
         let followers = shown
             .hires
@@ -512,7 +512,7 @@ fn versions(shown: &Shown) -> AnyView {
         let mut deeds = Vec::new();
         if can("fork") {
             deeds.push((
-                format!("Make a new scholar from {name}"),
+                format!("Make a new profile from {name}"),
                 Act::Fork(Some(name.clone())),
             ));
         }
@@ -538,12 +538,12 @@ fn versions(shown: &Shown) -> AnyView {
             action(Glyph::Plus, "Save as a version", |world| {
                 ask(world, Act::Tag);
             })
-            .tooltip(|| note("Name what the scholar knows now"))
+            .tooltip(|| note("Name what the profile knows now"))
             .boxed(),
         );
     }
     parts.push(buttons(acts).boxed());
-    parts.push(form_view(address, scholar, is_of_versions).boxed());
+    parts.push(form_view(address, profile, is_of_versions).boxed());
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
@@ -587,9 +587,9 @@ fn hires(shown: &Shown) -> AnyView {
     let pins = shown.allowed.contains(&"pin");
     let mut names = vec!["main".to_string()];
     names.extend(
-        shown.scholar.versions.iter().map(|v| v.name.clone()),
+        shown.profile.versions.iter().map(|v| v.name.clone()),
     );
-    // `main` is what the scholar knows now.
+    // `main` is what the profile knows now.
     let words = names
         .iter()
         .map(|name| match name.as_str() {
@@ -627,7 +627,7 @@ fn hires(shown: &Shown) -> AnyView {
                     .tone(Tone::Faint)
                     .tooltip(|| {
                         note(
-                            "The version of what the scholar knows \
+                            "The version of what the profile knows \
                              that this hire works from",
                         )
                     })
@@ -671,8 +671,8 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
             column((
                 memory::view(dream(shown), file_menu(shown)),
                 form_view(
-                    scholar_address(shown.scholar.id),
-                    shown.scholar.name.clone(),
+                    profile_address(shown.profile.id),
+                    shown.profile.name.clone(),
                     is_of_memory,
                 ),
             ))
@@ -683,13 +683,13 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
 }
 
 /// What makes the button of a dream, which brings home what its hires
-/// learned, while the scholar may have one.
+/// learned, while the profile may have one.
 fn dream(
     shown: &Shown,
 ) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
-    let may = shown.scholar.left.is_none()
+    let may = shown.profile.left.is_none()
         && shown.allowed.contains(&"dream");
-    let address = scholar_address(shown.scholar.id);
+    let address = profile_address(shown.profile.id);
     move || {
         let address = address.clone();
         may.then(|| {
@@ -712,15 +712,15 @@ fn dream(
 }
 
 /// What makes the menu of a memory file, while one may be taken out
-/// of the scholar's history.
+/// of the profile's history.
 fn file_menu(shown: &Shown) -> memory::FileMenu {
-    let may = shown.scholar.left.is_none()
+    let may = shown.profile.left.is_none()
         && shown.allowed.contains(&"purge");
     may.then_some(erase_menu)
 }
 
 /// The menu of the memory file at `path`, which takes it out of the
-/// scholar's whole history.
+/// profile's whole history.
 fn erase_menu(path: &str) -> AnyView {
     deed_menu(
         "What can be done to this file",
@@ -732,16 +732,16 @@ fn erase_menu(path: &str) -> AnyView {
     )
 }
 
-/// What changes the scholar for good, kept at the foot of its page
+/// What changes the profile for good, kept at the foot of its page
 /// in its own section.
 fn careful(shown: &Shown) -> AnyView {
-    let name = shown.scholar.name.clone();
-    let address = scholar_address(shown.scholar.id);
+    let name = shown.profile.name.clone();
+    let address = profile_address(shown.profile.id);
     let can = |deed| shown.allowed.contains(&deed);
-    let living = shown.scholar.left.is_none();
+    let living = shown.profile.left.is_none();
     let mut acts = Vec::new();
     if living
-        && shown.scholar.arrival == protocol::Arrival::Housed
+        && shown.profile.arrival == protocol::Arrival::Housed
         && can("turn-away")
     {
         let address = address.clone();
@@ -762,12 +762,12 @@ fn careful(shown: &Shown) -> AnyView {
             .boxed(),
         );
     }
-    if living && can("remove-scholar") {
+    if living && can("remove-profile") {
         acts.push(bad_action(Glyph::Gone, "Remove", |world| {
             ask(world, Act::Remove);
         }));
     }
-    if !living && can("erase-scholar") {
+    if !living && can("erase-profile") {
         acts.push(bad_action(
             Glyph::Delete,
             "Erase for good",
@@ -788,14 +788,14 @@ fn careful(shown: &Shown) -> AnyView {
     )
 }
 
-/// The scholar's page: where it stands and what it is called, then a
+/// The profile's page: where it stands and what it is called, then a
 /// section each for its hires, what it knows, its versions and what
 /// changes it for good.
 fn body(shown: &Shown) -> AnyView {
-    let scholar = shown.entity;
-    let name = shown.scholar.name.clone();
-    let address = scholar_address(shown.scholar.id);
-    let (stands, tone) = standing(&shown.scholar);
+    let profile = shown.entity;
+    let name = shown.profile.name.clone();
+    let address = profile_address(shown.profile.id);
+    let (stands, tone) = standing(&shown.profile);
     let standing = label(stands).tone(tone);
     let parts = (
         arrival(shown),
@@ -834,7 +834,7 @@ fn body(shown: &Shown) -> AnyView {
                     })
                     .boxed(),
                     crumb_slash().boxed(),
-                    crate::naming::name_crumb(scholar, name.clone()),
+                    crate::naming::name_crumb(profile, name.clone()),
                 ]),
                 standing,
             )),
@@ -859,10 +859,10 @@ fn body(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// Does the deed the form of the scholar shown asks for, as its first
+/// Does the deed the form of the profile shown asks for, as its first
 /// button does.
 pub(super) fn submit(world: &mut World) {
-    let Some(Showing::Scholar(scholar)) =
+    let Some(Showing::Profile(profile)) =
         world.get_resource::<Showing>().copied()
     else {
         return;
@@ -870,30 +870,30 @@ pub(super) fn submit(world: &mut World) {
     let Some(act) = world.resource::<Form>().act.clone() else {
         return;
     };
-    let Some(shown) = shown(world, scholar) else {
+    let Some(shown) = shown(world, profile) else {
         return;
     };
-    let address = scholar_address(shown.scholar.id);
-    run(world, &address, &shown.scholar.name, &act);
+    let address = profile_address(shown.profile.id);
+    run(world, &address, &shown.profile.name, &act);
 }
 
-/// Whether a deed of the scholar shown waits for its words.
+/// Whether a deed of the profile shown waits for its words.
 pub(super) fn asking(world: &World) -> bool {
     world.resource::<Form>().act.is_some()
         && matches!(
             world.get_resource::<Showing>(),
-            Some(Showing::Scholar(_))
+            Some(Showing::Profile(_))
         )
 }
 
-/// The page of `scholar`.
-pub(super) fn page(scholar: Entity) -> impl View {
+/// The page of `profile`.
+pub(super) fn page(profile: Entity) -> impl View {
     keyed(
-        derived(move |world: &World| shown(world, scholar))
+        derived(move |world: &World| shown(world, profile))
             .when(every_frame()),
         |shown| match shown {
             Some(shown) => body(shown),
-            None => dim("That scholar is not in the city.").boxed(),
+            None => dim("That profile is not in the city.").boxed(),
         },
     )
     .within(filling())

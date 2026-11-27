@@ -143,7 +143,7 @@ impl std::fmt::Debug for RemoteWorkspace {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SettingRefusal {
-    #[error("a blank scholar needs a character to start from")]
+    #[error("a blank profile needs a character to start from")]
     BlankCharacter,
     #[error("a character may have at most 4000 characters")]
     LongCharacter,

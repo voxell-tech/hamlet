@@ -155,7 +155,7 @@ async fn a_hire_at_a_version_its_profile_lacks_ends_as_failed() {
     assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
     assert_eq!(
         told_of_failed(&realm, MAYOR, THREE).await,
-        "`hire#3 (Hire 1)` has left: its task failed: `scholar#3` \
+        "`hire#3 (Hire 1)` has left: its task failed: `profile#3` \
          has no version `v9`"
     );
     realm.host.shutdown().await.unwrap();
@@ -177,15 +177,15 @@ async fn a_hire_of_a_blank_hires_profile_names_it_by_its_label() {
 
     assert_eq!(
         hire_as_mayor(&realm, "h3", of(2)).await,
-        apart("scholar#2 (Mayor)")
+        apart("profile#2 (Mayor)")
     );
     assert_eq!(
         hire_as_mayor(&realm, "h4", of(3)).await,
-        apart("scholar#3 (Digger)")
+        apart("profile#3 (Digger)")
     );
     assert_eq!(
         hire_as_mayor(&realm, "h5", of(4)).await,
-        apart("scholar#4 (Hire 2)")
+        apart("profile#4 (Hire 2)")
     );
     for profile in [1, 9] {
         assert_eq!(
@@ -254,8 +254,8 @@ async fn a_made_profile_is_made_from_its_character_before_the_answer()
     assert_eq!(made(&realm, 4), Some(character(CHARACTER)));
     let again = create(&realm, MAYOR, "c2", "Mason", None).await;
 
-    assert_eq!(by_hand, made_as(3, "scholar#3 (Well digger)"));
-    assert_eq!(by_mayor, made_as(4, "scholar#4 (Mason)"));
+    assert_eq!(by_hand, made_as(3, "profile#3 (Well digger)"));
+    assert_eq!(by_mayor, made_as(4, "profile#4 (Mason)"));
     assert_eq!(again, by_mayor);
     assert_eq!(realm.seen.profiles.lock().unwrap().len(), 4);
     realm.host.shutdown().await.unwrap();
@@ -337,7 +337,7 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
             refusal(
                 hire_as_mayor(&realm, version, at(version)).await
             ),
-            format!("`scholar#3 (Mason)` has no version `{version}`")
+            format!("`profile#3 (Mason)` has no version `{version}`")
         );
     }
     let by_the_chief =
@@ -349,7 +349,7 @@ async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
         };
     assert_eq!(
         by_the_chief,
-        "`scholar#3 (Mason)` has no version `v9`"
+        "`profile#3 (Mason)` has no version `v9`"
     );
     assert_eq!(branched(), before);
     assert_eq!(
@@ -425,11 +425,11 @@ async fn a_found_at_a_version_its_profile_lacks_is_refused_by_name() {
 
     assert_eq!(
         refusal(by_the_hand),
-        "`scholar#3 (Mason)` has no version `main`"
+        "`profile#3 (Mason)` has no version `main`"
     );
     assert_eq!(
         refusal(by_the_chief),
-        "`scholar#3 (Mason)` has no version `v9`"
+        "`profile#3 (Mason)` has no version `v9`"
     );
     assert_eq!(branched(), before);
     realm.host.shutdown().await.unwrap();
@@ -467,7 +467,7 @@ async fn a_hire_whose_profile_does_not_show_its_version_in_time_hears_so()
  {
     let (realm, hamlet) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
-    let heard = "`scholar#3 (Mason)` did not answer in time to show \
+    let heard = "`profile#3 (Mason)` did not answer in time to show \
                  its version `v1`; try the hire again";
 
     realm.seen.hold(Callee::Read);
@@ -528,7 +528,7 @@ async fn the_hand_reads_a_made_profile_in_the_profiles_words() {
             .await
             .unwrap(),
         ReadAnswer::Text {
-            text: "scholar#3's character".to_owned(),
+            text: "profile#3's character".to_owned(),
             cut: false,
         }
     );
@@ -541,7 +541,7 @@ async fn the_hand_reads_a_made_profile_in_the_profiles_words() {
     assert_eq!(
         read(&realm, Hand::NUMBER, 2, None).await.unwrap(),
         refused(ReadProfileRefusal::Profile(ProfileRefusal::Apart {
-            label: "scholar#2 (Mayor)".to_owned(),
+            label: "profile#2 (Mayor)".to_owned(),
         }))
     );
     assert_eq!(
@@ -662,16 +662,16 @@ async fn the_hands_change_to_a_profile_runs_once_a_chief_allows_it() {
         [
             (
                 "reserved".to_owned(),
-                r#"edit_scholar {"content":"dig deep","path":"notes.md","scholar":"scholar#3"}"#
+                r#"edit_profile {"content":"dig deep","path":"notes.md","profile":"profile#3"}"#
                     .to_owned()
             ),
             (
                 "reserved".to_owned(),
-                r#"tag {"scholar":"scholar#3","tag":"v2"}"#.to_owned()
+                r#"tag {"profile":"profile#3","tag":"v2"}"#.to_owned()
             ),
             (
                 "reserved".to_owned(),
-                r#"revert {"commit":"v1","scholar":"scholar#3"}"#
+                r#"revert {"commit":"v1","profile":"profile#3"}"#
                     .to_owned()
             ),
         ]
@@ -679,9 +679,9 @@ async fn the_hands_change_to_a_profile_runs_once_a_chief_allows_it() {
     assert_eq!(
         told,
         [
-            "Wrote notes.md of scholar#3.",
-            "Tagged scholar#3's main as v2.",
-            "Reverted the commit on scholar#3's main; these files \
+            "Wrote notes.md of profile#3.",
+            "Tagged profile#3's main as v2.",
+            "Reverted the commit on profile#3's main; these files \
              changed again since and kept their later lines: \
              notes.md",
         ]
@@ -750,7 +750,7 @@ async fn allowed_once_failing(
 
     assert_eq!(
         notices_until(&realm, 1).await,
-        ["Wrote notes.md of scholar#3."]
+        ["Wrote notes.md of profile#3."]
     );
     let edits = edits(&realm);
     realm.host.shutdown().await.unwrap();
@@ -778,8 +778,8 @@ async fn an_allowed_change_that_is_refused_is_told_in_its_words() {
     assert_eq!(
         notices_until(&realm, 2).await,
         [
-            "`scholar#2 (Mayor)` is a blank hire's own, not a \
-             scholar of the city",
+            "`profile#2 (Mayor)` is a blank hire's own, not a \
+             profile of the city",
             "there is no file `../out` here",
         ]
     );
@@ -868,7 +868,7 @@ async fn a_chiefs_change_to_a_profile_is_answered_from_the_profile() {
         apart,
         Done::Refused {
             why: EditProfileRefusal::Profile(ProfileRefusal::Apart {
-                label: "scholar#2 (Mayor)".to_owned(),
+                label: "profile#2 (Mayor)".to_owned(),
             }),
         }
     );

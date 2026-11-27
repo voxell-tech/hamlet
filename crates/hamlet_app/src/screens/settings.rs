@@ -260,7 +260,7 @@ fn not_enforced() -> AnyView {
 const EFFORTS: [(Option<Effort>, &str); 8] =
     crate::models::efforts("Model's own");
 
-/// Who can let a scholar into the city, as the pick shows them.
+/// Who can let a profile into the city, as the pick shows them.
 const NEWCOMERS: [(protocol::Newcomers, &str); 3] = [
     (protocol::Newcomers::Open, "Anyone"),
     (protocol::Newcomers::Chief, "A chief"),
@@ -380,15 +380,15 @@ fn agents() -> impl View {
                 description(resource::<Settings, _>(|s| {
                     match s.0.newcomers {
                         protocol::Newcomers::Open => {
-                            "A scholar an agent makes moves in at \
+                            "A profile an agent makes moves in at \
                              once."
                         }
                         protocol::Newcomers::Chief => {
-                            "A scholar an agent makes waits at the \
+                            "A profile an agent makes waits at the \
                              harbor until a chief welcomes it."
                         }
                         protocol::Newcomers::Hand => {
-                            "The Hand lets a scholar in or turns it \
+                            "The Hand lets a profile in or turns it \
                              away. You can undo what it decides."
                         }
                     }
@@ -405,10 +405,10 @@ fn agents() -> impl View {
                     }),
                 note(resource::<Settings, _>(|s| {
                     if s.0.character.is_empty() {
-                        "A scholar made blank starts empty.".into()
+                        "A profile made blank starts empty.".into()
                     } else {
                         format!(
-                            "A scholar made blank starts from: {}",
+                            "A profile made blank starts from: {}",
                             cut(&s.0.character, CHARACTER_SHOWN)
                         )
                     }

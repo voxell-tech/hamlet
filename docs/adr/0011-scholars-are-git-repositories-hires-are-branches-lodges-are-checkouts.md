@@ -4,6 +4,9 @@ status: accepted
 
 # Scholars are git repositories, hires are branches, lodges are checkouts
 
+The words scholar and lodge here are superseded by profile and the
+agent's filesystem.
+
 What a scholar knows is a git repository, `scholars/<id>.git`, bare and
 written only by the server through gix, never by a git program and never
 reading the machine's git configuration. It holds `CHARACTER.md`, `memory/`

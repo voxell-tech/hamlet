@@ -454,7 +454,7 @@ async fn a_fork_whose_profile_cannot_be_made_is_not_forked() {
         forked,
         Forked::Refused {
             why: ForkFailure::NotForked {
-                label: "scholar#3 (Mason)".into()
+                label: "profile#3 (Mason)".into()
             }
             .into()
         }
@@ -482,7 +482,7 @@ async fn a_fork_whose_profile_cannot_be_made_is_not_forked() {
 fn not_erased() -> Lifecycle {
     Lifecycle::Refused {
         why: LifeRefusal::NotErased {
-            label: "scholar#3 (Mason)".into(),
+            label: "profile#3 (Mason)".into(),
         }
         .into(),
     }
@@ -492,7 +492,7 @@ fn not_erased() -> Lifecycle {
 async fn a_profile_whose_erase_fails_is_archived_again() {
     // the archived Mason's erase fails for good at the profile: it is
     // archived again, its hire's erase stays done, and the chief is
-    // told; /erase-scholar sent again erases it.
+    // told; /erase-profile sent again erases it.
     let (realm, _) = masons_hamlet(1).await;
     chief(&realm, archive(MASON)).await;
     let profile = AgentNumber(MASON.0);

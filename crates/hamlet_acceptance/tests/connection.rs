@@ -177,16 +177,16 @@ async fn sends_every_connection_the_realms_changes() {
     let mut s = Session::start(Faux::new()).await;
     let mut other = s.join().await;
     let hand = s.hand();
-    s.chief.command(hand, "/scholar new ada").await;
+    s.chief.command(hand, "/profile new ada").await;
     other
         .until("the change on the other connection", |c| {
-            c.scholar("ada").is_some()
+            c.profile("ada").is_some()
         })
         .await;
     let first = other.realm();
     let late = s.join().await;
     let realm = late.realm();
-    assert_eq!(realm.scholars, first.scholars);
+    assert_eq!(realm.profiles, first.profiles);
     assert_eq!(realm.chief, "chief");
     let revisions = other
         .messages()

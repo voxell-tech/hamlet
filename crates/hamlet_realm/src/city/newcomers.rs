@@ -1,8 +1,8 @@
-//! The scholars who are not let into the city yet, each a small
+//! The profiles who are not let into the city yet, each a small
 //! figure standing on the city's pier until it has a house.
 
 use bevy::prelude::*;
-use hamlet_client::realm::Scholar;
+use hamlet_client::realm::Profile;
 use hamlet_protocol::client::Arrival;
 
 use super::houses;
@@ -12,15 +12,15 @@ use crate::harbor::Harbor;
 use crate::keeper::{self, Kit, Motion, Trip, Who};
 use crate::pick::{self, Named, PickSettings, Thing, hit_box};
 
-/// The figure of a scholar waiting on the pier.
+/// The figure of a profile waiting on the pier.
 #[derive(Component, Clone, Copy, Debug)]
 pub(super) struct Newcomer(pub(super) Entity);
 
-/// The figure of a scholar that was let in, walking to its house.
+/// The figure of a profile that was let in, walking to its house.
 #[derive(Component, Clone, Copy, Debug)]
 pub(super) struct Homebound;
 
-/// Stands a figure on the pier for each scholar that waits, in the
+/// Stands a figure on the pier for each profile that waits, in the
 /// order of their ids, sends the figure of one that is let in home
 /// and takes down the figure of one that has left.
 pub(super) fn wait(
@@ -31,7 +31,7 @@ pub(super) fn wait(
     land: Res<Land>,
     kit: Res<Kit>,
     pick: Res<PickSettings>,
-    scholars: Query<(Entity, &Scholar)>,
+    profiles: Query<(Entity, &Profile)>,
     mut figures: Query<(Entity, &Newcomer, &mut Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -39,26 +39,26 @@ pub(super) fn wait(
     let Some(harbor) = harbor else {
         return;
     };
-    let mut waiting = scholars
+    let mut waiting = profiles
         .iter()
-        .filter(|(_, scholar)| {
+        .filter(|(_, profile)| {
             matches!(
-                scholar.0.arrival,
+                profile.0.arrival,
                 Arrival::Waiting | Arrival::Turned
-            ) && scholar.0.left.is_none()
+            ) && profile.0.left.is_none()
         })
-        .map(|(entity, scholar)| (scholar.0.id.0, entity))
+        .map(|(entity, profile)| (profile.0.id.0, entity))
         .collect::<Vec<_>>();
     waiting.sort();
     for (entity, figure, at) in &figures {
-        if waiting.iter().any(|(_, scholar)| *scholar == figure.0) {
+        if waiting.iter().any(|(_, profile)| *profile == figure.0) {
             continue;
         }
-        let door = scholars
+        let door = profiles
             .get(figure.0)
             .ok()
-            .filter(|(_, scholar)| scholar.0.left.is_none())
-            .and_then(|(_, scholar)| scholar.0.house.as_ref())
+            .filter(|(_, profile)| profile.0.left.is_none())
+            .and_then(|(_, profile)| profile.0.house.as_ref())
             .map(|house| houses::door(&land, house));
         let Some(door) = door else {
             commands.entity(entity).despawn();
@@ -78,7 +78,7 @@ pub(super) fn wait(
         ));
     }
     let deck = land.set.land.water_y + Harbor::DECK;
-    for (slot, (number, scholar)) in waiting.into_iter().enumerate() {
+    for (slot, (number, profile)) in waiting.into_iter().enumerate() {
         let at = harbor.queue(IslandId::City, slot);
         // Facing the land, as one waits to be let in.
         let facing = harbor.seaward(IslandId::City)
@@ -88,7 +88,7 @@ pub(super) fn wait(
             .with_rotation(Quat::from_rotation_y(facing));
         if let Some((_, _, mut transform)) = figures
             .iter_mut()
-            .find(|(_, figure, _)| figure.0 == scholar)
+            .find(|(_, figure, _)| figure.0 == profile)
         {
             transform.set_if_neq(stands);
             continue;
@@ -101,11 +101,11 @@ pub(super) fn wait(
             stands,
             None,
         );
-        commands.entity(robot).insert(Newcomer(scholar));
+        commands.entity(robot).insert(Newcomer(profile));
         let boxed = commands
             .spawn((
                 hit_box(
-                    Thing::Scholar(scholar),
+                    Thing::Profile(profile),
                     pick.robot_box,
                     Vec3::Y * pick.robot_box.y * 0.5,
                     &mut meshes,
@@ -118,7 +118,7 @@ pub(super) fn wait(
     }
 }
 
-/// Takes down the figure of a scholar that has reached its house.
+/// Takes down the figure of a profile that has reached its house.
 pub(super) fn arrive(
     mut commands: Commands,
     clock: Res<Clock>,

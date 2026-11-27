@@ -29,7 +29,7 @@ use crate::society::effort::Effort as Level;
 use crate::society::refusal::Refusal;
 use crate::{oversight, spend};
 
-/// The word `/create-hamlet` and `/hire` take in place of a scholar
+/// The word `/create-hamlet` and `/hire` take in place of a profile
 /// for a blank agent.
 const BLANK: &str = "blank";
 
@@ -158,7 +158,7 @@ pub(super) enum Act {
     Budget(Option<HamletId>),
     ResetBudget(Payer),
     History(HamletId),
-    Scholars,
+    Profiles,
     CreateProfile(CreateProfile),
     ToolsOff(Target),
     Versions(ProfileId),
@@ -386,15 +386,15 @@ pub(super) fn parse(
                 name: tail(1),
             })
         }
-        "remove-scholar" => Act::ArchiveProfile(ArchiveProfile {
+        "remove-profile" => Act::ArchiveProfile(ArchiveProfile {
             profile: profile_of(first()?)?,
             why: why(1),
         }),
-        "restore-scholar" => Act::RestoreProfile(RestoreProfile {
+        "restore-profile" => Act::RestoreProfile(RestoreProfile {
             profile: profile_of(first()?)?,
             why: why(1),
         }),
-        "erase-scholar" => Act::EraseProfile(EraseProfile {
+        "erase-profile" => Act::EraseProfile(EraseProfile {
             profile: profile_of(first()?)?,
         }),
         "welcome" => Act::Welcome(Welcome {
@@ -540,8 +540,8 @@ pub(super) fn parse(
         }
         "budget" => Act::Budget(hamlet_here().ok()),
         "history" => Act::History(hamlet_here()?),
-        "scholars" => Act::Scholars,
-        "scholar" => {
+        "profiles" => Act::Profiles,
+        "profile" => {
             let Some(&"new") = words.first() else {
                 return Err(usage(name));
             };
@@ -556,19 +556,19 @@ pub(super) fn parse(
             })
         }
         "versions" => match words.as_slice() {
-            [scholar] => Act::Versions(profile_of(scholar)?),
+            [profile] => Act::Versions(profile_of(profile)?),
             _ => return Err(usage(name)),
         },
         "tag" => {
-            let [scholar, version, note @ ..] = words.as_slice()
+            let [profile, version, note @ ..] = words.as_slice()
             else {
                 return Err(usage(name));
             };
             // The profile takes a name after `@` as `hamlet_git`'s
             // `resolve` does: a branch's, a version's, then a
             // commit's whole id.
-            let (address, at) = scholar.split_once('@').map_or(
-                (*scholar, None),
+            let (address, at) = profile.split_once('@').map_or(
+                (*profile, None),
                 |(address, at)| {
                     let version = VersionName(at.to_owned());
                     (address, Some(Revision::Version { version }))
@@ -582,11 +582,11 @@ pub(super) fn parse(
             })
         }
         "revert" => {
-            let [scholar, which, ..] = words.as_slice() else {
+            let [profile, which, ..] = words.as_slice() else {
                 return Err(usage(name));
             };
             Act::Revert {
-                profile: profile_of(scholar)?,
+                profile: profile_of(profile)?,
                 which: (*which).to_owned(),
                 reason: why(2),
             }
@@ -606,12 +606,12 @@ pub(super) fn parse(
             skill: first()?.to_owned(),
             reason: why(1),
         }),
-        "name-scholar" => Act::NameProfile(NameProfile {
+        "name-profile" => Act::NameProfile(NameProfile {
             profile: profile_of(first()?)?,
             name: tail(1),
         }),
         "purge" => {
-            let [scholar, path] = words.as_slice() else {
+            let [profile, path] = words.as_slice() else {
                 return Err(usage(name));
             };
             let path = path.trim_matches('/');
@@ -623,7 +623,7 @@ pub(super) fn parse(
                 return Err(Refusal::NoFile { path: path.into() });
             }
             Act::Purge(PurgeProfile {
-                profile: profile_of(scholar)?,
+                profile: profile_of(profile)?,
                 path: path.to_owned(),
             })
         }
@@ -633,7 +633,7 @@ pub(super) fn parse(
                     words: words::DREAM_USAGE.into(),
                 });
             };
-            Act::Dream(if target.starts_with("scholar#") {
+            Act::Dream(if target.starts_with("profile#") {
                 Dreamt::Profile(profile_of(target)?)
             } else {
                 Dreamt::Hire(at(target)?)
@@ -678,13 +678,13 @@ fn answer(name: &str, rest: &str) -> Act {
     }
 }
 
-/// `/create-hamlet [scholar#id|blank] <name>[: purpose]`: a mayor
+/// `/create-hamlet [profile#id|blank] <name>[: purpose]`: a mayor
 /// not given is a blank agent, and one given no purpose is there to
 /// run the hamlet.
 fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     let ((mayor, version), from) = match words.first() {
         Some(&BLANK) => ((None, None), 1),
-        Some(first) if first.starts_with("scholar#") => {
+        Some(first) if first.starts_with("profile#") => {
             (versioned(first)?, 1)
         }
         _ => ((None, None), 0),
@@ -749,7 +749,7 @@ fn hire(
     }))
 }
 
-/// The profile `scholar#<id>[@<version>]` names, and the version.
+/// The profile `profile#<id>[@<version>]` names, and the version.
 fn versioned(
     text: &str,
 ) -> Result<(Option<ProfileId>, Option<VersionName>), Refusal> {
@@ -762,13 +762,13 @@ fn versioned(
     })
 }
 
-/// The profile a scholar's address names; a number past the realm's
-/// is no scholar.
+/// The profile a profile's address names; a number past the realm's
+/// is no profile.
 fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
-    let id = addresses::parse_scholar(text)?;
+    let id = addresses::parse_profile(text)?;
     u32::try_from(id)
         .map(ProfileId)
-        .map_err(|_| Refusal::NoScholar {
+        .map_err(|_| Refusal::NoProfile {
             address: text.into(),
         })
 }

@@ -14,7 +14,7 @@ use hamlet_messages::realm::profiles::{
     PinHire, PurgeProfile, RevertProfile, TagProfile,
 };
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::{RequestId, ScholarId};
+use hamlet_protocol::client::{self as protocol, RequestId};
 
 use super::{ask, refused};
 use crate::front::call::Calls;
@@ -141,8 +141,8 @@ async fn label(
     calls: &Calls,
     profile: ProfileId,
 ) -> Result<Result<String, Refusal>> {
-    let scholar = ScholarId(u64::from(profile.0));
-    Ok(answers::profile(calls, scholar)
+    let profile = protocol::ProfileId(u64::from(profile.0));
+    Ok(answers::profile(calls, profile)
         .await?
         .map(|(_, label)| label))
 }

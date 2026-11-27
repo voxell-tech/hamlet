@@ -70,7 +70,7 @@ const PATHS = {
 };
 const address = { type: "string", description: ADDRESS };
 const text = (description: string) => ({ type: "string", description });
-const PROFILE_ADDRESS = text("The scholar's address, `scholar#<id>`.");
+const PROFILE_ADDRESS = text("The profile's address, `profile#<id>`.");
 
 /** The society tools as a model is offered them, typed out by hand. */
 const OFFERED = [
@@ -115,15 +115,15 @@ const OFFERED = [
     {
         name: "found_hamlet",
         description:
-            "Found a hamlet with a scholar as its mayor, or a blank agent when `scholar` is left out.",
+            "Found a hamlet with a profile as its mayor, or a blank agent when `profile` is left out.",
         parameters: {
             type: "object",
             properties: {
                 name: text(
                     "The name it is shown by: one line, up to 40 characters, no colon. Its id is made for it.",
                 ),
-                scholar: text(
-                    "The address, `scholar#<id>`, of the scholar its mayor is a hire of.",
+                profile: text(
+                    "The address, `profile#<id>`, of the profile its mayor is a hire of.",
                 ),
                 purpose: text("What the hamlet is for."),
             },
@@ -142,14 +142,14 @@ const OFFERED = [
     {
         name: "hire",
         description:
-            "Hire a scholar into your hamlet under you, or under a hire of your tree. Leave out `scholar` to hire a blank agent instead, which starts from the realm's character and the library's skills and is not a scholar of the city.",
+            "Hire a profile into your hamlet under you, or under a hire of your tree. Leave out `profile` to hire a blank agent instead, which starts from the realm's character and the library's skills and is not a profile of the city.",
         parameters: {
             type: "object",
             properties: {
-                scholar: text(
-                    "The scholar's address, `scholar#<id>`, with `@<version>` to pin a version.",
+                profile: text(
+                    "The profile's address, `profile#<id>`, with `@<version>` to pin a version.",
                 ),
-                name: text("A blank agent's name, in place of `scholar`."),
+                name: text("A blank agent's name, in place of `profile`."),
                 purpose: text("What the hire is for."),
                 under: text("The hire it answers to; you when left out."),
                 hamlet: text("The hamlet, for the Hand."),
@@ -159,7 +159,7 @@ const OFFERED = [
     },
     {
         name: "end_hire",
-        description: "End a hire under you. Its work stays in its scholar.",
+        description: "End a hire under you. Its work stays in its profile.",
         parameters: {
             type: "object",
             properties: { hire: address, reason: REASON },
@@ -242,75 +242,75 @@ const OFFERED = [
         },
     },
     {
-        name: "create_scholar",
+        name: "create_profile",
         description:
-            "Make a new scholar of the city, to hire next. Without a character it starts from the realm's own. A scholar you make may wait at the harbor until it is let into the city; its hires work all the same.",
+            "Make a new profile of the city, to hire next. Without a character it starts from the realm's own. A profile you make may wait at the harbor until it is let into the city; its hires work all the same.",
         parameters: {
             type: "object",
             properties: {
                 name: text(
                     "A short name, one line with no colon. It is a label and may repeat.",
                 ),
-                character: text("Who the scholar is and how it works."),
+                character: text("Who the profile is and how it works."),
             },
             required: ["name"],
         },
     },
     {
-        name: "read_scholar",
+        name: "read_profile",
         description:
-            "List a scholar's files, or read one, at its `main` or a version.",
+            "List a profile's files, or read one, at its `main` or a version.",
         parameters: {
             type: "object",
             properties: {
-                scholar: PROFILE_ADDRESS,
+                profile: PROFILE_ADDRESS,
                 path: text("A file to read."),
                 version: text("A version or commit."),
             },
-            required: ["scholar"],
+            required: ["profile"],
         },
     },
     {
-        name: "edit_scholar",
+        name: "edit_profile",
         description:
-            "Write a file of a scholar's `main`; a chief approves it first.",
+            "Write a file of a profile's `main`; a chief approves it first.",
         parameters: {
             type: "object",
             properties: {
-                scholar: PROFILE_ADDRESS,
+                profile: PROFILE_ADDRESS,
                 path: text("The file."),
                 content: text("Its new text; empty removes it."),
                 message: text("What the change does."),
             },
-            required: ["scholar", "path", "content", "message"],
+            required: ["profile", "path", "content", "message"],
         },
     },
     {
         name: "tag",
         description:
-            "Name the scholar's `main` as a version; a chief approves it first.",
+            "Name the profile's `main` as a version; a chief approves it first.",
         parameters: {
             type: "object",
             properties: {
-                scholar: PROFILE_ADDRESS,
+                profile: PROFILE_ADDRESS,
                 tag: text("The version's name."),
                 note: text("What it holds."),
             },
-            required: ["scholar", "tag"],
+            required: ["profile", "tag"],
         },
     },
     {
         name: "revert",
         description:
-            "Undo a commit of a scholar's `main`; a chief approves it first.",
+            "Undo a commit of a profile's `main`; a chief approves it first.",
         parameters: {
             type: "object",
             properties: {
-                scholar: PROFILE_ADDRESS,
+                profile: PROFILE_ADDRESS,
                 commit: text("The commit or version to undo."),
                 reason: REASON,
             },
-            required: ["scholar", "commit"],
+            required: ["profile", "commit"],
         },
     },
     {
@@ -1050,7 +1050,7 @@ const EVERYONE = [
     "object",
 ];
 const LEADS = [
-    "create_scholar",
+    "create_profile",
     "hire",
     "end_hire",
     "merge_hires",
@@ -1069,8 +1069,8 @@ const OFFERED_TO_THE_HAND = new Set([
     "seat_mayor",
     "remove_hamlet",
     "read_record",
-    "read_scholar",
-    "edit_scholar",
+    "read_profile",
+    "edit_profile",
     "tag",
     "revert",
 ]);
@@ -1362,10 +1362,10 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
         tell: { to: "mayor", text: "Done.", paths: ["/work/notes.md"] },
         ask: { to: "hand", question: "Why?", paths: ["/work/notes.md"] },
         request_road: { to: "hire#4", reason: "We share a file." },
-        found_hamlet: { name: "Mill", scholar: "scholar#2", purpose: "Grind" },
+        found_hamlet: { name: "Mill", profile: "profile#2", purpose: "Grind" },
         seat_mayor: { hire: "hire#4", reason: "Cy leads now." },
-        // `scholar` and `name` are refused together; the scholar form is the
-        // scholar address test's.
+        // `profile` and `name` are refused together; the profile form is the
+        // profile address test's.
         hire: {
             name: "Cy",
             purpose: "Dig",
@@ -1618,7 +1618,7 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
     );
 });
 
-test("a scholar's address is read as an address, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
+test("a profile's address is read as an address, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             hire: () => ({ type: "hired", agent: shown(22) }),
@@ -1628,17 +1628,17 @@ test("a scholar's address is read as an address, a pinned version is hired at it
     const agent = await wakeAgent(t, {
         calls,
         responses: [
-            toolCall("hire", { scholar: " scholar#3 ", purpose: "Dig" }, "c1"),
+            toolCall("hire", { profile: " profile#3 ", purpose: "Dig" }, "c1"),
             toolCall(
                 "hire",
-                { scholar: "  ", under: "", hamlet: "", purpose: "Dig" },
+                { profile: "  ", under: "", hamlet: "", purpose: "Dig" },
                 "c2",
             ),
-            toolCall("hire", { scholar: "Ada", purpose: "Dig" }, "c3"),
-            toolCall("hire", { scholar: "scholar#3@v1", purpose: "Dig" }, "c4"),
+            toolCall("hire", { profile: "Ada", purpose: "Dig" }, "c3"),
+            toolCall("hire", { profile: "profile#3@v1", purpose: "Dig" }, "c4"),
             toolCall(
                 "found_hamlet",
-                { name: "Mill", scholar: "hire#3", purpose: "Grind" },
+                { name: "Mill", profile: "hire#3", purpose: "Grind" },
                 "c5",
             ),
             fauxAssistantMessage("Done."),
@@ -1693,7 +1693,7 @@ test("a society tool whose call fails says it was interrupted, under the tool's 
     await agent.stop();
 });
 
-test("hire with both `scholar` and `name` is refused in its words, and nothing is sent", async (t) => {
+test("hire with both `profile` and `name` is refused in its words, and nothing is sent", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: { hire: () => ({ type: "hired", agent: shown(22) }) },
     });
@@ -1702,12 +1702,12 @@ test("hire with both `scholar` and `name` is refused in its words, and nothing i
         responses: [
             toolCall(
                 "hire",
-                { scholar: "scholar#3", name: "Ada", purpose: "Dig" },
+                { profile: "profile#3", name: "Ada", purpose: "Dig" },
                 "c1",
             ),
             toolCall(
                 "hire",
-                { scholar: "scholar#3", name: " ", purpose: "Dig" },
+                { profile: "profile#3", name: " ", purpose: "Dig" },
                 "c2",
             ),
             fauxAssistantMessage("Done."),
@@ -1721,7 +1721,7 @@ test("hire with both `scholar` and `name` is refused in its words, and nothing i
         (await agent.entries())
             .filter((entry) => entry.kind === "pi.tool-result")
             .map((entry) => entry.text)[0],
-        "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
+        "Give `profile` to hire one of the city, or `name` for a blank agent, not both.",
     );
     await agent.stop();
 });
@@ -1729,7 +1729,7 @@ test("hire with both `scholar` and `name` is refused in its words, and nothing i
 async function seatAndHire(
     t: Parameters<typeof wakeAgent>[0],
     hires: string[],
-    scholars: string[] = [],
+    profiles: string[] = [],
 ): Promise<{ seat: unknown[]; hire: unknown[]; results: string[] }> {
     const { calls, sent } = fakeCalls({
         realm: {
@@ -1743,8 +1743,8 @@ async function seatAndHire(
             ...hires.map((hire, n) =>
                 toolCall("seat_mayor", { hire }, `seat${n}`),
             ),
-            ...scholars.map((scholar, n) =>
-                toolCall("hire", { scholar, purpose: "Dig" }, `hire${n}`),
+            ...profiles.map((profile, n) =>
+                toolCall("hire", { profile, purpose: "Dig" }, `hire${n}`),
             ),
             fauxAssistantMessage("Done."),
         ],
@@ -1800,7 +1800,7 @@ test("an address's number is read as an i64, where the act can carry it", async 
     const { seat, hire, results } = await seatAndHire(
         t,
         [...read, ...refused],
-        ["scholar#007", "scholar#0", "scholar#+3", "scholar#-3"],
+        ["profile#007", "profile#0", "profile#+3", "profile#-3"],
     );
 
     assert.deepEqual(seat, [
@@ -1820,7 +1820,7 @@ test("an address's number is read as an i64, where the act can carry it", async 
         results.slice(read.length, read.length + refused.length),
         refused.map((address) => `\`${address}\` is not an address`),
     );
-    assert.equal(results.at(-1), "`scholar#-3` is not an address");
+    assert.equal(results.at(-1), "`profile#-3` is not an address");
 });
 
 test("a reply the realm refuses, or one that fails, is reported and leaves the run and the next turn as they were", async (t) => {
@@ -1930,13 +1930,13 @@ async function resultTexts(agent: Woken): Promise<string[]> {
         .map((entry) => entry.text);
 }
 
-test("the profile tools' arguments leave as their acts: `scholar#<n>` as its profile, `main`, a commit or a version as a revision, and an empty path as a listing", async (t) => {
+test("the profile tools' arguments leave as their acts: `profile#<n>` as its profile, `main`, a commit or a version as a revision, and an empty path as a listing", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             create_profile: () => ({
                 type: "made",
                 profile: 4,
-                label: "scholar#4 (Ada)",
+                label: "profile#4 (Ada)",
             }),
             read_profile: () => ({ type: "listed", paths: [] }),
             edit_profile: () => ({ type: "done" }),
@@ -1947,40 +1947,40 @@ test("the profile tools' arguments leave as their acts: `scholar#<n>` as its pro
     const agent = await wakeAgent(t, {
         calls,
         responses: [
-            toolCall("create_scholar", { name: " Ada ", character: "" }, "c1"),
+            toolCall("create_profile", { name: " Ada ", character: "" }, "c1"),
             toolCall(
-                "create_scholar",
+                "create_profile",
                 { name: "Ada", character: "You write careful tests." },
                 "c2",
             ),
             toolCall(
-                "read_scholar",
-                { scholar: " scholar#4 ", path: "" },
+                "read_profile",
+                { profile: " profile#4 ", path: "" },
                 "c3",
             ),
             toolCall(
-                "read_scholar",
+                "read_profile",
                 {
-                    scholar: "scholar#4",
+                    profile: "profile#4",
                     path: "memory/tests.md",
                     version: "v1",
                 },
                 "c4",
             ),
             toolCall(
-                "read_scholar",
-                { scholar: "scholar#4", version: "main" },
+                "read_profile",
+                { profile: "profile#4", version: "main" },
                 "c5",
             ),
             toolCall(
-                "read_scholar",
-                { scholar: "scholar#4", version: COMMIT },
+                "read_profile",
+                { profile: "profile#4", version: COMMIT },
                 "c6",
             ),
             toolCall(
-                "edit_scholar",
+                "edit_profile",
                 {
-                    scholar: "scholar#4",
+                    profile: "profile#4",
                     path: " CHARACTER.md ",
                     content: "You write careful tests.",
                     message: "Sharper",
@@ -1990,7 +1990,7 @@ test("the profile tools' arguments leave as their acts: `scholar#<n>` as its pro
             toolCall(
                 "tag",
                 {
-                    scholar: "scholar#4",
+                    profile: "profile#4",
                     tag: " v1 ",
                     note: "Before the refactor",
                 },
@@ -1999,14 +1999,14 @@ test("the profile tools' arguments leave as their acts: `scholar#<n>` as its pro
             toolCall(
                 "revert",
                 {
-                    scholar: "scholar#4",
+                    profile: "profile#4",
                     commit: COMMIT,
                     reason: "It broke the tests",
                 },
                 "c9",
             ),
-            toolCall("revert", { scholar: "scholar#4", commit: "v1" }, "c10"),
-            toolCall("read_scholar", { scholar: "Ada" }, "c11"),
+            toolCall("revert", { profile: "profile#4", commit: "v1" }, "c10"),
+            toolCall("read_profile", { profile: "Ada" }, "c11"),
             fauxAssistantMessage("Done."),
         ],
     });
@@ -2076,21 +2076,21 @@ test("the profile tools answer in their words", async (t) => {
             create_profile: () => ({
                 type: "made",
                 profile: 4,
-                label: "scholar#4 (Ada)",
+                label: "profile#4 (Ada)",
             }),
             read_profile: () => answers.read_profile[read++] as never,
             ask_librarian: () => ({ type: "done" }),
         },
     });
     let read = 0;
-    const addressed = { scholar: " scholar#4 " };
+    const addressed = { profile: " profile#4 " };
     const agent = await wakeAgent(t, {
         calls,
         responses: [
-            toolCall("create_scholar", { name: "Ada" }, "c1"),
+            toolCall("create_profile", { name: "Ada" }, "c1"),
             ...[2, 3, 4, 5].map((n) =>
                 toolCall(
-                    "read_scholar",
+                    "read_profile",
                     { ...addressed, path: n > 3 ? "a" : "" },
                     `c${n}`,
                 ),
@@ -2108,9 +2108,9 @@ test("the profile tools answer in their words", async (t) => {
     await agent.idle();
 
     assert.deepEqual(await resultTexts(agent), [
-        "The scholar scholar#4 (Ada) lives in the city; hire it next.",
+        "The profile profile#4 (Ada) lives in the city; hire it next.",
         "- memory/a.md\n- skills/b/SKILL.md",
-        "scholar#4 has no files.",
+        "profile#4 has no files.",
         "# Tests\n",
         "# Tests\n[cut here]",
         "The librarian is looking.",

@@ -1,5 +1,5 @@
 //! The `profile` actor, one per profile: the only writer of its
-//! repository, `scholars/<n>.git`, and of the store beside it.
+//! repository, `profiles/<n>.git`, and of the store beside it.
 
 mod dreams;
 mod files;
@@ -36,14 +36,14 @@ use crate::repo::{self, Admits, Owner, Repo, Settle, Takes};
 const SCHEMA: &str = include_str!("profile/schema.sql");
 
 /// The folder of the profiles' repositories, under the realm folder.
-const REPOSITORIES: &str = "scholars";
+const REPOSITORIES: &str = "profiles";
 
 const CHARACTER: &str = "CHARACTER.md";
 
 const CHARACTER_MOST: u32 = 4000;
 
 /// The message of a profile's first commit.
-const MADE: &str = "Made the scholar";
+const MADE: &str = "Made the profile";
 
 /// The factory of the `profile` kind.
 pub fn factory() -> ActorFactory {

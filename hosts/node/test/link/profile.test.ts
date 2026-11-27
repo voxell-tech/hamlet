@@ -39,7 +39,7 @@ test(
             assert.equal(await demo.ask("realm found h1"), "founded/h1 2");
             assert.equal(await demo.ask("realm live 2"), "live/2 1");
             assert.equal(
-                await demo.ask(`realm hire 2 c2 scholar#${id}@v1 helper`),
+                await demo.ask(`realm hire 2 c2 profile#${id}@v1 helper`),
                 "hired/c2 3",
             );
             assert.equal(await demo.ask("realm live 3"), "live/3 1");

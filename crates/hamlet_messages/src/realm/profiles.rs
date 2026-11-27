@@ -1,6 +1,6 @@
 //! The acts that make, read, change, purge and dream over a profile,
 //! and an agent's acts on the library. A model calls them
-//! `create_scholar`, `read_scholar`, `edit_scholar`, `tag`, `revert`,
+//! `create_profile`, `read_profile`, `edit_profile`, `tag`, `revert`,
 //! `ask_librarian` and `submit_skill`; a chief, `/dream` and
 //! `/purge`. A chief also forks, archives, restores and erases a
 //! profile, and welcomes, turns away and moves its house.
@@ -24,9 +24,9 @@ use crate::workspace::AgentNumber;
 family!(
     /// Why an act on the profile it names was not carried out.
     ProfileRefusal {
-        #[error("no scholar has the address `scholar#{}`", profile.0)]
+        #[error("no profile has the address `profile#{}`", profile.0)]
         NoSuchProfile { profile: ProfileId },
-        #[error("`{label}` is a blank hire's own, not a scholar of the city")]
+        #[error("`{label}` is a blank hire's own, not a profile of the city")]
         Apart { label: String },
     }
 );
@@ -60,7 +60,7 @@ pub struct CreateProfile {
     )
 )]
 pub enum Made<W> {
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     Made { profile: ProfileId, label: String },
     #[serde(serialize_with = "worded")]
     Refused { why: W },
@@ -325,7 +325,7 @@ family!(
     /// Why a fork the realm took was not made. `label` is the label of
     /// the profile it was made from.
     ForkFailure {
-        #[error("the scholar `{label}` could not be forked")]
+        #[error("the profile `{label}` could not be forked")]
         NotForked { label: String },
     }
 );
@@ -339,7 +339,7 @@ union!(ForkRefusal {
 
 answer!(
     /// The answer of a [`ForkProfile`]: the new profile, and the label
-    /// of the one it was made from, `scholar#<id> (<name>)`.
+    /// of the one it was made from, `profile#<id> (<name>)`.
     Forked<ForkRefusal> {
         Forked { profile: ProfileId, from: String },
     }
@@ -467,22 +467,22 @@ impl ChiefRequest for MoveHouse {
 
 family!(
     /// Why an act on a profile's life in the city was not carried
-    /// out. Each `label` is `scholar#<id> (<name>)`.
+    /// out. Each `label` is `profile#<id> (<name>)`.
     LifeRefusal {
-        #[error("the scholar `{label}` no longer lives in the city")]
+        #[error("the profile `{label}` no longer lives in the city")]
         Gone { label: String },
-        #[error("the scholar `{label}` was erased")]
+        #[error("the profile `{label}` was erased")]
         Erased { label: String },
-        #[error("the scholar `{label}` is still living; remove it first")]
+        #[error("the profile `{label}` is still living; remove it first")]
         Living { label: String },
         #[error(
-            "the scholar `{label}` waits at the harbor; welcome it into \
+            "the profile `{label}` waits at the harbor; welcome it into \
              the city first"
         )]
         AtHarbor { label: String },
-        #[error("the scholar `{label}` lives in the city already")]
+        #[error("the profile `{label}` lives in the city already")]
         Housed { label: String },
-        #[error("the scholar `{label}` was turned away already")]
+        #[error("the profile `{label}` was turned away already")]
         TurnedAway { label: String },
         /// A site that is not a spot in the city, as `x, z`.
         #[error("`{site}` is not an address")]
@@ -499,7 +499,7 @@ family!(
         #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
         Full { hamlet: HamletId, most: u32 },
         #[error(
-            "the scholar `{label}` could not be erased, so it stays \
+            "the profile `{label}` could not be erased, so it stays \
              archived"
         )]
         NotErased { label: String },
@@ -513,7 +513,7 @@ union!(LifecycleRefusal {
 
 answer!(
     /// The answer of an act on a profile's life in the city: the
-    /// profile's label, `scholar#<id> (<name>)`.
+    /// profile's label, `profile#<id> (<name>)`.
     Lifecycle<LifecycleRefusal> {
         Done { label: String },
     }

@@ -146,7 +146,7 @@ fn not_a_path() -> BadPath {
 }
 
 pub(super) fn label() -> String {
-    "scholar#4 (Ada)".into()
+    "profile#4 (Ada)".into()
 }
 
 /// The refusals of an act on a profile, by the profile it names.

@@ -235,7 +235,7 @@ fn society_views_reconcile_and_transition_effects_fire_once() {
 }
 
 #[test]
-fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
+fn the_hand_profiles_and_workers_are_agents_and_profiles_of_their_own()
  {
     let mut app = app();
     let world = app.world_mut();
@@ -244,7 +244,7 @@ fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
     worker.kind = protocol::AgentKind::Worker;
     worker.name = "worker#3".into();
     worker.hamlet = None;
-    worker.scholar = None;
+    worker.profile = None;
     worker.parent = None;
     state.agents.push(worker);
     receive(world, protocol::ServerMessage::State(state.clone()));
@@ -261,17 +261,17 @@ fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
         protocol::AgentKind::Worker
     );
     assert!(world.get::<LivesIn>(worker).is_none());
-    let ada = scholar(world, protocol::ScholarId(2)).unwrap();
+    let ada = profile(world, protocol::ProfileId(2)).unwrap();
     assert_eq!(world.get::<Name>(ada).unwrap().as_str(), "ada");
     assert_eq!(
-        world.get::<Scholar>(ada).unwrap().0.hires,
+        world.get::<Profile>(ada).unwrap().0.hires,
         [protocol::AgentId(2)]
     );
     let mayor = mayor_of(world, "home").unwrap();
     assert!(world.get::<Hire>(mayor).is_some());
     assert!(world.get::<Hire>(worker).is_none());
     state.revision = 1;
-    state.scholars.clear();
+    state.profiles.clear();
     receive(world, protocol::ServerMessage::State(state));
     assert!(world.get_entity(ada).is_err());
 }

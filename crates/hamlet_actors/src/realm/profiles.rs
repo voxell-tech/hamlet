@@ -139,7 +139,7 @@ fn id(profile: ProfileId) -> BindParam {
 }
 
 pub(super) fn address(profile: ProfileId) -> String {
-    format!("scholar#{}", profile.0)
+    format!("profile#{}", profile.0)
 }
 
 pub(super) fn label(profile: ProfileId, name: &str) -> String {

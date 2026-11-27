@@ -6,7 +6,7 @@
 //! ```text
 //! demo realm found <name>
 //!                    found the hamlet <name> as the chief
-//! demo realm hire <lead> <call> [scholar#<n>[@<version>]] <purpose ...>
+//! demo realm hire <lead> <call> [profile#<n>[@<version>]] <purpose ...>
 //!                    have agent <lead> hire, as its call <call>, from
 //!                    the profile <n> at <version> when named
 //! demo realm say <n> <id> <text ...>
@@ -277,7 +277,7 @@ async fn as_chief(
             if verb == "hire" && !words.is_empty() =>
         {
             let (profile, version, purpose) = match words {
-                [from, purpose @ ..] if from.starts_with("scholar#") => {
+                [from, purpose @ ..] if from.starts_with("profile#") => {
                     let (profile, version) = profile_at(from)?;
                     (Some(profile), version, purpose)
                 }
@@ -1219,12 +1219,12 @@ fn named(word: &str) -> Result<Named> {
     })
 }
 
-/// The profile and version of `scholar#<n>[@<version>]`.
+/// The profile and version of `profile#<n>[@<version>]`.
 fn profile_at(
     word: &str,
 ) -> Result<(ProfileId, Option<VersionName>)> {
     let named =
-        word.strip_prefix("scholar#").context("a scholar#<n>")?;
+        word.strip_prefix("profile#").context("a profile#<n>")?;
     let (n, version) = match named.split_once('@') {
         Some((n, version)) => {
             (n, Some(VersionName(version.to_owned())))

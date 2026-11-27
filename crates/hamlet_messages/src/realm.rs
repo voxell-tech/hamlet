@@ -576,7 +576,7 @@ pub enum HowEnded {
         by: Option<AgentName>,
     },
     /// A hire of a profile a chief archived.
-    #[error("its scholar left the city")]
+    #[error("its profile left the city")]
     ProfileArchived,
     /// A hire of a hamlet removed by `by`, or by the chief when
     /// absent.
@@ -654,14 +654,14 @@ pub enum FoundRefusal {
          with no colon"
     )]
     BadName { name: String },
-    #[error("no scholar has the address `scholar#{}`", profile.0)]
+    #[error("no profile has the address `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
     #[error("say what it is for")]
     NoPurpose,
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error("`{label}` has no version `{}`", version.0)]
     NoVersion { label: String, version: VersionName },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error(
         "`{label}` did not answer in time to show its version `{}`; \
          try again",
@@ -756,17 +756,17 @@ pub enum HireRefusal {
     LeadLeft { lead: AgentName, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
-    #[error("no scholar has the address `scholar#{}`", profile.0)]
+    #[error("no profile has the address `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error(
-        "`{label}` is a blank hire's own, not a scholar of the city"
+        "`{label}` is a blank hire's own, not a profile of the city"
     )]
     Apart { label: String },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error("`{label}` has no version `{}`", version.0)]
     NoVersion { label: String, version: VersionName },
-    /// `label` is `scholar#<id> (<name>)`.
+    /// `label` is `profile#<id> (<name>)`.
     #[error(
         "`{label}` did not answer in time to show its version `{}`; \
          try the hire again",
@@ -1363,7 +1363,7 @@ pub enum HamletRefusal {
     #[error("the hamlet `{}` is still living; remove it first", id.0)]
     Living { id: HamletId },
     /// A hire the removal ended is of a profile that left the city;
-    /// `label` is `scholar#<id> (<name>)`.
-    #[error("the scholar `{label}` no longer lives in the city")]
+    /// `label` is `profile#<id> (<name>)`.
+    #[error("the profile `{label}` no longer lives in the city")]
     ProfileGone { label: String },
 }

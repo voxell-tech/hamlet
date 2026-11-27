@@ -94,7 +94,7 @@ fn each_refusal_reads_in_its_words() {
         ),
         (
             words(ended(HowEnded::ProfileArchived)),
-            "its scholar left the city",
+            "its profile left the city",
         ),
         (
             words(ended(HowEnded::HamletRemoved { by: None })),

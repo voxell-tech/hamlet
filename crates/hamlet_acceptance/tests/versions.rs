@@ -1,16 +1,16 @@
-//! A scholar's history: versions named and listed, a hire pinned, a
-//! commit reverted, a scholar forked, and a file purged.
+//! A profile's history: versions named and listed, a hire pinned, a
+//! commit reverted, a profile forked, and a file purged.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 
-async fn character(s: &mut Session, scholar: ScholarId, text: &str) {
+async fn character(s: &mut Session, profile: ProfileId, text: &str) {
     let reply = s
         .chief
         .request(|id| {
             ClientMessage::Edit(Edit::Character {
                 id,
-                scholar,
+                profile,
                 text: text.into(),
             })
         })
@@ -39,8 +39,8 @@ async fn names_pins_reverts_and_forks_versions() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
     let docs = s.found("docs", "ada", "keep the docs").await;
-    let ada = s.chief.scholar("ada").unwrap().id;
-    let at = format!("scholar#{}", ada.0);
+    let ada = s.chief.profile("ada").unwrap().id;
+    let at = format!("profile#{}", ada.0);
     character(&mut s, ada, "Brave.").await;
 
     assert!(
@@ -53,15 +53,15 @@ async fn names_pins_reverts_and_forks_versions() {
         s.chief
             .command(hand, &format!("/tag {at} v1 The first draft"))
             .await,
-        "Tagged scholar#2 (ada) as v1."
+        "Tagged profile#2 (ada) as v1."
     );
     s.chief
-        .until("the scholar shows its version", |c| {
-            c.scholar("ada")
+        .until("the profile shows its version", |c| {
+            c.profile("ada")
                 .is_some_and(|ada| !ada.versions.is_empty())
         })
         .await;
-    let shown = s.chief.scholar("ada").unwrap().versions;
+    let shown = s.chief.profile("ada").unwrap().versions;
     assert_eq!(
         shown
             .iter()
@@ -80,7 +80,7 @@ async fn names_pins_reverts_and_forks_versions() {
     for line in [
         format!("/tag {at} v1"),
         format!("/tag {at} main"),
-        "/tag scholar#999 v2".to_string(),
+        "/tag profile#999 v2".to_string(),
     ] {
         s.chief.refused(hand, &line).await;
     }
@@ -96,7 +96,7 @@ async fn names_pins_reverts_and_forks_versions() {
     s.chief.refused(hand, "/pin hire#2 v9").await;
     character(&mut s, ada, "Careful.").await;
     assert_eq!(
-        s.chief.papers(Keeper::Scholar(ada)).await.character,
+        s.chief.papers(Keeper::Profile(ada)).await.character,
         "Careful."
     );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -105,7 +105,7 @@ async fn names_pins_reverts_and_forks_versions() {
     assert!(!prompt.contains("Careful."), "{prompt}");
     assert_eq!(
         s.chief.command(hand, "/pin hire#2 main").await,
-        "hire#2 (ada) follows its scholar's main again."
+        "hire#2 (ada) follows its profile's main again."
     );
     wait_for_character(&mut s, docs, "Careful.").await;
 
@@ -116,26 +116,26 @@ async fn names_pins_reverts_and_forks_versions() {
         .command(hand, &format!("/revert {at} v2 too careful"))
         .await;
     assert!(said.starts_with("Reverted "), "{said}");
-    assert!(said.ends_with("on scholar#2 (ada)'s main."), "{said}");
+    assert!(said.ends_with("on profile#2 (ada)'s main."), "{said}");
     assert_eq!(
-        s.chief.papers(Keeper::Scholar(ada)).await.character,
+        s.chief.papers(Keeper::Profile(ada)).await.character,
         "Brave."
     );
 
-    // A fork is a new scholar that starts from a version.
+    // A fork is a new profile that starts from a version.
     character(&mut s, ada, "Loud.").await;
     assert_eq!(
         s.chief.command(hand, &format!("/fork {at}@v1 bo")).await,
-        "Forked scholar#2 (ada) at v1 as bo."
+        "Forked profile#2 (ada) at v1 as bo."
     );
     s.chief.refused(hand, &format!("/fork {at}@v9 cy")).await;
-    let bo = s.chief.scholar("bo").unwrap().id;
+    let bo = s.chief.profile("bo").unwrap().id;
     assert_eq!(
-        s.chief.papers(Keeper::Scholar(bo)).await.character,
+        s.chief.papers(Keeper::Profile(bo)).await.character,
         "Brave."
     );
     assert_eq!(
-        s.chief.papers(Keeper::Scholar(ada)).await.character,
+        s.chief.papers(Keeper::Profile(ada)).await.character,
         "Loud."
     );
 }
@@ -145,10 +145,10 @@ async fn purges_a_file_from_every_commit_and_lodge() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
     let docs = s.found("docs", "ada", "keep the docs").await;
-    let ada = s.chief.scholar("ada").unwrap().id;
-    let at = format!("scholar#{}", ada.0);
+    let ada = s.chief.profile("ada").unwrap().id;
+    let at = format!("profile#{}", ada.0);
     let note = "---\ndescription: Secret\n---\nhush\n";
-    for of in [Keeper::Scholar(ada), Keeper::Agent(docs)] {
+    for of in [Keeper::Profile(ada), Keeper::Agent(docs)] {
         let reply = s
             .chief
             .request(|id| {
@@ -163,7 +163,7 @@ async fn purges_a_file_from_every_commit_and_lodge() {
         assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     }
     assert_eq!(
-        s.chief.papers(Keeper::Scholar(ada)).await.memory.len(),
+        s.chief.papers(Keeper::Profile(ada)).await.memory.len(),
         1
     );
     let said = s
@@ -172,19 +172,19 @@ async fn purges_a_file_from_every_commit_and_lodge() {
         .await;
     assert!(
         said.starts_with(
-            "Purged memory/secret.md from scholar#2 (ada): "
+            "Purged memory/secret.md from profile#2 (ada): "
         ),
         "{said}"
     );
     assert!(
-        s.chief.papers(Keeper::Scholar(ada)).await.memory.is_empty()
+        s.chief.papers(Keeper::Profile(ada)).await.memory.is_empty()
     );
     assert!(
         s.chief.papers(Keeper::Agent(docs)).await.memory.is_empty()
     );
     for line in [
         format!("/purge {at} ../x"),
-        "/purge scholar#999 a.md".to_string(),
+        "/purge profile#999 a.md".to_string(),
     ] {
         s.chief.refused(hand, &line).await;
     }

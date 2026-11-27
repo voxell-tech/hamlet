@@ -301,7 +301,7 @@ export interface SocietyActs {
             | {
                   readonly type: "made";
                   readonly profile: ProfileId;
-                  /** `scholar#<id> (<name>)`. */
+                  /** `profile#<id> (<name>)`. */
                   readonly label: string;
               }
             | Refused;
@@ -495,7 +495,7 @@ export interface TurnEnded {
 export type ConversationKind = "chat" | "letters" | "questions" | "other";
 
 /**
- * Asks for the prompt's place, realm and scholars sections, as they read in
+ * Asks for the prompt's place, realm and profiles sections, as they read in
  * a conversation of `conversation`'s kind with `peer`.
  */
 export interface ReadPlace {

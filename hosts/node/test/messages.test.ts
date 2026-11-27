@@ -638,14 +638,14 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/hire.at_a_version",
-        tool: ["hire", { scholar: "scholar#4@v1", purpose: "Check the links" }],
+        tool: ["hire", { profile: "profile#4@v1", purpose: "Check the links" }],
         answers: { realm: { hire: () => answer("realm/hire.hired") } },
         own: ["call", "conversation"],
     },
     {
         fixture: "realm/create_profile",
         tool: [
-            "create_scholar",
+            "create_profile",
             { name: "Ada", character: "You write careful tests." },
         ],
         answers: {
@@ -657,7 +657,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/create_profile.realms_character",
-        tool: ["create_scholar", { name: "Ada" }],
+        tool: ["create_profile", { name: "Ada" }],
         answers: {
             realm: {
                 create_profile: () => answer("realm/create_profile.made"),
@@ -667,7 +667,7 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/read_profile",
-        tool: ["read_scholar", { scholar: "scholar#4" }],
+        tool: ["read_profile", { profile: "profile#4" }],
         answers: {
             realm: { read_profile: () => answer("realm/read_profile.listed") },
         },
@@ -676,8 +676,8 @@ const WRITTEN: readonly Written[] = [
     {
         fixture: "realm/read_profile.file",
         tool: [
-            "read_scholar",
-            { scholar: "scholar#4", path: "memory/tests.md", version: "v1" },
+            "read_profile",
+            { profile: "profile#4", path: "memory/tests.md", version: "v1" },
         ],
         answers: {
             realm: { read_profile: () => answer("realm/read_profile.text") },
@@ -687,9 +687,9 @@ const WRITTEN: readonly Written[] = [
     {
         fixture: "realm/edit_profile",
         tool: [
-            "edit_scholar",
+            "edit_profile",
             {
-                scholar: "scholar#4",
+                profile: "profile#4",
                 path: "CHARACTER.md",
                 content: "You write careful tests.",
                 message: "Sharper",
@@ -707,7 +707,7 @@ const WRITTEN: readonly Written[] = [
         fixture: "realm/tag",
         tool: [
             "tag",
-            { scholar: "scholar#4", tag: "v1", note: "Before the refactor" },
+            { profile: "profile#4", tag: "v1", note: "Before the refactor" },
         ],
         answers: { realm: { tag: () => answer("realm/tag.refused.reserved") } },
         own: ["call", "conversation"],
@@ -717,7 +717,7 @@ const WRITTEN: readonly Written[] = [
         tool: [
             "revert",
             {
-                scholar: "scholar#4",
+                profile: "profile#4",
                 commit: "ab".repeat(20),
                 reason: "It broke the tests",
             },

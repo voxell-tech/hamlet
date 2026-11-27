@@ -43,7 +43,7 @@ const FIVE: AgentNumber = AgentNumber(5);
 pub(super) const MASON: ProfileId = ProfileId(3);
 
 fn mason() -> String {
-    "scholar#3 (Mason)".to_owned()
+    "profile#3 (Mason)".to_owned()
 }
 
 fn remove(hamlet: &HamletId) -> RemoveHamlet {
@@ -749,9 +749,9 @@ async fn a_profile_forked_at_a_version_hires_with_that_versions_files()
     realm.live(THREE).await;
     let state: protocol::State = realm.ask(&ReadState).await.unwrap();
     let mason_two = state
-        .scholars
+        .profiles
         .iter()
-        .find(|scholar| scholar.name == "Mason two")
+        .find(|profile| profile.name == "Mason two")
         .unwrap();
 
     assert_eq!(
@@ -919,7 +919,7 @@ async fn placing_a_profile_refuses_in_order() {
         [
             life_refused(no_such(ProfileId(99))),
             life_refused(ProfileRefusal::Apart {
-                label: "scholar#2 (Mayor)".to_owned()
+                label: "profile#2 (Mayor)".to_owned()
             }),
             done(mason()),
             life_refused(LifeRefusal::TurnedAway { label: mason() }),

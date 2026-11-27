@@ -909,7 +909,7 @@ const SOURCES: [(&str, &str); 10] = [
     ("skills", "Skills"),
     ("place", "Its place"),
     ("realm", "The realm"),
-    ("scholars", "Scholars it may hire"),
+    ("profiles", "Profiles it may hire"),
     ("errand", "Errand"),
 ];
 
@@ -1289,7 +1289,7 @@ mod tests {
             .find(|m| m["type"] == "edit")
             .unwrap();
         assert_eq!(sent["doc"], "character");
-        assert_eq!(sent["scholar"], json!(2));
+        assert_eq!(sent["profile"], json!(2));
         assert_eq!(sent["text"], "Saved character");
         receive(
             &mut app,

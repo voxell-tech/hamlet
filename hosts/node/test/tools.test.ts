@@ -546,7 +546,7 @@ test("an own write or edit of the root's CHARACTER.md is refused in its words an
     await agent.idle();
 
     const refusal = {
-        output: "CHARACTER.md is your scholar's character, which only a chief changes. Keep what you learn in memory/ instead.",
+        output: "CHARACTER.md is your profile's character, which only a chief changes. Keep what you learn in memory/ instead.",
         isError: true,
         diagnostics: [],
     };

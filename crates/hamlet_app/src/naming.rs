@@ -1,4 +1,4 @@
-//! The one way a hamlet, an agent or a scholar is given a new name: a
+//! The one way a hamlet, an agent or a profile is given a new name: a
 //! double click on its name at the end of the path of its page in the
 //! Hub, which turns it into the field the new name is typed in. Enter
 //! keeps it; Escape or a press elsewhere drops it.
@@ -27,8 +27,8 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    self as agents, Deeds, HamletId, Kind, Left, Scholar,
-    scholar_address,
+    self as agents, Deeds, HamletId, Kind, Left, Profile,
+    profile_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders::Decree;
@@ -72,21 +72,21 @@ enum Named {
     Hamlet(String),
     /// A hire or a worker, by its address.
     Agent(String),
-    Scholar(protocol::ScholarId),
+    Profile(protocol::ProfileId),
 }
 
 /// What `named` is, while the chief may rename it: a hamlet, an agent
-/// that is not the Hand and has not left, or a scholar that is not
+/// that is not the Hand and has not left, or a profile that is not
 /// archived.
 fn named(world: &World, named: Entity) -> Option<Named> {
     if let Some(id) = world.get::<HamletId>(named) {
         return Deeds::is_allowed(world, "name-hamlet")
             .then(|| Named::Hamlet(id.0.clone()));
     }
-    if let Some(scholar) = world.get::<Scholar>(named) {
-        return (scholar.0.left.is_none()
-            && Deeds::is_allowed(world, "name-scholar"))
-        .then_some(Named::Scholar(scholar.0.id));
+    if let Some(profile) = world.get::<Profile>(named) {
+        return (profile.0.left.is_none()
+            && Deeds::is_allowed(world, "name-profile"))
+        .then_some(Named::Profile(profile.0.id));
     }
     let kind = world.get::<Kind>(named)?.0;
     (kind != protocol::AgentKind::Hand
@@ -101,7 +101,7 @@ pub(crate) fn may_rename(world: &World, named: Entity) -> bool {
 }
 
 /// Gives `named` the name `typed`. A hire or a worker left with no
-/// name goes by its own again; a hamlet or a scholar needs one.
+/// name goes by its own again; a hamlet or a profile needs one.
 fn commit(world: &mut World, named: Entity, typed: &str) {
     let typed = typed.trim();
     match self::named(world, named) {
@@ -118,12 +118,12 @@ fn commit(world: &mut World, named: Entity, typed: &str) {
                 .trim_end()
                 .to_string(),
         ),
-        Some(Named::Scholar(id)) if !typed.is_empty() => {
+        Some(Named::Profile(id)) if !typed.is_empty() => {
             chat::command(
                 world,
                 format!(
-                    "/name-scholar {} {typed}",
-                    scholar_address(id)
+                    "/name-profile {} {typed}",
+                    profile_address(id)
                 ),
             );
         }

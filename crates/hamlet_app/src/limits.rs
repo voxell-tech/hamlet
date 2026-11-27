@@ -445,7 +445,7 @@ fn leads() -> impl View {
         heading(Glyph::Mayor, "Waits for you"),
         fine("What the leads may not do without asking you first."),
         line(
-            "Hire a scholar",
+            "Hire a profile",
             switch("reserved", "hire", |l| l.reserved.hire).boxed(),
         ),
         line(

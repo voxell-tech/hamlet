@@ -292,7 +292,7 @@ async fn a_purge_and_an_erase_wait_for_an_open_dream() {
         call_as(&host, &realm(), &erase).await.unwrap(),
         Done::Refused { why: dreaming }
     );
-    assert!(dir.join("scholars/1.git").exists());
+    assert!(dir.join("profiles/1.git").exists());
 
     call_as(&host, &realm(), &end(9, false)).await.unwrap();
     let erase = Erase {

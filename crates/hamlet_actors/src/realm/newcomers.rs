@@ -21,10 +21,10 @@ use crate::cbor;
 /// The Hand's part before every verdict.
 const ROLE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
-     into the city. The city is where the realm's scholars live \
-     between their work: any hamlet can hire a scholar there, and \
+     into the city. The city is where the realm's profiles live \
+     between their work: any hamlet can hire a profile there, and \
      what it learns stays with it. Let a newcomer in when it is a \
-     scholar the realm will want again, distinct from those the \
+     profile the realm will want again, distinct from those the \
      city has. Turn it away when it repeats one of them, is too \
      narrow to keep, or is unclear. A newcomer turned away still \
      works for the hamlet that made it. The chiefs can undo what \
@@ -212,7 +212,7 @@ impl Judging {
             character,
         } = self;
         input.text = format!(
-            "{maker} made the scholar `{label}`, whose character \
+            "{maker} made the profile `{label}`, whose character \
              is:\n\n{character}\n\nShould it move into the city? \
              Answer ACCEPT or TURN AWAY on the first line, then say \
              why in one line."

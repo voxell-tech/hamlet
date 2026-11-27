@@ -28,7 +28,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, EditLimits, ImageBytes, ImageId, ImageSize,
-    Keeper, ReadResult, RequestId, ScholarId, ServerMessage,
+    Keeper, ReadResult, RequestId, ServerMessage,
 };
 use serde_json::Value;
 
@@ -119,23 +119,23 @@ pub(crate) async fn read(
     }
 }
 
-/// The profile `scholar` names and its label, if the realm keeps one
-/// by that number.
+/// The id and label of `profile`, if the realm keeps one by that
+/// number.
 pub(crate) async fn profile(
     calls: &Calls,
-    scholar: ScholarId,
+    profile: protocol::ProfileId,
 ) -> Result<Result<(ProfileId, String), Refusal>> {
     let state = calls.call(&address::Realm, &ReadState).await?;
-    let missing = || Refusal::NoScholar {
-        address: format!("scholar#{}", scholar.0),
+    let missing = || Refusal::NoProfile {
+        address: format!("profile#{}", profile.0),
     };
     Ok(state
-        .scholars
+        .profiles
         .iter()
-        .find(|shown| shown.id == scholar)
+        .find(|shown| shown.id == profile)
         .and_then(|shown| {
             let profile = u32::try_from(shown.id.0).ok()?;
-            let label = format!("scholar#{profile} ({})", shown.name);
+            let label = format!("profile#{profile} ({})", shown.name);
             Some((ProfileId(profile), label))
         })
         .ok_or_else(missing))
@@ -147,7 +147,7 @@ async fn papers(
     calls: &Calls,
     of: Keeper,
 ) -> Result<Result<protocol::Papers, Refusal>> {
-    let scholar = match of {
+    let shown = match of {
         Keeper::Agent(agent) => {
             let Some(number) = route::number(agent) else {
                 return Ok(Err(Refusal::NoOne {
@@ -158,9 +158,9 @@ async fn papers(
                 .call(&address::Agent(number), &ReadPapers)
                 .await?));
         }
-        Keeper::Scholar(scholar) => scholar,
+        Keeper::Profile(shown) => shown,
     };
-    let profile = match profile(calls, scholar).await? {
+    let profile = match profile(calls, shown).await? {
         Ok((profile, _)) => Profile(profile),
         Err(refusal) => return Ok(Err(refusal)),
     };
@@ -285,14 +285,14 @@ pub(crate) async fn edit(
                 })
             }
         }
-        protocol::Edit::Character { id, scholar, text } => {
+        protocol::Edit::Character { id, profile, text } => {
             if text.chars().count() > CHARACTER_MOST {
                 Err(Refusal::LongCharacter)
             } else {
                 profile_edit(
                     calls,
                     id,
-                    *scholar,
+                    *profile,
                     CHARACTER,
                     text,
                     words::CHARACTER_SAVED,
@@ -303,11 +303,11 @@ pub(crate) async fn edit(
         protocol::Edit::Memory { id, of, path, text } => {
             match (memory_path(path), of) {
                 (Err(refusal), _) => Err(refusal),
-                (Ok(path), Keeper::Scholar(scholar)) => {
+                (Ok(path), Keeper::Profile(profile)) => {
                     profile_edit(
                         calls,
                         id,
-                        *scholar,
+                        *profile,
                         &path,
                         text,
                         words::MEMORY_SAVED,
@@ -341,18 +341,18 @@ pub(crate) async fn edit(
     Ok(Outcome::said(reply))
 }
 
-/// Writes `text` to the file `path` of the profile `scholar` names,
+/// Writes `text` to the file `path` of the profile `profile` names,
 /// in the words `saved` once written.
 async fn profile_edit(
     calls: &Calls,
     id: &RequestId,
-    scholar: ScholarId,
+    profile: protocol::ProfileId,
     path: &str,
     text: &str,
     saved: &str,
 ) -> Result<Result<String, Refusal>> {
-    let Ok(profile) = u32::try_from(scholar.0).map(ProfileId) else {
-        return Ok(Err(no_profile(scholar)));
+    let Ok(profile) = u32::try_from(profile.0).map(ProfileId) else {
+        return Ok(Err(no_profile(profile)));
     };
     let act = EditProfile {
         profile,
@@ -363,9 +363,9 @@ async fn profile_edit(
     Ok(done(ask(calls, id, act).await?, || saved.to_owned()))
 }
 
-fn no_profile(scholar: ScholarId) -> Refusal {
-    Refusal::NoScholar {
-        address: format!("scholar#{}", scholar.0),
+fn no_profile(profile: protocol::ProfileId) -> Refusal {
+    Refusal::NoProfile {
+        address: format!("profile#{}", profile.0),
     }
 }
 

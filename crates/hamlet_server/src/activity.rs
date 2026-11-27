@@ -176,7 +176,7 @@ fn doing_of(name: &str, text: &str) -> Doing {
                 Doing::Run
             }
         }
-        "hire" | "create_scholar" => Doing::Think,
+        "hire" | "create_profile" => Doing::Think,
         "ask" | "request_road" | "agree_road" | "ask_librarian"
         | "submit_skill" => Doing::Await,
         _ => Doing::Custom,

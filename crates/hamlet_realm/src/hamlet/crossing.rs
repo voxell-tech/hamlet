@@ -1,10 +1,10 @@
 //! A hire that gets a house after the world was first seen crosses
-//! the sea to it: it walks from its scholar's house in the city to
+//! the sea to it: it walks from its profile's house in the city to
 //! the pier, sails to the hamlet's pier and walks to its porch, while
 //! its robot is away.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{OfScholar, Scholar, Seen};
+use hamlet_client::realm::{OfProfile, Profile, Seen};
 use hamlet_protocol::client::Arrival;
 
 use super::Housed;
@@ -42,8 +42,8 @@ pub(super) struct Voyage {
 }
 
 /// Sends each hire housed after the first state to its house by
-/// way of the sea, starting from its scholar's door or, when the
-/// scholar has no house, from the pier.
+/// way of the sea, starting from its profile's door or, when the
+/// profile has no house, from the pier.
 pub(super) fn board(
     mut commands: Commands,
     clock: Res<Clock>,
@@ -55,10 +55,10 @@ pub(super) fn board(
     mut primed: Local<bool>,
     society: Res<Society>,
     hires: Query<
-        (Entity, &Housed, Option<&OfScholar>),
+        (Entity, &Housed, Option<&OfProfile>),
         Added<Housed>,
     >,
-    scholars: Query<&Scholar>,
+    profiles: Query<&Profile>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if seen.is_none() {
@@ -81,17 +81,17 @@ pub(super) fn board(
         if in_hall {
             continue;
         }
-        let scholar = of.and_then(|of| {
-            scholars.iter().find(|scholar| scholar.0.id == of.0)
+        let profile = of.and_then(|of| {
+            profiles.iter().find(|profile| profile.0.id == of.0)
         });
         // A blank hire is of no house in the city: it is at its own
         // at once.
-        if scholar.is_some_and(|s| s.0.arrival == Arrival::Apart) {
+        if profile.is_some_and(|s| s.0.arrival == Arrival::Apart) {
             continue;
         }
-        let door = scholar
-            .filter(|scholar| scholar.0.left.is_none())
-            .and_then(|scholar| scholar.0.house.as_ref())
+        let door = profile
+            .filter(|profile| profile.0.left.is_none())
+            .and_then(|profile| profile.0.house.as_ref())
             .map(|house| houses::door(&land, house));
         let way = match door {
             Some(door) => {

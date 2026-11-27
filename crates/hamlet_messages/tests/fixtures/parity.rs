@@ -165,7 +165,7 @@ const STATE: &str = r#"{
                 "text": "",
                 "thought": false
             },
-            "scholar": 1,
+            "profile": 1,
             "since": 1790000000000,
             "skills": [],
             "spent": {
@@ -205,7 +205,7 @@ const STATE: &str = r#"{
     "providers": [],
     "realm": "/realm",
     "revision": 42,
-    "scholars": [],
+    "profiles": [],
     "settings": {
         "allowNet": false,
         "character": "You are new to this realm.",

@@ -168,7 +168,7 @@ function partsOf(
         ["skills", keptMemory(skills)],
         ["place", placed("place")],
         ["realm", placed("realm")],
-        ["scholars", placed("profiles")],
+        ["profiles", placed("profiles")],
     ];
 }
 
@@ -261,7 +261,7 @@ async function machine(sources: PromptSources): Promise<string> {
         faults.length === 0
             ? ""
             : `\nTools that failed to load:\n${faults.map(({ folder, words }) => `${folder}: ${words}`).join("\n")}`;
-    return `# Environment\nSandbox: ${sandbox}. Network for tools: ${net}.${named}${failed}\n${SYSTEM}\nYour lodge: ${sources.files.root}. It is yours: your memory/ and skills/ live there, and what you write there is kept for your scholar.`;
+    return `# Environment\nSandbox: ${sandbox}. Network for tools: ${net}.${named}${failed}\n${SYSTEM}\nYour lodge: ${sources.files.root}. It is yours: your memory/ and skills/ live there, and what you write there is kept for your profile.`;
 }
 
 async function project(sources: PromptSources): Promise<string | undefined> {

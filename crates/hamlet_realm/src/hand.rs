@@ -338,7 +338,7 @@ fn meet(
 }
 
 /// The robot the pointer is on as `thing`: a hamlet's robot, or a
-/// scholar's figure in the city when the pointer is on the figure
+/// profile's figure in the city when the pointer is on the figure
 /// itself, not on the house that shares its name.
 fn robot_under(
     thing: Thing,
@@ -347,7 +347,7 @@ fn robot_under(
     over: &HoverMap,
 ) -> Option<Entity> {
     match thing {
-        Thing::Scholar(_) => boxes
+        Thing::Profile(_) => boxes
             .iter()
             .find(|(hit, of, parent)| {
                 **of == thing

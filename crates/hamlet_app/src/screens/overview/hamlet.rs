@@ -493,8 +493,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             // menu.
             let mayor_of = facts.id.clone();
             actions.push(action(
-                Glyph::Scholar,
-                "Hire a scholar",
+                Glyph::Profile,
+                "Hire a profile",
                 move |world| {
                     if let Some(mayor) =
                         hamlet_client::realm::mayor_of(

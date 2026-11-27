@@ -73,8 +73,8 @@ fn a_hire_and_a_worker_are_named_by_number() {
 #[test]
 fn a_bad_address_is_refused_in_its_words() {
     assert_eq!(
-        parse("/end scholar#2", None).unwrap_err().to_string(),
-        "`scholar#2` is not an address"
+        parse("/end profile#2", None).unwrap_err().to_string(),
+        "`profile#2` is not an address"
     );
 }
 
@@ -90,8 +90,8 @@ fn an_address_past_the_realms_numbers_is_no_one_in_its_words() {
             "no agent has the address `worker#4294967297`",
         ),
         (
-            "/versions scholar#4294967297",
-            "no scholar has the address `scholar#4294967297`",
+            "/versions profile#4294967297",
+            "no profile has the address `profile#4294967297`",
         ),
     ] {
         assert_eq!(refused(line), words, "{line}");
@@ -165,7 +165,7 @@ fn a_hamlet_is_founded_under_a_blank_mayor_unless_a_profile_is_named()
         }))
     );
     assert_eq!(
-        parse("/create-hamlet scholar#3 Docs: Keep the docs.", None),
+        parse("/create-hamlet profile#3 Docs: Keep the docs.", None),
         Ok(Act::Found(Found {
             name: "Docs".into(),
             mayor: Some(ProfileId(3)),
@@ -193,7 +193,7 @@ fn a_hire_goes_into_the_hamlet_here_unless_one_is_named() {
         }))
     );
     assert_eq!(
-        parse("/hire scholar#2", None).unwrap_err().to_string(),
+        parse("/hire profile#2", None).unwrap_err().to_string(),
         words::NO_HAMLET
     );
 }
@@ -325,10 +325,10 @@ fn erase_hamlet_names_a_hamlet_alone() {
 fn fork_takes_the_version_after_the_first_at_and_main_when_none() {
     assert_eq!(
         refused("/fork"),
-        "Use /fork <scholar#id>[@<version>] <new name>"
+        "Use /fork <profile#id>[@<version>] <new name>"
     );
     assert_eq!(
-        parse("/fork scholar#2@v3@x Notes keeper", None),
+        parse("/fork profile#2@v3@x Notes keeper", None),
         Ok(Act::Fork(ForkProfile {
             from: ProfileId(2),
             at: Some(VersionName("v3@x".into())),
@@ -336,7 +336,7 @@ fn fork_takes_the_version_after_the_first_at_and_main_when_none() {
         }))
     );
     for line in
-        ["/fork scholar#2 Notes", "/fork scholar#2@main Notes"]
+        ["/fork profile#2 Notes", "/fork profile#2@main Notes"]
     {
         assert_eq!(
             parse(line, None),
@@ -357,15 +357,15 @@ fn fork_takes_the_version_after_the_first_at_and_main_when_none() {
 #[test]
 fn remove_profile_names_a_profile_and_a_reason() {
     assert_eq!(
-        refused("/remove-scholar"),
-        "Use /remove-scholar <scholar#id> [reason]"
+        refused("/remove-profile"),
+        "Use /remove-profile <profile#id> [reason]"
     );
     assert_eq!(
-        refused("/remove-scholar scholar#2@v1"),
-        "`scholar#2@v1` is not an address"
+        refused("/remove-profile profile#2@v1"),
+        "`profile#2@v1` is not an address"
     );
     assert_eq!(
-        parse("/remove-scholar scholar#2 it is done", None),
+        parse("/remove-profile profile#2 it is done", None),
         Ok(Act::ArchiveProfile(ArchiveProfile {
             profile: ProfileId(2),
             why: Some("it is done".into()),
@@ -376,11 +376,11 @@ fn remove_profile_names_a_profile_and_a_reason() {
 #[test]
 fn restore_profile_names_a_profile_and_a_reason() {
     assert_eq!(
-        refused("/restore-scholar"),
-        "Use /restore-scholar <scholar#id> [reason]"
+        refused("/restore-profile"),
+        "Use /restore-profile <profile#id> [reason]"
     );
     assert_eq!(
-        parse("/restore-scholar scholar#2", None),
+        parse("/restore-profile profile#2", None),
         Ok(Act::RestoreProfile(RestoreProfile {
             profile: ProfileId(2),
             why: None,
@@ -391,11 +391,11 @@ fn restore_profile_names_a_profile_and_a_reason() {
 #[test]
 fn erase_profile_names_a_profile_alone() {
     assert_eq!(
-        refused("/erase-scholar"),
-        "Use /erase-scholar <scholar#id>"
+        refused("/erase-profile"),
+        "Use /erase-profile <profile#id>"
     );
     assert_eq!(
-        parse("/erase-scholar scholar#2 now", None),
+        parse("/erase-profile profile#2 now", None),
         Ok(Act::EraseProfile(EraseProfile {
             profile: ProfileId(2),
         }))
@@ -406,10 +406,10 @@ fn erase_profile_names_a_profile_alone() {
 fn welcome_names_a_profile_and_a_reason() {
     assert_eq!(
         refused("/welcome"),
-        "Use /welcome <scholar#id> [reason]"
+        "Use /welcome <profile#id> [reason]"
     );
     assert_eq!(
-        parse("/welcome scholar#2 it may stay", None),
+        parse("/welcome profile#2 it may stay", None),
         Ok(Act::Welcome(Welcome {
             profile: ProfileId(2),
             why: Some("it may stay".into()),
@@ -421,10 +421,10 @@ fn welcome_names_a_profile_and_a_reason() {
 fn turn_away_names_a_profile_and_a_reason() {
     assert_eq!(
         refused("/turn-away"),
-        "Use /turn-away <scholar#id> [reason]"
+        "Use /turn-away <profile#id> [reason]"
     );
     assert_eq!(
-        parse("/turn-away scholar#2", None),
+        parse("/turn-away profile#2", None),
         Ok(Act::TurnAway(TurnAway {
             profile: ProfileId(2),
             why: None,
@@ -436,12 +436,12 @@ fn turn_away_names_a_profile_and_a_reason() {
 fn move_house_reads_two_numbers_and_degrees_if_given() {
     assert_eq!(
         refused("/move-house"),
-        "Use /move-house <scholar#id> <x> <z> [degrees]"
+        "Use /move-house <profile#id> <x> <z> [degrees]"
     );
     for line in [
-        "/move-house scholar#2 4",
-        "/move-house scholar#2 four 5",
-        "/move-house scholar#2 4 5 east",
+        "/move-house profile#2 4",
+        "/move-house profile#2 four 5",
+        "/move-house profile#2 4 5 east",
     ] {
         let Ok(Act::MoveHouse {
             profile: ProfileId(2),
@@ -452,12 +452,12 @@ fn move_house_reads_two_numbers_and_degrees_if_given() {
         };
         assert_eq!(
             refusal.to_string(),
-            "Use /move-house <scholar#id> <x> <z> [degrees]",
+            "Use /move-house <profile#id> <x> <z> [degrees]",
             "{line}"
         );
     }
     assert_eq!(
-        parse("/move-house scholar#2 4 -5.5", None),
+        parse("/move-house profile#2 4 -5.5", None),
         Ok(Act::MoveHouse {
             profile: ProfileId(2),
             spot: Ok(Spot {
@@ -468,7 +468,7 @@ fn move_house_reads_two_numbers_and_degrees_if_given() {
         })
     );
     assert_eq!(
-        parse("/move-house scholar#2 4 5 90", None),
+        parse("/move-house profile#2 4 5 90", None),
         Ok(Act::MoveHouse {
             profile: ProfileId(2),
             spot: Ok(Spot {

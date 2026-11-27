@@ -253,7 +253,7 @@ async fn a_dream_of_no_hire_or_no_shared_profile_is_refused() {
         apart,
         Dreamt::Refused {
             why: DreamAskedRefusal::Profile(ProfileRefusal::Apart {
-                label: "scholar#2 (Mayor)".to_owned(),
+                label: "profile#2 (Mayor)".to_owned(),
             }),
         }
     );

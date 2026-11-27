@@ -227,7 +227,7 @@ async fn a_reserved_hire_shows_the_chief_the_version_it_asked_for() {
     };
     assert_eq!(
         subject,
-        r#"hire {"purpose":"Check the links","scholar":"scholar#3@v1"}"#
+        r#"hire {"profile":"profile#3@v1","purpose":"Check the links"}"#
     );
     realm.host.shutdown().await.unwrap();
 }

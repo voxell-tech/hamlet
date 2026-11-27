@@ -20,44 +20,42 @@ _Avoid_: citizen, resident, bot
 
 **Hand**:
 The chiefs' own agent. It is always there, sits above every mayor, and
-founds hamlets and looks after scholars when a chief asks. Its reserved
+founds hamlets and looks after profiles when a chief asks. Its reserved
 acts wait for a chief.
 _Avoid_: assistant, root agent, admin agent
 
-**Scholar**:
+**Profile**:
 Who an agent is when it is not at work: a git repository holding a
 character, memory and skills. Its `main` is what it knows. Many hires can
-be of one scholar. A scholar is its id, `scholar#<id>`; its name is a label
-that a chief changes and that may repeat. The actor runtime's actor for a
-scholar is `profile`, and profile replaces the word scholar everywhere
-once the server runs on actors.
-_Avoid_: persona, template, house
+be of one profile. A profile is its id, `profile#<id>`; its name is a label
+that a chief changes and that may repeat.
+_Avoid_: scholar, persona, template, house
 
 **Hire**:
-A scholar working in a hamlet, on a branch of its own and in its own
+A profile working in a hamlet, on a branch of its own and in its own
 filesystem, for a purpose a chief may leave out. Hires form a tree under
 the mayor.
 _Avoid_: member, employee, citizen
 
 **Blank agent**:
-A hire, the mayor included, that is not of a scholar of the city: its
-scholar is made for it alone, has no house, never waits at the harbor and
-is not listed with the city's scholars.
-_Avoid_: blank scholar, temp hire
+A hire, the mayor included, that is not of a profile of the city: its
+profile is made for it alone, has no house, never waits at the harbor and
+is not listed with the city's profiles.
+_Avoid_: blank profile, temp hire
 
 **Address**:
-How a chief or an agent names an agent or a scholar, by ids and never by a
+How a chief or an agent names an agent or a profile, by ids and never by a
 name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
-`worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
+`worker#<id>`, `profile#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it. An actor's address is another thing: its
 kind and its key.
 _Avoid_: handle, username
 
 **Name**:
-The words a scholar, a hamlet, a hire or a worker is shown by: a scholar's
+The words a profile, a hamlet, a hire or a worker is shown by: a profile's
 name, a hamlet's name, a hire's or a worker's nickname. Metadata a chief
 changes and that may repeat; it never finds anything. Everyone but the Hand
-has one a chief can change. A scholar and a hamlet always have one; a
+has one a chief can change. A profile and a hamlet always have one; a
 hamlet's id is a UUID no one reads.
 
 **Nickname**:
@@ -87,25 +85,25 @@ _Avoid_: subagent, helper, runtime
 A short-lived agent outside the tree that runs one turn for the realm and
 then ends: a lead's review of a chief's line, the librarian's answer, a
 dream.
-_Avoid_: job (a job is the server's outbox)
+_Avoid_: job
 
-### Scholars and their memory
+### Profiles and their memory
 
 **Character**:
-`CHARACTER.md` in a scholar's repository: who it is. Edited by a chief or
-given when a lead makes the scholar.
+`CHARACTER.md` in a profile's repository: who it is. Edited by a chief or
+given when a lead makes the profile.
 
 **Memory**:
-The files under a scholar's `memory/`. Files at its root are in every
+The files under a profile's `memory/`. Files at its root are in every
 prompt; each folder is described by its `MEMORY.md`.
 _Avoid_: notes, `NOTES.md`
 
 **Version**:
-A tag on a scholar's `main`. A hire can be hired at one or pinned to one.
-_Avoid_: release (for a scholar)
+A tag on a profile's `main`. A hire can be hired at one or pinned to one.
+_Avoid_: release (for a profile)
 
 **Pin**:
-Holding a hire at one version of its scholar, so it does not take in `main`.
+Holding a hire at one version of its profile, so it does not take in `main`.
 
 **Agent's filesystem**:
 An agent's own folder, where its file tools work: `memory/`, `skills/` and
@@ -116,8 +114,8 @@ its own commands, and no path or link leads a file tool out of it.
 _Avoid_: lodge, house, workspace, home
 
 **Dream**:
-An errand in which a hire brings what it learned home to its scholar's
-`main`, or a scholar tidies `main`. Off by default; the settings give its
+An errand in which a hire brings what it learned home to its profile's
+`main`, or a profile tidies `main`. Off by default; the settings give its
 hours, cost cap and rests.
 _Avoid_: sleep, sync
 
@@ -137,7 +135,7 @@ the database and the credentials, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
-Where the scholars live, apart from any hamlet, each in a house the server
+Where the profiles live, apart from any hamlet, each in a house the server
 sets down. In the world it is the **city island**, with the Hand's tower,
 the Library and the chief's Hearth.
 _Avoid_: town (for anything), guild
@@ -154,7 +152,7 @@ The pier on each island, with a boat between them. A newcomer waits at the
 city's until it is let into the city.
 
 **Newcomer**:
-A scholar a lead made, waiting at the harbor until a chief or the Hand lets
+A profile a lead made, waiting at the harbor until a chief or the Hand lets
 it into the city, as the realm's `newcomers` setting says.
 _Avoid_: applicant, guest
 
@@ -194,36 +192,18 @@ _Avoid_: orphan, survivor, lingering process, background job, daemon
 ### Running agents
 
 **Harness**:
-The kind of program an agent's conversations run in, apart from the server
-that keeps the realm's rules. Each agent has one for its new conversations.
-_Avoid_: engine, backend
-
-**Runtime**:
-One running harness, with its own identity, version and store, serving the
-conversations bound to it. Several agents may share one.
-_Avoid_: worker, harness process
+What an agent's conversations run in, inside its actor on the Node host
+(`hosts/node`), apart from the realm that keeps the rules. The agent opens
+it when it wakes.
+_Avoid_: engine, backend, runtime
 
 **Client protocol**:
 The messages the window and the CLI exchange with the server.
 
-**Runtime protocol**:
-The messages the server exchanges with a runtime.
-_Avoid_: link, harness link
-
-**Binding**:
-The tie between a conversation and the runtime it began in, kept for as
-long as the conversation is.
-
 **Marker**:
-What is kept of an operation's result together with the change it made,
-keyed by source and key, so asking for the operation again gives that
-result back.
+What is kept of a call's answer with the change it made, under its caller
+and its id, so the same call again gives that answer back.
 _Avoid_: receipt
-
-**Job**:
-A step the server has recorded to do after a change and runs on a thread of
-its own, so a crash loses none.
-_Avoid_: task (a task is an agent's work)
 
 ### Actors
 
@@ -231,14 +211,12 @@ _Avoid_: task (a task is an agent's work)
 What runs actors: the `hamlet_actor` and `hamlet_actor_*` crates,
 `hamlet_host`, the host that runs them in one process, and
 `hamlet_address`, an actor's address.
-_Avoid_: runtime (a runtime is one running harness)
+_Avoid_: runtime
 
 **Actor**:
 One instance of an actor kind, found by its kind and its key, with its
 state in a file of its own. A kind and a key take only lower-case
-letters, digits, `-`, `_` and `.`, and do not start with `.`. Not the
-chief, agent or realm that makes a change, which the store's code calls
-`Actor`.
+letters, digits, `-`, `_` and `.`, and do not start with `.`.
 
 **Call**:
 An actor's action run for its caller, which the host stamps on it:
@@ -369,7 +347,7 @@ _Avoid_: flavor
 
 **Hub**:
 The panel of the realm's agents: a rail of them by what they are doing,
-and beside it a thread, a scholar, a hamlet, the library or the page of
+and beside it a thread, a profile, a hamlet, the library or the page of
 every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 

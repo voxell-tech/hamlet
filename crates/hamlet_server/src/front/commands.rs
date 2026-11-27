@@ -665,17 +665,17 @@ async fn perform(
                 Record::Refused { why } => Err(refused(why)),
             }
         }
-        Act::Scholars => {
+        Act::Profiles => {
             let state = calls.call(&Realm, &ReadState).await?;
             let hands = state
                 .agents
                 .iter()
                 .filter(|agent| agent.kind == AgentKind::Hand)
-                .filter_map(|agent| agent.scholar)
+                .filter_map(|agent| agent.profile)
                 .collect::<Vec<_>>();
-            Ok(words::scholars(
+            Ok(words::profiles(
                 state
-                    .scholars
+                    .profiles
                     .into_iter()
                     .filter(|shown| {
                         shown.arrival != protocol::Arrival::Apart
@@ -684,7 +684,7 @@ async fn perform(
                     .map(|shown| {
                         (
                             format!(
-                                "scholar#{} ({})",
+                                "profile#{} ({})",
                                 shown.id.0, shown.name
                             ),
                             shown.left.is_none(),

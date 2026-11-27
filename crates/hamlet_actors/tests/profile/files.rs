@@ -552,7 +552,7 @@ async fn a_save_onto_a_moved_branch_keeps_both_and_its_side_wins() {
     assert_eq!(
         last_words(&dir, 1, "hires/7"),
         (
-            "Took in what its scholar learned".to_owned(),
+            "Took in what its profile learned".to_owned(),
             "realm".to_owned()
         )
     );

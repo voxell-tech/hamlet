@@ -612,7 +612,7 @@ mod tests {
     use crate::repo::testing::Hostless;
 
     fn repository(dir: &Scratch) -> Repository {
-        Repository::open(&dir.join("scholars/1.git")).unwrap()
+        Repository::open(&dir.join("profiles/1.git")).unwrap()
     }
 
     /// Profile 1 with branches `hires/7` and `hires/8` at `main`,

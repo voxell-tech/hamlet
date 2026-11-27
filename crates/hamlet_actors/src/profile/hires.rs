@@ -20,7 +20,7 @@ use crate::repo::{
     Admits, Before, Call, Ended, Look, Reply, Settle, Takes, Writer,
 };
 
-const TOOK_IN: &str = "Took in what its scholar learned";
+const TOOK_IN: &str = "Took in what its profile learned";
 
 pub(super) struct Table(());
 
@@ -470,7 +470,7 @@ mod tests {
     }
 
     fn repository(dir: &Scratch) -> Repository {
-        Repository::open(&dir.join("scholars/1.git")).unwrap()
+        Repository::open(&dir.join("profiles/1.git")).unwrap()
     }
 
     /// Moves `main` as a chief's edit of the character does.

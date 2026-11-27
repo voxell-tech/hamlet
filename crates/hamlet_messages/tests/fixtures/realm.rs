@@ -1605,7 +1605,7 @@ fn waits() -> Vec<WaitSeen> {
         wait(9, "the model failed: overloaded", WaitKind::Fault),
         wait(
             10,
-            "scholar#3 (Newbie)",
+            "profile#3 (Newbie)",
             WaitKind::Newcomer {
                 profile: ProfileId(3),
             },
@@ -1638,7 +1638,7 @@ fn the_prompt_sections(fixtures: &mut Fixtures) {
                 "# The realm\nNo hamlet is founded yet.".into(),
             ),
             profiles: Some(
-                "# The city's scholars\n- `scholar#2`".into(),
+                "# The city's profiles\n- `profile#2`".into(),
             ),
         },
     );

@@ -610,7 +610,7 @@ mod tests {
         let mut profile = Hostless::profile(&dir, "Careful.");
         let realm = Caller::Actor(Realm.address().unwrap());
         let repository =
-            Repository::open(&dir.join("scholars/1.git")).unwrap();
+            Repository::open(&dir.join("profiles/1.git")).unwrap();
         let first = repository.tip(MAIN).unwrap().unwrap();
         let by = Author {
             name: "chief:3",
@@ -648,7 +648,7 @@ mod tests {
         };
         assert_eq!(
             why.to_string(),
-            format!("`scholar#1` has no version `{unknown}`")
+            format!("`profile#1` has no version `{unknown}`")
         );
         assert_eq!(refused, TagAnswer::Refused { why });
 
@@ -688,7 +688,7 @@ mod tests {
         let mut profile = Hostless::profile(&dir, "Careful.");
         let realm = Caller::Actor(Realm.address().unwrap());
         let repository =
-            Repository::open(&dir.join("scholars/1.git")).unwrap();
+            Repository::open(&dir.join("profiles/1.git")).unwrap();
         let by = Author {
             name: "agent:2",
             at: 5000,
@@ -722,7 +722,7 @@ mod tests {
         };
         assert_eq!(
             why.to_string(),
-            "`scholar#1` has no version `hires/9`"
+            "`profile#1` has no version `hires/9`"
         );
         assert_eq!(refused, TagAnswer::Refused { why });
 
@@ -766,10 +766,10 @@ mod tests {
             .once::<Profile, Erase, _>(realm, asked, erase)
             .unwrap();
         assert_eq!(done, Done::Done);
-        let repository = dir.join("scholars/1.git");
+        let repository = dir.join("profiles/1.git");
         assert!(!repository.exists());
         // Left by a kill part-way through the removal.
-        let erased = dir.join("scholars/1.git.erased");
+        let erased = dir.join("profiles/1.git.erased");
         std::fs::create_dir(erased.join("objects")).unwrap();
         std::fs::write(erased.join("HEAD"), "ref: refs/heads/main")
             .unwrap();

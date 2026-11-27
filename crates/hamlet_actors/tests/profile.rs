@@ -239,7 +239,7 @@ fn tag(id: &RequestId, version: &str, note: &str) -> Tag {
 
 fn repository(dir: &Path, id: u32) -> hamlet_git::Repository {
     hamlet_git::Repository::open(
-        &dir.join(format!("scholars/{id}.git")),
+        &dir.join(format!("profiles/{id}.git")),
     )
     .unwrap()
 }
@@ -407,7 +407,7 @@ async fn a_tag_at_a_commit_git_fails_to_read_fails_and_tags_nothing()
     let damaged: hamlet_git::CommitId =
         "cd".repeat(20).parse().unwrap();
     let hex = damaged.to_string();
-    let folder = dir.join("scholars/1.git/objects").join(&hex[..2]);
+    let folder = dir.join("profiles/1.git/objects").join(&hex[..2]);
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join(&hex[2..]), b"not a git object")
         .unwrap();
@@ -527,7 +527,7 @@ async fn a_tag_cut_off_before_its_marker_is_found_by_its_repeat() {
     };
     repository(&dir, 1).tag("v1", tip, "first", tagger).unwrap();
     // A lock a kill left behind is removed at the start.
-    let lock = dir.join("scholars/1.git/refs/heads/main.lock");
+    let lock = dir.join("profiles/1.git/refs/heads/main.lock");
     std::fs::write(&lock, b"").unwrap();
 
     let host = open(&dir);
@@ -594,7 +594,7 @@ async fn a_profile_started_without_its_input_fails_and_makes_nothing()
         reason.contains("a profile is created with its input"),
         "{reason}"
     );
-    assert!(!dir.join("scholars/9.git").exists());
+    assert!(!dir.join("profiles/9.git").exists());
     host.shutdown().await.unwrap();
 }
 
@@ -618,10 +618,10 @@ async fn a_profile_made_with_a_character_too_long_fails_and_makes_nothing()
             .contains("a character may have at most 4000 characters"),
         "{reason}"
     );
-    assert!(!dir.join("scholars/9.git").exists());
+    assert!(!dir.join("profiles/9.git").exists());
     assert_eq!(
         last_words(&dir, 8, MAIN),
-        ("Made the scholar".to_owned(), "realm".to_owned())
+        ("Made the profile".to_owned(), "realm".to_owned())
     );
     host.shutdown().await.unwrap();
 }

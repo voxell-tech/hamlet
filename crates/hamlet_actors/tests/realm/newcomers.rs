@@ -71,13 +71,13 @@ async fn a_profile_at_the_harbor_waits_for_a_chief_until_let_in_or_turned_away()
     let asked = waits(&realm).await;
     let newbie = &asked[0];
     assert_eq!(asked.len(), 3);
-    assert_eq!(newbie.about, "scholar#3 (Newbie)");
+    assert_eq!(newbie.about, "profile#3 (Newbie)");
     assert_eq!(newbie.by, format!("hire#{}", MAYOR.0));
     assert_eq!(newbie.answers, [Choice::Welcome, Choice::Dismiss]);
     assert_eq!(
         newbie.detail,
         WaitDetail::Newcomer {
-            scholar: protocol::ScholarId(3)
+            profile: protocol::ProfileId(3)
         }
     );
     let welcomed = realm
@@ -122,14 +122,14 @@ async fn a_profile_at_the_harbor_waits_for_a_chief_until_let_in_or_turned_away()
 /// The Hand's part before every verdict, and the city it is shown.
 const JUDGE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
-     into the city. The city is where the realm's scholars live \
-     between their work: any hamlet can hire a scholar there, and \
+     into the city. The city is where the realm's profiles live \
+     between their work: any hamlet can hire a profile there, and \
      what it learns stays with it. Let a newcomer in when it is a \
-     scholar the realm will want again, distinct from those the \
+     profile the realm will want again, distinct from those the \
      city has. Turn it away when it repeats one of them, is too \
      narrow to keep, or is unclear. A newcomer turned away still \
      works for the hamlet that made it. The chiefs can undo what \
-     you decide.\n\n# The city\n- scholar#3 (Digger)";
+     you decide.\n\n# The city\n- profile#3 (Digger)";
 
 async fn ended(realm: &Realm, n: u32, text: &str) {
     let ended = Ended::Answered {
@@ -160,7 +160,7 @@ async fn the_hand_judges_a_profile_a_lead_makes_when_newcomers_are_left_to_it()
     assert_eq!(brief.instructions.as_deref(), Some(JUDGE));
     assert_eq!(
         brief.text,
-        "hire#2 (Mayor) made the scholar `scholar#4 (Mason)`, whose \
+        "hire#2 (Mayor) made the profile `profile#4 (Mason)`, whose \
          character is:\n\nYou are Mason.\n\nShould it move into the \
          city? Answer ACCEPT or TURN AWAY on the first line, then \
          say why in one line."
@@ -170,7 +170,7 @@ async fn the_hand_judges_a_profile_a_lead_makes_when_newcomers_are_left_to_it()
     ended(&realm, 1, " TURN AWAY \nThe city has a smith.").await;
     ended(&realm, 2, "Perhaps.").await;
     let state: protocol::State = realm.ask(&ReadState).await.unwrap();
-    let mason = &state.scholars[1];
+    let mason = &state.profiles[1];
     assert_eq!(mason.arrival_by.as_deref(), Some("hand"));
 
     assert_eq!(

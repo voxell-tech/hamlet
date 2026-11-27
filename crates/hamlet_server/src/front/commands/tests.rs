@@ -19,7 +19,7 @@ use crate::front::view::Own;
 
 const DOCS: &str = "docs";
 
-const ADA: &str = "scholar#2 (Ada)";
+const ADA: &str = "profile#2 (Ada)";
 
 /// The Hand, the living hires 2 and 3, the worker 4 and the ended
 /// hire 5.
@@ -210,7 +210,7 @@ fn restore_is_worded() {
                         label: ADA.into(),
                     },
                 },
-                "the scholar `scholar#2 (Ada)` no longer lives in \
+                "the profile `profile#2 (Ada)` no longer lives in \
                  the city",
             ),
             (
@@ -309,7 +309,7 @@ fn restore_hamlet_is_worded() {
                 refused_with(HamletRefusal::ProfileGone {
                     label: ADA.into(),
                 }),
-                "the scholar `scholar#2 (Ada)` no longer lives in \
+                "the profile `profile#2 (Ada)` no longer lives in \
                  the city",
             ),
         ],
@@ -338,12 +338,12 @@ fn fork_is_worded() {
     };
     assert_eq!(
         read(forked(done(), None, "Notes")),
-        "Forked scholar#2 (Ada) as Notes."
+        "Forked profile#2 (Ada) as Notes."
     );
     let v3 = VersionName("v3".into());
     assert_eq!(
         read(forked(done(), Some(&v3), "Notes")),
-        "Forked scholar#2 (Ada) at v3 as Notes."
+        "Forked profile#2 (Ada) at v3 as Notes."
     );
     reads(
         |answer| forked(answer, Some(&v3), "Notes"),
@@ -355,7 +355,7 @@ fn fork_is_worded() {
                     }
                     .into(),
                 },
-                "no scholar has the address `scholar#2`",
+                "no profile has the address `profile#2`",
             ),
             (
                 Forked::Refused {
@@ -365,7 +365,7 @@ fn fork_is_worded() {
                     }
                     .into(),
                 },
-                "`scholar#2` has no version `v3`",
+                "`profile#2` has no version `v3`",
             ),
             (
                 Forked::Refused {
@@ -394,28 +394,28 @@ fn no_profile() -> (Lifecycle, &'static str) {
             }
             .into(),
         },
-        "no scholar has the address `scholar#2`",
+        "no profile has the address `profile#2`",
     )
 }
 
 fn gone() -> (Lifecycle, &'static str) {
     (
         life(LifeRefusal::Gone { label: ADA.into() }),
-        "the scholar `scholar#2 (Ada)` no longer lives in the city",
+        "the profile `profile#2 (Ada)` no longer lives in the city",
     )
 }
 
 fn erased() -> (Lifecycle, &'static str) {
     (
         life(LifeRefusal::Erased { label: ADA.into() }),
-        "the scholar `scholar#2 (Ada)` was erased",
+        "the profile `profile#2 (Ada)` was erased",
     )
 }
 
 fn living() -> (Lifecycle, &'static str) {
     (
         life(LifeRefusal::Living { label: ADA.into() }),
-        "the scholar `scholar#2 (Ada)` is still living; remove it \
+        "the profile `profile#2 (Ada)` is still living; remove it \
          first",
     )
 }
@@ -425,7 +425,7 @@ fn apart() -> (Lifecycle, &'static str) {
         Lifecycle::Refused {
             why: ProfileRefusal::Apart { label: ADA.into() }.into(),
         },
-        "`scholar#2 (Ada)` is a blank hire's own, not a scholar of \
+        "`profile#2 (Ada)` is a blank hire's own, not a profile of \
          the city",
     )
 }
@@ -441,7 +441,7 @@ fn remove_profile_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)` left the city, with its hires.",
+                "`profile#2 (Ada)` left the city, with its hires.",
             ),
             no_profile(),
             gone(),
@@ -460,7 +460,7 @@ fn restore_profile_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)` is back in the city.",
+                "`profile#2 (Ada)` is back in the city.",
             ),
             no_profile(),
             erased(),
@@ -483,7 +483,7 @@ fn erase_profile_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)` was erased for good.",
+                "`profile#2 (Ada)` was erased for good.",
             ),
             no_profile(),
             erased(),
@@ -499,14 +499,14 @@ fn welcome_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)` moved into its house in the city.",
+                "`profile#2 (Ada)` moved into its house in the city.",
             ),
             no_profile(),
             gone(),
             apart(),
             (
                 life(LifeRefusal::Housed { label: ADA.into() }),
-                "the scholar `scholar#2 (Ada)` lives in the city \
+                "the profile `profile#2 (Ada)` lives in the city \
                  already",
             ),
         ],
@@ -520,14 +520,14 @@ fn turn_away_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)` waits at the harbor.",
+                "`profile#2 (Ada)` waits at the harbor.",
             ),
             no_profile(),
             gone(),
             apart(),
             (
                 life(LifeRefusal::TurnedAway { label: ADA.into() }),
-                "the scholar `scholar#2 (Ada)` was turned away \
+                "the profile `profile#2 (Ada)` was turned away \
                  already",
             ),
         ],
@@ -545,14 +545,14 @@ fn move_house_is_worded() {
         [
             (
                 done_with_ada(),
-                "`scholar#2 (Ada)`'s house stands at 4, -5.5.",
+                "`profile#2 (Ada)`'s house stands at 4, -5.5.",
             ),
             no_profile(),
             gone(),
             apart(),
             (
                 life(LifeRefusal::AtHarbor { label: ADA.into() }),
-                "the scholar `scholar#2 (Ada)` waits at the harbor; \
+                "the profile `profile#2 (Ada)` waits at the harbor; \
                  welcome it into the city first",
             ),
             (
@@ -563,7 +563,7 @@ fn move_house_is_worded() {
             ),
             (
                 life(LifeRefusal::Crowded { label: ADA.into() }),
-                "the house of `scholar#2 (Ada)` would stand on \
+                "the house of `profile#2 (Ada)` would stand on \
                  another house or the city's middle",
             ),
         ],

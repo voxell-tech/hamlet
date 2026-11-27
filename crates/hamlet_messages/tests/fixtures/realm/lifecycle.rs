@@ -166,7 +166,7 @@ fn the_merges_and_the_ended_hires(fixtures: &mut Fixtures) {
             (
                 "profile_gone",
                 EndedRefusal::ProfileGone {
-                    label: "scholar#4 (Ada)".into(),
+                    label: "profile#4 (Ada)".into(),
                 },
             ),
             (
@@ -240,7 +240,7 @@ fn the_hamlets_removed(fixtures: &mut Fixtures) {
             (
                 "profile_gone",
                 HamletRefusal::ProfileGone {
-                    label: "scholar#4 (Ada)".into(),
+                    label: "profile#4 (Ada)".into(),
                 },
             ),
         ]
@@ -288,7 +288,7 @@ fn the_hamlets_removed(fixtures: &mut Fixtures) {
 }
 
 fn the_profiles_lives(fixtures: &mut Fixtures) {
-    let label = || "scholar#4 (Ada)".to_owned();
+    let label = || "profile#4 (Ada)".to_owned();
     fixtures.args(
         "realm/chief_fork_profile",
         &asked(ForkProfile {

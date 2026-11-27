@@ -4,7 +4,7 @@ use hamlet_acceptance::Client;
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{
     AgentId, AgentKind, Answer, AttachedImage, Choice, ClientMessage,
-    Edit, Keeper, ReplyKind, RequestId, Say, ScholarId,
+    Edit, Keeper, ProfileId, ReplyKind, RequestId, Say,
     ServerMessage, State,
 };
 use hamlet_testing::{Scratch, Server};
@@ -318,7 +318,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
     let (mut server, _home, _side) = serve(json!([
         {
             "calls": [{
-                "name": "create_scholar",
+                "name": "create_profile",
                 "arguments": { "name": "ada" },
             }],
         },
@@ -326,7 +326,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
         {
             "calls": [{
                 "name": "tag",
-                "arguments": { "scholar": "scholar#2", "tag": "v1" },
+                "arguments": { "profile": "profile#2", "tag": "v1" },
             }],
         },
         "Ada is tagged.",
@@ -340,7 +340,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
     let hand = chief.hand();
     let chat = hamlet_acceptance::chat(hand);
     chief.open(&chat).await;
-    chief.say(hand, "Make a scholar named ada.").await;
+    chief.say(hand, "Make a profile named ada.").await;
     chief.shows(&chat, "Ada is made.").await;
     let tagged = chief.tell(hand, "Tag ada as v1.").await;
     until(&server, "the tag's wait", |realm| !realm.waits.is_empty())
@@ -351,7 +351,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
     found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
 
-    for hire in ["blank", "scholar#2", "scholar#2@v1"] {
+    for hire in ["blank", "profile#2", "profile#2@v1"] {
         let hired = chief
             .command(hand, &format!("/hire {hire} in {docs}"))
             .await;
@@ -379,9 +379,9 @@ async fn a_hire_goes_live_and_answers_a_line() {
     }
     assert_eq!(
         chief
-            .refused(hand, &format!("/hire scholar#2@v9 in {docs}"))
+            .refused(hand, &format!("/hire profile#2@v9 in {docs}"))
             .await,
-        "`scholar#2 (ada)` has no version `v9`"
+        "`profile#2 (ada)` has no version `v9`"
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
@@ -479,7 +479,7 @@ async fn a_chief_stopping_or_telling_an_ended_hire_reads_that_no_agent_has_its_a
 async fn a_move_house_names_a_missing_profile_before_numbers_it_cannot_read()
  {
     let (mut server, _home, _side) = serve(json!([
-        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        {"calls": [{"name": "create_profile", "arguments": {"name": "ada"}}]},
         "Ada is made.",
     ]))
     .await;
@@ -491,17 +491,17 @@ async fn a_move_house_names_a_missing_profile_before_numbers_it_cannot_read()
     chief.shows(&chat, "Ada is made.").await;
 
     let missing =
-        chief.refused(hand, "/move-house scholar#99 four 5").await;
+        chief.refused(hand, "/move-house profile#99 four 5").await;
     let unread =
-        chief.refused(hand, "/move-house scholar#2 four 5").await;
-    let short = chief.refused(hand, "/move-house scholar#99 4").await;
+        chief.refused(hand, "/move-house profile#2 four 5").await;
+    let short = chief.refused(hand, "/move-house profile#99 4").await;
 
-    assert_eq!(missing, "no scholar has the address `scholar#99`");
+    assert_eq!(missing, "no profile has the address `profile#99`");
     assert_eq!(
         unread,
-        "Use /move-house <scholar#id> <x> <z> [degrees]"
+        "Use /move-house <profile#id> <x> <z> [degrees]"
     );
-    assert_eq!(short, "no scholar has the address `scholar#99`");
+    assert_eq!(short, "no profile has the address `profile#99`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -510,7 +510,7 @@ async fn a_move_house_names_a_missing_profile_before_numbers_it_cannot_read()
 async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_the_harbor()
  {
     let (mut server, _home, _side) = serve(json!([
-        {"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]},
+        {"calls": [{"name": "create_profile", "arguments": {"name": "ada"}}]},
         "Ada is made.",
     ]))
     .await;
@@ -520,22 +520,22 @@ async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_
     chief.open(&chat).await;
     chief.say(hand, "Make ada.").await;
     chief.shows(&chat, "Ada is made.").await;
-    let at_harbor = "the scholar `scholar#2 (ada)` waits at the \
+    let at_harbor = "the profile `profile#2 (ada)` waits at the \
                      harbor; welcome it into the city first";
 
     let mut read = Vec::new();
     for line in [
-        "/move-house scholar#2 1e999 5",
-        "/move-house scholar#2 5 -inf",
-        "/move-house scholar#2 NaN 5",
-        "/move-house scholar#2 1 2 inf",
-        "/move-house scholar#99 inf 5",
+        "/move-house profile#2 1e999 5",
+        "/move-house profile#2 5 -inf",
+        "/move-house profile#2 NaN 5",
+        "/move-house profile#2 1 2 inf",
+        "/move-house profile#99 inf 5",
     ] {
         read.push(chief.refused(hand, line).await);
     }
-    chief.command(hand, "/turn-away scholar#2").await;
+    chief.command(hand, "/turn-away profile#2").await;
     read.push(
-        chief.refused(hand, "/move-house scholar#2 inf 5").await,
+        chief.refused(hand, "/move-house profile#2 inf 5").await,
     );
 
     assert_eq!(
@@ -545,7 +545,7 @@ async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_
             "`5, -inf` is not an address",
             "`NaN, 5` is not an address",
             "`1, 2` is not an address",
-            "no scholar has the address `scholar#99`",
+            "no profile has the address `profile#99`",
             at_harbor,
         ]
     );
@@ -553,13 +553,13 @@ async fn a_move_house_refuses_numbers_that_are_not_finite_after_the_profile_and_
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// A server whose Hand made the profile `scholar#2 (ada)`, its faux
+/// A server whose Hand made the profile `profile#2 (ada)`, its faux
 /// model answering with `more` after, and its chief.
 async fn with_ada(
     more: &[serde_json::Value],
 ) -> (Server, Scratch, Scratch, Client) {
     let mut responses = vec![
-        json!({"calls": [{"name": "create_scholar", "arguments": {"name": "ada"}}]}),
+        json!({"calls": [{"name": "create_profile", "arguments": {"name": "ada"}}]}),
         json!("Ada is made."),
     ];
     responses.extend_from_slice(more);
@@ -580,7 +580,7 @@ async fn note(chief: &mut Client, text: &str) {
         .request(|id| {
             ClientMessage::Edit(Edit::Memory {
                 id,
-                of: Keeper::Scholar(ScholarId(2)),
+                of: Keeper::Profile(ProfileId(2)),
                 path: "notes.md".into(),
                 text,
             })
@@ -596,12 +596,12 @@ async fn note(chief: &mut Client, text: &str) {
 async fn tag_names_a_version_and_versions_lists_it() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
-    let none = chief.command(hand, "/versions scholar#2").await;
+    let none = chief.command(hand, "/versions profile#2").await;
     let tagged =
-        chief.command(hand, "/tag scholar#2 v1 the first").await;
-    let taken = chief.refused(hand, "/tag scholar#2 v1").await;
-    let listed = chief.command(hand, "/versions scholar#2").await;
-    let missing = chief.refused(hand, "/versions scholar#9").await;
+        chief.command(hand, "/tag profile#2 v1 the first").await;
+    let taken = chief.refused(hand, "/tag profile#2 v1").await;
+    let listed = chief.command(hand, "/versions profile#2").await;
+    let missing = chief.refused(hand, "/versions profile#9").await;
 
     assert!(
         none.starts_with(
@@ -610,7 +610,7 @@ async fn tag_names_a_version_and_versions_lists_it() {
         ),
         "{none}"
     );
-    assert_eq!(tagged, "Tagged scholar#2 (ada) as v1.");
+    assert_eq!(tagged, "Tagged profile#2 (ada) as v1.");
     assert_eq!(
         taken,
         "the version `v1` exists already; choose another"
@@ -620,7 +620,7 @@ async fn tag_names_a_version_and_versions_lists_it() {
         listed.contains("): the first\nLatest commits of main:\n- "),
         "{listed}"
     );
-    assert_eq!(missing, "no scholar has the address `scholar#9`");
+    assert_eq!(missing, "no profile has the address `profile#9`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -630,12 +630,12 @@ async fn tag_names_the_commit_after_the_at() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     note(&mut chief, "Metric.").await;
-    chief.command(hand, "/tag scholar#2 v1").await;
+    chief.command(hand, "/tag profile#2 v1").await;
     note(&mut chief, "Imperial.").await;
-    let old = chief.command(hand, "/tag scholar#2@v1 old").await;
-    let now = chief.command(hand, "/tag scholar#2@main v0").await;
-    let missing = chief.refused(hand, "/tag scholar#2@nope v2").await;
-    let listed = chief.command(hand, "/versions scholar#2").await;
+    let old = chief.command(hand, "/tag profile#2@v1 old").await;
+    let now = chief.command(hand, "/tag profile#2@main v0").await;
+    let missing = chief.refused(hand, "/tag profile#2@nope v2").await;
+    let listed = chief.command(hand, "/versions profile#2").await;
 
     let commit = |version: &str| {
         listed
@@ -651,9 +651,9 @@ async fn tag_names_the_commit_after_the_at() {
         .nth(1)
         .map(|rest| rest[..8].to_owned())
         .unwrap_or_else(|| panic!("{listed}"));
-    assert_eq!(old, "Tagged scholar#2 (ada) as old.");
-    assert_eq!(now, "Tagged scholar#2 (ada) as v0.");
-    assert_eq!(missing, "`scholar#2` has no version `nope`");
+    assert_eq!(old, "Tagged profile#2 (ada) as old.");
+    assert_eq!(now, "Tagged profile#2 (ada) as v0.");
+    assert_eq!(missing, "`profile#2` has no version `nope`");
     assert_eq!(commit("old"), commit("v1"));
     assert_eq!(commit("v0"), tip);
     assert_ne!(commit("v0"), commit("v1"));
@@ -666,9 +666,9 @@ async fn the_same_tag_asked_twice_is_refused_the_second_time() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     note(&mut chief, "Metric.").await;
-    let first = chief.command(hand, "/tag scholar#2 v1").await;
-    let again = chief.refused(hand, "/tag scholar#2 v1").await;
-    assert_eq!(first, "Tagged scholar#2 (ada) as v1.");
+    let first = chief.command(hand, "/tag profile#2 v1").await;
+    let again = chief.refused(hand, "/tag profile#2 v1").await;
+    assert_eq!(first, "Tagged profile#2 (ada) as v1.");
     assert_eq!(
         again,
         "the version `v1` exists already; choose another"
@@ -683,11 +683,11 @@ async fn tag_names_a_hires_branch_by_its_name() {
         with_ada(&[json!("Here.")]).await;
     let hand = chief.hand();
     note(&mut chief, "Metric.").await;
-    chief.command(hand, "/tag scholar#2 v1").await;
+    chief.command(hand, "/tag profile#2 v1").await;
     found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
     let hired = chief
-        .command(hand, &format!("/hire scholar#2 in {docs}"))
+        .command(hand, &format!("/hire profile#2 in {docs}"))
         .await;
     let name = hired_address(&hired);
     until(&server, "the hire", |realm| {
@@ -697,9 +697,9 @@ async fn tag_names_a_hires_branch_by_its_name() {
     note(&mut chief, "Imperial.").await;
     let branch = name.replace("hire#", "hires/");
     let tagged = chief
-        .command(hand, &format!("/tag scholar#2@{branch} h"))
+        .command(hand, &format!("/tag profile#2@{branch} h"))
         .await;
-    let listed = chief.command(hand, "/versions scholar#2").await;
+    let listed = chief.command(hand, "/versions profile#2").await;
 
     let commit = |version: &str| {
         listed
@@ -711,13 +711,13 @@ async fn tag_names_a_hires_branch_by_its_name() {
             .unwrap_or_else(|| panic!("{version} in {listed}"))
     };
     let tip =
-        hamlet_git::Repository::open(&home.join("scholars/2.git"))
+        hamlet_git::Repository::open(&home.join("profiles/2.git"))
             .unwrap()
             .tip(&branch)
             .unwrap()
             .expect("the hire's branch")
             .to_string();
-    assert_eq!(tagged, "Tagged scholar#2 (ada) as h.");
+    assert_eq!(tagged, "Tagged profile#2 (ada) as h.");
     assert_eq!(commit("h"), tip[..8]);
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
@@ -728,16 +728,16 @@ async fn revert_undoes_a_commit_of_a_profiles_main() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     note(&mut chief, "Metric.").await;
-    chief.command(hand, "/tag scholar#2 noted").await;
+    chief.command(hand, "/tag profile#2 noted").await;
 
     let reverted = chief
-        .command(hand, "/revert scholar#2 noted not wanted")
+        .command(hand, "/revert profile#2 noted not wanted")
         .await;
-    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+    let papers = chief.papers(Keeper::Profile(ProfileId(2))).await;
 
     assert!(
         reverted.starts_with("Reverted ")
-            && reverted.ends_with(" on scholar#2 (ada)'s main."),
+            && reverted.ends_with(" on profile#2 (ada)'s main."),
         "{reverted}"
     );
     assert!(papers.memory.is_empty(), "{papers:?}");
@@ -752,14 +752,14 @@ async fn purge_takes_a_file_out_of_a_profiles_history() {
     note(&mut chief, "A secret.").await;
 
     let purged = chief
-        .command(hand, "/purge scholar#2 memory/notes.md")
+        .command(hand, "/purge profile#2 memory/notes.md")
         .await;
-    let outside = chief.refused(hand, "/purge scholar#2 ../x").await;
-    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+    let outside = chief.refused(hand, "/purge profile#2 ../x").await;
+    let papers = chief.papers(Keeper::Profile(ProfileId(2))).await;
 
     assert!(
         purged.starts_with(
-            "Purged memory/notes.md from scholar#2 (ada): "
+            "Purged memory/notes.md from profile#2 (ada): "
         ) && purged.ends_with(" branches rewritten."),
         "{purged}"
     );
@@ -773,8 +773,8 @@ async fn purge_takes_a_file_out_of_a_profiles_history() {
 async fn a_chief_lists_the_citys_profiles() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
-    let listed = chief.command(hand, "/scholars").await;
-    assert_eq!(listed, "- scholar#2 (ada)");
+    let listed = chief.command(hand, "/profiles").await;
+    assert_eq!(listed, "- profile#2 (ada)");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -783,15 +783,15 @@ async fn a_chief_lists_the_citys_profiles() {
 async fn a_hamlet_is_founded_from_a_profile_version() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
-    chief.command(hand, "/tag scholar#2 v1").await;
+    chief.command(hand, "/tag profile#2 v1").await;
     let missing = chief
-        .refused(hand, "/create-hamlet scholar#2@v9 Nowhere")
+        .refused(hand, "/create-hamlet profile#2@v9 Nowhere")
         .await;
     chief
-        .command(hand, "/create-hamlet scholar#2@v1 Docs")
+        .command(hand, "/create-hamlet profile#2@v1 Docs")
         .await;
 
-    assert_eq!(missing, "`scholar#2 (ada)` has no version `v9`");
+    assert_eq!(missing, "`profile#2 (ada)` has no version `v9`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -859,10 +859,10 @@ async fn dream_names_one_profile_or_hire() {
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
     let bare = chief.refused(hand, "/dream").await;
-    let missing = chief.refused(hand, "/dream scholar#9").await;
+    let missing = chief.refused(hand, "/dream profile#9").await;
 
-    assert_eq!(bare, "Use /dream <scholar#id|address>");
-    assert_eq!(missing, "no scholar has the address `scholar#9`");
+    assert_eq!(bare, "Use /dream <profile#id|address>");
+    assert_eq!(missing, "no profile has the address `profile#9`");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
@@ -873,15 +873,15 @@ async fn a_chief_makes_a_profile_from_its_character() {
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
     let made =
-        chief.command(hand, "/scholar new bea: Careful.").await;
-    let bare = chief.refused(hand, "/scholar").await;
-    let papers = chief.papers(Keeper::Scholar(ScholarId(2))).await;
+        chief.command(hand, "/profile new bea: Careful.").await;
+    let bare = chief.refused(hand, "/profile").await;
+    let papers = chief.papers(Keeper::Profile(ProfileId(2))).await;
 
     assert_eq!(
         made,
-        "The scholar `scholar#2 (bea)` lives in the city."
+        "The profile `profile#2 (bea)` lives in the city."
     );
-    assert_eq!(bare, "Use /scholar new <name>[: <character>]");
+    assert_eq!(bare, "Use /profile new <name>[: <character>]");
     assert_eq!(papers.character, "Careful.");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
@@ -892,11 +892,11 @@ async fn a_chief_pins_a_hire_to_a_profile_version() {
     let (mut server, _home, _side, mut chief) =
         with_ada(&[json!("Here.")]).await;
     let hand = chief.hand();
-    chief.command(hand, "/tag scholar#2 v1").await;
+    chief.command(hand, "/tag profile#2 v1").await;
     found(&server, &mut chief, "Docs").await;
     let docs = look(&server).await.hamlets[0].id.clone();
     let hired = chief
-        .command(hand, &format!("/hire scholar#2 in {docs}"))
+        .command(hand, &format!("/hire profile#2 in {docs}"))
         .await;
     let name = hired_address(&hired);
     let hire = until(&server, "the hire", |realm| {
@@ -936,10 +936,10 @@ async fn a_chief_pins_a_hire_to_a_profile_version() {
              learning."
         )
     );
-    assert_eq!(missing, "`scholar#2 (ada)` has no version `v9`");
+    assert_eq!(missing, "`profile#2 (ada)` has no version `v9`");
     assert_eq!(
         main,
-        format!("{name} (ada) follows its scholar's main again.")
+        format!("{name} (ada) follows its profile's main again.")
     );
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
@@ -950,17 +950,17 @@ async fn a_chief_renames_a_profile() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     let renamed =
-        chief.command(hand, "/name-scholar scholar#2 Ada Two").await;
+        chief.command(hand, "/name-profile profile#2 Ada Two").await;
     let missing =
-        chief.refused(hand, "/name-scholar scholar#9 Cy").await;
-    let listed = chief.command(hand, "/scholars").await;
+        chief.refused(hand, "/name-profile profile#9 Cy").await;
+    let listed = chief.command(hand, "/profiles").await;
 
     assert_eq!(
         renamed,
-        "The scholar is now named `scholar#2 (Ada Two)`."
+        "The profile is now named `profile#2 (Ada Two)`."
     );
-    assert_eq!(missing, "no scholar has the address `scholar#9`");
-    assert_eq!(listed, "- scholar#2 (Ada Two)");
+    assert_eq!(missing, "no profile has the address `profile#9`");
+    assert_eq!(listed, "- profile#2 (Ada Two)");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

@@ -134,7 +134,7 @@ family!(TooLarge {
 });
 
 family!(Missing {
-    #[error("`scholar#{}` has no version `{}`", profile.0, version.0)]
+    #[error("`profile#{}` has no version `{}`", profile.0, version.0)]
     NoVersion { profile: ProfileId, version: VersionName },
 });
 
@@ -144,7 +144,7 @@ family!(NotAHire {
 });
 
 family!(BadCommit {
-    #[error("`scholar#{}` has no version `{}`", profile.0, commit.0)]
+    #[error("`profile#{}` has no version `{}`", profile.0, commit.0)]
     NoCommit { profile: ProfileId, commit: CommitId },
     #[error("the commit `{}` is not on main", commit.0)]
     NotOnMain { commit: CommitId },
@@ -214,9 +214,9 @@ family!(TagRefusal {
     BadName { version: VersionName },
     #[error("the version `{}` exists already; choose another", version.0)]
     Taken { version: VersionName },
-    #[error("`scholar#{}` has no version `{}`", profile.0, commit.0)]
+    #[error("`profile#{}` has no version `{}`", profile.0, commit.0)]
     NoSuchCommit { profile: ProfileId, commit: CommitId },
-    #[error("`scholar#{}` has no version `{}`", profile.0, version.0)]
+    #[error("`profile#{}` has no version `{}`", profile.0, version.0)]
     NoVersion { profile: ProfileId, version: VersionName },
 });
 
