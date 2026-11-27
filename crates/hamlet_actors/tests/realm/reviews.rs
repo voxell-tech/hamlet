@@ -21,13 +21,15 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::{Choice, RequestId};
 
+use super::asking::held_rows;
 use super::chiefs::chief;
 use super::parcels::fetched;
 use super::say::{file, uploaded};
 use super::stand_ins::{Callee, Seen};
 use super::{
     DEADLINE, FOUR, MAYOR, Realm, THREE, answer, errand, founded,
-    hires, paid, say, sent, submits_to, tell, to, tool, until,
+    hires, paid, say, seen_submits, sent, submits_to, tell, to, tool,
+    until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -637,12 +639,17 @@ async fn a_hire_cannot_object_to_a_line_it_was_not_given() {
     realm.host.shutdown().await.unwrap();
 }
 
+/// The mayor was never given a letter on hire 3's task, so it may not
+/// name that task: its letter paid on it carries no task, and reaches
+/// hire 4 while the objection to hire 3's line is open.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_line_on_go_still_gives_the_held_letters() {
+async fn a_leads_letter_on_a_hires_task_it_was_never_given_goes_at_once()
+ {
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
-    let wait = objected(&realm).await;
+    objected(&realm).await;
     let (_, _, task) = briefed(&realm, 0).await;
+
     let told = realm
         .tool(
             MAYOR,
@@ -654,27 +661,22 @@ async fn a_failed_line_on_go_still_gives_the_held_letters() {
         )
         .await
         .unwrap();
-    let before = submits_to(&realm, FOUR);
-    realm.seen.fail_once(Callee::Submit, THREE);
+    let given = seen_submits(&realm, FOUR, 1).await;
+    let waits = waits_of_three(&realm).await;
 
-    let ruled =
-        realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
-    until("giving 3 the line failed", || {
-        realm.seen.has_failed(Callee::Submit, THREE)
-    })
-    .await;
-    outcomes(&realm).await;
-    let letters = submits_to(&realm, FOUR)
-        .into_iter()
-        .filter_map(|Submit { input, .. }| match input {
-            Input::Letter { text, .. } => Some(text),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!((told, ruled), (sent(FOUR), Done::Done));
-    assert_eq!(before, []);
-    assert_eq!(letters, ["Wait for the chief."]);
+    assert_eq!(told, sent(FOUR));
+    assert_eq!(given.len(), 1, "{given:?}");
+    assert_eq!(given[0].task, None);
+    assert!(
+        matches!(
+            &given[0].input,
+            Input::Letter { text, .. } if text == "Wait for the chief."
+        ),
+        "{given:?}"
+    );
+    assert_eq!(waits.len(), 1, "{waits:?}");
+    assert_eq!(waits[0].1, "objection");
+    assert_eq!(held_rows(&realm).await, 0);
     realm.host.shutdown().await.unwrap();
 }
 
