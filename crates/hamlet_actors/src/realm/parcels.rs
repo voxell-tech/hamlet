@@ -1,38 +1,27 @@
 //! Parcels, the files a letter, a question or a chief's line sends:
-//! the `parcel` and `parcel_file` tables, their steps, `FetchPart`,
-//! and the store the realm keeps their files in.
+//! the `parcel` and `parcel_file` tables and their steps; `fetch`
+//! holds the receiver's side and `FetchPart`, `measuring` the measure
+//! before a tell or an ask runs, and `store` the store the realm
+//! keeps their files in.
 
-use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
-use hamlet_actor::{Action, BindParam, Ctx, Handler};
-use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Workspace};
+use hamlet_actor::BindParam;
+use hamlet_messages::address::Workspace;
 use hamlet_messages::agent::{Input, InputId, Submit};
-use hamlet_messages::bytes::{Base64, Sha256};
+use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::client::Answer;
-use hamlet_messages::realm::parcels::{
-    FetchPart, Measure, PARCEL_PART, ParcelFile, ParcelId, Part,
-    PartRefusal, part_start,
-};
+use hamlet_messages::realm::parcels::{Measure, ParcelId};
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{
-    AgentRefusal, Ask, Enclosed, LetterId, LetterRefusal, Refusable,
-    Tell, Tool,
-};
-use hamlet_messages::sender::sender;
+use hamlet_messages::realm::{Enclosed, LetterId};
 use hamlet_messages::workspace::{
     self, AgentNumber, ConversationId, ParcelAnswer, ParcelEntry,
     ParcelFault, ParcelRefusal,
 };
 use hamlet_protocol::client::{AttachedFile, Choice};
-use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 
-use super::act::{self, ToolAct};
 use super::calls::{self, Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::letters::Kind;
@@ -42,9 +31,14 @@ use super::steps::{self, Cx, StepId, Steps};
 use super::tasks::TaskId;
 use super::waits::answer::Ruling;
 use super::waits::{self, Raised};
-use super::{Realm, callers, marker, record, reviews, tree};
+use super::{record, reviews, tree};
 
+mod fetch;
+mod measuring;
 pub(super) mod store;
+
+pub(super) use fetch::files;
+pub(super) use measuring::Measuring;
 
 /// How long a delivered parcel keeps its files once no held letter
 /// or waiting line names it: its `at` is when it was sent until it
@@ -479,105 +473,6 @@ impl Sent {
     }
 }
 
-/// A tell or an ask whose files the workspace measures under the
-/// sender's reach once nothing else refuses it and before it runs, so
-/// that files it may not send refuse the call. A repeat answers as
-/// the first call did.
-#[derive(Serialize, Deserialize)]
-#[serde(transparent)]
-pub(super) struct Measuring<M>(pub M);
-
-impl<M: Message> Action for Measuring<M> {
-    type Output = M::Output;
-    const NAME: &'static str = M::NAME;
-}
-
-impl<M: Message> Message for Measuring<M> {
-    type To = M::To;
-    type From = M::From;
-}
-
-/// A society tool that sends the files under its paths.
-pub(super) trait Encloses {
-    fn paths(&self) -> &[Enclosed];
-}
-
-impl Encloses for Tell {
-    fn paths(&self) -> &[Enclosed] {
-        &self.paths
-    }
-}
-
-impl Encloses for Ask {
-    fn paths(&self) -> &[Enclosed] {
-        &self.paths
-    }
-}
-
-impl<T> Handler<Measuring<Tool<T>>> for Realm
-where
-    T: ToolAct<Agent> + Encloses,
-    T::Answer: Refusable<Why = AgentRefusal<LetterRefusal>>,
-{
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        Measuring(tool): Measuring<Tool<T>>,
-    ) -> Result<T::Answer> {
-        let name = <Tool<T> as Action>::NAME;
-        let by = sender(&ctx, &tool)?;
-        let (key, called, tool) = act::called(&by, name, tool)?;
-        let paths = tool.paths().to_vec();
-        let run = tool.run(&called);
-        let rows = Rows::outside(&ctx)?;
-        let repeat =
-            marker::find::<IgnoredAny>(&rows, &key).await?.is_some();
-        if !repeat
-            && act::goes(&rows, &by, T::TOOL, &called, &run).await?
-            && let Some(why) = unsendable(&self, by.0, &paths).await
-        {
-            return Ok(T::Answer::refused(AgentRefusal::Act(
-                LetterRefusal::Files { words: told(&why) },
-            )));
-        }
-        let ran = act::run_called(
-            &self,
-            &ctx,
-            by,
-            (key, called),
-            name,
-            T::TOOL,
-            run,
-        )
-        .await?;
-        Ok(callers::to_tool(ran))
-    }
-}
-
-/// Why the workspace refuses to measure the files under `paths` for
-/// `sender`. A measure that fails is left to the parcel's own step.
-async fn unsendable(
-    realm: &Realm,
-    sender: AgentNumber,
-    paths: &[Enclosed],
-) -> Option<ParcelRefusal> {
-    if paths.is_empty() {
-        return None;
-    }
-    let asked = workspace::Parcel {
-        agent: sender,
-        paths: paths.to_vec(),
-    };
-    match realm
-        .peers
-        .call(&Workspace, &asked, When::BeforeAnswer)
-        .await
-    {
-        Ok(ParcelAnswer::Refused { why }) => Some(why),
-        _ => None,
-    }
-}
-
 /// The words the sender reads when its parcel fails for good.
 const UNSENT: &str = "The files could not be sent.";
 
@@ -873,72 +768,6 @@ async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     cx.commit_delivering(tx, changes, deliveries).await?.taken()
 }
 
-impl Handler<FetchPart> for Realm {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        fetch: FetchPart,
-    ) -> Result<Part<PartRefusal>> {
-        let Agent(by) = sender(&ctx, &fetch)?;
-        let rows = Rows::outside(&ctx)?;
-        let Some((receiver, letter, state, swept)) = rows
-            .row::<(u32, Option<u32>, String, Option<i64>)>(
-                "SELECT receiver, letter, state, swept_at FROM \
-                 parcel WHERE id = ?1",
-                vec![id(fetch.parcel)],
-            )
-            .await?
-        else {
-            return Ok(Part::Refused {
-                why: PartRefusal::NoSuchParcel,
-            });
-        };
-        if AgentNumber(receiver) != by {
-            return Ok(Part::Refused {
-                why: PartRefusal::NotYours,
-            });
-        }
-        if change::from_case_name::<State>(state)? != State::Ready
-            || swept.is_some()
-            || tree::left(&rows, by).await?.is_some()
-            || held(&rows, letter).await?
-        {
-            return Ok(Part::Refused {
-                why: PartRefusal::NoSuchParcel,
-            });
-        }
-        let file = rows
-            .row::<(u64, Vec<u8>)>(
-                "SELECT size, sha256 FROM parcel_file WHERE parcel \
-                 = ?1 AND file = ?2",
-                vec![id(fetch.parcel), change::integer(fetch.file)?],
-            )
-            .await?;
-        let Some((size, sha256)) = file else {
-            return Ok(Part::Refused {
-                why: PartRefusal::NoSuchPart,
-            });
-        };
-        let Some(start) = part_start(size, fetch.part) else {
-            return Ok(Part::Refused {
-                why: PartRefusal::NoSuchPart,
-            });
-        };
-        let kept = store::Store::of(&ctx)?.file(&hash_of(sha256)?);
-        let mut file = tokio::fs::File::open(&kept).await?;
-        file.seek(SeekFrom::Start(start)).await?;
-        let mut bytes = Vec::new();
-        file.take(PARCEL_PART as u64)
-            .read_to_end(&mut bytes)
-            .await?;
-        let last = start + bytes.len() as u64 >= size;
-        Ok(Part::Bytes {
-            bytes: Base64(bytes),
-            last,
-        })
-    }
-}
-
 /// The parcels the images and files of `input`, a chief's line,
 /// name.
 pub(super) fn of_line(
@@ -964,42 +793,6 @@ async fn held(rows: &Rows<'_>, letter: Option<u32>) -> Result<bool> {
         }
         None => Ok(false),
     }
-}
-
-/// The files of `letter`'s parcel, as its receiver is told of them:
-/// none until they are copied, or once they are swept.
-pub(super) async fn files(
-    rows: &Rows<'_>,
-    letter: LetterId,
-) -> Result<Vec<ParcelFile>> {
-    let Some((parcel, sender)) = rows
-        .row::<(u32, u32)>(
-            "SELECT id, sender FROM parcel WHERE letter = ?1 AND \
-             state = ?2 AND swept_at IS NULL",
-            vec![change::integer(letter.0)?, state(State::Ready)?],
-        )
-        .await?
-    else {
-        return Ok(Vec::new());
-    };
-    let from = record::address(rows, AgentNumber(sender))
-        .await?
-        .replace('#', "-");
-    let parcel = ParcelId(parcel);
-    entries(rows, parcel)
-        .await?
-        .into_iter()
-        .enumerate()
-        .map(|(file, entry)| {
-            Ok(ParcelFile {
-                parcel,
-                file: u32::try_from(file)?,
-                path: PathBuf::from(format!("from-{from}"))
-                    .join(entry.name),
-                size: entry.size,
-            })
-        })
-        .collect()
 }
 
 /// What a parcel's send's wait adds to the chief's `answer` on wait
