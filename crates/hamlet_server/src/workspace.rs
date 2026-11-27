@@ -1,22 +1,18 @@
-//! A remote workspace (C18): another machine whose worker runs the
-//! agents' tools, each agent in its own `/lodge` with its hamlet's
-//! `/project` and the library at `/library`. Requests carry a bearer
+//! A remote workspace (C18): another machine that keeps a copy of
+//! each agent's filesystem at `/lodge`. Requests carry a bearer
 //! token; virtual paths never reach the host.
 
 pub(crate) mod lodges;
-mod serving;
 
-use std::path::PathBuf;
 use std::time::Duration;
 
-use hamlet_store::ids::AgentId;
+use hamlet_messages::realm::HamletId;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_workspace_wire::{
-    Call, Code, LIBRARY_FILES, Library, LibraryFile, MAX_FILE,
-    Message, Operation, Reply, Request, VERSION,
+    Call, Code, Library, Message, Operation, Reply, Request, VERSION,
 };
 
 use crate::credentials::WorkspaceAddress;
-use crate::knowledge::folder::Folder;
 
 /// The most bytes of a reply.
 const MAX_REPLY: usize = 6 * 1024 * 1024;
@@ -51,28 +47,21 @@ impl Transport {
         })
     }
 
-    pub fn url(&self) -> &str {
-        &self.connection.url
-    }
-
     /// The requests of `agent`, which works in `workspace`, under
     /// `policy`.
     pub fn session(
         &self,
-        agent: AgentId,
+        agent: AgentNumber,
         workspace: &str,
         policy: Policy,
-    ) -> anyhow::Result<Session> {
-        let agent = u32::try_from(agent.0).map_err(|_| {
-            anyhow::anyhow!("an agent id past the workspace's")
-        })?;
-        Ok(Session {
+    ) -> Session {
+        Session {
             transport: self.clone(),
             workspace: workspace.to_owned(),
-            agent,
+            agent: agent.0,
             policy,
             library: None,
-        })
+        }
     }
 
     async fn post(
@@ -176,20 +165,6 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// The same requests with the library at `root` mounted
-    /// read-only at `/library`, as it is now.
-    pub async fn with_library(
-        mut self,
-        root: PathBuf,
-    ) -> Result<Self, Failure> {
-        self.library = Some(snapshot(root).await?);
-        Ok(self)
-    }
-
-    pub fn policy(&self) -> Policy {
-        self.policy
-    }
-
     /// Runs `operation`. The library goes by its digest, and its
     /// files only when the worker does not hold them.
     pub async fn call<C: Call>(
@@ -274,46 +249,7 @@ impl Session {
 
 /// The workspace an agent works in: its hamlet's, or the realm's for
 /// the Hand and the workers of no hamlet.
-pub(crate) fn workspace_of(
-    hamlet: Option<&hamlet_store::ids::HamletId>,
-) -> String {
-    hamlet.map_or_else(|| "realm".to_owned(), ToString::to_string)
-}
-
-/// The library at `root`, read without following links.
-async fn snapshot(root: PathBuf) -> Result<Library, Failure> {
-    let too_much = || Failure {
-        code: Code::Invalid,
-        uncertain: false,
-        message: format!(
-            "The library could not be read safely within \
-             {LIBRARY_FILES} files and 4 MiB; no workspace \
-             operation was sent."
-        ),
-    };
-    tokio::task::spawn_blocking(move || {
-        let folder = Folder::open(&root).ok()?;
-        let listing = folder.list(&|_| false).ok()?;
-        if listing.len() > LIBRARY_FILES {
-            return None;
-        }
-        let mut total = 0;
-        let mut files = Vec::new();
-        for entry in listing {
-            let bytes = folder.read(&entry.path).ok()?;
-            total += bytes.len();
-            if total > MAX_FILE {
-                return None;
-            }
-            files.push(LibraryFile {
-                path: entry.path,
-                data: hamlet_workspace_wire::Bytes(bytes),
-                mode: if entry.executable { 0o755 } else { 0o644 },
-            });
-        }
-        Some(Library::of(files))
-    })
-    .await
-    .map_err(|_| Failure::unknown())?
-    .ok_or_else(too_much)
+pub(crate) fn workspace_of(hamlet: Option<&HamletId>) -> String {
+    hamlet
+        .map_or_else(|| "realm".to_owned(), |hamlet| hamlet.0.clone())
 }

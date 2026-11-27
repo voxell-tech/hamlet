@@ -16,11 +16,6 @@ workspace = true
 
 # For tests only, never for a release build.
 [features]
-# Points where a test stops the server, to kill it there.
-faults = []
-# Compiles the tests that start the pi harness, which need Node and
-# `npm ci --prefix harnesses/pi`.
-harness = ["faults"]
 # Compiles the front door's tests, which start the actors' Node host
 # and need `npm ci --prefix hosts/node` and the native module that
 # `cargo xtask node` builds.
@@ -36,18 +31,14 @@ hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_sandbox.workspace = true
-hamlet_store.workspace = true
 hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 chrono.workspace = true
 ciborium.workspace = true
-diesel.workspace = true
 futures.workspace = true
-image.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
-regex.workspace = true
 reqwest.workspace = true
 ring.workspace = true
 schemars.workspace = true
@@ -58,21 +49,17 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing-subscriber.workspace = true
-unicode-normalization = "0.1"
 url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 hamlet_testing.workspace = true
+diesel.workspace = true
+image.workspace = true
 
 # Its fixtures stop servers with Unix signals.
 [target.'cfg(unix)'.dev-dependencies]
 hamlet_acceptance.workspace = true
-
-[[test]]
-name = "crashes"
-path = "tests/crashes/main.rs"
-required-features = ["harness"]
 
 [[test]]
 name = "front"

@@ -17,7 +17,6 @@ use super::host::HAND;
 use super::route::After;
 use super::{Asker, Door};
 use crate::clients::check::reply;
-use crate::providers::no_sign_in;
 use crate::society::refusal::Refusal;
 
 impl Door {
@@ -252,5 +251,13 @@ impl SignIns {
                 ),
             );
         }
+    }
+}
+
+/// The refusal of a sign-in reply or cancel that is not the
+/// connection's own open one.
+pub(crate) fn no_sign_in() -> Refusal {
+    Refusal::Usage {
+        words: "No sign-in of yours is open.".into(),
     }
 }

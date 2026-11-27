@@ -1,13 +1,7 @@
 //! What one conversation's agent is doing and saying, folded from
-//! what its runtime tells as it happens.
-
-use std::collections::{BTreeMap, HashSet};
+//! its chat as it happens.
 
 use hamlet_protocol::client::Doing;
-use hamlet_protocol::runtime::{self, Block};
-use serde_json::Value;
-
-use crate::work::tools::Dialect;
 
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;
@@ -42,15 +36,12 @@ pub(crate) struct Activity {
     pub pending: u64,
     /// The last answer ended in failure or was stopped.
     pub faulted: bool,
-    blocks: BTreeMap<usize, String>,
-    calls: HashSet<String>,
 }
 
 impl Activity {
-    /// The activity of a conversation at rest, as its kept `items`
-    /// leave it.
-    pub fn of(items: &[runtime::Item]) -> Self {
-        let mut activity = Self {
+    /// The activity of a conversation at rest.
+    pub fn new() -> Self {
+        Self {
             doing: Doing::Rest,
             step: 0,
             failures: 0,
@@ -59,57 +50,19 @@ impl Activity {
             working: false,
             pending: 0,
             faulted: false,
-            blocks: BTreeMap::new(),
-            calls: HashSet::new(),
-        };
-        if let Some(last) = items
-            .iter()
-            .rev()
-            .find(|item| item.kind == runtime::ItemKind::Assistant)
-        {
-            activity.faulted = matches!(
-                last.stop.as_deref(),
-                Some("error" | "aborted")
-            );
-            for block in last.blocks.iter().flatten() {
-                match block {
-                    Block::Text { text } => {
-                        activity.speak(text, false);
-                    }
-                    Block::Thinking { thinking } => {
-                        activity.speak(thinking, true);
-                    }
-                    Block::Call { .. } => {}
-                }
-            }
         }
-        activity
     }
 
-    /// Takes in whether the conversation runs, how many inputs wait,
-    /// and the answer being written.
-    pub fn live(
-        &mut self,
-        running: bool,
-        pending: u64,
-        partial: Option<&runtime::Partial>,
-    ) {
+    /// Takes in whether the conversation runs and how many inputs
+    /// wait.
+    pub fn live(&mut self, running: bool, pending: u64) {
         self.pending = pending;
         if running && !self.working {
-            self.calls.clear();
-            self.blocks.clear();
             self.rest();
             self.working = true;
             self.faulted = false;
             self.saying.clear();
             self.thought = false;
-        }
-        if let Some(partial) = partial {
-            for (index, block) in partial.blocks.iter().enumerate() {
-                if !matches!(block, Block::Call { .. }) {
-                    self.block(block, index);
-                }
-            }
         }
         if !running && self.working {
             self.working = false;
@@ -119,57 +72,7 @@ impl Activity {
 
     /// A model call of the turn begins.
     pub fn attempted(&mut self) {
-        self.blocks.clear();
         self.think();
-    }
-
-    /// Takes in one kept entry.
-    pub fn kept(&mut self, item: &runtime::Item) {
-        match item.kind {
-            runtime::ItemKind::Assistant => {
-                for (index, block) in
-                    item.blocks.iter().flatten().enumerate()
-                {
-                    self.block(block, index);
-                }
-                self.faulted = matches!(
-                    item.stop.as_deref(),
-                    Some("error" | "aborted")
-                );
-                self.blocks.clear();
-            }
-            runtime::ItemKind::ToolResult => {
-                self.ended(item.error == Some(true));
-            }
-            _ => {}
-        }
-    }
-
-    fn block(&mut self, block: &Block, index: usize) {
-        let (text, thought) = match block {
-            Block::Call {
-                id,
-                name,
-                arguments,
-            } => {
-                if self.calls.insert(id.clone()) {
-                    self.tool(name, arguments);
-                }
-                return;
-            }
-            Block::Text { text } => (text, false),
-            Block::Thinking { thinking } => (thinking, true),
-        };
-        let previous = self.blocks.insert(index, text.clone());
-        let previous = previous.unwrap_or_default();
-        if *text == previous {
-            return;
-        }
-        self.think();
-        match text.strip_prefix(previous.as_str()) {
-            Some(delta) => self.speak(delta, thought),
-            None => self.speak(text, thought),
-        }
     }
 
     fn rest(&mut self) {
@@ -184,16 +87,6 @@ impl Activity {
         }
         self.doing = Doing::Think;
         self.step += 1;
-    }
-
-    fn tool(
-        &mut self,
-        name: &str,
-        arguments: &BTreeMap<String, Value>,
-    ) {
-        let text =
-            serde_json::to_string(arguments).unwrap_or_default();
-        self.called(name, &text);
     }
 
     /// A call of the tool `name` begins, its arguments written as
@@ -260,7 +153,7 @@ fn doing_of(name: &str, text: &str) -> Doing {
     match name {
         "read" | "search" | "find" => read,
         "edit" | "write" => write,
-        _ if Dialect::of_tool(name).is_some() => {
+        "bash" => {
             if text.contains("skill.md") {
                 Doing::ReadSkill
             } else if [

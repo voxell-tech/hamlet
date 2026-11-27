@@ -24,11 +24,10 @@ use hamlet_protocol::client::{self as protocol, Choice};
 
 use super::super::words;
 use crate::commands::usage;
-use crate::oversight::gate;
 use crate::society::addresses::{self, Address};
-use crate::society::agents::Effort as Level;
+use crate::society::effort::Effort as Level;
 use crate::society::refusal::Refusal;
-use crate::spend;
+use crate::{oversight, spend};
 
 /// The word `/create-hamlet` and `/hire` take in place of a scholar
 /// for a blank agent.
@@ -281,7 +280,7 @@ pub(super) fn parse(
             };
             Act::Revoke {
                 agent: at(address)?,
-                permission: gate::permission(word)
+                permission: oversight::permission(word)
                     .ok_or_else(|| usage(name))?,
             }
         }
@@ -769,11 +768,11 @@ fn versioned(
 /// is no scholar.
 fn profile_of(text: &str) -> Result<ProfileId, Refusal> {
     let id = addresses::parse_scholar(text)?;
-    u32::try_from(id.0).map(ProfileId).map_err(|_| {
-        Refusal::NoScholar {
+    u32::try_from(id)
+        .map(ProfileId)
+        .map_err(|_| Refusal::NoScholar {
             address: text.into(),
-        }
-    })
+        })
 }
 
 /// The agent `text` addresses, said in `here`: `mayor` is the
@@ -789,9 +788,7 @@ pub(super) fn target(
         Address::Hand => Named::Hand,
         Address::Mayor {
             hamlet: Some(hamlet),
-        } => Named::MayorOf {
-            hamlet: HamletId(hamlet.0),
-        },
+        } => Named::MayorOf { hamlet },
         Address::Mayor { hamlet: None } => match here {
             Some(hamlet) => Named::MayorOf {
                 hamlet: hamlet.clone(),
@@ -799,13 +796,11 @@ pub(super) fn target(
             None => Named::Mayor,
         },
         Address::Hire(id) => Named::Agent {
-            agent: AgentNumber(
-                u32::try_from(id.0).map_err(|_| bad())?,
-            ),
+            agent: AgentNumber(u32::try_from(id).map_err(|_| bad())?),
         },
         Address::Worker(id) => Named::Worker {
             worker: AgentNumber(
-                u32::try_from(id.0).map_err(|_| bad())?,
+                u32::try_from(id).map_err(|_| bad())?,
             ),
         },
     };

@@ -1,10 +1,5 @@
 //! The chief's limits: each hamlet's, and the realm's own (H22).
 
-use anyhow::{Context, Result};
-use diesel::prelude::*;
-use hamlet_store::Db;
-use hamlet_store::ids::HamletId;
-use hamlet_store::schema::{document, hamlet};
 use serde::{Deserialize, Serialize};
 
 /// Millionths of a dollar.
@@ -168,46 +163,4 @@ pub(crate) enum Review {
     /// When the lead's model is served from another machine.
     Remote,
     Never,
-}
-
-/// The realm's own limits.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RealmLimits {
-    /// Whether mayors may agree roads between their hamlets.
-    pub roads_between: bool,
-    /// The budget of the Hand and of the workers it and the chiefs
-    /// start outside a hamlet.
-    pub budget: Budget,
-}
-
-impl Default for RealmLimits {
-    fn default() -> Self {
-        Self {
-            roads_between: true,
-            budget: Budget::default(),
-        }
-    }
-}
-
-/// The limits of `id`.
-pub(crate) fn of(db: &mut Db, id: &HamletId) -> Result<Limits> {
-    let text = hamlet::table
-        .find(id)
-        .select(hamlet::limits)
-        .first::<String>(db)
-        .with_context(|| format!("the limits of {id}"))?;
-    Ok(serde_json::from_str(&text)?)
-}
-
-pub(crate) fn realm(db: &mut Db) -> Result<RealmLimits> {
-    let text = document::table
-        .find("limits")
-        .select(document::value)
-        .first::<String>(db)
-        .optional()?;
-    Ok(match text {
-        Some(text) => serde_json::from_str(&text)?,
-        None => RealmLimits::default(),
-    })
 }

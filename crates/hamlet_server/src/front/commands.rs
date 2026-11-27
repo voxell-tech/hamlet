@@ -45,9 +45,9 @@ use super::call::{Calls, Said};
 use super::host::HAND;
 use super::view::{self, View};
 use super::words;
-use crate::oversight::gate;
+use crate::oversight;
 use crate::society::addresses::Reach;
-use crate::society::agents::Effort as Level;
+use crate::society::effort::Effort as Level;
 use crate::society::refusal::Refusal;
 
 /// What a command came to.
@@ -368,7 +368,7 @@ async fn perform(
             match number(view, &agent, Reach::Kept) {
                 Ok(agent) => {
                     let name = view.name(agent);
-                    let word = gate::word(&permission);
+                    let word = oversight::word(&permission);
                     match permission {
                         protocol::Permission::Network => {
                             let act = Revoke {

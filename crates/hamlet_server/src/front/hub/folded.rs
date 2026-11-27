@@ -7,7 +7,7 @@ use hamlet_messages::agent::chat::{ChatItem, ChatOp, ChatPage};
 use hamlet_protocol::client::ItemKind;
 
 use super::Mark;
-use crate::talk::activity::Activity;
+use crate::activity::Activity;
 
 /// An agent's activity in one chat, folded from the chat's changes.
 pub(super) struct Folded {
@@ -22,7 +22,7 @@ pub(super) struct Folded {
 impl Folded {
     pub(super) fn new() -> Self {
         Self {
-            activity: Activity::of(&[]),
+            activity: Activity::new(),
             written: HashMap::new(),
             seen: None,
         }
@@ -69,7 +69,7 @@ impl Folded {
     /// turn that begins calls its model.
     fn status(&mut self, working: bool, pending: u32) {
         let begins = working && !self.activity.working;
-        self.activity.live(working, u64::from(pending), None);
+        self.activity.live(working, u64::from(pending));
         if begins {
             self.activity.attempted();
         }

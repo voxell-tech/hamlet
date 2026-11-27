@@ -38,10 +38,10 @@ use super::call::{Calls, failed, refused_words};
 use super::route::number;
 use super::view::Shows;
 use super::{Frames, Keys, frames};
+use crate::activity::Activity;
 use crate::clients::check::{fault, reply};
-use crate::diagnostic::{self, Secrets};
+use crate::diagnostic;
 use crate::society::refusal::Refusal;
-use crate::talk::activity::Activity;
 
 /// The chats the door follows, shared by the door and each agent's
 /// follow.
@@ -187,7 +187,7 @@ impl Hub {
         for (agent, lanes) in shared.activities().iter_mut() {
             if !agents.contains(agent) {
                 for folded in lanes.values_mut() {
-                    folded.activity.live(false, 0, None);
+                    folded.activity.live(false, 0);
                 }
             }
         }
@@ -386,10 +386,7 @@ impl Shared {
     }
 
     fn tell(&self, words: String) {
-        diagnostic::tell(
-            Secrets::Of(&self.credentials.read()),
-            words,
-        );
+        diagnostic::tell(&self.credentials.read(), words);
     }
 
     /// Answers `owed` as a line that ended.

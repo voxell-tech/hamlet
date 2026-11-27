@@ -1,11 +1,7 @@
-//! Hamlet's protocols, defined by these serde types:
-//!
-//! - [`client`]: the window or CLI and the server.
-//! - [`runtime`]: the server and a harness runtime, such as pi or a
-//!   harness written in Rust.
+//! Hamlet's client protocol, between the window or CLI and the
+//! server, defined by the serde types in [`client`].
 
 pub mod client;
-pub mod runtime;
 mod version;
 
 pub use version::{BadVersion, Version};

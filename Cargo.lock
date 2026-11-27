@@ -5055,13 +5055,11 @@ dependencies = [
  "hamlet_os",
  "hamlet_protocol",
  "hamlet_sandbox",
- "hamlet_store",
  "hamlet_testing",
  "hamlet_workspace_wire",
  "image",
  "interprocess",
  "jsonschema",
- "regex",
  "reqwest",
  "ring",
  "schemars",
@@ -5072,7 +5070,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.28.0",
  "tracing-subscriber",
- "unicode-normalization",
  "url",
  "uuid",
 ]
@@ -5085,21 +5082,6 @@ dependencies = [
  "hamlet_actor_wire",
  "rusqlite",
  "tokio",
-]
-
-[[package]]
-name = "hamlet_store"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "diesel",
- "hamlet_protocol",
- "hamlet_testing",
- "libsqlite3-sys",
- "regex",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]

@@ -23,7 +23,7 @@ use serde::de::DeserializeOwned;
 use super::view::Own;
 use super::words;
 use crate::clients::check::reply;
-use crate::society::agents::Effort;
+use crate::society::effort::Effort;
 use crate::society::refusal::Refusal;
 
 /// `page` of `chat`, answering the request `to`.

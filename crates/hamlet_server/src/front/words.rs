@@ -6,8 +6,7 @@ use std::fmt::Display;
 use hamlet_messages::profile::{CommitId, Path, VersionList};
 use hamlet_protocol::client::{self as protocol, Choice, WaitDetail};
 
-use crate::oversight::{self, Ruling};
-use crate::spend;
+use crate::{oversight, spend};
 
 /// A day's budget period.
 pub(crate) const TODAY: &str = "today";
@@ -233,7 +232,9 @@ pub(crate) fn queue(waits: &[(protocol::Wait, String)]) -> String {
             let answers = wait
                 .answers
                 .iter()
-                .map(|choice| format!("/{}", Ruling::of(choice)))
+                .map(|choice| {
+                    format!("/{}", oversight::command(choice))
+                })
                 .collect::<Vec<_>>()
                 .join(" ");
             format!(
@@ -251,7 +252,7 @@ pub(crate) fn queue(waits: &[(protocol::Wait, String)]) -> String {
 }
 
 pub(crate) fn answered(choice: &Choice, line: &str) -> String {
-    format!("Answered /{}: {line}", Ruling::of(choice))
+    format!("Answered /{}: {line}", oversight::command(choice))
 }
 
 /// The lasting grants, each as the agent that holds it and its

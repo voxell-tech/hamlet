@@ -25,18 +25,17 @@ use hamlet_protocol::client::{
     self as protocol, Confinement, Doing, Link, LinkState,
     ServerMessage,
 };
-use hamlet_store::ids::AgentId;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::call::{Calls, server_failed};
 use super::host::HAND;
 use super::hub::Hub;
 use super::{Frames, Keys, words};
+use crate::activity::{self, Activity};
 use crate::clients::changes;
 use crate::credentials::Credentials;
 use crate::settings::provider_of;
 use crate::society::addresses::Address;
-use crate::talk::activity::{self, Activity};
 
 /// What the server knows of itself, shown in every `State`.
 pub(crate) struct Own {
@@ -423,7 +422,7 @@ async fn next(followed: &mut Option<Subscription>) -> Result<Item> {
 /// The address of the agent of `kind` numbered `number`: `hand`,
 /// `hire#<n>` or `worker#<n>`.
 fn address(kind: protocol::AgentKind, number: AgentNumber) -> String {
-    let id = AgentId(i64::from(number.0));
+    let id = i64::from(number.0);
     match kind {
         protocol::AgentKind::Hand => Address::Hand,
         protocol::AgentKind::Hire => Address::Hire(id),

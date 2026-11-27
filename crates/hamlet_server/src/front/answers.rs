@@ -44,11 +44,14 @@ use crate::credentials::Credentials;
 use crate::images::{
     Bounds, Format, THUMBNAIL_BYTES, THUMBNAIL_SIDE, capitalised, fit,
 };
-use crate::knowledge::CHARACTER;
-use crate::society::city::CHARACTER_MOST;
 use crate::society::refusal::Refusal;
 use crate::spend;
 use crate::workspace::{Policy, Transport, lodges, workspace_of};
+
+/// The character's file in a profile's repository.
+const CHARACTER: &str = "CHARACTER.md";
+/// The most characters a character may have (C11, C13).
+const CHARACTER_MOST: usize = 4000;
 
 const THUMBNAIL: Bounds = Bounds {
     width: THUMBNAIL_SIDE,
@@ -602,7 +605,7 @@ pub(crate) async fn move_lodges(
     calls: &Calls,
     own: &Own,
 ) -> Result<Outcome> {
-    let credentials = Credentials::open_beside_actors(&own.root)?;
+    let credentials = Credentials::open(&own.root)?;
     let Some(chosen) = credentials.workspace().cloned() else {
         return Ok(Outcome::said(Err(Refusal::Usage {
             words: words::NO_WORKSPACE.into(),
@@ -673,28 +676,27 @@ async fn copy_filesystem(
     agent: &protocol::Agent,
     root: &Path,
 ) -> Result<()> {
-    let filesystem = RealmFolder::new(root)?
-        .filesystem(AgentNumber(u32::try_from(agent.id.0)?));
+    let number = AgentNumber(u32::try_from(agent.id.0)?);
+    let filesystem = RealmFolder::new(root)?.filesystem(number);
     if !filesystem.is_dir() {
         return Ok(());
     }
-    let hamlet =
-        agent.hamlet.clone().map(hamlet_store::ids::HamletId);
+    let hamlet = agent.hamlet.clone().map(HamletId);
     let project = hamlet.as_ref().is_some_and(|hamlet| {
         state.hamlets.iter().any(|shown| {
             shown.id == hamlet.0 && shown.folder.is_some()
         })
     });
     let session = transport.session(
-        hamlet_store::ids::AgentId(i64::try_from(agent.id.0)?),
+        number,
         &workspace_of(hamlet.as_ref()),
         Policy {
             project,
             network: false,
             read_only: false,
         },
-    )?;
-    lodges::push(&session, &filesystem, None).await?;
+    );
+    lodges::push(&session, &filesystem).await?;
     Ok(())
 }
 
