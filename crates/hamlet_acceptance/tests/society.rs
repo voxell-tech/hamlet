@@ -277,7 +277,7 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Tell cy hello.").await;
     s.chief.shows(&now, "Told.").await;
     let letters = lane(ada, ChatRefKind::Letters, cy);
-    s.chief.open_held(&letters).await;
+    s.chief.open(&letters).await;
     s.chief.shows(&letters, "Noted.").await;
     let page = s.chief.open(&letters).await;
     let texts = page
@@ -300,7 +300,7 @@ async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "cy said blue.").await;
     let questions = lane(ada, ChatRefKind::Questions, cy);
-    s.chief.open_held(&questions).await;
+    s.chief.open(&questions).await;
     s.chief.shows(&questions, "Blue.").await;
     let page = s.chief.open(&questions).await;
     assert_eq!(page.items.first().unwrap().text, "Which colour?");

@@ -20,10 +20,11 @@ use anyhow::Result;
 use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
 use hamlet_host::{Address, Item};
-use hamlet_messages::address::{self, Party};
+use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::agent::chat::{
-    ChatEvent, ChatOp, ChatPage, ReadChat,
+    ChatEvent, ChatOp, ChatPage, ReadChat, Usage,
 };
+use hamlet_messages::realm::client::ReadState;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, AgentId, LastActivity, Open, RequestId,
@@ -523,7 +524,12 @@ impl Shared {
         client: u64,
         open: Open,
     ) {
-        let read = self.read(agent, &open).await;
+        let mut read = self.read(agent, &open).await;
+        if let Err(error) = &read
+            && self.lists(&open, error).await
+        {
+            read = self.unheld(agent, &open).await;
+        }
         let refusal = match &read {
             Err(error) => {
                 Some(self.refused(agent, &open, error).await)
@@ -821,6 +827,68 @@ impl Shared {
             )
             .await?;
         Ok(ciborium::from_reader(answer.as_slice())?)
+    }
+
+    /// Whether `open`, refused with `error`, asks for the first page
+    /// of a lane the realm lists: the realm lists a letter's lane
+    /// before its push after the answer delivers the letter.
+    async fn lists(
+        &self,
+        open: &Open,
+        error: &anyhow::Error,
+    ) -> bool {
+        let Some(from) = open.chat.from else {
+            return false;
+        };
+        if open.before.is_some()
+            || open.chat.past.is_some()
+            || refused_words(error).is_none()
+        {
+            return false;
+        }
+        let kind = match open.chat.kind {
+            Some(protocol::ChatRefKind::Questions) => {
+                protocol::ConversationViewKind::Questions
+            }
+            _ => protocol::ConversationViewKind::Letters,
+        };
+        let Ok(state) = self.calls.call(&Realm, &ReadState).await
+        else {
+            return false;
+        };
+        state
+            .agents
+            .iter()
+            .filter(|seen| seen.id == open.chat.with)
+            .flat_map(|seen| &seen.conversations)
+            .any(|lane| lane.with == from && lane.kind == kind)
+    }
+
+    /// The first page of a lane the realm lists and `agent` does not
+    /// hold yet: read again after the agent's current change, so a
+    /// delivery between the two reads is in it, else empty at that
+    /// change, after which its watch is sent the delivery.
+    async fn unheld(
+        &self,
+        agent: AgentNumber,
+        open: &Open,
+    ) -> Result<ChatPage> {
+        let current = self.read_current(agent).await?;
+        match self.read(agent, open).await {
+            Err(error) if refused_words(&error).is_some() => {
+                Ok(ChatPage {
+                    epoch: current.epoch,
+                    number: current.number,
+                    session: None,
+                    items: Vec::new(),
+                    earlier: None,
+                    working: false,
+                    pending: 0,
+                    usage: Usage::default(),
+                })
+            }
+            read => read,
+        }
     }
 
     /// The answer to `open`, whose page of `agent`'s chat was refused

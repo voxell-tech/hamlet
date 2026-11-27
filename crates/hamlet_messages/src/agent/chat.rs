@@ -202,7 +202,9 @@ pub struct ChatPage {
 }
 
 /// What a conversation's model calls used, summed over it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
 pub struct Usage {
     pub calls: Count,
     /// The calls whose provider told no usage.
@@ -221,7 +223,7 @@ pub struct Usage {
 
 /// A whole number that can pass 2^32, written as decimal text: the
 /// agent's encoder writes a larger integer as a float.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Count(pub u64);
 
 impl Serialize for Count {

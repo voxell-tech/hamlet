@@ -82,7 +82,9 @@ the folder's `at`.
 selects the current chief conversation; `past` selects a stable conversation
 number. `from` selects a peer conversation with that stable agent;
 `kind` selects its letters or questions lane, defaulting to letters.
-`from` and `past` together are refused.
+`from` and `past` together are refused. A lane the realm's state lists
+opens even before its first letter reaches the receiver: its page is
+empty, and the letter comes to that watch as a `turn`.
 
 Every client message except `hello` and `close` carries `id: RequestId`.
 The answer's `to` matches it. Do not confuse that with `Say.to`, which is an

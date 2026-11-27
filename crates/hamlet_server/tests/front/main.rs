@@ -9,6 +9,7 @@ mod chat;
 mod commands;
 mod ended;
 mod host;
+mod lanes;
 mod lines;
 mod place;
 mod reads;
