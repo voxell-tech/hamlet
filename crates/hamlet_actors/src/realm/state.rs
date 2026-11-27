@@ -324,7 +324,7 @@ async fn agent_shown(
             thought: false,
         },
         profile: profile
-            .map(|profile| protocol::ProfileId(profile.into())),
+            .map(|id| protocol::ProfileId(id.into())),
         since: time(since),
         skills: Vec::new(),
         spent: protocol::AgentSpent {

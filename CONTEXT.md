@@ -131,7 +131,7 @@ Bringing a merged hire back out again, by undoing the merge's commit
 
 **Realm**:
 Everything one chief keeps: the Hand, the city, the hamlets, the library,
-the database and the credentials, in one folder (`HAMLET_HOME`).
+the actors' databases and the credentials, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
@@ -164,7 +164,7 @@ _Avoid_: team, project, town
 
 **Workspace**:
 Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings. On the actor host it is one actor per machine.
+Settings, each one actor.
 _Avoid_: sandbox, lodge
 
 **Reach**:
