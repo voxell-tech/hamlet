@@ -127,6 +127,8 @@ pub(super) struct Seen {
     /// when it came.
     pub(super) prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
     pub(super) dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    /// What the realm's step drives told, in order.
+    pub(super) steps: Mutex<Vec<realm::StepTold>>,
     /// Each profile answers a dream's preparation with nothing to
     /// dream over.
     pub(super) nothing_to_dream: AtomicBool,

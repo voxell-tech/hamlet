@@ -40,6 +40,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use stand_ins::{Forward, Seen, open};
+use tokio::sync::mpsc;
 
 #[path = "realm/allowance.rs"]
 mod allowance;
@@ -170,7 +171,17 @@ impl Realm {
     ) -> Self {
         let scratch = Scratch::new("realm");
         let seen = Arc::new(seen);
-        let options = options.map(Arc::new);
+        let (told, mut telling) = mpsc::unbounded_channel();
+        let options = Some(Arc::new(realm::Options {
+            steps_told: Some(told),
+            ..options.unwrap_or_default()
+        }));
+        let keeping = seen.clone();
+        tokio::spawn(async move {
+            while let Some(told) = telling.recv().await {
+                keeping.steps.lock().unwrap().push(told);
+            }
+        });
         let host = open(&scratch, &seen, options.as_ref()).await;
         host.get_or_start(&address::Realm.address().unwrap())
             .await
@@ -413,11 +424,7 @@ async fn founded(realm: &Realm) -> HamletId {
 }
 
 async fn hamlet_with(count: u32) -> (Realm, HamletId) {
-    hamlet_in(Realm::start().await, count).await
-}
-
-/// `realm` with a hamlet and `count` hires in it.
-async fn hamlet_in(realm: Realm, count: u32) -> (Realm, HamletId) {
+    let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
     realm.live(MAYOR).await;
@@ -509,6 +516,11 @@ fn of_hire(hire: AgentNumber) -> Dream {
 /// The ends of dreams the profiles were asked for, in order.
 fn dream_ends(realm: &Realm) -> Vec<(ProfileId, EndDream)> {
     realm.seen.dream_ends.lock().unwrap().clone()
+}
+
+/// Whether the realm's steps told `told`.
+fn steps_told(realm: &Realm, told: &realm::StepTold) -> bool {
+    realm.seen.steps.lock().unwrap().contains(told)
 }
 
 fn hire_3_ends(dream: u32, done: bool, summary: &str) -> EndDream {

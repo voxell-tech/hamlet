@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use hamlet_actors::realm;
+use hamlet_actors::realm::StepTold;
 use hamlet_messages::profile::{
     BadPath, By, DreamId, DreamOf, DreamOpen, PrepareDream, Purge,
     PurgeAnswer,
@@ -14,15 +14,14 @@ use hamlet_messages::realm::{ProfileId, Refusable as _};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
-use tokio::sync::mpsc;
 
 use super::chiefs::chief;
 use super::profile_stand_in::{NOT_A_PATH, STILL_HOLDS};
 use super::profiles::{asked, create};
-use super::stand_ins::{Callee, Seen};
+use super::stand_ins::Callee;
 use super::{
-    Realm, THREE, dream_ends, hamlet_in, hamlet_with, hire_3_ends,
-    of_hire, until,
+    Realm, THREE, dream_ends, hamlet_with, hire_3_ends, of_hire,
+    steps_told, until,
 };
 
 fn purge(profile: u32, path: &str) -> PurgeProfile {
@@ -204,24 +203,21 @@ async fn one_dream_is_open_in_the_realm_at_a_time() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dream_with_nothing_to_dream_has_ended_when_it_is_answered()
 {
-    let (step_waits, mut waited) = mpsc::unbounded_channel();
-    let options = realm::Options {
-        step_waits: Some(step_waits),
-        ..realm::Options::default()
-    };
-    let started = Realm::start_with(Some(options), Seen::default());
-    let (realm, _) = hamlet_in(started.await, 1).await;
+    let (realm, _) = hamlet_with(1).await;
     realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     realm.seen.hold(Callee::EndDream);
 
     let ask = chief(&realm, of_hire(THREE));
     tokio::pin!(ask);
-    let end = ("dream_end".to_owned(), 1);
+    let waits = StepTold::Waited {
+        kind: "dream_end".to_owned(),
+        n: 1,
+    };
     let first = tokio::select! {
         first = &mut ask => first,
-        () = async {
-            while waited.recv().await.is_some_and(|wait| wait != end) {}
-        } => {
+        () = until("the ask waits for the dream's end", || {
+            steps_told(&realm, &waits)
+        }) => {
             realm.seen.release(Callee::EndDream);
             ask.await
         }
