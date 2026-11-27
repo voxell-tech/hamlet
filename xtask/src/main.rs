@@ -129,8 +129,7 @@ impl Step {
         Self::ALL.into_iter().find(|step| step.to_string() == name)
     }
 
-    /// Runs the step in `root`, the folder holding the workspace;
-    /// only the kill kit takes `rest`, its scenario and its runs.
+    /// Runs the step in `root`, the folder holding the workspace.
     fn run(
         self,
         root: &Path,

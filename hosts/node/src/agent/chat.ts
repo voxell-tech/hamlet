@@ -98,8 +98,8 @@ export function chatActions(config: AgentConfig): ChatHandlers {
                 "start" in login &&
                 config.models.getProvider(login.start.provider) === undefined
             ) {
-                // The settings that name it may be in the realm's push
-                // after the edit that added it, still on its way.
+                // The settings that add this provider may still be on
+                // their way from the realm.
                 await refreshed(c, peers);
                 config.serve?.(await copies());
             }
