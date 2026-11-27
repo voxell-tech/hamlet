@@ -306,7 +306,7 @@ fn the_changes(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/chief_tag_profile.at",
         &asked(TagProfile {
-            at: Some(commit()),
+            at: Some(Revision::Commit { commit: commit() }),
             ..tag.clone()
         }),
     );
@@ -326,6 +326,14 @@ fn the_changes(fixtures: &mut Fixtures) {
             TagRefusal::NoSuchCommit {
                 profile: PROFILE,
                 commit: commit(),
+            }
+            .into(),
+        ),
+        (
+            "no_version",
+            TagRefusal::NoVersion {
+                profile: PROFILE,
+                version: VersionName("hires/9".into()),
             }
             .into(),
         ),

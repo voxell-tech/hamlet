@@ -413,7 +413,11 @@ async fn founded(realm: &Realm) -> HamletId {
 }
 
 async fn hamlet_with(count: u32) -> (Realm, HamletId) {
-    let realm = Realm::start().await;
+    hamlet_in(Realm::start().await, count).await
+}
+
+/// `realm` with a hamlet and `count` hires in it.
+async fn hamlet_in(realm: Realm, count: u32) -> (Realm, HamletId) {
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
     realm.live(MAYOR).await;
