@@ -345,10 +345,11 @@ impl Actor for Realm {
             let host = HostRef::of(ctx.inner())?;
             ctx.sql().exec(SCHEMA).await?;
             #[cfg(feature = "steps-told")]
-            let told =
-                host.value::<StepsTold>().map(|told| told.0.clone());
+            let drives = steps::Drives::telling(
+                host.value::<StepsTold>().map(|told| told.0.clone()),
+            );
             #[cfg(not(feature = "steps-told"))]
-            let told = None;
+            let drives = steps::Drives::default();
             Ok(Self {
                 folder: std::path::absolute(host.folder())?,
                 hiring_wait: host
@@ -369,7 +370,7 @@ impl Actor for Realm {
                 )?,
                 peers: peer::Peers::new(host),
                 world: world::Held::load(ctx).await?,
-                drives: steps::Drives::telling(told),
+                drives,
                 lanes: lanes::Lanes::default(),
                 lines: lines::Lines::default(),
                 purging: Mutex::default(),

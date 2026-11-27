@@ -921,8 +921,10 @@ errands, short-lived agents outside the tree, such as a review;
 lead lays, and `society.rs` the roads two mayors agree; `say.rs` is a
 chief's line, which `reviews.rs` holds for the lead's review when the
 limits ask for one; `letters.rs` letters, questions and answers, and
-`parcels.rs` the files a letter sends, copied into the realm's store
-(`parcels/store.rs`) by hash and fetched by the receiver in parts; `tasks.rs` keeps what a
+`parcels.rs` the files a letter sends, measured under the sender's
+reach before the call runs (`parcels/measuring.rs`), copied into the
+realm's store (`parcels/store.rs`) by hash and fetched by the receiver
+in parts (`parcels/fetch.rs`); `tasks.rs` keeps what a
 line or an agent's turns are charged to; `budget.rs` answers
 `MaySpend` and keeps `Charge`, and `allowance.rs` the allowance a lead
 or a chief gives a hire, with `ReadBudget`; `oversight.rs` keeps

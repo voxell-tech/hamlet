@@ -10,7 +10,9 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch};
+#[cfg(feature = "steps-told")]
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
@@ -653,6 +655,7 @@ pub(super) struct Drives {
 
 /// What the step drives tell a test of a step, by its kind and
 /// number.
+#[cfg(feature = "steps-told")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StepTold {
     /// A caller waits for the step while it runs.
@@ -666,9 +669,19 @@ pub enum StepTold {
 #[cfg(feature = "steps-told")]
 pub struct StepsTold(pub mpsc::UnboundedSender<StepTold>);
 
+#[cfg(feature = "steps-told")]
 type Told = Option<mpsc::UnboundedSender<StepTold>>;
 
+/// Nothing to tell, outside the tests.
+#[cfg(not(feature = "steps-told"))]
+#[derive(Clone, Default)]
+struct Told;
+
+#[cfg(not(feature = "steps-told"))]
+fn tell(_told: &Told, _row: StepId, _ended: bool) {}
+
 /// Tells `told` that `row` ended, or else that a caller waits for it.
+#[cfg(feature = "steps-told")]
 fn tell(told: &Told, row: StepId, ended: bool) {
     let (Some(told), Ok(kind)) = (told, change::case_name(&row.kind))
     else {
@@ -784,6 +797,7 @@ impl Drives {
 
     /// Drives that tell `told` of each step a caller waits for while
     /// it runs and of each drive's end.
+    #[cfg(feature = "steps-told")]
     pub fn telling(told: Told) -> Self {
         Self {
             told,
