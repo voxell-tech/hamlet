@@ -230,7 +230,7 @@ async fn a_letter_may_carry_files_from_the_senders_own_folder() {
         ParcelFault::Unreadable {
             path: theirs.clone(),
             words: format!(
-                "{} is in an agent's filesystem",
+                "{} is out of this agent's reach to read",
                 theirs.display()
             ),
         }

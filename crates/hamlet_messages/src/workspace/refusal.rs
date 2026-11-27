@@ -112,30 +112,32 @@ pub enum InvalidPath {
     thiserror::Error,
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum PathRefusal<A> {
+pub enum PathRefusal<A: Default + Display> {
     #[error("{} is out of this agent's reach to {access}", path.display())]
     OutsideReach { path: PathBuf, access: A },
     /// Only the agent itself changes its filesystem, and only a
     /// worker reads its starter's through the workspace.
-    #[error("{} is in an agent's filesystem", path.display())]
+    #[error("{} is out of this agent's reach to {}", path.display(), A::default())]
     AgentFilesystem { path: PathBuf },
 }
 
 /// The access of a read, a search and a find.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum ToRead {
+    #[default]
     Read,
 }
 
 /// The access of a write and an edit.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum ToChange {
+    #[default]
     Change,
 }
 

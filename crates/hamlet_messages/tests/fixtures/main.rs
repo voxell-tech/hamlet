@@ -1147,7 +1147,8 @@ fn outside_reach_to_change() -> PathRefusal<ToChange> {
     }
 }
 
-fn agent_filesystem<A>() -> PathRefusal<A> {
+fn agent_filesystem<A: Default + std::fmt::Display>() -> PathRefusal<A>
+{
     PathRefusal::AgentFilesystem {
         path: "/realm/actors/agent/7.fs/notes.md".into(),
     }
