@@ -87,7 +87,6 @@ proc-macro2 = { version = "1.0", features = ["span-locations"] }
 prometheus = "0.14"
 quote = "1.0"
 rand = "0.8"
-# Held to the version whose SQLite is Diesel's, so both share one build.
 rusqlite = { version = "0.40", features = ["bundled"] }
 scc = "3.6.12"
 serde_bare = "0.5.0"
@@ -115,7 +114,6 @@ futures = "0.3"
 gix = { version = "0.90", default-features = false, features = ["sha1", "merge", "revision"] }
 image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 interprocess = "2"
-# SQLite itself, built in, for Diesel.
 libc = "0.2"
 # The text layout Bevy's text is built on, for selecting drawn words.
 # Held to the version `bevy_text` uses, so its layouts are this crate's.
