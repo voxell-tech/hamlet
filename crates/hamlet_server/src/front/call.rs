@@ -43,7 +43,7 @@ const AGAIN: Duration = Duration::from_millis(50);
 /// wait after doubles it, up to [`READ_AT_MOST`].
 const FIRST_READ: Duration = Duration::from_millis(10);
 
-const READ_AT_MOST: Duration = Duration::from_secs(1);
+const READ_AT_MOST: Duration = Duration::from_millis(250);
 
 const CHOOSE_SESSION: [&str; 4] =
     [NewSession::NAME, Resume::NAME, Retry::NAME, Rewind::NAME];
