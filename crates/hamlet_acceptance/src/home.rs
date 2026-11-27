@@ -104,6 +104,23 @@ impl Home {
     }
 }
 
+/// A failed scenario prints the log of a server the CLI started on
+/// the home, with its Node host's stderr.
+impl Drop for Home {
+    #[expect(
+        clippy::print_stderr,
+        reason = "a failed scenario shows what its server printed"
+    )]
+    fn drop(&mut self) {
+        let log = self.file("server.log");
+        if std::thread::panicking()
+            && let Ok(text) = std::fs::read_to_string(&log)
+        {
+            eprintln!("--- {}:\n{text}", log.display());
+        }
+    }
+}
+
 impl Default for Home {
     fn default() -> Self {
         Self::new()

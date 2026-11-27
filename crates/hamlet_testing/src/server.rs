@@ -65,9 +65,11 @@ pub enum Unstarted {
     Silent { command: String, log: String },
 }
 
-/// A running server, killed on drop.
+/// A running server, killed on drop. A test that fails prints what
+/// it and its Node host printed.
 pub struct Server {
     child: Child,
+    home: PathBuf,
     log: PathBuf,
     /// The protocol's WebSocket URL, from `server.json`.
     pub url: String,
@@ -139,6 +141,7 @@ impl Server {
         })?;
         let mut server = Self {
             child,
+            home: home.to_owned(),
             log,
             url: String::new(),
             token: String::new(),
@@ -271,8 +274,20 @@ impl Server {
 }
 
 impl Drop for Server {
+    #[expect(
+        clippy::print_stderr,
+        reason = "a failed test shows what its server printed"
+    )]
     fn drop(&mut self) {
         self.kill();
+        if std::thread::panicking() {
+            eprintln!(
+                "--- the server on {}, with its Node host's \
+                 stderr:\n{}",
+                self.home.display(),
+                self.log()
+            );
+        }
     }
 }
 
