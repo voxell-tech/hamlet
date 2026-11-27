@@ -252,7 +252,6 @@ async fn keeps_its_token_and_refuses_a_second_server_on_one_home() {
     assert_eq!(again.token, token);
 }
 
-/// Every file under `folder`, with its bytes.
 fn files(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut folders = vec![folder.to_owned()];
@@ -272,16 +271,14 @@ fn files(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     found
 }
 
-/// A server and `hamlet` refuse a home holding `older`, a file of
-/// another version's layout, in `words`, and change nothing in it.
-async fn refuses_an_older_layout(older: &str, words: &str) {
+async fn refuses_an_older_layout(older: &str, found: &str) {
     let mut home = Home::new();
     let file = home.file(older);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, "kept").unwrap();
     let before = files(home.path());
     let refusal = format!(
-        "{} holds {words}, from a version of Hamlet this one cannot \
+        "{} holds {found}, from a version of Hamlet this one cannot \
          read; move the folder aside, or set HAMLET_HOME to another \
          folder.",
         home.path().display()

@@ -441,7 +441,6 @@ export const OFFERED = [
     },
 ];
 
-/** `npm run check` fails here when an act gains a field. */
 const ACT_FIELDS = {
     found: ["name", "mayor", "tier", "purpose"],
     hire: ["hamlet", "under", "profile", "version", "purpose", "name"],

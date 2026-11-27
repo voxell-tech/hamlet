@@ -59,8 +59,6 @@ struct Shared {
     theirs: Side,
     link: Mutex<Link>,
     state: watch::Sender<LinkState>,
-    /// Set from a child's start until its link goes down. While it
-    /// is, a call or create out waits for the link to be Ready.
     starting: watch::Sender<bool>,
 }
 
@@ -239,9 +237,6 @@ impl Port {
         session.subscribe(caller, to, event, within).await
     }
 
-    /// The Ready session, waited for within `within` while a child
-    /// starts. Fails with `link.down` when no child starts, when the
-    /// starting one's link goes down, and at `within`.
     async fn session_within(
         &self,
         within: Option<Duration>,
