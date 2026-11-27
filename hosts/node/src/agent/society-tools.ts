@@ -77,7 +77,8 @@ const object = (properties: object, required: readonly string[]) => ({
 const names = { type: "array", items: { type: "string" } };
 
 /** The words for a call a chief must allow first. */
-export const WAITING = "This call waits for a chief's answer.";
+export const WAITING =
+    "This call has ended; the chief's answer comes to you as a new input.";
 
 export const OBJECTING = "The chief is considering an objection.";
 
@@ -257,7 +258,7 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     ask: {
         name: "ask",
         description:
-            "Ask an agent you have a road to a question and wait for its answer. Ask only what you need; a question to someone waiting on you is refused.",
+            "Ask an agent you have a road to a question. The call ends at once, and the answer comes to you as a new input. Ask only what you need; a question to someone waiting on you is refused.",
         parameters: object(
             { to: address, question: string("The question."), paths: PATHS },
             ["to", "question"],
@@ -654,7 +655,7 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     ask_chief: {
         name: "ask_chief",
         description:
-            "Ask the chief a question you cannot go on without. Waits for the answer, so ask only when no agent and no file can tell you. Use object to argue against an instruction.",
+            "Ask the chief a question you cannot go on without. The call ends at once, and the chief's answer comes to you as a new input. Ask only when no agent and no file can tell you. Use object to argue against an instruction.",
         parameters: {
             type: "object",
             properties: {
@@ -735,7 +736,7 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     start_worker: {
         name: "start_worker",
         description:
-            "Start a worker on a task: a helper with your tools that works in a scratch folder and where you work, then answers once. With `wait`, you wait for its answer; without, the answer comes to you as a reply.",
+            "Start a worker on a task: a helper with your tools that works in a scratch folder and where you work, then answers once. The call ends at once, and the worker's answer comes to you as a new input.",
         parameters: object(
             {
                 task: string("What the worker is to do, and what to answer."),
@@ -745,7 +746,6 @@ export const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                     description:
                         "Your built-in tools it may use; all of them when left out.",
                 },
-                wait: { type: "boolean", description: "Wait for its answer." },
             },
             ["task"],
         ),

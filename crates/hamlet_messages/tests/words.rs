@@ -71,7 +71,8 @@ fn each_refusal_reads_in_its_words() {
         ),
         (
             words(Gate::Reserved { wait: WaitId(4) }),
-            "This call waits for a chief's answer.",
+            "This call has ended; the chief's answer comes to you \
+             as a new input.",
         ),
         (
             words(EndRefusal::Left {

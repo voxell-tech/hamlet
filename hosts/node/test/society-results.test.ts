@@ -19,13 +19,11 @@ import {
 } from "./agent-testing.ts";
 import {
     acts,
-    DROPPED,
     EVERYONE,
     HIRE,
     LEADS,
     MAYOR,
     mayor,
-    OFFERED,
     OFFERED_TO_THE_HAND,
     offered,
     queue,
@@ -211,7 +209,7 @@ test("each society tool's result names the agents it acted on, in its words", as
             "Laid a road between hire#1 (Ada) and hire#2 (Ada).",
             "Took up the road between hire#1 (Ada) and hire#2 (Ada).",
             "Changed the tools of hire#3 (Ada).",
-            "This call waits for a chief's answer.",
+            "This call has ended; the chief's answer comes to you as a new input.",
             "The chief is considering an objection.",
             "Started worker#15; its answer comes to you as a reply.",
             "Set the allowance of hire#4 (Ada).",
@@ -308,7 +306,7 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
             remove_hamlet: () => ({
                 type: "refused",
                 why: { type: "reserved", wait: 1 },
-                words: "This call waits for a chief's answer.",
+                words: "This call has ended; the chief's answer comes to you as a new input.",
             }),
         },
     });
@@ -351,7 +349,7 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
             ],
         },
         object: { reason: "The field is better left alone" },
-        start_worker: { task: "Check the links", tools: ["read"], wait: true },
+        start_worker: { task: "Check the links", tools: ["read"] },
         set_allowance: { hire: "hire#4", dollars: 5000, reason: "More." },
         read_budget: {},
         agree_road: { mine: "hire#4", theirs: "mayor@h2", reason: "Trade." },
@@ -369,19 +367,6 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
         },
         remove_hamlet: { hamlet: " h1 ", reason: "Done with it." },
     };
-    const without = (tool: string) =>
-        Object.fromEntries(
-            Object.entries(every[tool] ?? {}).filter(
-                ([key]) => !DROPPED[tool]?.includes(key),
-            ),
-        );
-    for (const [tool, dropped] of Object.entries(DROPPED)) {
-        const offered =
-            OFFERED.find((one) => one.name === tool)?.parameters.properties ??
-            {};
-        for (const parameter of dropped)
-            assert.ok(parameter in offered, `${tool}.${parameter} is offered`);
-    }
     for (const input of [undefined, MAYOR]) {
         const probe = await wakeAgent(t, {
             calls: fakeCalls({}).calls,
@@ -402,11 +387,6 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
                 ...calling.map((tool, n) =>
                     toolCall(tool, every[tool] ?? {}, `all${n}`),
                 ),
-                ...Object.keys(DROPPED)
-                    .filter((tool) => calling.includes(tool))
-                    .map((tool, n) =>
-                        toolCall(tool, without(tool), `kept${n}`),
-                    ),
                 ...(calling.includes("request_road")
                     ? [toolCall("request_road", { to: "hire#4" }, "no-reason")]
                     : []),
@@ -535,11 +515,13 @@ test("every one of a tool's parameters leaves as a field of its act, but those t
                     reason: "The field is better left alone",
                 },
             ],
-            start_worker: Array(2).fill({
-                brief: "Check the links",
-                tools: [{ name: "read" }],
-                task: "task-1",
-            }),
+            start_worker: [
+                {
+                    brief: "Check the links",
+                    tools: [{ name: "read" }],
+                    task: "task-1",
+                },
+            ],
             set_allowance: [
                 { hire: four, micros: "5000000000", ...why("More.") },
             ],

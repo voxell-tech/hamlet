@@ -151,8 +151,8 @@ dialog. hamlet is the same from a terminal, and more: hamlet --help.
 Linux: working bubblewrap (bwrap) is required; there is no insecure mode.
 Windows: Windows has no sandbox yet, so the server starts only with
 hamlet.exe --insecure, in a terminal. Agents' commands then run with this
-account's full reach. Agents get PowerShell, and bash too where Git for
-Windows is installed.
+account's full reach. Agents' commands run in the first bash Windows
+finds by name, such as Git for Windows' Git Bash; without one, they fail.
 
 The default home is ~/.hamlet. For a disposable trial, set HAMLET_HOME to a new
 scratch directory and HAMLET_VIEW to a scratch window directory. hamlet stop

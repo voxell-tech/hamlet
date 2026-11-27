@@ -645,8 +645,8 @@ pub(crate) async fn move_lodges(
     let (moved, text) = match &failed {
         None => (
             protocol::SettingsViewWorkspaceMoveState::Moved,
-            "Every lodge is in the chosen workspace; the realm \
-             works there from its next start."
+            "Every lodge is copied to the chosen workspace; agents' \
+             tools still run on this machine."
                 .to_owned(),
         ),
         Some(error) => (

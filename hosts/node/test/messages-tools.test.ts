@@ -40,7 +40,7 @@ function toldPlainly(given: {
 }): string | undefined {
     switch (given.why?.type) {
         case "reserved":
-            return "This call waits for a chief's answer.";
+            return "This call has ended; the chief's answer comes to you as a new input.";
         case "no_chief":
             return "No chief oversees this turn; go on with what you know.";
         case "too_many":

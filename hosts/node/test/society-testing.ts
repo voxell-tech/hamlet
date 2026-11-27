@@ -73,7 +73,7 @@ export const OFFERED = [
     {
         name: "ask",
         description:
-            "Ask an agent you have a road to a question and wait for its answer. Ask only what you need; a question to someone waiting on you is refused.",
+            "Ask an agent you have a road to a question. The call ends at once, and the answer comes to you as a new input. Ask only what you need; a question to someone waiting on you is refused.",
         parameters: {
             type: "object",
             properties: {
@@ -298,7 +298,7 @@ export const OFFERED = [
     {
         name: "ask_chief",
         description:
-            "Ask the chief a question you cannot go on without. Waits for the answer, so ask only when no agent and no file can tell you. Use object to argue against an instruction.",
+            "Ask the chief a question you cannot go on without. The call ends at once, and the chief's answer comes to you as a new input. Ask only when no agent and no file can tell you. Use object to argue against an instruction.",
         parameters: {
             type: "object",
             properties: {
@@ -357,7 +357,7 @@ export const OFFERED = [
     {
         name: "start_worker",
         description:
-            "Start a worker on a task: a helper with your tools that works in a scratch folder and where you work, then answers once. With `wait`, you wait for its answer; without, the answer comes to you as a reply.",
+            "Start a worker on a task: a helper with your tools that works in a scratch folder and where you work, then answers once. The call ends at once, and the worker's answer comes to you as a new input.",
         parameters: {
             type: "object",
             properties: {
@@ -368,7 +368,6 @@ export const OFFERED = [
                     description:
                         "Your built-in tools it may use; all of them when left out.",
                 },
-                wait: { type: "boolean", description: "Wait for its answer." },
             },
             required: ["task"],
         },
@@ -442,10 +441,7 @@ export const OFFERED = [
     },
 ];
 
-/**
- * `npm run check` fails here when an act gains a field, so a parameter that
- * `DROPPED` lists is mapped to it.
- */
+/** `npm run check` fails here when an act gains a field. */
 const ACT_FIELDS = {
     found: ["name", "mayor", "tier", "purpose"],
     hire: ["hamlet", "under", "profile", "version", "purpose", "name"],
@@ -517,11 +513,6 @@ const _everyField: {
     revert: true,
     ask_librarian: true,
     submit_skill: true,
-};
-
-/** `start_worker`'s act has no field for `wait`: its answer always comes as a reply. */
-export const DROPPED: Record<string, readonly string[]> = {
-    start_worker: ["wait"],
 };
 
 export const HIRE: AgentInput = {

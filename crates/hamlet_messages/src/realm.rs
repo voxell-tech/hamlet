@@ -343,7 +343,10 @@ pub enum Standing {
 pub enum Gate {
     /// The realm keeps the request for a chief: it runs if one
     /// allows it, and the caller is told.
-    #[error("This call waits for a chief's answer.")]
+    #[error(
+        "This call has ended; the chief's answer comes to you as a \
+         new input."
+    )]
     Reserved { wait: world::WaitId },
     /// A chief refused the same request on the caller's task, or
     /// every request for the network.

@@ -240,7 +240,7 @@ const SYSTEM =
     process.platform === "darwin"
         ? "System: macOS, whose shell tools are the BSD ones. Flags that only GNU has, such as `grep -P`, `cat -A` and `sed -r`, fail."
         : process.platform === "win32"
-          ? "System: Windows. `powershell` runs PowerShell. `bash`, where it is offered, is Git Bash, which writes C:\\Users as /c/Users."
+          ? "System: Windows. `bash` is the first bash Windows finds by name, Git Bash where Git for Windows is installed, which writes C:\\Users as /c/Users."
           : "System: Linux.";
 
 async function machine(sources: PromptSources): Promise<string> {

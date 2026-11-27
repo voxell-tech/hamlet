@@ -445,12 +445,12 @@ test("a call that waits for a chief stays open until its ruling closes the same 
             hire: () => ({
                 type: "refused",
                 why: { type: "reserved", wait: 1 },
-                words: "This call waits for a chief's answer.",
+                words: "This call has ended; the chief's answer comes to you as a new input.",
             }),
             end: () => ({
                 type: "refused",
                 why: { type: "reserved", wait: 2 },
-                words: "This call waits for a chief's answer.",
+                words: "This call has ended; the chief's answer comes to you as a new input.",
             }),
         },
     });
@@ -536,7 +536,7 @@ test("a stop ends each call held for a chief, and starts no run", async (t) => {
             hire: () => ({
                 type: "refused",
                 why: { type: "reserved", wait: 1 },
-                words: "This call waits for a chief's answer.",
+                words: "This call has ended; the chief's answer comes to you as a new input.",
             }),
         },
     });
@@ -623,7 +623,7 @@ test("a ruling closes its call: a refusal is blocked with no time, an allowance 
     const reserved = (wait: number) => () => ({
         type: "refused" as const,
         why: { type: "reserved" as const, wait },
-        words: "This call waits for a chief's answer.",
+        words: "This call has ended; the chief's answer comes to you as a new input.",
     });
     const { calls, sent } = fakeCalls({
         realm: { hire: reserved(1), end: reserved(2) },
@@ -670,7 +670,7 @@ test("remove_hamlet stays open until a chief rules, and the ruling closes it wit
             remove_hamlet: () => ({
                 type: "refused",
                 why: { type: "reserved", wait: 1 },
-                words: "This call waits for a chief's answer.",
+                words: "This call has ended; the chief's answer comes to you as a new input.",
             }),
         },
     });
