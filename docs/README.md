@@ -1,9 +1,13 @@
 # The docs
 
 How Hamlet is built and how to work on it. The pages here describe the
-project as it stands. Two folders hold the rest: `spec/` the design and
-`adr/` the decisions that are hard to reverse. Proposals for what is not
-built, and what is left for later, are kept outside this repository.
+project as it stands. Three folders hold the rest: [`spec/`](spec/) the
+design, [`adr/`](adr/) the decisions that are hard to reverse, and
+[`proposals/`](proposals/) what the design names and is not built. What is
+left for later is kept outside this repository. The actors that keep the
+realm are in [`spec/actor-runtime.md`](spec/actor-runtime.md), and what of
+their design is not built in
+[`proposals/actor-runtime.md`](proposals/actor-runtime.md).
 
 ## Start here
 

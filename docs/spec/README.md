@@ -2,13 +2,15 @@
 
 What Hamlet does, as requirements, independent of how it is built. The
 words are those of [`CONTEXT.md`](../../CONTEXT.md), and the decisions
-behind the design are in [`docs/adr/`](../adr/).
+behind the design are in [`docs/adr/`](../adr/). What the design names and
+is not built is in [`docs/proposals/`](../proposals/).
 
 | File | Holds | IDs |
 |---|---|---|
 | [`core.md`](core.md) | One agent: its lodge, what it is told, its tools, what they reach, its conversations | C |
 | [`hamlet.md`](hamlet.md) | The society: chiefs, the Hand, the city of scholars and their versions, hamlets, hires and their tree, workers, roads, letters, tasks, budgets, dreams, the library, what waits for a chief | H |
-| [`server.md`](server.md) | Where agents run, the harnesses their conversations run in, how the realm's records and effects are kept, and how the window reaches them | S |
+| [`server.md`](server.md) | Where agents run, how the window reaches them, credentials, and the `hamlet` command | S |
+| [`actor-runtime.md`](actor-runtime.md) | The actors that keep the realm: their kinds, their files on disk, who may call whom, and what survives a stop | A |
 
 The drawn world is not specified here; the pages in `docs/` describe it.
 
@@ -41,3 +43,5 @@ and files attached to a line) and **C34** (the read tool shows an image). In
 **H39** (versions), **H40** (hires), **H41** (the tree and leads), **H42**
 (workers), **H43** (dreams), **H44** (allowances) and **H45**
 (newcomers at the harbor).
+
+In `actor-runtime.md`: **A1** to **A17**, the actor runtime.

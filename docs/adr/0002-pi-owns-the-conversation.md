@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, with the pi harness it names being the agent actor of the Node host ([ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md))
 ---
 
 # pi owns the conversation

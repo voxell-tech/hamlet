@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, except that agents run as actors of the Node host, the server's child, rather than in a harness process behind an interface of its own, superseded by [ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md)
 ---
 
 # Agents run on a Rust server, and harnesses run their conversations

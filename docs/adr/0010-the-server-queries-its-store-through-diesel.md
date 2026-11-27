@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by [ADR 0015](0015-each-actor-keeps-its-data-in-one-plain-sqlite-file.md), which removed `realm.sqlite`, `hamlet_store` and Diesel
 ---
 
 # The server queries its store through Diesel
