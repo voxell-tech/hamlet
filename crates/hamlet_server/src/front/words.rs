@@ -60,8 +60,8 @@ pub(crate) const LIMITS_UNFIT: &str =
 pub(crate) const NO_WORKSPACE: &str =
     "Choose a remote workspace in the settings first.";
 
-/// The reason of a `/merge` said without one.
-pub(crate) const NO_SCHOLAR_YET: &str =
+/// The answer to `/scholars` when the city has no profile.
+pub(crate) const NO_PROFILE_YET: &str =
     "The city has no scholar yet.";
 
 pub(crate) const DREAM_USAGE: &str =
@@ -476,7 +476,7 @@ pub(crate) fn scholars<'a>(
         .collect::<Vec<_>>()
         .join("\n");
     if list.is_empty() {
-        NO_SCHOLAR_YET.into()
+        NO_PROFILE_YET.into()
     } else {
         list
     }

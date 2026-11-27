@@ -754,7 +754,7 @@ async fn purge_takes_a_file_out_of_a_profiles_history() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn scholars_lists_the_citys_profiles() {
+async fn a_chief_lists_the_citys_profiles() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     let listed = chief.command(hand, "/scholars").await;
@@ -852,7 +852,7 @@ async fn dream_names_one_profile_or_hire() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn scholar_new_makes_a_profile_from_its_character() {
+async fn a_chief_makes_a_profile_from_its_character() {
     let (mut server, _home, _side) = serve(json!([])).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
@@ -930,7 +930,7 @@ async fn a_chief_pins_a_hire_to_a_profile_version() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn name_scholar_renames_a_profile() {
+async fn a_chief_renames_a_profile() {
     let (mut server, _home, _side, mut chief) = with_ada(&[]).await;
     let hand = chief.hand();
     let renamed =

@@ -824,7 +824,7 @@ async fn the_items_of_two_agents_chats_never_share_an_id() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_scholar_made_and_founded_under_in_one_answer_has_its_papers()
+async fn a_profile_made_and_founded_under_in_one_answer_has_its_papers()
  {
     let (mut server, _home, _side) = serve(json!([
         {"calls": [

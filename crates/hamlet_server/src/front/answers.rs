@@ -349,7 +349,7 @@ async fn profile_edit(
     saved: &str,
 ) -> Result<Result<String, Refusal>> {
     let Ok(profile) = u32::try_from(scholar.0).map(ProfileId) else {
-        return Ok(Err(no_scholar(scholar)));
+        return Ok(Err(no_profile(scholar)));
     };
     let act = EditProfile {
         profile,
@@ -360,7 +360,7 @@ async fn profile_edit(
     Ok(done(ask(calls, id, act).await?, || saved.to_owned()))
 }
 
-fn no_scholar(scholar: ScholarId) -> Refusal {
+fn no_profile(scholar: ScholarId) -> Refusal {
     Refusal::NoScholar {
         address: format!("scholar#{}", scholar.0),
     }
